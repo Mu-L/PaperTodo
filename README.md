@@ -228,9 +228,32 @@ PaperTodo/
 
 ## 发布形态
 
-主发布版面向普通用户，包含 .NET Desktop Runtime
+GitHub Actions 会构建两个 Windows x64 单文件 exe，并直接作为 GitHub Release 资产发布，不再套 zip。Release 还会附带 `SHA256SUMS.txt`。
 
-轻量版面向已安装 .NET Desktop Runtime 的环境
+- `PaperTodo-v<版本>-win-x64-self-contained-compressed.exe`
+  - 面向普通用户。
+  - 自包含，包含 .NET Desktop Runtime。
+  - 单文件，开启 ReadyToRun 和单文件压缩。
+- `PaperTodo-v<版本>-win-x64-framework-dependent.exe`
+  - 面向已安装对应 .NET Desktop Runtime 的环境。
+  - 框架依赖，不携带运行库。
+  - 单文件，不开启 ReadyToRun，不开启单文件压缩。
+
+每个 exe 都通过 GitHub Artifact Attestations 发布原产地签名。下载后可以用 GitHub CLI 验证：
+
+```powershell
+gh attestation verify .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe --repo testsnow0722/PaperTodo
+gh attestation verify .\PaperTodo-v<版本>-win-x64-framework-dependent.exe --repo testsnow0722/PaperTodo
+```
+
+这个签名用于证明产物来自本仓库的 GitHub Actions 构建；它不是 Windows Authenticode 代码签名，所以 Windows 仍可能显示未知发布者。
+
+校验 SHA256：
+
+```powershell
+Get-FileHash .\PaperTodo-v<版本>-win-x64-self-contained-compressed.exe -Algorithm SHA256
+Get-FileHash .\PaperTodo-v<版本>-win-x64-framework-dependent.exe -Algorithm SHA256
+```
 
 ---
 
