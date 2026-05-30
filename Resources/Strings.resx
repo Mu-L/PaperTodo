@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AppStartupFailureMessage" xml:space="preserve">
+    <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
+  </data>
+  <data name="ResourceTextVersion" xml:space="preserve">
+    <value>1.3</value>
+  </data>
+  <data name="AppStartupFailureTitle" xml:space="preserve">
+    <value>PaperTodo - 错误</value>
+  </data>
+  <data name="AppUnhandledExceptionMessage" xml:space="preserve">
+    <value>程序发生未处理的错误，已为您紧急保存当前数据至 data.crash_recovery.json。&#x0A;&#x0A;请尝试重启程序。如果问题持续发生，可用该恢复文件尝试覆盖恢复。&#x0A;&#x0A;错误信息：{0}</value>
+  </data>
+  <data name="AppUnhandledExceptionTitle" xml:space="preserve">
+    <value>PaperTodo - 异常退出</value>
+  </data>
+  <data name="AppendAreaToolTip" xml:space="preserve">
+    <value>点击继续写，或把事项拖到这里删除</value>
+  </data>
+  <data name="CapsuleNote" xml:space="preserve">
+    <value>笔记</value>
+  </data>
+  <data name="CapsuleTodo" xml:space="preserve">
+    <value>待办</value>
+  </data>
+  <data name="CapsuleTodoCount" xml:space="preserve">
+    <value>{0}项</value>
+  </data>
+  <data name="CommonCancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="CommonOk" xml:space="preserve">
+    <value>确定</value>
+  </data>
+  <data name="DeletePaperBody" xml:space="preserve">
+    <value>删除后会从 data.json 移除，不能从托盘恢复。</value>
+  </data>
+  <data name="DeletePaperQuestion" xml:space="preserve">
+    <value>删除这张纸？</value>
+  </data>
+  <data name="DeletePaperTitle" xml:space="preserve">
+    <value>删除纸片</value>
+  </data>
+  <data name="DragSortToolTip" xml:space="preserve">
+    <value>拖动排序</value>
+  </data>
+  <data name="EmptyNotePaper" xml:space="preserve">
+    <value>空笔记纸</value>
+  </data>
+  <data name="EmptyTodoPaper" xml:space="preserve">
+    <value>空待办纸</value>
+  </data>
+  <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
+    <value>链接</value>
+  </data>
+  <data name="MarkdownPreviewFailure" xml:space="preserve">
+    <value>*预览失败，已保留原文。错误信息: {0}*</value>
+  </data>
+  <data name="MenuBold" xml:space="preserve">
+    <value>加粗</value>
+  </data>
+  <data name="MenuClearDone" xml:space="preserve">
+    <value>清理已完成</value>
+  </data>
+  <data name="MenuCodeBlock" xml:space="preserve">
+    <value>代码块</value>
+  </data>
+  <data name="MenuCollapseToCapsule" xml:space="preserve">
+    <value>折叠为胶囊</value>
+  </data>
+  <data name="MenuDelete" xml:space="preserve">
+    <value>删除</value>
+  </data>
+  <data name="MenuDeleteItem" xml:space="preserve">
+    <value>删除这一项</value>
+  </data>
+  <data name="MenuFormat" xml:space="preserve">
+    <value>格式</value>
+  </data>
+  <data name="MenuHeading" xml:space="preserve">
+    <value>标题</value>
+  </data>
+  <data name="MenuHide" xml:space="preserve">
+    <value>隐藏</value>
+  </data>
+  <data name="MenuInsertLink" xml:space="preserve">
+    <value>插入链接</value>
+  </data>
+  <data name="MenuItalic" xml:space="preserve">
+    <value>斜体</value>
+  </data>
+  <data name="MenuList" xml:space="preserve">
+    <value>列表</value>
+  </data>
+  <data name="MenuNew" xml:space="preserve">
+    <value>新建</value>
+  </data>
+  <data name="MenuNewNotePaper" xml:space="preserve">
+    <value>＋ 笔记纸</value>
+  </data>
+  <data name="MenuNewTodoPaper" xml:space="preserve">
+    <value>＋ 待办纸</value>
+  </data>
+  <data name="MenuQuote" xml:space="preserve">
+    <value>引用</value>
+  </data>
+  <data name="MenuRestoreWindow" xml:space="preserve">
+    <value>恢复窗口</value>
+  </data>
+  <data name="MenuStrikethrough" xml:space="preserve">
+    <value>删除线</value>
+  </data>
+  <data name="MenuThisPaper" xml:space="preserve">
+    <value>这张纸</value>
+  </data>
+  <data name="MenuTodo" xml:space="preserve">
+    <value>待办</value>
+  </data>
+  <data name="MenuTodoItem" xml:space="preserve">
+    <value>事项</value>
+  </data>
+  <data name="PaperKindNote" xml:space="preserve">
+    <value>笔记</value>
+  </data>
+  <data name="PaperKindTodo" xml:space="preserve">
+    <value>待办</value>
+  </data>
+  <data name="PaperLabelFormat" xml:space="preserve">
+    <value>{0} {1} · {2}</value>
+  </data>
+  <data name="PaperLimitMessage" xml:space="preserve">
+    <value>纸片数量已达到 100 张上限。&#x0A;为了保证系统稳定性和性能，请清理一些不再需要的纸片再试。</value>
+  </data>
+  <data name="PaperLimitTitle" xml:space="preserve">
+    <value>纸片上限提醒</value>
+  </data>
+  <data name="Pin" xml:space="preserve">
+    <value>置顶</value>
+  </data>
+  <data name="SaveFailureIgnore" xml:space="preserve">
+    <value>忽略本次运行</value>
+  </data>
+  <data name="SaveFailureMessage" xml:space="preserve">
+    <value>保存数据失败：&#x0A;{0}&#x0A;请检查磁盘空间或权限。</value>
+  </data>
+  <data name="SaveFailureTitle" xml:space="preserve">
+    <value>保存失败</value>
+  </data>
+  <data name="StateLoadFailed" xml:space="preserve">
+    <value>数据加载失败，文件可能正被其他程序占用或内容已损坏。</value>
+  </data>
+  <data name="StartupFailureMessage" xml:space="preserve">
+    <value>开机自启动配置失败，可能权限不足或安全软件拦截。</value>
+  </data>
+  <data name="StartupFailureTitle" xml:space="preserve">
+    <value>设置自启动失败</value>
+  </data>
+  <data name="ThemeDark" xml:space="preserve">
+    <value>深色</value>
+  </data>
+  <data name="ThemeLight" xml:space="preserve">
+    <value>浅色</value>
+  </data>
+  <data name="ThemeSystem" xml:space="preserve">
+    <value>系统</value>
+  </data>
+  <data name="ToolTipCollapseToCapsule" xml:space="preserve">
+    <value>折叠为胶囊</value>
+  </data>
+  <data name="ToolTipHideThisPaper" xml:space="preserve">
+    <value>隐藏这张纸</value>
+  </data>
+  <data name="ToolTipNewNotePaper" xml:space="preserve">
+    <value>新建笔记纸</value>
+  </data>
+  <data name="ToolTipNewTodoPaper" xml:space="preserve">
+    <value>新建待办纸</value>
+  </data>
+  <data name="TrayCapsuleMode" xml:space="preserve">
+    <value>启用胶囊折叠模式</value>
+  </data>
+  <data name="TrayExit" xml:space="preserve">
+    <value>退出</value>
+  </data>
+  <data name="TrayHideAll" xml:space="preserve">
+    <value>隐藏全部纸片</value>
+  </data>
+  <data name="TrayInlineConfirmDelete" xml:space="preserve">
+    <value>⚠ 删除</value>
+  </data>
+  <data name="TrayInlineConfirmAction" xml:space="preserve">
+    <value>确认</value>
+  </data>
+  <data name="TrayNewNote" xml:space="preserve">
+    <value>＋ 新建笔记纸</value>
+  </data>
+  <data name="TrayNewTodo" xml:space="preserve">
+    <value>＋ 新建待办纸</value>
+  </data>
+  <data name="TrayPapers" xml:space="preserve">
+    <value>纸片</value>
+  </data>
+  <data name="TrayShowAll" xml:space="preserve">
+    <value>显示全部纸片</value>
+  </data>
+  <data name="TrayStartup" xml:space="preserve">
+    <value>开机自启动</value>
+  </data>
+  <data name="TrayThemeMode" xml:space="preserve">
+    <value>主题模式</value>
+  </data>
+  <data name="Unpin" xml:space="preserve">
+    <value>取消置顶</value>
+  </data>
+</root>

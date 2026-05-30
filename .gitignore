@@ -1,0 +1,8 @@
+bin/
+obj/
+输出/
+.vs/
+*.user
+data.json
+data.json.tmp
+对比_StickyMD/

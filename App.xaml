@@ -1,0 +1,76 @@
+<Application x:Class="PaperTodo.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <SolidColorBrush x:Key="PaperScrollThumbBrush" Color="#B39B74" />
+        <SolidColorBrush x:Key="PaperScrollThumbHoverBrush" Color="#96784F" />
+        <SolidColorBrush x:Key="PaperScrollTrackBrush" Color="#00FFFFFF" />
+
+        <Style x:Key="PaperScrollThumbStyle" TargetType="{x:Type Thumb}">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="ThumbBorder"
+                                Width="6"
+                                Margin="1,4,1,4"
+                                CornerRadius="3"
+                                Background="{StaticResource PaperScrollThumbBrush}"
+                                Opacity="0.48" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.78" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.9" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ScrollBar}">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="MinWidth" Value="8" />
+            <Setter Property="Background" Value="{StaticResource PaperScrollTrackBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid Width="{TemplateBinding Width}"
+                              Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                                  Opacity="0"
+                                                  Focusable="False" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource PaperScrollThumbStyle}" />
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                                  Opacity="0"
+                                                  Focusable="False" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Height" Value="8" />
+                    <Setter Property="MinHeight" Value="8" />
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="MinWidth" Value="0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Application.Resources>
+</Application>

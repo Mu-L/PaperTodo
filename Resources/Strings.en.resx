@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AppStartupFailureMessage" xml:space="preserve">
+    <value>Startup failed: unable to load the data file. It may be in use or corrupted.&#x0A;To prevent your data from being overwritten with an empty state, the app has stopped safely.&#x0A;&#x0A;Error: {0}</value>
+  </data>
+  <data name="ResourceTextVersion" xml:space="preserve">
+    <value>1.3</value>
+  </data>
+  <data name="AppStartupFailureTitle" xml:space="preserve">
+    <value>PaperTodo - Error</value>
+  </data>
+  <data name="AppUnhandledExceptionMessage" xml:space="preserve">
+    <value>The app hit an unhandled error and saved the current data to data.crash_recovery.json.&#x0A;&#x0A;Please restart the app. If the problem continues, you can try restoring from that recovery file.&#x0A;&#x0A;Error: {0}</value>
+  </data>
+  <data name="AppUnhandledExceptionTitle" xml:space="preserve">
+    <value>PaperTodo - Unexpected Exit</value>
+  </data>
+  <data name="AppendAreaToolTip" xml:space="preserve">
+    <value>Click to keep writing, or drag an item here to delete it</value>
+  </data>
+  <data name="CapsuleNote" xml:space="preserve">
+    <value>Note</value>
+  </data>
+  <data name="CapsuleTodo" xml:space="preserve">
+    <value>Todo</value>
+  </data>
+  <data name="CapsuleTodoCount" xml:space="preserve">
+    <value>{0} items</value>
+  </data>
+  <data name="CommonCancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="CommonOk" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="DeletePaperBody" xml:space="preserve">
+    <value>It will be removed from data.json and cannot be restored from the tray.</value>
+  </data>
+  <data name="DeletePaperQuestion" xml:space="preserve">
+    <value>Delete this paper?</value>
+  </data>
+  <data name="DeletePaperTitle" xml:space="preserve">
+    <value>Delete Paper</value>
+  </data>
+  <data name="DragSortToolTip" xml:space="preserve">
+    <value>Drag to reorder</value>
+  </data>
+  <data name="EmptyNotePaper" xml:space="preserve">
+    <value>Empty note paper</value>
+  </data>
+  <data name="EmptyTodoPaper" xml:space="preserve">
+    <value>Empty todo paper</value>
+  </data>
+  <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
+    <value>Link</value>
+  </data>
+  <data name="MarkdownPreviewFailure" xml:space="preserve">
+    <value>*Preview failed. The original text was kept. Error: {0}*</value>
+  </data>
+  <data name="MenuBold" xml:space="preserve">
+    <value>Bold</value>
+  </data>
+  <data name="MenuClearDone" xml:space="preserve">
+    <value>Clear completed</value>
+  </data>
+  <data name="MenuCodeBlock" xml:space="preserve">
+    <value>Code block</value>
+  </data>
+  <data name="MenuCollapseToCapsule" xml:space="preserve">
+    <value>Collapse to capsule</value>
+  </data>
+  <data name="MenuDelete" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="MenuDeleteItem" xml:space="preserve">
+    <value>Delete this item</value>
+  </data>
+  <data name="MenuFormat" xml:space="preserve">
+    <value>Format</value>
+  </data>
+  <data name="MenuHeading" xml:space="preserve">
+    <value>Heading</value>
+  </data>
+  <data name="MenuHide" xml:space="preserve">
+    <value>Hide</value>
+  </data>
+  <data name="MenuInsertLink" xml:space="preserve">
+    <value>Insert link</value>
+  </data>
+  <data name="MenuItalic" xml:space="preserve">
+    <value>Italic</value>
+  </data>
+  <data name="MenuList" xml:space="preserve">
+    <value>List</value>
+  </data>
+  <data name="MenuNew" xml:space="preserve">
+    <value>New</value>
+  </data>
+  <data name="MenuNewNotePaper" xml:space="preserve">
+    <value>+ Note paper</value>
+  </data>
+  <data name="MenuNewTodoPaper" xml:space="preserve">
+    <value>+ Todo paper</value>
+  </data>
+  <data name="MenuQuote" xml:space="preserve">
+    <value>Quote</value>
+  </data>
+  <data name="MenuRestoreWindow" xml:space="preserve">
+    <value>Restore window</value>
+  </data>
+  <data name="MenuStrikethrough" xml:space="preserve">
+    <value>Strikethrough</value>
+  </data>
+  <data name="MenuThisPaper" xml:space="preserve">
+    <value>This paper</value>
+  </data>
+  <data name="MenuTodo" xml:space="preserve">
+    <value>Todo</value>
+  </data>
+  <data name="MenuTodoItem" xml:space="preserve">
+    <value>Item</value>
+  </data>
+  <data name="PaperKindNote" xml:space="preserve">
+    <value>Note</value>
+  </data>
+  <data name="PaperKindTodo" xml:space="preserve">
+    <value>Todo</value>
+  </data>
+  <data name="PaperLabelFormat" xml:space="preserve">
+    <value>{0} {1} · {2}</value>
+  </data>
+  <data name="PaperLimitMessage" xml:space="preserve">
+    <value>You have reached the 100-paper limit.&#x0A;To keep the app stable and responsive, please remove papers you no longer need and try again.</value>
+  </data>
+  <data name="PaperLimitTitle" xml:space="preserve">
+    <value>Paper Limit</value>
+  </data>
+  <data name="Pin" xml:space="preserve">
+    <value>Pin on top</value>
+  </data>
+  <data name="SaveFailureIgnore" xml:space="preserve">
+    <value>Ignore for this run</value>
+  </data>
+  <data name="SaveFailureMessage" xml:space="preserve">
+    <value>Failed to save data:&#x0A;{0}&#x0A;Please check disk space or permissions.</value>
+  </data>
+  <data name="SaveFailureTitle" xml:space="preserve">
+    <value>Save Failed</value>
+  </data>
+  <data name="StateLoadFailed" xml:space="preserve">
+    <value>Failed to load data. The file may be in use by another program or corrupted.</value>
+  </data>
+  <data name="StartupFailureMessage" xml:space="preserve">
+    <value>Failed to configure startup. Permissions may be insufficient or security software may have blocked it.</value>
+  </data>
+  <data name="StartupFailureTitle" xml:space="preserve">
+    <value>Startup Setting Failed</value>
+  </data>
+  <data name="ThemeDark" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="ThemeLight" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="ThemeSystem" xml:space="preserve">
+    <value>System</value>
+  </data>
+  <data name="ToolTipCollapseToCapsule" xml:space="preserve">
+    <value>Collapse to capsule</value>
+  </data>
+  <data name="ToolTipHideThisPaper" xml:space="preserve">
+    <value>Hide this paper</value>
+  </data>
+  <data name="ToolTipNewNotePaper" xml:space="preserve">
+    <value>New note paper</value>
+  </data>
+  <data name="ToolTipNewTodoPaper" xml:space="preserve">
+    <value>New todo paper</value>
+  </data>
+  <data name="TrayCapsuleMode" xml:space="preserve">
+    <value>Enable capsule collapse mode</value>
+  </data>
+  <data name="TrayExit" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+  <data name="TrayHideAll" xml:space="preserve">
+    <value>Hide all papers</value>
+  </data>
+  <data name="TrayInlineConfirmDelete" xml:space="preserve">
+    <value>⚠ Delete</value>
+  </data>
+  <data name="TrayInlineConfirmAction" xml:space="preserve">
+    <value>Confirm</value>
+  </data>
+  <data name="TrayNewNote" xml:space="preserve">
+    <value>+ New note paper</value>
+  </data>
+  <data name="TrayNewTodo" xml:space="preserve">
+    <value>+ New todo paper</value>
+  </data>
+  <data name="TrayPapers" xml:space="preserve">
+    <value>Papers</value>
+  </data>
+  <data name="TrayShowAll" xml:space="preserve">
+    <value>Show all papers</value>
+  </data>
+  <data name="TrayStartup" xml:space="preserve">
+    <value>Start with Windows</value>
+  </data>
+  <data name="TrayThemeMode" xml:space="preserve">
+    <value>Theme</value>
+  </data>
+  <data name="Unpin" xml:space="preserve">
+    <value>Unpin</value>
+  </data>
+</root>
