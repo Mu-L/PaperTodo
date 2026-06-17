@@ -1006,13 +1006,7 @@ public sealed partial class PaperWindow : Window
             Margin = new Thickness(WindowChromeMargin),
             CornerRadius = new CornerRadius(CapsuleChromeCornerRadius),
             BorderThickness = new Thickness(1),
-            SnapsToDevicePixels = true,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 14,
-                ShadowDepth = 2,
-                Opacity = 0.18
-            }
+            SnapsToDevicePixels = true
         };
         Panel.SetZIndex(_deepCapsuleSlotChrome, 0);
         _deepCapsuleSlotHostRoot.Children.Add(_deepCapsuleSlotChrome);

@@ -4,7 +4,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using FontFamily = System.Windows.Media.FontFamily;
@@ -127,8 +126,7 @@ public sealed class MasterCapsuleWindow : Window
             BorderBrush = Theme.PaperBorderBrush,
             SnapsToDevicePixels = true,
             Cursor = System.Windows.Input.Cursors.Hand,
-            RenderTransform = _pillOffset,
-            Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 2, Opacity = 0.18 }
+            RenderTransform = _pillOffset
         };
 
         // The pill background stays opaque (PaperBrush) at all times. Hover tint is a separate

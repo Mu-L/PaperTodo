@@ -82,7 +82,7 @@ public sealed partial class AppController : IDisposable
 
         _topmostRefreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(250)
+            Interval = TimeSpan.FromMilliseconds(200)
         };
         _topmostRefreshTimer.Tick += (_, _) => RefreshTopmostForForegroundWindow();
 
