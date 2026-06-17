@@ -1670,22 +1670,22 @@ public sealed partial class AppController : IDisposable
     {
         _trayMenu = CreateTrayMenu();
 
-        RebuildTrayMenu();
-
-        _trayIcon = new TaskbarIcon
-        {
-            ToolTipText = "PaperTodo",
-            IconSource = LoadTrayIconSource(),
-            ContextMenu = _trayMenu,
-            Visibility = Visibility.Visible
-        };
-        _trayIcon.PreviewTrayContextMenuOpen += (_, _) => RebuildTrayMenu();
-
-        _trayIcon.TrayMouseDoubleClick += (_, _) =>
+        var trayIcon = new TaskbarIcon();
+        trayIcon.Visibility = Visibility.Hidden;
+        trayIcon.ToolTipText = "PaperTodo";
+        trayIcon.IconSource = LoadTrayIconSource();
+        trayIcon.ContextMenu = _trayMenu;
+        trayIcon.PreviewTrayContextMenuOpen += (_, _) => RebuildTrayMenu();
+        trayIcon.TrayMouseDoubleClick += (_, _) =>
         {
             Application.Current.Dispatcher.Invoke(ShowAllPapers);
         };
 
+        _trayIcon = trayIcon;
+
+        RebuildTrayMenu();
+
+        trayIcon.Visibility = Visibility.Visible;
     }
 
     private ImageSource LoadTrayIconSource()
@@ -2475,7 +2475,7 @@ public sealed partial class AppController : IDisposable
         var window = new Window
         {
             Title = Strings.Get("TraySettings"),
-            Width = 320,
+            Width = SettingsWindowWidth(),
             SizeToContent = SizeToContent.Height,
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
@@ -2534,13 +2534,8 @@ public sealed partial class AppController : IDisposable
     {
         var root = new DockPanel
         {
-            Width = 288,
+            Width = SettingsContentWidth(),
             LastChildFill = true
-        };
-
-        var panel = new StackPanel
-        {
-            Margin = new Thickness(0, 0, 4, 0)
         };
 
         var titleRow = new Grid
@@ -2590,61 +2585,87 @@ public sealed partial class AppController : IDisposable
         DockPanel.SetDock(titleRow, Dock.Top);
         root.Children.Add(titleRow);
 
-        // 外观
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsDisplay")));
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayThemeMode")), "TipThemeMode"));
-        panel.Children.Add(CreateThemeSegmentSelector());
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsColorScheme")), "TipColorScheme"));
-        panel.Children.Add(CreateColorSchemeSegmentSelector());
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
-        panel.Children.Add(CreateMarkdownRenderSegmentSelector());
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode")), "TipFullscreenTopmostMode"));
-        panel.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
+        var columns = new Grid
+        {
+            Margin = new Thickness(0, 0, 4, 0)
+        };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // 待办与笔记：两个关联笔记选项归到一起（原先分散在「显示」和「行为」）。
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
+        var leftColumn = new StackPanel
+        {
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var rightColumn = new StackPanel
+        {
+            Margin = new Thickness(14, 0, 0, 0)
+        };
+
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsDisplay")));
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayThemeMode")), "TipThemeMode"));
+        leftColumn.Children.Add(CreateThemeSegmentSelector());
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsColorScheme")), "TipColorScheme"));
+        leftColumn.Children.Add(CreateColorSchemeSegmentSelector());
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
+        leftColumn.Children.Add(CreateMarkdownRenderSegmentSelector());
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode")), "TipFullscreenTopmostMode"));
+        leftColumn.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
+
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton), "TipNewTodoButton"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton), "TipNewNoteButton"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton), "TipExternalOpenButton"));
+
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
+
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
         var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
         showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
-        panel.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
+        rightColumn.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
         var hideLinkedNotesFromCapsulesToggle = SettingsToggle(Strings.Get("SettingsHideLinkedNotesFromCapsules"), State.HideLinkedNotesFromCapsules, ToggleHideLinkedNotesFromCapsules);
         hideLinkedNotesFromCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
-        panel.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
+        rightColumn.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
 
-        // 顶栏按钮：三个「显示某按钮」开关放在一组（外部打开按钮原先错放在「外部打开」组）。
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton), "TipNewTodoButton"));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton), "TipNewNoteButton"));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton), "TipExternalOpenButton"));
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
+        rightColumn.Children.Add(CreateExternalMarkdownExtensionEditor());
 
-        // 外部打开：只剩文件后缀这一项配置。
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
-        panel.Children.Add(CreateExternalMarkdownExtensionEditor());
-
-        // 胶囊：按依赖排序——折叠是总开关，贴边依赖它，收起全部依赖贴边。
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
         _settingsDeepCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayDeepCapsuleMode"), State.UseDeepCapsuleMode, ToggleDeepCapsuleMode);
         _settingsDeepCapsuleExpandedSlotCheckBox = SettingsToggle(Strings.Get("SettingsShowDeepCapsuleWhileExpanded"), State.ShowDeepCapsuleWhileExpanded, ToggleDeepCapsuleExpandedSlot);
         _settingsCapsuleCollapseAllCheckBox = SettingsToggle(Strings.Get("SettingsCapsuleCollapseAll"), State.UseCapsuleCollapseAll, ToggleCapsuleCollapseAll);
-        panel.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
-        panel.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
-        panel.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
-        panel.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
+        rightColumn.Children.Add(WrapWithHint(_settingsCapsuleModeCheckBox, "TipCapsuleMode"));
+        rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
+        rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
+        rightColumn.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
         RefreshSettingsCapsuleToggleStates();
-        panel.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
-        panel.Children.Add(CreateMaxTitleLengthStepper());
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
+        rightColumn.Children.Add(CreateMaxTitleLengthStepper());
 
-        // 通用
-        panel.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
-        panel.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
+        var separator = new Border
+        {
+            Width = 1,
+            Margin = new Thickness(0, 10, 0, 4),
+            Background = TrayBorderBrush,
+            Opacity = 0.65
+        };
+
+        Grid.SetColumn(leftColumn, 0);
+        Grid.SetColumn(separator, 1);
+        Grid.SetColumn(rightColumn, 2);
+        columns.Children.Add(leftColumn);
+        columns.Children.Add(separator);
+        columns.Children.Add(rightColumn);
 
         var scrollViewer = new ScrollViewer
         {
-            Content = panel,
+            Content = columns,
             MaxHeight = SettingsOptionsMaxHeight(),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -2663,6 +2684,16 @@ public sealed partial class AppController : IDisposable
             Padding = new Thickness(14, 12, 14, 14),
             Child = root
         };
+    }
+
+    private static double SettingsWindowWidth()
+    {
+        return SettingsContentWidth() + 32;
+    }
+
+    private static double SettingsContentWidth()
+    {
+        return Math.Clamp(SystemParameters.WorkArea.Width - 96, 560, 680);
     }
 
     private static double SettingsWindowMaxHeight()
