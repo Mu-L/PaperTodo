@@ -1269,7 +1269,12 @@ public sealed partial class AppController : IDisposable
 
     public void UpdateGeometry(PaperData paper, Window window)
     {
-        if (window is PaperWindow paperWindow && paperWindow.SuppressGeometrySave)
+        if (window is PaperWindow { SuppressGeometrySave: true })
+        {
+            return;
+        }
+
+        if (window is PaperWindow { UsesNonPaperGeometry: true })
         {
             return;
         }
