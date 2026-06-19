@@ -477,13 +477,18 @@ public sealed class MasterCapsuleWindow : Window
         var targetTop = RoundY(DeepCapsuleLayout.TopForIndex(0, QueueStartTopMargin, area));
         var currentLeft = double.IsNaN(Left) || double.IsInfinity(Left) ? targetLeft : RoundX(Left);
         var currentTop = double.IsNaN(Top) || double.IsInfinity(Top) ? targetTop : RoundY(Top);
+        var currentWidth = double.IsNaN(Width) || double.IsInfinity(Width) || Width <= 0 ? visibleWidth : RoundX(Width);
+        var widthChanged = Math.Abs(currentWidth - visibleWidth) >= 0.5;
 
         MoveWithoutSave(() =>
         {
             ApplyDockedWidth(visibleWidth);
-            if (!animate)
+            if (!animate || widthChanged)
             {
                 Left = targetLeft;
+            }
+            if (!animate)
+            {
                 Top = targetTop;
             }
         });
@@ -495,7 +500,7 @@ public sealed class MasterCapsuleWindow : Window
             return;
         }
 
-        if (Math.Abs(currentLeft - targetLeft) < 0.5)
+        if (widthChanged || Math.Abs(currentLeft - targetLeft) < 0.5)
         {
             BeginAnimation(AnimatedLeftProperty, null);
             MoveWithoutSave(() => Left = targetLeft);

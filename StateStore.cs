@@ -21,9 +21,14 @@ public sealed class StateStore
 
     public string FilePath { get; } = Path.Combine(AppContext.BaseDirectory, "data.json");
     public string BackupPath { get; } = Path.Combine(AppContext.BaseDirectory, "data.backup.json");
+    private bool _preserveRecoveredLoadFilesOnNextSave;
+    private string? _preservedFailedPrimaryPath;
+    private string? _preservedRecoveryBackupPath;
 
     public AppState Load()
     {
+        ClearRecoveredLoadPreservationState();
+
         bool mainExists = File.Exists(FilePath);
         bool backupExists = File.Exists(BackupPath);
 
@@ -44,6 +49,8 @@ public sealed class StateStore
                     Normalize(state);
                     return state;
                 }
+
+                mainEx = new InvalidDataException($"{Path.GetFileName(FilePath)} deserialized to null.");
             }
             catch (Exception ex)
             {
@@ -60,9 +67,16 @@ public sealed class StateStore
                 var state = JsonSerializer.Deserialize<AppState>(json, JsonOptions);
                 if (state != null)
                 {
+                    if (mainExists)
+                    {
+                        _preserveRecoveredLoadFilesOnNextSave = true;
+                    }
+
                     Normalize(state);
                     return state;
                 }
+
+                backupEx = new InvalidDataException($"{Path.GetFileName(BackupPath)} deserialized to null.");
             }
             catch (Exception ex)
             {
@@ -129,12 +143,13 @@ public sealed class StateStore
             Directory.CreateDirectory(directory);
         }
 
+        var skipBackupRotation = PreserveRecoveredLoadFilesIfNeeded();
         var tempPath = FilePath + ".tmp";
         File.WriteAllText(tempPath, json);
 
         try
         {
-            if (File.Exists(FilePath))
+            if (!skipBackupRotation && File.Exists(FilePath))
             {
                 File.Copy(FilePath, BackupPath, overwrite: true);
             }
@@ -145,6 +160,65 @@ public sealed class StateStore
         }
 
         File.Move(tempPath, FilePath, overwrite: true);
+
+        if (skipBackupRotation)
+        {
+            ClearRecoveredLoadPreservationState();
+        }
+    }
+
+    private bool PreserveRecoveredLoadFilesIfNeeded()
+    {
+        if (!_preserveRecoveredLoadFilesOnNextSave)
+        {
+            return false;
+        }
+
+        if (File.Exists(FilePath) && string.IsNullOrWhiteSpace(_preservedFailedPrimaryPath))
+        {
+            _preservedFailedPrimaryPath = CopyRecoverySource(FilePath, "failed_load");
+        }
+
+        if (File.Exists(BackupPath) && string.IsNullOrWhiteSpace(_preservedRecoveryBackupPath))
+        {
+            _preservedRecoveryBackupPath = CopyRecoverySource(BackupPath, "used_for_recovery");
+        }
+
+        return true;
+    }
+
+    private static string CopyRecoverySource(string sourcePath, string suffix)
+    {
+        var targetPath = UniqueRecoveryCopyPath(sourcePath, suffix);
+        File.Copy(sourcePath, targetPath, overwrite: false);
+        return targetPath;
+    }
+
+    private static string UniqueRecoveryCopyPath(string sourcePath, string suffix)
+    {
+        var directory = Path.GetDirectoryName(sourcePath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            directory = AppContext.BaseDirectory;
+        }
+
+        var stem = Path.GetFileNameWithoutExtension(sourcePath);
+        var extension = Path.GetExtension(sourcePath);
+        var stamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff");
+        var candidate = Path.Combine(directory, $"{stem}.{suffix}.{stamp}{extension}");
+        for (var i = 2; File.Exists(candidate); i++)
+        {
+            candidate = Path.Combine(directory, $"{stem}.{suffix}.{stamp}.{i}{extension}");
+        }
+
+        return candidate;
+    }
+
+    private void ClearRecoveredLoadPreservationState()
+    {
+        _preserveRecoveredLoadFilesOnNextSave = false;
+        _preservedFailedPrimaryPath = null;
+        _preservedRecoveryBackupPath = null;
     }
 
     private static void Normalize(AppState state)

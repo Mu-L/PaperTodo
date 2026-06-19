@@ -66,11 +66,7 @@ public sealed partial class PaperWindow
         RefreshCloseButton();
         if (!CanDisplayAsCapsule() && _paper.IsCollapsed)
         {
-            if (HasDeepCapsuleSlotPlacement)
-            {
-                ClearDeepCapsulePlacement();
-            }
-            SetCollapsedState(false, animate: true);
+            RestoreFromCapsuleAfterEligibilityLoss();
         }
         else
         {
@@ -86,12 +82,7 @@ public sealed partial class PaperWindow
         RefreshCloseButton();
         if (!CanDisplayAsCapsule() && _paper.IsCollapsed)
         {
-            if (HasDeepCapsuleSlotPlacement)
-            {
-                ClearDeepCapsulePlacement();
-            }
-
-            SetCollapsedState(false, animate: true);
+            RestoreFromCapsuleAfterEligibilityLoss();
             return;
         }
 
@@ -100,6 +91,17 @@ public sealed partial class PaperWindow
         {
             _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
         }
+    }
+
+    private void RestoreFromCapsuleAfterEligibilityLoss()
+    {
+        var wasDeepCapsulePlaced = HasDeepCapsuleSlotPlacement;
+        if (wasDeepCapsulePlaced)
+        {
+            ShowMainWindowForDeepCapsuleActivation();
+        }
+
+        SetCollapsedState(false, animate: true, alignExpandedToDockedEdge: wasDeepCapsulePlaced);
     }
 
     private void RefreshCapsuleLabel()
@@ -467,7 +469,8 @@ public sealed partial class PaperWindow
         var keepDeepCapsuleSlotReservation = !collapsed
             && expandingFromDeepCapsuleEdge
             && usesDeepCapsuleMode
-            && _controller.State.ShowDeepCapsuleWhileExpanded;
+            && _controller.State.ShowDeepCapsuleWhileExpanded
+            && CanDisplayAsCapsule();
         var returningToHiddenDeepCapsuleSlot = collapsed
             && usesDeepCapsuleMode
             && ExpandedFromDeepCapsuleEdge
