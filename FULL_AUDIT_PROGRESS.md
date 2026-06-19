@@ -31,7 +31,7 @@
 - [x] 阶段 2：逐文件深读
 - [x] 阶段 3：跨模块不变量审查
 - [ ] 阶段 4：高风险专项攻击
-- [ ] 阶段 5：性能审查
+- [x] 阶段 5：性能审查
 - [ ] 阶段 6：交互、视觉、动画审查
 - [ ] 阶段 7：修复循环
 - [ ] 阶段 8：回归矩阵
@@ -653,13 +653,24 @@
 
 ## 阶段 5：性能审查
 
-- [ ] 200ms topmost timer 是否做重活
-- [ ] 拖拽过程中是否触发保存、全量重建或昂贵测量
-- [ ] 胶囊重排复杂度是否可接受
-- [ ] Markdown 渲染和大文本保护是否仍有效
-- [ ] 托盘菜单重建是否只在必要时发生
-- [ ] 主题切换是否重复 rebuild 过多
-- [ ] 透明窗口移动 / 动画是否造成可感知压力
+- [x] 200ms topmost timer 是否做重活
+- [x] 拖拽过程中是否触发保存、全量重建或昂贵测量
+- [x] 胶囊重排复杂度是否可接受
+- [x] Markdown 渲染和大文本保护是否仍有效
+- [x] 托盘菜单重建是否只在必要时发生
+- [x] 主题切换是否重复 rebuild 过多
+- [x] 透明窗口移动 / 动画是否造成可感知压力
+
+### 阶段 5 记录
+
+- topmost timer：`_topmostRefreshTimer` 是 200ms，但全局 `EnumWindows()` 扫描只在 `allowGlobalScan` 为真时发生，限频 1 秒，见 `AppController.cs:84`、`AppController.cs:775`、`AppController.cs:782`、`FullscreenForegroundWindowDetector.cs:25`。状态未变化且未避让时仍会 `RefreshFloatingSurfaceZOrder()`，该路径只遍历当前纸片 / master 并调用轻量 Win32 `SetWindowPos`，见 `AppController.cs:868`、`PaperWindow.cs:1436`、`MasterCapsuleWindow.cs:297`、`WindowNative.cs:37`。残余成本：最多 100 张纸时每 200ms 有有限窗口遍历；当前不改，避免削弱置顶恢复和全屏避让一致性。
+- 拖拽保存：master 胶囊拖动中调用 `SetDeepCapsuleStartTopMargin(... commit:false)`，只更新单个 queue margin、重排并 `MarkDirty()`；释放时 `commit:true` 才 `SaveNow()`，见 `MasterCapsuleWindow.cs:243`、`MasterCapsuleWindow.cs:254`、`AppController.cs:2004`、`AppController.cs:2035`。单个贴边胶囊拖动中主要移动 slot host；结束时才 `ReorderDeepCapsule()` 或 `MoveCapsuleToQueue()` 并保存 / 标脏，见 `PaperWindow.DeepCapsule.cs:1986`、`PaperWindow.DeepCapsule.cs:2018`。
+- 胶囊重排复杂度：`ArrangeDeepCapsules()` 先 `DeepCapsulePapersInOrder()` 过滤可见胶囊，再按 queue key 分组、遍历全部 `State.Papers` 应用 slot，复杂度约 O(n) 到 O(n + q)，且总纸片上限为 100，见 `AppController.cs:1341`、`AppController.cs:1354`、`AppController.cs:1360`、`AppController.cs:1377`。队内排序只重排目标 queue 成员，其他纸片原位保留，见 `AppController.cs:1136`。
+- Markdown 渲染：背景 / bullet / block renderer 均只遍历 `TextView.VisualLines`，不是每帧扫全文，见 `MarkdownTextBox.cs:1579`、`MarkdownTextBox.cs:1674`、`MarkdownTextBox.cs:1777`。`RefreshVisualStyle()` 会对全文 `Redraw(0, Document.TextLength)`，但只在主题 / 模式变化等低频路径调用，见 `MarkdownTextBox.cs:150`、`PaperWindow.cs:782`。阶段 4 已用 120000 字符旧笔记攻击验证大文本保护：保存后 100000、无 crash。
+- 托盘菜单：`RefreshTrayMenu()` 只有菜单打开时才 `RebuildTrayMenu()`，普通状态变更不会无条件重建完整菜单；创建 / 主题 / 设置变化等确定需要刷新时才重建，见 `AppController.Tray.cs:399`、`AppController.Tray.cs:443`。菜单纸片列表线性遍历 `State.Papers`，受 100 张上限约束。
+- 主题切换：主题 / 配色变化会逐窗口 `UpdateTheme()`、逐 master `UpdateTheme()`、重建托盘并刷新设置页，见 `AppController.Settings.cs:16`、`AppController.Settings.cs:49`。这是用户低频操作；窗口侧 todo 重建 / note AvalonEdit 刷新只发生一次，不在 timer 或拖拽热路径，见 `PaperWindow.cs:712`、`PaperWindow.cs:788`。
+- 透明窗口和动画：动画全部受 `State.EnableAnimations` 和局部状态机控制；关闭动画时多数路径直接设置最终值并清动画，代表路径见 `PaperWindow.Capsule.cs:700`、`PaperWindow.DeepCapsule.cs:553`、`MasterCapsuleWindow.cs:498`。贴边 slot 横向动画每帧会调整 host bounds，但只在 hover / 展开 / 收回 / 拖拽释放等交互瞬间发生，非后台常驻压力。
+- 结论：阶段 5 未发现需要新增代码修复的性能问题。主要残余风险是 200ms topmost timer 的有限 SetWindowPos 成本，当前接受它以换取置顶和全屏避让稳定性；若后续用户反馈 CPU 占用，再考虑把无避让状态的 z-order 刷新降频或事件化。
 
 ## 阶段 6：交互、视觉、动画审查
 
@@ -817,6 +828,7 @@
 - 启动阶段 4 高风险专项攻击；记录当前环境为单主屏，双屏 / 混合 DPI 项暂不能证明完成。
 - 阶段 4 命令类运行时攻击通过：`exit` 空状态保存但不创建默认纸片，`new-todo` / `new-note` 创建正确类型，`hide` / `show` / `toggle` 持久状态符合预期。
 - 阶段 4 大文本攻击发现并修复 A007：超长旧笔记初始加载的截断改为 dispatcher 延后执行，避免 AvalonEdit undo group 异常；120000 字符 note 复验保存为 100000 且无 crash log。
+- 完成阶段 5 性能审查；覆盖 topmost timer、拖拽保存、胶囊重排、Markdown 渲染、托盘菜单、主题切换和透明窗口动画。未发现需要新增修复的问题，记录 200ms topmost z-order 刷新为可接受残余成本。
 - 完成 `AppController.Settings.cs` 深读记录；覆盖设置窗口、主题刷新、tooltip 说明、胶囊模式关闭清理、关联笔记资格刷新和可见面恢复。
 - 完成 `AppController.Tray.cs` 深读记录；覆盖 Hardcodet `IconSource`、外部图标优先、菜单打开重建、首次菜单焦点、纸片行内删除确认和行点击抑制。
 - 完成 `PaperWindow.Todo.cs`、`TodoTextBox.cs` 深读记录；覆盖多行粘贴单次撤销、文本编辑撤销边界、拖拽排序 / 删除清理、关联笔记链接后胶囊资格刷新。
