@@ -1457,7 +1457,7 @@ public sealed partial class PaperWindow : Window
         var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
         var effectiveTopmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
         Topmost = effectiveTopmost;
-        if (IsVisible && shouldBeTopmost)
+        if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
         {
             WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, _controller.FullscreenAvoidanceWindow);
         }

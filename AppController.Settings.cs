@@ -537,7 +537,8 @@ public sealed partial class AppController
             Foreground = TrayWeakTextBrush,
             FontSize = 16,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Focusable = false
+            Focusable = false,
+            Style = BuildSettingsCloseButtonStyle()
         };
         closeButton.Click += (_, _) => window.Close();
         Grid.SetColumn(closeButton, 1);
@@ -1031,6 +1032,51 @@ public sealed partial class AppController
         template.Triggers.Add(hoverTrigger);
         template.Triggers.Add(checkedTrigger);
         template.Triggers.Add(disabledTrigger);
+
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
+        return style;
+    }
+
+    private Style BuildSettingsCloseButtonStyle()
+    {
+        var style = new Style(typeof(Button));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderBrushProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+        style.Setters.Add(new Setter(Control.FocusVisualStyleProperty, null));
+        style.Setters.Add(new Setter(UIElement.SnapsToDevicePixelsProperty, true));
+        style.Setters.Add(new Setter(FrameworkElement.UseLayoutRoundingProperty, true));
+
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "Bd";
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
+
+        var content = new FrameworkElementFactory(typeof(ContentPresenter));
+        content.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
+        content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        content.SetValue(System.Windows.Documents.TextElement.ForegroundProperty, new TemplateBindingExtension(Control.ForegroundProperty));
+        border.AppendChild(content);
+
+        var template = new ControlTemplate(typeof(Button))
+        {
+            VisualTree = border
+        };
+
+        var hoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hoverTrigger.Setters.Add(new Setter(Control.BackgroundProperty, TrayHoverBrush));
+        hoverTrigger.Setters.Add(new Setter(Control.ForegroundProperty, TrayTextBrush));
+
+        var pressedTrigger = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
+        pressedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Theme.ActiveBrush));
+        pressedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, TrayPaperBrush));
+
+        template.Triggers.Add(hoverTrigger);
+        template.Triggers.Add(pressedTrigger);
 
         style.Setters.Add(new Setter(Control.TemplateProperty, template));
         return style;

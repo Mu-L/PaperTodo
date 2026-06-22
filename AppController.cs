@@ -91,6 +91,8 @@ public sealed partial class AppController : IDisposable
         _topmostRefreshTimer.Tick += (_, _) => RefreshTopmostForForegroundWindow();
 
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
     }
 
     public void Start(bool createDefaultPaper = true)
@@ -880,6 +882,45 @@ public sealed partial class AppController : IDisposable
         if (ShouldAvoidFullscreenTopmost)
         {
             WriteFullscreenDebugSnapshot(shouldSuppress);
+        }
+    }
+
+    private void RefreshTopmostAfterSystemResume()
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        Application.Current.Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                RefreshTopmostForForegroundWindow();
+                foreach (var window in _windows.Values)
+                {
+                    window.RefreshEffectiveTopmost();
+                }
+                foreach (var m in _masterCapsules.Values)
+                {
+                    m.RefreshEffectiveTopmost();
+                }
+            }),
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode is PowerModes.Resume or PowerModes.StatusChange)
+        {
+            RefreshTopmostAfterSystemResume();
+        }
+    }
+
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.ConsoleConnect or SessionSwitchReason.RemoteConnect)
+        {
+            RefreshTopmostAfterSystemResume();
         }
     }
 
@@ -2159,6 +2200,8 @@ public sealed partial class AppController : IDisposable
     public void Dispose()
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
         if (_trayMenu != null)

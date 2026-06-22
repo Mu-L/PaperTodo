@@ -511,7 +511,245 @@ public sealed class MarkdownTextBox : TextEditor
             return;
         }
 
+        if (_acceptsReturn &&
+            e.Key == System.Windows.Input.Key.Enter &&
+            TryHandleMarkdownListEnter())
+        {
+            e.Handled = true;
+            return;
+        }
+
         base.OnPreviewKeyDown(e);
+    }
+
+    private bool TryHandleMarkdownListEnter()
+    {
+        if (_isPreviewMode ||
+            IsReadOnly ||
+            Document == null ||
+            SelectionLength != 0 ||
+            Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return false;
+        }
+
+        DocumentLine line;
+        var caret = Math.Clamp(CaretOffset, 0, Document.TextLength);
+        try
+        {
+            line = Document.GetLineByOffset(caret);
+        }
+        catch
+        {
+            return false;
+        }
+
+        var text = Document.GetText(line);
+        var style = AnalyzeLine(Document, line, text);
+        if (style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList))
+        {
+            return false;
+        }
+
+        if (!TryBuildListContinuation(text, style, out var continuation, out var markerStart, out var emptyContentStart))
+        {
+            return false;
+        }
+
+        var indexInLine = Math.Clamp(caret - line.Offset, 0, text.Length);
+        if (indexInLine < Math.Min(style.ContentStart, text.Length))
+        {
+            return false;
+        }
+
+        if (IsLineContentEmpty(text, emptyContentStart))
+        {
+            if (indexInLine < Math.Min(emptyContentStart, text.Length))
+            {
+                return false;
+            }
+
+            RemoveEmptyListMarker(line, markerStart, emptyContentStart);
+            return true;
+        }
+
+        var insertion = NewLineTextFor(line) + continuation;
+        if (MaxLength > 0 && Text.Length + insertion.Length > MaxLength)
+        {
+            return false;
+        }
+
+        Document.BeginUpdate();
+        try
+        {
+            Document.Insert(caret, insertion);
+            CaretOffset = caret + insertion.Length;
+            Select(CaretOffset, 0);
+        }
+        finally
+        {
+            Document.EndUpdate();
+        }
+
+        return true;
+    }
+
+    private void RemoveEmptyListMarker(DocumentLine line, int markerStart, int removeEnd)
+    {
+        var start = line.Offset + Math.Clamp(markerStart, 0, line.Length);
+        var end = line.Offset + Math.Clamp(removeEnd, markerStart, line.Length);
+        var length = Math.Max(0, end - start);
+
+        Document.BeginUpdate();
+        try
+        {
+            if (length > 0)
+            {
+                Document.Remove(start, length);
+            }
+            CaretOffset = start;
+            Select(CaretOffset, 0);
+        }
+        finally
+        {
+            Document.EndUpdate();
+        }
+    }
+
+    private string NewLineTextFor(DocumentLine line)
+    {
+        if (Document != null && line.DelimiterLength > 0)
+        {
+            return Document.GetText(line.EndOffset, line.DelimiterLength);
+        }
+
+        return Environment.NewLine;
+    }
+
+    private static bool TryBuildListContinuation(
+        string text,
+        MarkdownLineStyle style,
+        out string continuation,
+        out int markerStart,
+        out int emptyContentStart)
+    {
+        continuation = "";
+        markerStart = FindListMarkerStart(text, style);
+        emptyContentStart = style.ContentStart;
+        if (markerStart < 0)
+        {
+            return false;
+        }
+
+        var isTask = IsTaskList(style, text);
+        if (style.Kind == MarkdownLineKind.UnorderedList)
+        {
+            continuation = text[..style.ContentStart];
+            if (isTask)
+            {
+                continuation += "[ ] ";
+                emptyContentStart = TaskListContentStart(style, text);
+            }
+
+            return true;
+        }
+
+        if (!TryBuildOrderedListContinuation(text, style, markerStart, out continuation))
+        {
+            return false;
+        }
+
+        if (isTask)
+        {
+            continuation += "[ ] ";
+            emptyContentStart = TaskListContentStart(style, text);
+        }
+
+        return true;
+    }
+
+    private static int FindListMarkerStart(string text, MarkdownLineStyle style)
+    {
+        var indent = CountIndent(text);
+        if (IsMatchingListAt(text, indent, style))
+        {
+            return indent;
+        }
+
+        var leadingSpaces = CountLeadingSpaces(text);
+        if (leadingSpaces != indent && IsMatchingListAt(text, leadingSpaces, style))
+        {
+            return leadingSpaces;
+        }
+
+        return -1;
+    }
+
+    private static bool IsMatchingListAt(string text, int start, MarkdownLineStyle style)
+    {
+        return TryAnalyzeList(text, start, out var candidate) &&
+            candidate.Kind == style.Kind &&
+            candidate.ContentStart == style.ContentStart;
+    }
+
+    private static bool TryBuildOrderedListContinuation(
+        string text,
+        MarkdownLineStyle style,
+        int markerStart,
+        out string continuation)
+    {
+        continuation = "";
+        var delimiter = markerStart;
+        while (delimiter < text.Length && char.IsDigit(text[delimiter]))
+        {
+            delimiter++;
+        }
+
+        if (delimiter == markerStart ||
+            delimiter >= text.Length ||
+            text[delimiter] is not ('.' or ')') ||
+            delimiter + 1 > style.ContentStart)
+        {
+            return false;
+        }
+
+        var numberText = text[markerStart..delimiter];
+        if (!long.TryParse(numberText, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ||
+            number == long.MaxValue)
+        {
+            return false;
+        }
+
+        var markerEnd = delimiter + 1;
+        continuation = text[..markerStart] +
+            (number + 1).ToString(CultureInfo.InvariantCulture) +
+            text[delimiter] +
+            text[markerEnd..style.ContentStart];
+        return true;
+    }
+
+    private static int TaskListContentStart(MarkdownLineStyle style, string text)
+    {
+        var start = Math.Min(text.Length, style.ContentStart + 3);
+        while (start < text.Length && char.IsWhiteSpace(text[start]))
+        {
+            start++;
+        }
+
+        return start;
+    }
+
+    private static bool IsLineContentEmpty(string text, int contentStart)
+    {
+        for (var i = Math.Clamp(contentStart, 0, text.Length); i < text.Length; i++)
+        {
+            if (!char.IsWhiteSpace(text[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void OnPaste(object sender, DataObjectPastingEventArgs e)
