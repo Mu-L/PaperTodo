@@ -13,22 +13,29 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="AppStartupFailureMessage" xml:space="preserve">
-    <value>启动失败：无法加载数据文件（可能文件被占用或损坏）。&#x0A;为了防止您的数据被覆盖清空，程序已安全中止运行。&#x0A;&#x0A;错误信息：{0}</value>
+    <value>启动失败：无法加载数据文件（文件可能被占用或损坏）。
+为避免覆盖现有数据，程序已停止启动。
+
+错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
     <value>2.0</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
-    <value>PaperTodo - 错误</value>
+    <value>PaperTodo - 启动失败</value>
   </data>
   <data name="AppUnhandledExceptionMessage" xml:space="preserve">
-    <value>程序发生未处理的错误，已为您紧急保存当前数据至 data.crash_recovery.json。&#x0A;&#x0A;请尝试重启程序。如果问题持续发生，可用该恢复文件尝试覆盖恢复。&#x0A;&#x0A;错误信息：{0}</value>
+    <value>程序发生未处理错误，当前数据已保存到 data.crash_recovery.json。
+
+请重启程序；如果问题持续，可使用该文件尝试恢复。
+
+错误信息：{0}</value>
   </data>
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 异常退出</value>
   </data>
   <data name="AppendAreaToolTip" xml:space="preserve">
-    <value>点击继续写，或把事项拖到这里删除</value>
+    <value>点击添加内容；拖到这里删除</value>
   </data>
   <data name="CapsuleNote" xml:space="preserve">
     <value>笔记</value>
@@ -46,7 +53,7 @@
     <value>确定</value>
   </data>
   <data name="DeletePaperBody" xml:space="preserve">
-    <value>删除后会从 data.json 移除，不能从托盘恢复。</value>
+    <value>删除后将永久移除，不能从托盘恢复。</value>
   </data>
   <data name="DeletePaperQuestion" xml:space="preserve">
     <value>删除这张纸？</value>
@@ -67,7 +74,7 @@
     <value>链接</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>拖到待办项以关联笔记</value>
+    <value>拖到待办项上关联笔记</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
     <value>打开关联笔记：{0}</value>
@@ -76,40 +83,42 @@
     <value>运行关联脚本：{0}</value>
   </data>
   <data name="MarkdownRenderBasic" xml:space="preserve">
-    <value>启用</value>
+    <value>基础</value>
   </data>
   <data name="MarkdownRenderEnhanced" xml:space="preserve">
     <value>增强</value>
   </data>
   <data name="MarkdownRenderOff" xml:space="preserve">
-    <value>不启用</value>
+    <value>关闭</value>
   </data>
   <data name="FullscreenTopmostModeAvoid" xml:space="preserve">
     <value>避让</value>
   </data>
   <data name="FullscreenTopmostModeStayOnTop" xml:space="preserve">
-    <value>不避让</value>
+    <value>保持置顶</value>
   </data>
   <data name="MarkdownPreviewFailure" xml:space="preserve">
-    <value>*预览失败，已保留原文。错误信息: {0}*</value>
+    <value>*预览失败，已保留原文。错误信息：{0}*</value>
   </data>
   <data name="OpenMarkdownFailureMessage" xml:space="preserve">
-    <value>无法调用默认 {0} 编辑器：&#x0A;{1}</value>
+    <value>无法调用默认 {0} 编辑器：
+{1}</value>
   </data>
   <data name="OpenMarkdownFailureTitle" xml:space="preserve">
-    <value>打开 Markdown 失败</value>
+    <value>外部打开失败</value>
   </data>
   <data name="ScriptCapsuleEmptyMessage" xml:space="preserve">
-    <value>脚本胶囊没有可运行的脚本内容。</value>
+    <value>脚本胶囊没有可运行内容。</value>
   </data>
   <data name="ScriptCapsuleEditMenu" xml:space="preserve">
     <value>编辑脚本胶囊</value>
   </data>
   <data name="ScriptCapsuleExitFailureMessage" xml:space="preserve">
-    <value>脚本运行失败（退出码 {0}）。&#x0A;{1}</value>
+    <value>脚本运行失败（退出码 {0}）。
+{1}</value>
   </data>
   <data name="ScriptCapsuleFailureTitle" xml:space="preserve">
-    <value>脚本胶囊运行失败</value>
+    <value>脚本运行失败</value>
   </data>
   <data name="ScriptCapsuleNoOutput" xml:space="preserve">
     <value>没有输出。</value>
@@ -196,7 +205,7 @@
     <value>全选</value>
   </data>
   <data name="MenuText" xml:space="preserve">
-    <value>文本操作</value>
+    <value>文本</value>
   </data>
   <data name="MenuThisPaper" xml:space="preserve">
     <value>这张纸</value>
@@ -217,28 +226,31 @@
     <value>{0} {1} · {2}</value>
   </data>
   <data name="PaperLimitMessage" xml:space="preserve">
-    <value>纸片数量已达到 100 张上限。&#x0A;为了保证系统稳定性和性能，请清理一些不再需要的纸片再试。</value>
+    <value>纸片已达到 100 张上限。
+请删除不再需要的纸片后再新建。</value>
   </data>
   <data name="PaperLimitTitle" xml:space="preserve">
-    <value>纸片上限提醒</value>
+    <value>纸片数量已满</value>
   </data>
   <data name="Pin" xml:space="preserve">
     <value>置顶</value>
   </data>
   <data name="SaveFailureIgnore" xml:space="preserve">
-    <value>忽略本次运行</value>
+    <value>忽略本次</value>
   </data>
   <data name="SaveFailureMessage" xml:space="preserve">
-    <value>保存数据失败：&#x0A;{0}&#x0A;请检查磁盘空间或权限。</value>
+    <value>保存数据失败：
+{0}
+请检查磁盘空间或权限。</value>
   </data>
   <data name="SaveFailureTitle" xml:space="preserve">
     <value>保存失败</value>
   </data>
   <data name="StateLoadFailed" xml:space="preserve">
-    <value>数据加载失败，文件可能正被其他程序占用或内容已损坏。</value>
+    <value>数据加载失败，文件可能被其他程序占用或内容已损坏。</value>
   </data>
   <data name="StartupFailureMessage" xml:space="preserve">
-    <value>开机自启动配置失败，可能权限不足或安全软件拦截。</value>
+    <value>开机自启动配置失败，可能权限不足或被安全软件拦截。</value>
   </data>
   <data name="StartupFailureTitle" xml:space="preserve">
     <value>设置自启动失败</value>
@@ -265,7 +277,7 @@
     <value>浅色</value>
   </data>
   <data name="ThemeSystem" xml:space="preserve">
-    <value>系统</value>
+    <value>跟随系统</value>
   </data>
   <data name="ToolTipCollapseToCapsule" xml:space="preserve">
     <value>折叠为胶囊</value>
@@ -280,7 +292,7 @@
     <value>用默认 {0} 编辑器打开</value>
   </data>
   <data name="ToolTipResetTextZoom" xml:space="preserve">
-    <value>点击恢复文字缩放为 100%</value>
+    <value>点击恢复为 100%</value>
   </data>
   <data name="ToolTipNewNotePaper" xml:space="preserve">
     <value>新建笔记纸</value>
@@ -289,31 +301,31 @@
     <value>新建待办纸</value>
   </data>
   <data name="TrayCapsuleMode" xml:space="preserve">
-    <value>启用胶囊折叠模式</value>
+    <value>胶囊模式</value>
   </data>
   <data name="TrayDeepCapsuleMode" xml:space="preserve">
-    <value>胶囊自动贴边</value>
+    <value>胶囊贴边模式</value>
   </data>
   <data name="SettingsMaxTitleLength" xml:space="preserve">
-    <value>标题最大字数</value>
+    <value>标题字数上限</value>
   </data>
   <data name="SettingsCapsuleCollapseAll" xml:space="preserve">
-    <value>显示“收起全部”胶囊</value>
+    <value>显示主胶囊</value>
   </data>
   <data name="SettingsShowDeepCapsuleWhileExpanded" xml:space="preserve">
-    <value>展开纸片时保留边缘胶囊</value>
+    <value>展开时保留边缘胶囊</value>
   </data>
   <data name="SettingsCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
-    <value>再次点击侧边胶囊缩回</value>
+    <value>再次点击边缘胶囊收回纸片</value>
   </data>
   <data name="CapsuleCollapseAllLabel" xml:space="preserve">
     <value>收起</value>
   </data>
   <data name="CapsuleCollapseAllExpandedTip" xml:space="preserve">
-    <value>收起全部胶囊</value>
+    <value>收起当前胶囊队列</value>
   </data>
   <data name="CapsuleCollapseAllCollapsedTip" xml:space="preserve">
-    <value>展开全部胶囊</value>
+    <value>展开当前胶囊队列</value>
   </data>
   <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
     <value>{0} 个</value>
@@ -325,13 +337,13 @@
     <value>隐藏全部纸片</value>
   </data>
   <data name="TrayMarkdownRenderMode" xml:space="preserve">
-    <value>MD 解析</value>
+    <value>Markdown 显示</value>
   </data>
   <data name="SettingsFullscreenTopmostMode" xml:space="preserve">
-    <value>全屏置顶策略</value>
+    <value>全屏窗口处理</value>
   </data>
   <data name="SettingsTodoVisualSize" xml:space="preserve">
-    <value>待办视觉大小</value>
+    <value>待办大小</value>
   </data>
   <data name="TodoVisualSizeSmall" xml:space="preserve">
     <value>小</value>
@@ -367,7 +379,7 @@
     <value>设置</value>
   </data>
   <data name="SettingsExternalMarkdownExtension" xml:space="preserve">
-    <value>外部打开后缀</value>
+    <value>外部打开文件类型</value>
   </data>
   <data name="SettingsQuickActions" xml:space="preserve">
     <value>快捷操作</value>
@@ -394,67 +406,67 @@
     <value>待办与笔记</value>
   </data>
   <data name="SettingsRunLinkedScriptCapsulesOnClick" xml:space="preserve">
-    <value>关联脚本点击运行</value>
+    <value>关联脚本直接运行</value>
   </data>
   <data name="SettingsGeneral" xml:space="preserve">
     <value>通用</value>
   </data>
   <data name="TipThemeMode" xml:space="preserve">
-    <value>跟随系统、浅色或深色。「跟随系统」会随 Windows 的明暗设置自动切换。</value>
+    <value>选择浅色、深色，或跟随 Windows 系统主题。</value>
   </data>
   <data name="TipColorScheme" xml:space="preserve">
-    <value>纸片的整体配色基调，影响背景与强调色。</value>
+    <value>切换纸片的配色基调，包括背景、强调色和弱化文字。</value>
   </data>
   <data name="TipMarkdownRender" xml:space="preserve">
-    <value>笔记中 Markdown 的渲染方式。「增强」实时美化标题、列表、加粗等；「启用」仅做轻量处理。</value>
+    <value>基础模式只做轻量高亮；增强模式进一步美化标题、列表和强调。</value>
   </data>
   <data name="TipFullscreenTopmostMode" xml:space="preserve">
-    <value>检测到外部全屏窗口时，控制纸片和贴边胶囊是否临时降低层级。默认避让；不避让会保持在全屏画面之上。</value>
+    <value>检测到视频、游戏等全屏窗口时，纸片和边缘胶囊可临时避让；选择保持置顶则始终可见。</value>
   </data>
   <data name="TipTodoVisualSize" xml:space="preserve">
-    <value>调整待办项的视觉大小。小为 12，中为当前 13，大为 14，特大为 15.5。</value>
+    <value>调整待办项的文字、行高和间距。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>开启后，可把笔记拖到待办项上建立关联，再通过待办项后的关联入口打开对应笔记。</value>
+    <value>允许把笔记拖到待办项上建立关联，之后可从待办项直接打开对应笔记。</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>在已关联笔记的待办项后面，显示该笔记的标题。</value>
+    <value>在待办项后显示已关联笔记的标题。</value>
   </data>
   <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>开启后，已经挂到待办项上的笔记不会再出现在胶囊列表里，避免边缘胶囊与待办入口重复。关闭后，这些笔记仍可像普通纸片一样折叠为胶囊。</value>
+    <value>已关联到待办项的笔记不再出现在胶囊列表中，避免重复入口。</value>
   </data>
   <data name="TipRunLinkedScriptCapsulesOnClick" xml:space="preserve">
-    <value>开启后，待办项后的关联入口如果指向脚本胶囊，左键会直接运行脚本；右键仍可打开脚本胶囊编辑。默认关闭，避免误触执行脚本。</value>
+    <value>关联入口指向脚本胶囊时，左键直接运行脚本，右键打开编辑。默认关闭以避免误触。</value>
   </data>
   <data name="TipNewTodoButton" xml:space="preserve">
-    <value>在纸片顶栏显示「新建待办」按钮。</value>
+    <value>在纸片顶栏显示新建待办按钮。</value>
   </data>
   <data name="TipNewNoteButton" xml:space="preserve">
-    <value>在纸片顶栏显示「新建笔记」按钮。</value>
+    <value>在纸片顶栏显示新建笔记按钮。</value>
   </data>
   <data name="TipExternalOpenButton" xml:space="preserve">
-    <value>在纸片顶栏显示「用外部程序打开」按钮，可将笔记写入临时文件并用系统默认程序打开。</value>
+    <value>在顶栏显示外部打开按钮，将当前笔记写入临时文件并交给系统默认程序打开。</value>
   </data>
   <data name="TipExternalExtension" xml:space="preserve">
-    <value>用外部程序打开笔记时使用的文件后缀，例如 .md 或 .txt。</value>
+    <value>选择交给外部程序打开时使用的文件类型，例如 .md 或 .txt。</value>
   </data>
   <data name="TipCapsuleMode" xml:space="preserve">
-    <value>开启后，纸片可折叠成一颗小胶囊，节省屏幕空间。这是其余胶囊功能的总开关。</value>
+    <value>允许纸片折叠为小胶囊，减少桌面占用；胶囊贴边等功能需要先开启此项。</value>
   </data>
   <data name="TipDeepCapsuleMode" xml:space="preserve">
-    <value>折叠后的胶囊自动停靠到屏幕右侧边缘并竖向排列，鼠标悬浮时滑出。需先开启胶囊折叠。</value>
+    <value>胶囊会自动停靠到屏幕边缘并排列成队列，鼠标悬停时滑出。</value>
   </data>
   <data name="TipShowDeepCapsuleWhileExpanded" xml:space="preserve">
-    <value>开启后，从边缘胶囊打开纸片时，右侧会保留一颗高亮胶囊并占用原槽位；关闭后，打开期间隐藏它并释放位置，纸片收回胶囊后再显示。</value>
+    <value>从边缘胶囊打开纸片后，边缘仍保留对应入口；关闭后，打开期间暂时隐藏该入口。</value>
   </data>
   <data name="TipCollapseExpandedDeepCapsuleOnClick" xml:space="preserve">
-    <value>开启后，纸片已展开且侧边胶囊仍保留时，再次点击该胶囊会把纸片缩回。关闭时，再次点击只会将纸片前置强调。</value>
+    <value>纸片已从边缘胶囊展开时，再次点击同一胶囊会把纸片收回。</value>
   </data>
   <data name="TipCapsuleCollapseAll" xml:space="preserve">
-    <value>在贴边胶囊顶部显示一颗「收起」主胶囊，点击可一键收起 / 展开全部胶囊。需先开启自动贴边。</value>
+    <value>在胶囊队列顶部显示主胶囊，用于一键收起或展开当前队列。</value>
   </data>
   <data name="TipMaxTitleLength" xml:space="preserve">
-    <value>纸片标题允许输入的最大字数，也决定胶囊上显示的标题长度。</value>
+    <value>纸片标题和胶囊显示的最大字数。</value>
   </data>
   <data name="TipStartup" xml:space="preserve">
     <value>开机时自动启动 PaperTodo。</value>
@@ -463,22 +475,22 @@
     <value>显示悬停提示</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
-    <value>开启后，指针停在按钮和可操作区域上时，会显示简短说明；设置页说明图标始终可用。</value>
+    <value>指针停在按钮和可操作区域上时显示简短说明；设置页说明图标始终可用。</value>
   </data>
   <data name="SettingsEnableAnimations" xml:space="preserve">
     <value>启用动画效果</value>
   </data>
   <data name="TipEnableAnimations" xml:space="preserve">
-    <value>开启后，待办完成、新增、删除等操作会有平滑动画效果。关闭可提升低配电脑的性能。</value>
+    <value>为常见操作启用过渡动画；关闭后响应更直接。</value>
   </data>
   <data name="TipPersistentPowerShellProcess" xml:space="preserve">
-    <value>开启后，使用 !pf 或 !powerf 的脚本胶囊会复用一个 PowerShell 进程并立即返回；脚本变量、目录和加载状态可能保留。关闭此项会结束常驻进程。</value>
+    <value>!pf / !powerf 会复用常驻进程，启动更快，但脚本间的变量和状态可能保留。关闭后结束该进程。</value>
   </data>
   <data name="TipPreferPowerShell7" xml:space="preserve">
-    <value>开启后，脚本胶囊会优先使用 PowerShell 7（pwsh.exe），找不到时回退到 Windows PowerShell。也可用 !pwsh 或 !ps5 强制指定。</value>
+    <value>优先使用 PowerShell 7（pwsh.exe）；找不到时回退到 Windows PowerShell。脚本中也可用 !pwsh 或 !ps5 指定。</value>
   </data>
   <data name="TipHideScriptRunWindow" xml:space="preserve">
-    <value>开启后脚本在后台隐藏运行；关闭后允许显示 PowerShell 窗口。普通 !p / !power 始终会等待并捕获错误输出，!pf / !powerf 只负责投递脚本。</value>
+    <value>隐藏脚本运行窗口。普通 !p / !power 会等待脚本结束并捕获错误；!pf / !powerf 只投递到常驻进程。</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
     <value>启用待办关联笔记</value>
@@ -490,25 +502,25 @@
     <value>优先使用 PowerShell 7</value>
   </data>
   <data name="SettingsHideScriptRunWindow" xml:space="preserve">
-    <value>隐藏脚本运行窗口</value>
+    <value>隐藏脚本窗口</value>
   </data>
   <data name="SettingsShowTopBarNewTodoButton" xml:space="preserve">
-    <value>显示顶栏新建待办</value>
+    <value>显示新建待办按钮</value>
   </data>
   <data name="SettingsShowTopBarNewNoteButton" xml:space="preserve">
-    <value>显示顶栏新建笔记</value>
+    <value>显示新建笔记按钮</value>
   </data>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
-    <value>显示顶栏外部打开</value>
+    <value>显示外部打开按钮</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>关联笔记显示名称</value>
+    <value>显示关联笔记标题</value>
   </data>
   <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>已关联笔记不显示为胶囊</value>
+    <value>关联笔记不显示为胶囊</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
-    <value>重置笔记缩放</value>
+    <value>恢复笔记缩放</value>
   </data>
   <data name="SettingsRestoreAllCapsules" xml:space="preserve">
     <value>展开所有胶囊</value>
