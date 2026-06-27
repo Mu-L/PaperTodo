@@ -664,7 +664,9 @@ public sealed partial class PaperWindow : Window
 
     private bool ShouldShowInTaskbar()
     {
-        return !_controller.State.HidePapersFromTaskbar && !_paper.IsCollapsed;
+        return !_controller.State.HidePapersFromWindowSwitcher &&
+            !_controller.State.HidePapersFromTaskbar &&
+            !_paper.IsCollapsed;
     }
 
     public void CancelPendingVisibilityTransitions()

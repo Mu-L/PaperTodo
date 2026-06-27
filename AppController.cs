@@ -31,6 +31,8 @@ public sealed partial class AppController : IDisposable
     private ContextMenu? _trayMenu;
     private Window? _settingsWindow;
     private TextBox? _settingsExternalMarkdownTextBox;
+    private CheckBox? _settingsHidePapersFromTaskbarCheckBox;
+    private CheckBox? _settingsHidePapersFromWindowSwitcherCheckBox;
     private CheckBox? _settingsCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleModeCheckBox;
     private CheckBox? _settingsDeepCapsuleExpandedSlotCheckBox;
@@ -73,6 +75,7 @@ public sealed partial class AppController : IDisposable
     {
         Current = this;
         State = _store.Load();
+        NormalizePaperSystemVisibilitySettings();
         AppTypography.Configure(State.UiFontPreset);
         ToolTipPreferences.Register(() => State.EnableToolTips);
 

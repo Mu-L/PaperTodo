@@ -492,13 +492,13 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>Hide paper taskbar icons</value>
   </data>
   <data name="TipHidePapersFromTaskbar" xml:space="preserve">
-    <value>When on, expanded papers do not appear on the Windows taskbar. They remain accessible from the tray, desktop papers, and capsules. On by default.</value>
+    <value>When on, expanded papers do not appear on the Windows taskbar. They remain accessible from the tray, desktop papers, and capsules. On by default. This is enabled automatically when papers are hidden from window switching.</value>
   </data>
   <data name="SettingsHidePapersFromWindowSwitcher" xml:space="preserve">
     <value>Hide papers from window switching</value>
   </data>
   <data name="TipHidePapersFromWindowSwitcher" xml:space="preserve">
-    <value>When on, expanded papers are hidden from Alt+Tab and Task View. They remain accessible from the tray, desktop papers, and capsules.</value>
+    <value>When on, expanded papers are hidden from Alt+Tab and Task View, and their taskbar icons are hidden as well. They remain accessible from the tray, desktop papers, and capsules.</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
     <value>Show brief hints when the pointer rests on buttons or interactive areas. Setting info icons stay available either way.</value>

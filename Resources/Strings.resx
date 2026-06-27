@@ -507,13 +507,13 @@
     <value>隐藏纸片任务栏图标</value>
   </data>
   <data name="TipHidePapersFromTaskbar" xml:space="preserve">
-    <value>开启后，展开的纸片不会显示在 Windows 任务栏上；仍可通过托盘、桌面纸片和胶囊访问。默认开启。</value>
+    <value>开启后，展开的纸片不会显示在 Windows 任务栏上；仍可通过托盘、桌面纸片和胶囊访问。默认开启。从窗口切换中隐藏纸片时会自动启用。</value>
   </data>
   <data name="SettingsHidePapersFromWindowSwitcher" xml:space="preserve">
     <value>从窗口切换中隐藏纸片</value>
   </data>
   <data name="TipHidePapersFromWindowSwitcher" xml:space="preserve">
-    <value>开启后，展开的纸片会从 Alt+Tab 和任务视图中隐藏；仍可通过托盘、桌面纸片和胶囊访问。</value>
+    <value>开启后，展开的纸片会从 Alt+Tab 和任务视图中隐藏，并同时隐藏任务栏图标；仍可通过托盘、桌面纸片和胶囊访问。</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
     <value>指针停在按钮和可操作区域上时显示简短说明；设置页说明图标始终可用。</value>

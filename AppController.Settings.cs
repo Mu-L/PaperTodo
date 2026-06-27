@@ -494,6 +494,8 @@ public sealed partial class AppController
         {
             CommitSettingsExternalMarkdownEditor();
             _settingsExternalMarkdownTextBox = null;
+            _settingsHidePapersFromTaskbarCheckBox = null;
+            _settingsHidePapersFromWindowSwitcherCheckBox = null;
             _settingsCapsuleModeCheckBox = null;
             _settingsDeepCapsuleModeCheckBox = null;
             _settingsDeepCapsuleExpandedSlotCheckBox = null;
@@ -633,8 +635,10 @@ public sealed partial class AppController
 
         leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHidePapersFromTaskbar"), State.HidePapersFromTaskbar, ToggleHidePapersFromTaskbar), "TipHidePapersFromTaskbar"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHidePapersFromWindowSwitcher"), State.HidePapersFromWindowSwitcher, ToggleHidePapersFromWindowSwitcher), "TipHidePapersFromWindowSwitcher"));
+        _settingsHidePapersFromTaskbarCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromTaskbar"), State.HidePapersFromTaskbar, ToggleHidePapersFromTaskbar);
+        _settingsHidePapersFromWindowSwitcherCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromWindowSwitcher"), State.HidePapersFromWindowSwitcher, ToggleHidePapersFromWindowSwitcher);
+        leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromTaskbarCheckBox, "TipHidePapersFromTaskbar"));
+        leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
 
@@ -907,6 +911,8 @@ public sealed partial class AppController
 
     private void RefreshSettingsCapsuleToggleStates()
     {
+        RefreshSettingsSystemVisibilityToggleStates();
+
         if (_settingsCapsuleModeCheckBox != null)
         {
             _settingsCapsuleModeCheckBox.IsChecked = State.UseCapsuleMode;
@@ -936,6 +942,19 @@ public sealed partial class AppController
         {
             _settingsCapsuleCollapseAllCheckBox.IsChecked = State.UseCapsuleCollapseAll;
             _settingsCapsuleCollapseAllCheckBox.IsEnabled = State.UseCapsuleMode && State.UseDeepCapsuleMode;
+        }
+    }
+
+    private void RefreshSettingsSystemVisibilityToggleStates()
+    {
+        if (_settingsHidePapersFromTaskbarCheckBox != null)
+        {
+            _settingsHidePapersFromTaskbarCheckBox.IsChecked = State.HidePapersFromTaskbar;
+            _settingsHidePapersFromTaskbarCheckBox.IsEnabled = !State.HidePapersFromWindowSwitcher;
+        }
+        if (_settingsHidePapersFromWindowSwitcherCheckBox != null)
+        {
+            _settingsHidePapersFromWindowSwitcherCheckBox.IsChecked = State.HidePapersFromWindowSwitcher;
         }
     }
 
@@ -1228,18 +1247,39 @@ public sealed partial class AppController
 
     private void ToggleHidePapersFromTaskbar()
     {
+        if (State.HidePapersFromWindowSwitcher)
+        {
+            State.HidePapersFromTaskbar = true;
+            RefreshSettingsSystemVisibilityToggleStates();
+            return;
+        }
+
         State.HidePapersFromTaskbar = !State.HidePapersFromTaskbar;
         SaveNow();
         RefreshPaperTaskbarVisibility();
-        RefreshSettingsWindowContent();
+        RefreshSettingsSystemVisibilityToggleStates();
     }
 
     private void ToggleHidePapersFromWindowSwitcher()
     {
         State.HidePapersFromWindowSwitcher = !State.HidePapersFromWindowSwitcher;
+        if (State.HidePapersFromWindowSwitcher)
+        {
+            State.HidePapersFromTaskbar = true;
+        }
+
         SaveNow();
         RefreshPaperWindowSwitcherVisibility();
-        RefreshSettingsWindowContent();
+        RefreshPaperTaskbarVisibility();
+        RefreshSettingsSystemVisibilityToggleStates();
+    }
+
+    private void NormalizePaperSystemVisibilitySettings()
+    {
+        if (State.HidePapersFromWindowSwitcher)
+        {
+            State.HidePapersFromTaskbar = true;
+        }
     }
 
     private void RefreshPaperTaskbarVisibility()
