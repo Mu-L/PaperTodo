@@ -34,10 +34,10 @@ public sealed class MasterCapsuleWindow : Window
     private const double MasterGlyphGap = 4;
     private const double MasterRightPadding = 10;
     private const double MasterGlyphFontSize = 12;
-    private const double MasterLabelFontSize = 11;
+    private const double MasterLabelFontSize = 12;
     // Reserve a couple of device-independent pixels so text anti-aliasing is not clipped
     // when the visible width is rounded to the screen edge.
-    private const double MasterTextPixelReserve = 2;
+    private const double MasterTextPixelReserve = 3;
 
     private readonly AppController _controller;
 
@@ -182,7 +182,7 @@ public sealed class MasterCapsuleWindow : Window
             Text = "▾",
             Foreground = Theme.TextBrush,
             FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = 12,
+            FontSize = MasterGlyphFontSize,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -192,7 +192,7 @@ public sealed class MasterCapsuleWindow : Window
         {
             Text = Strings.Get("CapsuleCollapseAllLabel"),
             Foreground = Theme.WeakTextBrush,
-            FontSize = 11,
+            FontSize = MasterLabelFontSize,
             Margin = new Thickness(MasterGlyphGap, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -384,9 +384,15 @@ public sealed class MasterCapsuleWindow : Window
     private double CapsuleWindowWidth()
     {
         // glyph + gap + label + left/right paddings + chrome margins. Both pieces are
-        // measured the same way so the pill hugs the actual rendered content.
-        var glyphWidth = MeasureText(_glyph.Text, MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily);
-        var textWidth = MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal, AppTypography.UiFontFamily);
+        // measured the same way so the pill hugs the actual rendered content. The master keeps
+        // the expanded label width even when it shows a count, so retracted capsules do not peek
+        // out behind a shorter numeric label.
+        var glyphWidth = Math.Max(
+            MeasureText("▾", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily),
+            MeasureText("▸", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily));
+        var expandedLabelWidth = MeasureText(Strings.Get("CapsuleCollapseAllLabel"), MasterLabelFontSize, FontWeights.Normal, AppTypography.UiFontFamily);
+        var currentLabelWidth = MeasureText(_label.Text, MasterLabelFontSize, FontWeights.Normal, AppTypography.UiFontFamily);
+        var textWidth = Math.Max(expandedLabelWidth, currentLabelWidth);
         var shellWidth = Math.Ceiling(MasterLeftPadding + glyphWidth + MasterGlyphGap + textWidth + MasterRightPadding);
         return shellWidth + WindowChromeInset;
     }
@@ -394,6 +400,7 @@ public sealed class MasterCapsuleWindow : Window
     private double MasterVisibleWidth()
     {
         var peekLabel = FirstTextElement(Strings.Get("CapsuleCollapseAllLabel"));
+        var extraCountWidth = _active && Math.Abs(_count) >= 10 ? 2 : 0;
         var visibleWidth = WindowChromeMargin + MasterLeftPadding
             + Math.Max(
                 MeasureText("▾", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily),
@@ -401,7 +408,8 @@ public sealed class MasterCapsuleWindow : Window
             + MasterGlyphGap
             + MeasureText(peekLabel, MasterLabelFontSize, FontWeights.Normal, AppTypography.UiFontFamily)
             + MasterRightPadding
-            + MasterTextPixelReserve;
+            + MasterTextPixelReserve
+            + extraCountWidth;
         return Math.Clamp(visibleWidth, 1, CapsuleWindowWidth());
     }
 

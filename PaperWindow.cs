@@ -160,6 +160,9 @@ public sealed partial class PaperWindow : Window
     private double _transitionBaseHeight;
     private bool _isTransitionVisualsActive;
     private bool _isEditingTitle;
+    private bool _suppressTitleEditFromCurrentClick;
+    private bool _pendingTitleBarDrag;
+    private Point _titleBarDragStart;
     private bool _pendingTitleEdit;
     private int _themeAnimationGeneration;
     private int _clearDoneGeneration;
@@ -191,7 +194,12 @@ public sealed partial class PaperWindow : Window
     private const double CapsuleNormalCloseWidth = 21;
     private const double CapsuleRightPadding = 6;
     private const double CapsuleIconFontSize = 13;
-    private const double CapsuleLabelFontSize = 11;
+    private const double CapsuleLabelFontSize = 12;
+    private const double TitleFontSize = 12;
+    private const double TitleLineHeight = 14;
+    private const double TitleBarDragThreshold = 1.0;
+    private const double TodoPaperIconFontSize = 14;
+    private const double NotePaperIconFontSize = 16;
     private const double CapsuleCloseGlyphDeepOffset = -6;
     private const double CapsuleCloseGlyphNormalOffset = -1;
     private const double DeepCapsuleSlotOutlineThickness = 2;
@@ -1087,6 +1095,53 @@ public sealed partial class PaperWindow : Window
         _shell.Children.Add(_dragLayer);
     }
 
+    private void BeginTitleBarDragGesture(FrameworkElement dragSource, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        _pendingTitleBarDrag = true;
+        _titleBarDragStart = e.GetPosition(this);
+        dragSource.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void UpdateTitleBarDragGesture(FrameworkElement dragSource, MouseEventArgs e)
+    {
+        if (!_pendingTitleBarDrag)
+        {
+            return;
+        }
+
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndTitleBarDragGesture(dragSource);
+            return;
+        }
+
+        var current = e.GetPosition(this);
+        if (Math.Abs(current.X - _titleBarDragStart.X) < TitleBarDragThreshold &&
+            Math.Abs(current.Y - _titleBarDragStart.Y) < TitleBarDragThreshold)
+        {
+            return;
+        }
+
+        EndTitleBarDragGesture(dragSource);
+        WindowNative.BeginWindowCaptionDrag(this);
+        e.Handled = true;
+    }
+
+    private void EndTitleBarDragGesture(FrameworkElement dragSource)
+    {
+        _pendingTitleBarDrag = false;
+        if (dragSource.IsMouseCaptured)
+        {
+            dragSource.ReleaseMouseCapture();
+        }
+    }
+
     private void BuildTopBar()
     {
         var top = new Grid
@@ -1101,7 +1156,17 @@ public sealed partial class PaperWindow : Window
 
         top.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            if (!IsTitleEditBoxEventSource(e.OriginalSource as DependencyObject))
+            var source = e.OriginalSource as DependencyObject;
+            if (_isEditingTitle && !IsTitleEditBoxEventSource(source))
+            {
+                CommitTitleEdit();
+                _suppressTitleEditFromCurrentClick = true;
+                Dispatcher.BeginInvoke(
+                    (Action)(() => _suppressTitleEditFromCurrentClick = false),
+                    System.Windows.Threading.DispatcherPriority.Input);
+            }
+
+            if (!IsTitleEditBoxEventSource(source))
             {
                 ExitNoteEditor();
             }
@@ -1115,7 +1180,16 @@ public sealed partial class PaperWindow : Window
 
             if (e.ChangedButton == MouseButton.Left && e.ClickCount == 1)
             {
-                try { DragMove(); } catch { }
+                BeginTitleBarDragGesture(top, e);
+            }
+        };
+        top.PreviewMouseMove += (_, e) => UpdateTitleBarDragGesture(top, e);
+        top.PreviewMouseLeftButtonUp += (_, _) => EndTitleBarDragGesture(top);
+        top.LostMouseCapture += (_, _) =>
+        {
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                _pendingTitleBarDrag = false;
             }
         };
 
@@ -1127,9 +1201,9 @@ public sealed partial class PaperWindow : Window
         titleArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        _paperIconButton = IconButton(_paper.Type == PaperTypes.Note ? "✎" : "☑", _paper.AlwaysOnTop ? Strings.Get("Unpin") : Strings.Get("Pin"));
+        _paperIconButton = IconButton(_paper.Type == PaperTypes.Note ? "✎" : "✓", _paper.AlwaysOnTop ? Strings.Get("Unpin") : Strings.Get("Pin"));
         _paperIconButton.Width = 23;
-        _paperIconButton.FontSize = _paper.Type == PaperTypes.Note ? 15 : 13;
+        _paperIconButton.FontSize = _paper.Type == PaperTypes.Note ? NotePaperIconFontSize : TodoPaperIconFontSize;
         _paperIconButton.HorizontalAlignment = HorizontalAlignment.Left;
         _paperIconButton.VerticalAlignment = VerticalAlignment.Center;
         _paperIconButton.Click += (_, _) => ToggleTopmost();
@@ -1142,14 +1216,14 @@ public sealed partial class PaperWindow : Window
 
         var titleHost = new Border
         {
-            Margin = new Thickness(0, 0, 8, 0),
-            Padding = new Thickness(4, 1, 5, 1),
+            Margin = new Thickness(0, 1, 8, 1),
+            Padding = new Thickness(4, 0, 5, 0),
             CornerRadius = new CornerRadius(RadiusControl),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Background = Brushes.Transparent,
             Cursor = Cursors.IBeam,
             HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
             MinWidth = 38,
             MaxWidth = 86,
             ToolTip = Strings.Get("ToolTipEditTitle")
@@ -1159,13 +1233,18 @@ public sealed partial class PaperWindow : Window
         var titleEditLayer = new Grid
         {
             MinWidth = 30,
-            MaxWidth = 76
+            MaxWidth = 76,
+            Height = TitleLineHeight + 1,
+            VerticalAlignment = VerticalAlignment.Center
         };
 
         _titleText = new TextBlock
         {
             Foreground = TextBrush,
-            FontSize = 11,
+            FontSize = TitleFontSize,
+            Height = TitleLineHeight + 1,
+            LineHeight = TitleLineHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1179,7 +1258,8 @@ public sealed partial class PaperWindow : Window
             Background = Brushes.Transparent,
             Foreground = TextBrush,
             CaretBrush = TextBrush,
-            FontSize = 11,
+            FontSize = TitleFontSize,
+            Height = TitleLineHeight + 1,
             FontWeight = FontWeights.SemiBold,
             MaxLength = PaperTitles.MaxTitleLength,
             // MaxLength is only a coarse UTF-16 guard; the real title limit is applied on commit
@@ -1216,6 +1296,13 @@ public sealed partial class PaperWindow : Window
         titleHost.MouseLeave += (_, _) => titleHost.Background = Brushes.Transparent;
         titleHost.MouseLeftButtonDown += (_, e) =>
         {
+            if (_suppressTitleEditFromCurrentClick)
+            {
+                _suppressTitleEditFromCurrentClick = false;
+                e.Handled = true;
+                return;
+            }
+
             if (_isEditingTitle && IsTitleEditBoxEventSource(e.OriginalSource as DependencyObject))
             {
                 return;
@@ -1298,6 +1385,16 @@ public sealed partial class PaperWindow : Window
         };
         topHost.SetResourceReference(Border.BackgroundProperty, "TitleBarBrushKey");
         topHost.SetResourceReference(Border.BorderBrushProperty, "TitleBarDividerBrushKey");
+        topHost.MouseLeftButtonDown += (_, e) => BeginTitleBarDragGesture(topHost, e);
+        topHost.PreviewMouseMove += (_, e) => UpdateTitleBarDragGesture(topHost, e);
+        topHost.PreviewMouseLeftButtonUp += (_, _) => EndTitleBarDragGesture(topHost);
+        topHost.LostMouseCapture += (_, _) =>
+        {
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                _pendingTitleBarDrag = false;
+            }
+        };
 
         Grid.SetRow(topHost, 0);
         _shell.Children.Add(topHost);
@@ -1662,7 +1759,9 @@ public sealed partial class PaperWindow : Window
         _paperIconButton.ToolTip = _paper.AlwaysOnTop ? Strings.Get("Unpin") : Strings.Get("Pin");
         _paperIconButton.Opacity = _paper.AlwaysOnTop ? 1.0 : 0.58;
         _paperIconButton.Foreground = _paper.AlwaysOnTop ? TextBrush : WeakTextBrush;
-        _paperIconButton.FontWeight = _paper.AlwaysOnTop ? FontWeights.SemiBold : FontWeights.Normal;
+        _paperIconButton.FontWeight = _paper.Type == PaperTypes.Todo
+            ? FontWeights.Bold
+            : (_paper.AlwaysOnTop ? FontWeights.SemiBold : FontWeights.Normal);
     }
 
     public void RefreshPaperTitle()

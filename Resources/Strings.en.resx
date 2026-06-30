@@ -331,7 +331,7 @@
     <value>Expand current capsule queue</value>
   </data>
   <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
-    <value>{0}</value>
+    <value>{0} pc</value>
   </data>
   <data name="TrayExit" xml:space="preserve">
     <value>Exit</value>

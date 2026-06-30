@@ -1413,9 +1413,11 @@ public sealed partial class PaperWindow
         bool animate = false,
         int durationMs = DeepCapsuleLayout.SlotMoveMilliseconds,
         bool keepHiding = false,
-        bool forceRestingOffset = false)
+        bool forceRestingOffset = false,
+        double? targetTopOverride = null,
+        bool allowCollapseAllRetracted = false)
     {
-        if (!HasDeepCapsuleSlotPlacement || _isCollapseAllRetracted)
+        if (!HasDeepCapsuleSlotPlacement || (_isCollapseAllRetracted && !allowCollapseAllRetracted))
         {
             return;
         }
@@ -1430,7 +1432,7 @@ public sealed partial class PaperWindow
             ? ExpandedDeepCapsuleVisibleWidth()
             : deepCapsuleVisibleWidth;
         var targetLeft = RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
-        var targetTop = RoundToDevicePixelY(DeepCapsuleTopForIndex(_deepCapsuleIndex + _deepCapsuleVisualOffset));
+        var targetTop = RoundToDevicePixelY(targetTopOverride ?? DeepCapsuleTopForIndex(_deepCapsuleIndex + _deepCapsuleVisualOffset));
 
         MoveExpandedDeepCapsuleSlotHost(
             targetLeft,
@@ -1473,24 +1475,19 @@ public sealed partial class PaperWindow
         SetDeepCapsuleSlotState(DeepCapsuleSlotState.CollapsedDocked);
         _isCollapseAllRetracted = true;
         SetDeepCapsuleVisualState(DeepCapsuleVisualState.Resting);
+        UpdateDeepCapsuleSlotHostTheme();
+        UpdateDeepCapsuleSlotClosePlacement(updateHostViewport: false);
         RefreshEffectiveTopmost();
 
-        var area = DeepCapsuleWorkArea();
-        var currentSlotVisible = _deepCapsuleSlotHost?.IsVisible == true &&
-            !double.IsNaN(_deepCapsuleSlotHost.Width) &&
-            !double.IsInfinity(_deepCapsuleSlotHost.Width) &&
-            _deepCapsuleSlotHost.Width > 0;
-        var visibleWidth = currentSlotVisible
-            ? DeepCapsuleSlotViewportWidth(_deepCapsuleSlotHost!.Width)
-            : DeepCapsuleVisibleWidth();
-        var targetLeft = currentSlotVisible &&
-            !double.IsNaN(_deepCapsuleSlotHost!.Left) &&
-            !double.IsInfinity(_deepCapsuleSlotHost.Left)
-                ? RoundToDevicePixelX(_deepCapsuleSlotHost.Left)
-                : RoundToDevicePixelX(MyDockedLeft(area, visibleWidth));
         var targetTop = RoundToDevicePixelY(anchorTop);
 
-        MoveExpandedDeepCapsuleSlotHost(targetLeft, targetTop, visibleWidth, animate);
+        MoveDeepCapsuleToCurrentTarget(
+            animate,
+            DeepCapsuleLayout.SlotRetractMoveMilliseconds,
+            keepHiding: true,
+            forceRestingOffset: true,
+            targetTopOverride: targetTop,
+            allowCollapseAllRetracted: true);
         if (_deepCapsuleSlotHost != null)
         {
             AnimateSlotHostOpacity(0.0, animate);

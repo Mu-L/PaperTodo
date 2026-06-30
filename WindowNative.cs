@@ -15,6 +15,8 @@ internal static class WindowNative
     private const int WsExTopmost = 0x00000008;
     private const int WsExToolWindow = 0x00000080;
     private const int WsExAppWindow = 0x00040000;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int HtCaption = 0x0002;
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
     private const uint SwpNoSize = 0x0001;
@@ -179,6 +181,18 @@ internal static class WindowNative
         _ = SetFocus(IntPtr.Zero);
     }
 
+    public static void BeginWindowCaptionDrag(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = ReleaseCapture();
+        _ = SendMessage(handle, WmNcLButtonDown, new IntPtr(HtCaption), IntPtr.Zero);
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -203,6 +217,12 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);

@@ -168,8 +168,20 @@ public sealed partial class AppController : IDisposable
 
         if (sourcePaper != null)
         {
-            newX = sourcePaper.X + 30;
-            newY = sourcePaper.Y + 30;
+            var sourceX = sourcePaper.X;
+            var sourceY = sourcePaper.Y;
+            if (_windows.TryGetValue(sourcePaper.Id, out var sourceWindow) &&
+                sourceWindow.IsVisible &&
+                !sourcePaper.IsCollapsed &&
+                !double.IsNaN(sourceWindow.Left) &&
+                !double.IsNaN(sourceWindow.Top))
+            {
+                sourceX = sourceWindow.Left;
+                sourceY = sourceWindow.Top;
+            }
+
+            newX = sourceX + 30;
+            newY = sourceY + 30;
         }
 
         while (State.Papers.Any(p => Math.Abs(p.X - newX) < 5 && Math.Abs(p.Y - newY) < 5))
@@ -288,7 +300,7 @@ public sealed partial class AppController : IDisposable
     private int NextTitleNumber(string paperType)
     {
         var normalizedType = paperType == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
-        var prefix = normalizedType == PaperTypes.Note ? "笔记" : "待办";
+        var prefix = PaperTitles.DefaultTitlePrefix(normalizedType);
         var usedNumbers = new HashSet<int>();
 
         foreach (var paper in State.Papers.Where(p => p.Type == normalizedType))
