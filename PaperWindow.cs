@@ -72,6 +72,8 @@ public sealed partial class PaperWindow : Window
     private Border? _appendArea;
     private Border? _linkedNoteDropRow;
     private bool _closeForReal;
+    // Tracks only the hidden owner that PaperTodo applies for window-switcher hiding.
+    private bool _windowSwitcherHiddenOwnerApplied;
     private string? _pendingFocusItemId;
     private readonly Dictionary<string, TodoTextBox> _todoEditors = new();
     private readonly List<Border> _todoRows = new();
@@ -665,7 +667,18 @@ public sealed partial class PaperWindow : Window
 
     public void UpdateWindowSwitcherVisibility()
     {
-        WindowNative.ApplyWindowSwitcherVisibility(this, !_controller.State.HidePapersFromWindowSwitcher);
+        if (_controller.State.HidePapersFromWindowSwitcher)
+        {
+            WindowNative.ApplyWindowSwitcherVisibility(this, visible: false);
+            _windowSwitcherHiddenOwnerApplied = true;
+            return;
+        }
+
+        if (_windowSwitcherHiddenOwnerApplied)
+        {
+            WindowNative.ApplyWindowSwitcherVisibility(this, visible: true);
+            _windowSwitcherHiddenOwnerApplied = false;
+        }
     }
 
     public void UpdateTaskbarVisibility(bool reapplyShellState = false)
