@@ -382,6 +382,8 @@ public sealed partial class PaperWindow
             Padding = new Thickness(2, metrics.TextVerticalPadding, 2, metrics.TextVerticalPadding),
             VerticalContentAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             AcceptsReturn = false,
             MaxLength = TodoTextMaxLength
         };

@@ -67,14 +67,22 @@ public sealed class TodoTextBox : TextBox
             return false;
         }
 
-        if (lineCount <= 0)
+        if (lineCount <= 1)
         {
             return false;
         }
 
         var text = Text ?? "";
-        var textLength = text.Length;
         var rightLimit = Math.Max(StrikeInset, ActualWidth - StrikeInset);
+        var firstLineRect = CharacterRectOrEmpty(0, trailingEdge: false);
+        if (!IsUsableRect(firstLineRect))
+        {
+            return false;
+        }
+
+        var dpiScaleY = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        var firstLineStrikeY = firstLineRect.Top + (firstLineRect.Height * StrikeVerticalRatio);
+        var lineAdvance = firstLineRect.Height;
         var drewAny = false;
 
         for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
@@ -91,49 +99,28 @@ public sealed class TodoTextBox : TextBox
                 continue;
             }
 
-            if (start < 0 || start > textLength)
+            if (start < 0 || start > text.Length)
             {
                 continue;
             }
 
-            var endExclusive = Math.Min(start + Math.Max(0, length), textLength);
+            var endExclusive = Math.Min(start + Math.Max(0, length), text.Length);
             while (endExclusive > start && IsLineBreak(text[endExclusive - 1]))
             {
                 endExclusive--;
             }
-
-            var startRect = CharacterRectOrEmpty(start, trailingEdge: false);
-            if (!IsUsableRect(startRect) && endExclusive > start)
-            {
-                startRect = CharacterRectOrEmpty(endExclusive - 1, trailingEdge: false);
-            }
-            if (!IsUsableRect(startRect))
+            if (endExclusive <= start)
             {
                 continue;
             }
 
-            var x1 = Math.Max(StrikeInset, startRect.Left + 1);
-            var x2 = rightLimit;
-            if (endExclusive > start)
-            {
-                var endRect = CharacterRectOrEmpty(endExclusive - 1, trailingEdge: true);
-                if (IsUsableRect(endRect))
-                {
-                    x2 = Math.Min(rightLimit, Math.Max(x1 + 8, endRect.Right - 1));
-                }
-            }
-            else
-            {
-                x2 = Math.Min(rightLimit, x1 + 24);
-            }
-
-            var y = startRect.Top + (startRect.Height * StrikeVerticalRatio);
-            if (x2 <= x1 + 1 || !IsFinite(y))
+            var y = SnapToDevicePixel(firstLineStrikeY + (lineIndex * lineAdvance), dpiScaleY);
+            if (rightLimit <= StrikeInset + 1 || !IsFinite(y))
             {
                 continue;
             }
 
-            drawingContext.DrawLine(pen, new Point(x1, y), new Point(x2, y));
+            drawingContext.DrawLine(pen, new Point(StrikeInset, y), new Point(rightLimit, y));
             drewAny = true;
         }
 
@@ -153,6 +140,9 @@ public sealed class TodoTextBox : TextBox
     }
 
     private static bool IsLineBreak(char c) => c is '\r' or '\n';
+
+    private static double SnapToDevicePixel(double value, double dpiScale) =>
+        dpiScale > 0 ? Math.Round(value * dpiScale) / dpiScale : value;
 
     private static bool IsUsableRect(Rect rect) =>
         !rect.IsEmpty &&
