@@ -1506,14 +1506,7 @@ public sealed partial class AppController : IDisposable
                 continue;
             }
 
-            if (member.IsCollapsed)
-            {
-                window.ApplyDeepCapsulePlacement(idx, animate: true, visualOffset, slotCount);
-            }
-            else
-            {
-                window.ApplyExpandedDeepCapsuleSlotPlacement(idx, animate: true, visualOffset, slotCount);
-            }
+            window.PreviewDeepCapsulePlacement(idx, visualOffset, slotCount);
         }
     }
 

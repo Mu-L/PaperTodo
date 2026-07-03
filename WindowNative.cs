@@ -193,6 +193,21 @@ internal static class WindowNative
         return false;
     }
 
+    public static bool TryGetWindowScreenBounds(Window window, out Rect bounds)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero && GetWindowRect(handle, out var nativeRect))
+        {
+            var topLeft = WindowWorkAreaHelper.DeviceScreenPointToDip(new Point(nativeRect.Left, nativeRect.Top));
+            var bottomRight = WindowWorkAreaHelper.DeviceScreenPointToDip(new Point(nativeRect.Right, nativeRect.Bottom));
+            bounds = new Rect(topLeft, bottomRight);
+            return true;
+        }
+
+        bounds = Rect.Empty;
+        return false;
+    }
+
     public static void BeginWindowCaptionDrag(Window window)
     {
         _ = TryBeginWindowCaptionDrag(window);
@@ -240,6 +255,9 @@ internal static class WindowNative
     private static extern bool GetCursorPos(out CursorPoint lpPoint);
 
     [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
@@ -268,5 +286,14 @@ internal static class WindowNative
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 }
