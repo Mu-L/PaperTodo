@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Text.RegularExpressions;
@@ -167,6 +166,8 @@ public sealed partial class PaperWindow : Window
     private bool _pendingTitleBarDrag;
     private Point _titleBarDragStart;
     private bool _pendingTitleEdit;
+    private Rect? _snappedPresentationBoundsForRestore;
+    private Rect? _collapsedFromSnappedBounds;
     private int _themeAnimationGeneration;
     private int _clearDoneGeneration;
     private int _todoRowsGeneration;
@@ -834,7 +835,25 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        _isSnappedPresentation = snapped;
+        if (snapped)
+        {
+            if (TryGetCurrentSnapTileBounds(out var bounds))
+            {
+                _snappedPresentationBoundsForRestore = bounds;
+            }
+
+            _isSnappedPresentation = true;
+            ApplyPaperChromePresentation();
+            SaveGeometryIfAllowed();
+            return;
+        }
+
+        if (IsVisible && !_paper.IsCollapsed && !_isApplyingCollapsedState && !_isTransitionVisualsActive)
+        {
+            _snappedPresentationBoundsForRestore = null;
+        }
+
+        _isSnappedPresentation = false;
         ApplyPaperChromePresentation();
     }
 
@@ -893,6 +912,12 @@ public sealed partial class PaperWindow : Window
             return false;
         }
 
+        if (WindowNative.TryGetVisibleFrameScreenBounds(this, out var visibleFrameRect) &&
+            TryGetSnapTileBounds(visibleFrameRect, workArea, out _))
+        {
+            return true;
+        }
+
         // WM_WINDOWPOSCHANGED arrives before WPF syncs Left/Top/Width/Height (that happens in
         // the WM_MOVE/WM_SIZE that DefWindowProc raises afterwards, and never while maximized),
         // so the DPs still hold the pre-snap rect here. Half/quarter snaps are a single
@@ -939,52 +964,179 @@ public sealed partial class PaperWindow : Window
 
     private static bool MatchesSnapTile(Rect rect, Rect workArea)
     {
+        return TryGetSnapTileBounds(rect, workArea, out _);
+    }
+
+    private bool TryGetCurrentSnapTileBounds(out Rect bounds)
+    {
+        bounds = Rect.Empty;
+        if (WindowState == WindowState.Minimized)
+        {
+            return false;
+        }
+
+        var workArea = WindowWorkAreaHelper.WorkAreaFor(this);
+        if (workArea.IsEmpty)
+        {
+            return false;
+        }
+
+        if (WindowState == WindowState.Maximized)
+        {
+            bounds = workArea;
+            return true;
+        }
+
+        if (WindowNative.TryGetVisibleFrameScreenBounds(this, out var visibleFrameRect) &&
+            TryGetSnapTileBounds(visibleFrameRect, workArea, out bounds))
+        {
+            return true;
+        }
+
+        if (!TryGetWindowRectDip(out var windowRect))
+        {
+            return false;
+        }
+
+        if (TryGetSnapTileBounds(windowRect, workArea, out bounds))
+        {
+            return true;
+        }
+
+        var chromeRect = new Rect(
+            windowRect.Left + WindowChromeMargin,
+            windowRect.Top + WindowChromeMargin,
+            Math.Max(0, windowRect.Width - WindowChromeInset),
+            Math.Max(0, windowRect.Height - WindowChromeInset));
+
+        return TryGetSnapTileBounds(chromeRect, workArea, out bounds);
+    }
+
+    internal bool TryGetSnappedPresentationBoundsForGeometrySave(out Rect bounds)
+    {
+        bounds = Rect.Empty;
+        if (!_paper.IsCollapsed &&
+            (_isSnappedPresentation || WindowState == WindowState.Maximized) &&
+            TryGetCurrentSnapTileBounds(out bounds))
+        {
+            _snappedPresentationBoundsForRestore = bounds;
+            return true;
+        }
+
+        return false;
+    }
+
+    internal bool TryGetRememberedSnapTileBoundsForRestore(out Rect bounds)
+    {
+        bounds = Rect.Empty;
+        if (_paper.IsCollapsed || _snappedPresentationBoundsForRestore is not Rect remembered)
+        {
+            return false;
+        }
+
+        var workArea = WindowWorkAreaHelper.WorkAreaFor(remembered);
+        return TryGetSnapTileBounds(remembered, workArea, out bounds);
+    }
+
+    internal void RestoreSnapTilePresentation(Rect visibleTarget)
+    {
+        if (_paper.IsCollapsed)
+        {
+            return;
+        }
+
+        _isSnappedPresentation = true;
+        _snappedPresentationBoundsForRestore = visibleTarget;
+        ApplyPaperChromePresentation();
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Left = RoundToDevicePixelX(visibleTarget.Left);
+            Top = RoundToDevicePixelY(visibleTarget.Top);
+            Width = RoundToDevicePixelX(Math.Max(MinWidth, visibleTarget.Width));
+            Height = RoundToDevicePixelY(Math.Max(MinHeight, visibleTarget.Height));
+        });
+        UpdateLayout();
+        AlignVisibleFrameToBounds(visibleTarget);
+        _isSnappedPresentation = true;
+        ApplyPaperChromePresentation();
+    }
+
+    internal void AlignVisibleFrameToBounds(Rect visibleTarget)
+    {
+        if (!WindowNative.TryGetVisibleFrameScreenBounds(this, out var visibleBounds) ||
+            visibleBounds.IsEmpty)
+        {
+            return;
+        }
+
+        var dx = visibleTarget.Left - visibleBounds.Left;
+        var dy = visibleTarget.Top - visibleBounds.Top;
+        var dw = visibleTarget.Width - visibleBounds.Width;
+        var dh = visibleTarget.Height - visibleBounds.Height;
+        if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5 && Math.Abs(dw) < 0.5 && Math.Abs(dh) < 0.5)
+        {
+            return;
+        }
+
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Left = RoundToDevicePixelX(Left + dx);
+            Top = RoundToDevicePixelY(Top + dy);
+            Width = RoundToDevicePixelX(Math.Max(MinWidth, Width + dw));
+            Height = RoundToDevicePixelY(Math.Max(MinHeight, Height + dh));
+        });
+        RefreshSnappedPresentation(forceApply: true);
+    }
+
+    private static bool TryGetSnapTileBounds(Rect rect, Rect workArea, out Rect bounds)
+    {
+        bounds = Rect.Empty;
         if (rect.IsEmpty || workArea.IsEmpty)
         {
             return false;
         }
 
-        // The OS may report the snapped outer transparent window or the inner visible paper
-        // bounds depending on the route (mouse snap / keyboard snap / maximize). Accept both
-        // by allowing the 8px transparent margin plus DPI and resize-grip rounding noise.
         const double tolerance = WindowChromeInset + 4.0;
-        var left = rect.Left;
-        var top = rect.Top;
-        var right = rect.Right;
-        var bottom = rect.Bottom;
         var wa = workArea;
-
-        bool nearLeft = Math.Abs(left - wa.Left) <= tolerance;
-        bool nearTop = Math.Abs(top - wa.Top) <= tolerance;
-        bool nearRight = Math.Abs(right - wa.Right) <= tolerance;
-        bool nearBottom = Math.Abs(bottom - wa.Bottom) <= tolerance;
+        bool nearLeft = Math.Abs(rect.Left - wa.Left) <= tolerance;
+        bool nearTop = Math.Abs(rect.Top - wa.Top) <= tolerance;
+        bool nearRight = Math.Abs(rect.Right - wa.Right) <= tolerance;
+        bool nearBottom = Math.Abs(rect.Bottom - wa.Bottom) <= tolerance;
 
         bool halfWidth = Math.Abs(rect.Width - wa.Width / 2) <= tolerance;
         bool halfHeight = Math.Abs(rect.Height - wa.Height / 2) <= tolerance;
         bool fullWidth = Math.Abs(rect.Width - wa.Width) <= tolerance;
         bool fullHeight = Math.Abs(rect.Height - wa.Height) <= tolerance;
 
-        // Top-edge snap / maximize: full monitor work area.
         if (fullWidth && fullHeight && nearLeft && nearTop && nearRight && nearBottom)
         {
+            bounds = wa;
             return true;
         }
 
-        // Half-screen snap: full height on one edge.
         if (fullHeight && nearTop && nearBottom && halfWidth && (nearLeft || nearRight))
         {
+            var left = nearLeft ? wa.Left : wa.Left + wa.Width / 2;
+            var right = nearLeft ? wa.Left + wa.Width / 2 : wa.Right;
+            bounds = new Rect(new Point(left, wa.Top), new Point(right, wa.Bottom));
             return true;
         }
 
-        // Vertical half snap (Win+Up/Down half): full width, half height.
         if (fullWidth && nearLeft && nearRight && halfHeight && (nearTop || nearBottom))
         {
+            var top = nearTop ? wa.Top : wa.Top + wa.Height / 2;
+            var bottom = nearTop ? wa.Top + wa.Height / 2 : wa.Bottom;
+            bounds = new Rect(new Point(wa.Left, top), new Point(wa.Right, bottom));
             return true;
         }
 
-        // Quarter snap: half width + half height, touching a corner.
         if (halfWidth && halfHeight && (nearLeft || nearRight) && (nearTop || nearBottom))
         {
+            var left = nearLeft ? wa.Left : wa.Left + wa.Width / 2;
+            var right = nearLeft ? wa.Left + wa.Width / 2 : wa.Right;
+            var top = nearTop ? wa.Top : wa.Top + wa.Height / 2;
+            var bottom = nearTop ? wa.Top + wa.Height / 2 : wa.Bottom;
+            bounds = new Rect(new Point(left, top), new Point(right, bottom));
             return true;
         }
 
@@ -2832,7 +2984,22 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
+        if (_isSnappedPresentation && !_paper.IsCollapsed)
+        {
+            return;
+        }
+
         _controller.UpdateGeometry(_paper, this);
+    }
+
+    internal void SaveGeometryForCurrentPresentation()
+    {
+        SaveGeometryIfAllowed();
+    }
+
+    internal void HideWithoutGeometrySave()
+    {
+        MoveWindowWithoutGeometrySave(Hide);
     }
 
     private void MoveWindowWithoutGeometrySave(Action move)

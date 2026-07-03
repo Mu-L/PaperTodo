@@ -1557,8 +1557,17 @@ public sealed partial class AppController
         window.CancelPendingVisibilityTransitions();
         window.DetachFromDeepCapsuleStack(animate: false);
 
-        window.Left = paper.X;
-        window.Top = paper.Y;
+        Rect? snapTileBounds = null;
+        if (!paper.IsCollapsed && window.TryGetRememberedSnapTileBoundsForRestore(out var rememberedSnapTileBounds))
+        {
+            snapTileBounds = rememberedSnapTileBounds;
+        }
+
+        var targetBounds = snapTileBounds is Rect snapTile
+            ? snapTile
+            : new Rect(paper.X, paper.Y, paper.Width, paper.Height);
+        window.Left = targetBounds.Left;
+        window.Top = targetBounds.Top;
         if (paper.IsCollapsed && State.UseCapsuleMode)
         {
             window.Width = window.DesiredCapsuleWindowWidth;
@@ -1566,14 +1575,28 @@ public sealed partial class AppController
         }
         else
         {
-            window.Width = paper.Width;
-            window.Height = paper.Height;
+            window.Width = targetBounds.Width;
+            window.Height = targetBounds.Height;
         }
 
-        window.Opacity = 1.0;
+        var restoreOpacity = window.Opacity > 0 ? window.Opacity : 1.0;
+        window.Opacity = snapTileBounds.HasValue ? 0.0 : restoreOpacity;
         if (!window.IsVisible)
         {
             window.Show();
+        }
+        if (snapTileBounds is Rect visibleTarget)
+        {
+            window.Dispatcher.InvokeAsync(() =>
+            {
+                if (!paper.IsVisible)
+                {
+                    return;
+                }
+
+                window.RestoreSnapTilePresentation(visibleTarget);
+                window.Opacity = restoreOpacity;
+            }, DispatcherPriority.Render);
         }
         window.RefreshEffectiveTopmost();
     }

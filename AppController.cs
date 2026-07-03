@@ -792,16 +792,24 @@ public sealed partial class AppController : IDisposable
         paper.IsVisible = true;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
         RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
+        Rect? snapTileBounds = null;
 
         var window = GetOrCreatePaperWindow(paper);
         window.CancelPendingVisibilityTransitions();
+        if (!paper.IsCollapsed && window.TryGetRememberedSnapTileBoundsForRestore(out var rememberedSnapTileBounds))
+        {
+            snapTileBounds = rememberedSnapTileBounds;
+        }
 
         var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
 
         if (!showAsDeepCapsuleOnly && !window.IsVisible)
         {
-            window.Left = paper.X;
-            window.Top = paper.Y;
+            var targetBounds = snapTileBounds is Rect snapTile
+                ? snapTile
+                : new Rect(paper.X, paper.Y, paper.Width, paper.Height);
+            window.Left = targetBounds.Left;
+            window.Top = targetBounds.Top;
             if (paper.IsCollapsed && State.UseCapsuleMode)
             {
                 window.Width = window.DesiredCapsuleWindowWidth;
@@ -809,10 +817,13 @@ public sealed partial class AppController : IDisposable
             }
             else
             {
-                window.Width = paper.Width;
-                window.Height = paper.Height;
+                window.Width = targetBounds.Width;
+                window.Height = targetBounds.Height;
             }
-            window.TryRestoreRememberedDeepCapsuleExpandedGeometry();
+            if (!snapTileBounds.HasValue && window.TryRestoreRememberedDeepCapsuleExpandedGeometry())
+            {
+                snapTileBounds = null;
+            }
             // To prevent a 1-frame DWM cache flash when a window's size changes while hidden,
             // we show it fully transparent first, then restore opacity after layout is complete.
             double originalOpacity = window.Opacity;
@@ -824,6 +835,11 @@ public sealed partial class AppController : IDisposable
                 if (!paper.IsVisible || !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion))
                 {
                     return;
+                }
+
+                if (snapTileBounds is Rect snapTile)
+                {
+                    window.RestoreSnapTilePresentation(snapTile);
                 }
 
                 // A retracted collapse-all capsule must stay at Opacity 0; restoring it here
@@ -1170,6 +1186,10 @@ public sealed partial class AppController : IDisposable
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             var saveGeometry = !window.IsDeepCapsulePlaced;
+            if (!paper.IsCollapsed && saveGeometry)
+            {
+                window.SaveGeometryForCurrentPresentation();
+            }
             window.DetachFromDeepCapsuleStack(animate: State.EnableAnimations);
 
             // 隐藏动画：淡出
@@ -1188,7 +1208,7 @@ public sealed partial class AppController : IDisposable
                         return;
                     }
 
-                    window.Hide();
+                    window.HideWithoutGeometrySave();
                     if (paper.IsCollapsed)
                     {
                         window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
@@ -1200,7 +1220,7 @@ public sealed partial class AppController : IDisposable
             {
                 window.BeginAnimation(Window.OpacityProperty, null);
                 window.Opacity = 1;
-                window.Hide();
+                window.HideWithoutGeometrySave();
                 if (paper.IsCollapsed)
                 {
                     window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
@@ -1263,7 +1283,7 @@ public sealed partial class AppController : IDisposable
             // capsule shows its own slot-host window that a reservation-only clear leaves on screen.
             var saveGeometry = !window.IsDeepCapsulePlaced;
             window.DetachFromDeepCapsuleStack();
-            window.Hide();
+            window.HideWithoutGeometrySave();
             window.SetCollapsedState(false, animate: false, saveGeometry: saveGeometry);
         }
 
@@ -1640,6 +1660,12 @@ public sealed partial class AppController : IDisposable
         }
 
         if (double.IsNaN(window.Left) || double.IsNaN(window.Top))
+        {
+            return;
+        }
+
+        if (window is PaperWindow paperWindow &&
+            paperWindow.TryGetSnappedPresentationBoundsForGeometrySave(out _))
         {
             return;
         }
@@ -2351,6 +2377,7 @@ public sealed partial class AppController : IDisposable
     private static bool RescuePaperIfOffScreen(PaperData paper, int offsetIndex)
     {
         var area = WorkAreaForPaper(paper);
+        var persistedSnapTile = LooksLikePersistedSnapTileGeometry(paper, area);
         var originalWidth = paper.Width;
         var originalHeight = paper.Height;
         paper.Width = ClampPaperDimension(
@@ -2365,6 +2392,12 @@ public sealed partial class AppController : IDisposable
             Math.Max(PaperLayoutDefaults.MinHeight, area.Height - 80));
         var resized = DimensionChanged(originalWidth, paper.Width) ||
             DimensionChanged(originalHeight, paper.Height);
+
+        if (persistedSnapTile)
+        {
+            PlacePaperInWorkArea(paper, area, offsetIndex);
+            return true;
+        }
 
         var clamped = ClampPaperToWorkArea(paper, area);
 
@@ -2449,6 +2482,37 @@ public sealed partial class AppController : IDisposable
 
         paper.X = Math.Round(Math.Clamp(area.Left + margin + offset, minX, maxX));
         paper.Y = Math.Round(Math.Clamp(area.Top + margin + offset, minY, maxY));
+    }
+
+    private static bool LooksLikePersistedSnapTileGeometry(PaperData paper, Rect area)
+    {
+        if (!IsFinite(paper.X) ||
+            !IsFinite(paper.Y) ||
+            !IsFinite(paper.Width) ||
+            !IsFinite(paper.Height) ||
+            paper.Width <= 0 ||
+            paper.Height <= 0 ||
+            area.Width <= 0 ||
+            area.Height <= 0)
+        {
+            return false;
+        }
+
+        const double tolerance = 1.0;
+        var rect = new Rect(paper.X, paper.Y, paper.Width, paper.Height);
+        bool nearLeft = Math.Abs(rect.Left - area.Left) <= tolerance;
+        bool nearTop = Math.Abs(rect.Top - area.Top) <= tolerance;
+        bool nearRight = Math.Abs(rect.Right - area.Right) <= tolerance;
+        bool nearBottom = Math.Abs(rect.Bottom - area.Bottom) <= tolerance;
+        bool halfWidth = Math.Abs(rect.Width - area.Width / 2) <= tolerance;
+        bool halfHeight = Math.Abs(rect.Height - area.Height / 2) <= tolerance;
+        bool fullWidth = Math.Abs(rect.Width - area.Width) <= tolerance;
+        bool fullHeight = Math.Abs(rect.Height - area.Height) <= tolerance;
+
+        return (fullWidth && fullHeight && nearLeft && nearTop && nearRight && nearBottom) ||
+            (fullHeight && halfWidth && nearTop && nearBottom && (nearLeft || nearRight)) ||
+            (fullWidth && halfHeight && nearLeft && nearRight && (nearTop || nearBottom)) ||
+            (halfWidth && halfHeight && (nearLeft || nearRight) && (nearTop || nearBottom));
     }
 
     private static bool IsFinite(double value)

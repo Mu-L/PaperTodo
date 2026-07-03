@@ -27,6 +27,7 @@ internal static class WindowNative
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpHideWindow = 0x0080;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private const int DwmWaExtendedFrameBounds = 9;
 
     // A tiny off-screen TOOLWINDOW that serves as the native owner for papers hidden from
     // Alt+Tab. Owned top-level windows do not appear in the window switcher, so setting
@@ -208,6 +209,32 @@ internal static class WindowNative
         return false;
     }
 
+    public static bool TryGetVisibleFrameScreenBounds(Window window, out Rect bounds)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero &&
+            DwmGetWindowAttribute(handle, DwmWaExtendedFrameBounds, out var nativeRect, Marshal.SizeOf<NativeRect>()) == 0)
+        {
+            var topLeft = DevicePointToWindowDip(window, new Point(nativeRect.Left, nativeRect.Top));
+            var bottomRight = DevicePointToWindowDip(window, new Point(nativeRect.Right, nativeRect.Bottom));
+            bounds = new Rect(topLeft, bottomRight);
+            return true;
+        }
+
+        bounds = Rect.Empty;
+        return false;
+    }
+
+    private static Point DevicePointToWindowDip(Window window, Point point)
+    {
+        if (PresentationSource.FromVisual(window)?.CompositionTarget is { } target)
+        {
+            return target.TransformFromDevice.Transform(point);
+        }
+
+        return WindowWorkAreaHelper.DeviceScreenPointToDip(point);
+    }
+
     public static void BeginWindowCaptionDrag(Window window)
     {
         _ = TryBeginWindowCaptionDrag(window);
@@ -256,6 +283,13 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        out NativeRect pvAttribute,
+        int cbAttribute);
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();

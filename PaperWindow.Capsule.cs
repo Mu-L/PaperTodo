@@ -315,6 +315,7 @@ public sealed partial class PaperWindow
 
                 try
                 {
+                    _collapsedFromSnappedBounds = null;
                     DragMove();
                 }
                 catch (InvalidOperationException)
@@ -467,12 +468,33 @@ public sealed partial class PaperWindow
 
         _isApplyingCollapsedState = true;
         var transitionGeneration = ++_collapseTransitionGeneration;
+        var shouldRestoreCollapseStartPosition = collapsed &&
+            IsVisible &&
+            WindowState == WindowState.Normal &&
+            IsFiniteWindowCoordinate(Left) &&
+            IsFiniteWindowCoordinate(Top);
+        var collapseStartLeft = shouldRestoreCollapseStartPosition ? Left : 0;
+        var collapseStartTop = shouldRestoreCollapseStartPosition ? Top : 0;
 
         var capsuleWidth = CapsuleWindowWidth();
         double targetWidth = collapsed ? capsuleWidth : _paper.Width;
         double targetHeight = collapsed ? PaperLayoutDefaults.CapsuleHeight : _paper.Height;
         var usesDeepCapsuleMode = _paper.IsVisible && _controller.State.UseCapsuleMode && _controller.State.UseDeepCapsuleMode;
         var arrangeDeepCapsulesAfterCollapse = collapsed && usesDeepCapsuleMode;
+        Rect? restoreSnappedBounds = null;
+        if (collapsed)
+        {
+            var shouldRestoreSnapAfterExpand = _isSnappedPresentation || WindowState == WindowState.Maximized;
+            _collapsedFromSnappedBounds = shouldRestoreSnapAfterExpand && TryGetCurrentSnapTileBounds(out var snappedBounds)
+                ? snappedBounds
+                : null;
+        }
+        else if (_collapsedFromSnappedBounds is Rect snappedBounds)
+        {
+            restoreSnappedBounds = snappedBounds;
+            targetWidth = snappedBounds.Width;
+            targetHeight = snappedBounds.Height;
+        }
 
         var wasDeepCapsulePlaced = HasDeepCapsuleSlotPlacement;
         var expandingFromDeepCapsuleEdge = !collapsed && usesDeepCapsuleMode && wasDeepCapsulePlaced;
@@ -487,7 +509,8 @@ public sealed partial class PaperWindow
             && ExpandedFromDeepCapsuleEdge
             && !_controller.State.ShowDeepCapsuleWhileExpanded;
         Rect? rememberedDeepCapsuleExpandedGeometry = null;
-        if (expandingFromDeepCapsuleEdge &&
+        if (restoreSnappedBounds is null &&
+            expandingFromDeepCapsuleEdge &&
             _controller.TryGetRememberedDeepCapsuleExpandedGeometry(_paper, targetWidth, targetHeight, out var rememberedGeometry))
         {
             rememberedDeepCapsuleExpandedGeometry = rememberedGeometry;
@@ -508,7 +531,15 @@ public sealed partial class PaperWindow
             }
             SetDeepCapsuleSlotState(keepDeepCapsuleSlotReservation ? DeepCapsuleSlotState.ExpandedReserved : DeepCapsuleSlotState.None);
             SetDeepCapsuleVisualState(keepDeepCapsuleSlotReservation ? DeepCapsuleVisualState.Active : DeepCapsuleVisualState.Resting);
-            if (alignExpandedToDockedEdge || expandingFromDeepCapsuleEdge)
+            if (restoreSnappedBounds is Rect snappedRect)
+            {
+                MoveWindowWithoutGeometrySave(() =>
+                {
+                    Left = RoundToDevicePixelX(snappedRect.Left);
+                    Top = RoundToDevicePixelY(snappedRect.Top);
+                });
+            }
+            else if (alignExpandedToDockedEdge || expandingFromDeepCapsuleEdge)
             {
                 var requiredEdgeInset = keepDeepCapsuleSlotReservation
                     ? ExpandedDeepCapsuleVisibleWidth() + DeepCapsuleGap
@@ -535,7 +566,7 @@ public sealed partial class PaperWindow
         {
             if (_deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved)
             {
-                SetDeepCapsuleSlotState(DeepCapsuleSlotState.None);
+                SetDeepCapsuleSlotState(DeepCapsuleSlotState.CollapsedDocked);
             }
             if (usesDeepCapsuleMode && !wasDeepCapsulePlaced && !returningToHiddenDeepCapsuleSlot)
             {
@@ -568,6 +599,7 @@ public sealed partial class PaperWindow
         // null Effect (snap suppression) can't make the local `is DropShadowEffect` update
         // silently no-op and leave the wrong shadow parameters on the capsule/expanded form.
         ApplyPaperChromePresentation();
+        RestoreCollapseStartPositionIfNeeded(shouldRestoreCollapseStartPosition, collapseStartLeft, collapseStartTop);
 
         if (animate)
         {
@@ -720,6 +752,10 @@ public sealed partial class PaperWindow
                     SetDeepCapsuleOpenOrigin(DeepCapsuleOpenOrigin.Normal);
                     HideMainWindowForDeepCapsuleRest();
                 }
+                if (!collapsed)
+                {
+                    _collapsedFromSnappedBounds = null;
+                }
             };
 
             BeginAnimation(TransitionProgressProperty, progressAnim);
@@ -776,6 +812,10 @@ public sealed partial class PaperWindow
                 SetDeepCapsuleOpenOrigin(DeepCapsuleOpenOrigin.Normal);
                 HideMainWindowForDeepCapsuleRest();
             }
+            if (!collapsed)
+            {
+                _collapsedFromSnappedBounds = null;
+            }
         }
 
         _paperChrome.ContextMenu = BuildPaperContextMenu();
@@ -783,6 +823,34 @@ public sealed partial class PaperWindow
         {
             _controller.RefreshTodoRowsForLinkedNote(_paper.Id);
         }
+    }
+
+    private void RestoreCollapseStartPositionIfNeeded(bool shouldRestore, double startLeft, double startTop)
+    {
+        if (!shouldRestore ||
+            !IsFiniteWindowCoordinate(Left) ||
+            !IsFiniteWindowCoordinate(Top))
+        {
+            return;
+        }
+
+        const double tolerance = 0.5;
+        if (Math.Abs(Left - startLeft) <= tolerance &&
+            Math.Abs(Top - startTop) <= tolerance)
+        {
+            return;
+        }
+
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            Left = startLeft;
+            Top = startTop;
+        });
+    }
+
+    private static bool IsFiniteWindowCoordinate(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 
 }

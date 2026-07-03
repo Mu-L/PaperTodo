@@ -418,7 +418,7 @@ public sealed partial class PaperWindow
 
         BeginAnimation(Window.OpacityProperty, null);
         Opacity = 1.0;
-        Hide();
+        HideWithoutGeometrySave();
     }
 
     internal void HideMainWindowForDeepCapsuleMode()
