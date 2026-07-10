@@ -171,6 +171,10 @@ public sealed partial class PaperWindow
         box.ImageImportFailed += ShowNoteImageImportFailure;
 
         host.Children.Add(box);
+        var isPreviewing = false;
+        var isEnteringEditorFromPreview = false;
+        var isInteractingWithImage = false;
+        var isOpeningImagePicker = false;
         var editorMenu = CreateContextMenu();
         editorMenu.Items.Add(MenuHeader(Strings.Get("MenuFormat")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuBold"), (_, _) => box.WrapSelection("**", "**")));
@@ -181,7 +185,19 @@ public sealed partial class PaperWindow
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuList"), (_, _) => box.InsertLinePrefix("- ")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuCodeBlock"), (_, _) => box.WrapSelection("```\n", "\n```")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuInsertLink"), (_, _) => box.InsertMarkdownLink()));
-        editorMenu.Items.Add(MenuItem(Strings.Get("MenuInsertImage"), (_, _) => InsertImageFromFilePicker(box)));
+        editorMenu.Items.Add(MenuItem(Strings.Get("MenuInsertImage"), (_, _) =>
+        {
+            isOpeningImagePicker = true;
+            try
+            {
+                InsertImageFromFilePicker(box);
+            }
+            finally
+            {
+                isOpeningImagePicker = false;
+                ShowEditor();
+            }
+        }));
         editorMenu.Items.Add(MenuSeparator());
         editorMenu.Items.Add(MenuHeader(Strings.Get("MenuText")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuCopy"), (_, _) => box.Copy()));
@@ -189,10 +205,6 @@ public sealed partial class PaperWindow
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuSelectAll"), (_, _) => box.SelectAll()));
 
         var previewMenu = BuildPaperContextMenu();
-        var isPreviewing = false;
-        var isEnteringEditorFromPreview = false;
-        var isInteractingWithImage = false;
-
         void ShowPreview()
         {
             TraceNoteRender($"ShowPreview before isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
@@ -222,11 +234,12 @@ public sealed partial class PaperWindow
         void ShowEditorAtPreviewPoint(Point previewPoint, DependencyObject? originalSource = null)
         {
             TraceNoteRender($"ShowEditorAtPreviewPoint x={previewPoint.X:F1} y={previewPoint.Y:F1}");
-            var hasPreviewCaret = box.TryGetImageCaretFromSource(originalSource, out var caretIndex);
-            if (!hasPreviewCaret)
+            var hasImageCaret = box.TryGetImageCaretFromSource(originalSource, out var caretIndex);
+            if (!hasImageCaret)
             {
-                hasPreviewCaret = box.TryGetImageCaretFromPoint(previewPoint, out caretIndex);
+                hasImageCaret = box.TryGetImageCaretFromPoint(previewPoint, out caretIndex);
             }
+            var hasPreviewCaret = hasImageCaret;
             if (!hasPreviewCaret)
             {
                 hasPreviewCaret = box.TryGetCharacterIndexFromPoint(previewPoint, out caretIndex);
@@ -242,8 +255,15 @@ public sealed partial class PaperWindow
 
             if (hasPreviewCaret)
             {
-                box.CaretIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
-                box.SelectionLength = 0;
+                if (hasImageCaret)
+                {
+                    box.PlaceCaretAfterImage(caretIndex);
+                }
+                else
+                {
+                    box.CaretIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
+                    box.SelectionLength = 0;
+                }
             }
             TraceNoteRender($"ShowEditorAtPreviewPoint after hasCaret={hasPreviewCaret} caret={box.CaretIndex}");
             Dispatcher.BeginInvoke(
@@ -277,12 +297,11 @@ public sealed partial class PaperWindow
             }
 
             MarkImageInteraction();
-            box.CaretIndex = Math.Clamp(caretIndex, 0, box.Text.Length);
-            box.SelectionLength = 0;
             if (!box.IsKeyboardFocusWithin)
             {
                 box.Focus();
             }
+            box.PlaceCaretAfterImage(caretIndex);
 
             return true;
         }
@@ -310,7 +329,8 @@ public sealed partial class PaperWindow
             {
                 ShowEditorAtPreviewPoint(point, e.OriginalSource as DependencyObject);
             }
-            else if (box.TryGetCharacterIndexFromPoint(point, out var dropCaret))
+            else if (!TryPlaceCaretOnImage(point, e.OriginalSource as DependencyObject) &&
+                     box.TryGetCharacterIndexFromPoint(point, out var dropCaret))
             {
                 box.CaretIndex = dropCaret;
                 box.Select(dropCaret, 0);
@@ -390,6 +410,11 @@ public sealed partial class PaperWindow
                 TraceNoteRender($"LostKeyboardFocus ignored: entering editor isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
                 return;
             }
+            if (isOpeningImagePicker)
+            {
+                TraceNoteRender("LostKeyboardFocus ignored: image picker open");
+                return;
+            }
             if (isInteractingWithImage)
             {
                 TraceNoteRender($"LostKeyboardFocus ignored: image interaction isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
@@ -462,7 +487,10 @@ public sealed partial class PaperWindow
 
         editorMenu.Closed += (_, _) =>
         {
-            if (!isPreviewing && !box.IsFocused && !box.IsKeyboardFocusWithin)
+            if (!isOpeningImagePicker &&
+                !isPreviewing &&
+                !box.IsFocused &&
+                !box.IsKeyboardFocusWithin)
             {
                 ShowPreview();
             }

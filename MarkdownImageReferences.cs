@@ -26,6 +26,7 @@ public readonly record struct MarkdownImageWidthAttribute(double Value, bool IsP
 public static class MarkdownImageReferences
 {
     public const string UriPrefix = "i:";
+    // Legacy v2.2 render marker. New editors never create it; keep this only for migration cleanup.
     public const char RenderMarker = '\u2060';
     public const string RenderMarkerText = "\u2060";
 
@@ -93,9 +94,6 @@ public static class MarkdownImageReferences
 
         return ids;
     }
-
-    public static bool EndsWithRenderMarker(string line)
-        => line.Length > 0 && line[^1] == RenderMarker;
 
     public static bool IsRenderMarkerLine(string line)
         => string.Equals(line.Trim(), RenderMarkerText, StringComparison.Ordinal);
