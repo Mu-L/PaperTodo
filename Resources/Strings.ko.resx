@@ -608,4 +608,109 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
   <data name="Unpin" xml:space="preserve">
     <value>고정 해제</value>
   </data>
+  <data name="SettingsShortcuts" xml:space="preserve">
+    <value>바로 가기 키</value>
+  </data>
+  <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>가장자리 캡슐 제목 측정 글자 수</value>
+  </data>
+  <data name="TipDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>제목의 앞 N개 Unicode 텍스트 문자만 사용해 가장자리 캡슐 너비를 계산합니다. 제목 내용과 일반 캡슐은 바뀌지 않으며, “전체”는 기존 너비를 유지합니다.</value>
+  </data>
+  <data name="SettingsAllCharacters" xml:space="preserve">
+    <value>전체</value>
+  </data>
+  <data name="ShortcutCommandHeader" xml:space="preserve">
+    <value>명령</value>
+  </data>
+  <data name="ShortcutKeyHeader" xml:space="preserve">
+    <value>바로 가기</value>
+  </data>
+  <data name="ShortcutStatusHeader" xml:space="preserve">
+    <value>상태</value>
+  </data>
+  <data name="ShortcutRecording" xml:space="preserve">
+    <value>조합 키 입력</value>
+  </data>
+  <data name="ShortcutUnassigned" xml:space="preserve">
+    <value>설정 안 함</value>
+  </data>
+  <data name="ShortcutClear" xml:space="preserve">
+    <value>지우기</value>
+  </data>
+  <data name="ShortcutRestoreDefault" xml:space="preserve">
+    <value>기본값 복원</value>
+  </data>
+  <data name="ShortcutRestoreAll" xml:space="preserve">
+    <value>모두 기본값 복원</value>
+  </data>
+  <data name="ShortcutSave" xml:space="preserve">
+    <value>바로 가기 저장</value>
+  </data>
+  <data name="ShortcutStatusUnassigned" xml:space="preserve">
+    <value>설정 안 함</value>
+  </data>
+  <data name="ShortcutStatusRegistered" xml:space="preserve">
+    <value>등록됨</value>
+  </data>
+  <data name="ShortcutStatusDuplicate" xml:space="preserve">
+    <value>앱 내부 중복</value>
+  </data>
+  <data name="ShortcutStatusSystemOccupied" xml:space="preserve">
+    <value>시스템에서 사용 중</value>
+  </data>
+  <data name="ShortcutStatusRegistrationFailed" xml:space="preserve">
+    <value>등록 실패</value>
+  </data>
+  <data name="ShortcutStatusPendingSave" xml:space="preserve">
+    <value>저장 안 됨</value>
+  </data>
+  <data name="ShortcutStatusPendingBehavior" xml:space="preserve">
+    <value>순서 규칙 대기</value>
+  </data>
+  <data name="ShortcutShowAll" xml:space="preserve">
+    <value>모든 종이 표시</value>
+  </data>
+  <data name="ShortcutHideAll" xml:space="preserve">
+    <value>모든 종이 숨기기</value>
+  </data>
+  <data name="ShortcutToggleVisibility" xml:space="preserve">
+    <value>종이 표시 전환</value>
+  </data>
+  <data name="ShortcutNewTodo" xml:space="preserve">
+    <value>할 일 종이 만들기</value>
+  </data>
+  <data name="ShortcutNewNote" xml:space="preserve">
+    <value>메모 종이 만들기</value>
+  </data>
+  <data name="ShortcutExit" xml:space="preserve">
+    <value>PaperTodo 종료</value>
+  </data>
+  <data name="ShortcutEdgeSequence1" xml:space="preserve">
+    <value>가장자리 순서 1</value>
+  </data>
+  <data name="ShortcutEdgeSequence2" xml:space="preserve">
+    <value>가장자리 순서 2</value>
+  </data>
+  <data name="ShortcutEdgeSequence3" xml:space="preserve">
+    <value>가장자리 순서 3</value>
+  </data>
+  <data name="ShortcutEdgeSequence4" xml:space="preserve">
+    <value>가장자리 순서 4</value>
+  </data>
+  <data name="ShortcutEdgeSequence5" xml:space="preserve">
+    <value>가장자리 순서 5</value>
+  </data>
+  <data name="ShortcutEdgeSequence6" xml:space="preserve">
+    <value>가장자리 순서 6</value>
+  </data>
+  <data name="ShortcutEdgeSequence7" xml:space="preserve">
+    <value>가장자리 순서 7</value>
+  </data>
+  <data name="ShortcutEdgeSequence8" xml:space="preserve">
+    <value>가장자리 순서 8</value>
+  </data>
+  <data name="ShortcutEdgeSequence9" xml:space="preserve">
+    <value>가장자리 순서 9</value>
+  </data>
 </root>

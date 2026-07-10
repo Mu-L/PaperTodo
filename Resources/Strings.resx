@@ -621,4 +621,109 @@
   <data name="Unpin" xml:space="preserve">
     <value>取消置顶</value>
   </data>
+  <data name="SettingsShortcuts" xml:space="preserve">
+    <value>快捷键</value>
+  </data>
+  <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>边缘胶囊标题测量字符数</value>
+  </data>
+  <data name="TipDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>仅用标题前 N 个 Unicode 文本字符计算边缘胶囊宽度；标题内容不会截断，普通胶囊不受影响。选择“全部”时保持原有宽度。</value>
+  </data>
+  <data name="SettingsAllCharacters" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="ShortcutCommandHeader" xml:space="preserve">
+    <value>命令</value>
+  </data>
+  <data name="ShortcutKeyHeader" xml:space="preserve">
+    <value>快捷键</value>
+  </data>
+  <data name="ShortcutStatusHeader" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="ShortcutRecording" xml:space="preserve">
+    <value>按下组合键</value>
+  </data>
+  <data name="ShortcutUnassigned" xml:space="preserve">
+    <value>未设置</value>
+  </data>
+  <data name="ShortcutClear" xml:space="preserve">
+    <value>清空</value>
+  </data>
+  <data name="ShortcutRestoreDefault" xml:space="preserve">
+    <value>恢复默认</value>
+  </data>
+  <data name="ShortcutRestoreAll" xml:space="preserve">
+    <value>全部恢复默认</value>
+  </data>
+  <data name="ShortcutSave" xml:space="preserve">
+    <value>保存快捷键</value>
+  </data>
+  <data name="ShortcutStatusUnassigned" xml:space="preserve">
+    <value>未设置</value>
+  </data>
+  <data name="ShortcutStatusRegistered" xml:space="preserve">
+    <value>已注册</value>
+  </data>
+  <data name="ShortcutStatusDuplicate" xml:space="preserve">
+    <value>应用内重复</value>
+  </data>
+  <data name="ShortcutStatusSystemOccupied" xml:space="preserve">
+    <value>系统占用</value>
+  </data>
+  <data name="ShortcutStatusRegistrationFailed" xml:space="preserve">
+    <value>注册失败</value>
+  </data>
+  <data name="ShortcutStatusPendingSave" xml:space="preserve">
+    <value>待保存</value>
+  </data>
+  <data name="ShortcutStatusPendingBehavior" xml:space="preserve">
+    <value>等待序列规则</value>
+  </data>
+  <data name="ShortcutShowAll" xml:space="preserve">
+    <value>显示全部纸片</value>
+  </data>
+  <data name="ShortcutHideAll" xml:space="preserve">
+    <value>隐藏全部纸片</value>
+  </data>
+  <data name="ShortcutToggleVisibility" xml:space="preserve">
+    <value>切换纸片显隐</value>
+  </data>
+  <data name="ShortcutNewTodo" xml:space="preserve">
+    <value>新建待办纸</value>
+  </data>
+  <data name="ShortcutNewNote" xml:space="preserve">
+    <value>新建笔记纸</value>
+  </data>
+  <data name="ShortcutExit" xml:space="preserve">
+    <value>退出 PaperTodo</value>
+  </data>
+  <data name="ShortcutEdgeSequence1" xml:space="preserve">
+    <value>边缘序列 1</value>
+  </data>
+  <data name="ShortcutEdgeSequence2" xml:space="preserve">
+    <value>边缘序列 2</value>
+  </data>
+  <data name="ShortcutEdgeSequence3" xml:space="preserve">
+    <value>边缘序列 3</value>
+  </data>
+  <data name="ShortcutEdgeSequence4" xml:space="preserve">
+    <value>边缘序列 4</value>
+  </data>
+  <data name="ShortcutEdgeSequence5" xml:space="preserve">
+    <value>边缘序列 5</value>
+  </data>
+  <data name="ShortcutEdgeSequence6" xml:space="preserve">
+    <value>边缘序列 6</value>
+  </data>
+  <data name="ShortcutEdgeSequence7" xml:space="preserve">
+    <value>边缘序列 7</value>
+  </data>
+  <data name="ShortcutEdgeSequence8" xml:space="preserve">
+    <value>边缘序列 8</value>
+  </data>
+  <data name="ShortcutEdgeSequence9" xml:space="preserve">
+    <value>边缘序列 9</value>
+  </data>
 </root>

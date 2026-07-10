@@ -1,6 +1,7 @@
 using System.IO;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
@@ -233,22 +234,14 @@ public sealed class NoteImageStore
         }
     }
 
-    public string ConvertMarkdownForExternalEditor(string noteId, string markdown, string imageDirectory)
+    public string ConvertMarkdownForExternalEditor(
+        string noteId,
+        string markdown,
+        string imageDirectory,
+        string allowedRootDirectory)
     {
-        if (string.IsNullOrEmpty(markdown))
-        {
-            return markdown;
-        }
-
-        try
-        {
-            if (Directory.Exists(imageDirectory))
-            {
-                Directory.Delete(imageDirectory, recursive: true);
-            }
-            Directory.CreateDirectory(imageDirectory);
-        }
-        catch
+        if (string.IsNullOrEmpty(markdown) ||
+            !TryPrepareImageDirectory(imageDirectory, allowedRootDirectory, out var safeImageDirectory))
         {
             return markdown;
         }
@@ -275,16 +268,152 @@ public sealed class NoteImageStore
 
                 var extension = ExtensionFromMime(asset.Mime);
                 var fileName = $"{asset.Id}{extension}";
-                var fullPath = Path.Combine(imageDirectory, fileName);
+                var fullPath = Path.Combine(safeImageDirectory, fileName);
                 if (!TryWriteImageFile(asset.Id, fullPath))
                 {
                     return null;
                 }
 
-                var relative = "./" + Path.GetFileName(imageDirectory) + "/" + fileName;
+                var relative = "./" + Path.GetFileName(safeImageDirectory) + "/" + fileName;
                 exported[imageId] = relative;
                 return relative;
             });
+    }
+
+    public string CloneForeignImageReferencesForNote(string noteId, string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(noteId) || string.IsNullOrEmpty(markdown))
+        {
+            return markdown;
+        }
+
+        var references = MarkdownImageReferences.Enumerate(markdown).ToList();
+        if (references.Count == 0)
+        {
+            return markdown;
+        }
+
+        lock (_gate)
+        {
+            var foreignAssets = references
+                .Select(reference => reference.ImageId)
+                .Distinct(StringComparer.Ordinal)
+                .Select(imageId => _images.GetValueOrDefault(imageId))
+                .Where(asset => asset != null &&
+                    !string.Equals(asset.NoteId, noteId, StringComparison.Ordinal))
+                .Cast<NoteImageAsset>()
+                .ToList();
+            if (foreignAssets.Count == 0)
+            {
+                return markdown;
+            }
+
+            if (_writeDisabled)
+            {
+                throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
+            }
+
+            var additionalBytes = foreignAssets.Sum(EstimatedDecodedLength);
+            var currentBytes = _images.Values.Sum(EstimatedDecodedLength);
+            if ((long)currentBytes + additionalBytes > MaxTotalImageBytes)
+            {
+                throw new InvalidDataException(Strings.Format("ImageImportTotalTooLarge", MaxTotalImageBytes / 1024 / 1024));
+            }
+
+            var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+            var addedIds = new List<string>();
+            try
+            {
+                foreach (var source in foreignAssets)
+                {
+                    var clone = new NoteImageAsset
+                    {
+                        Id = AllocateImageIdLocked(),
+                        NoteId = noteId,
+                        Mime = source.Mime,
+                        Width = source.Width,
+                        Height = source.Height,
+                        Sha256 = source.Sha256,
+                        Base64 = source.Base64,
+                        OriginalName = source.OriginalName,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    };
+                    _images[clone.Id] = clone;
+                    addedIds.Add(clone.Id);
+                    replacements[source.Id] = clone.Id;
+                }
+
+                var rewritten = ReplaceImageReferenceIds(markdown, replacements);
+                SaveLocked();
+                return rewritten;
+            }
+            catch
+            {
+                foreach (var imageId in addedIds)
+                {
+                    RemoveImageLocked(imageId, reserveIdUntilRestart: false);
+                }
+                throw;
+            }
+        }
+    }
+
+    private static bool TryPrepareImageDirectory(
+        string imageDirectory,
+        string allowedRootDirectory,
+        out string safeImageDirectory)
+    {
+        safeImageDirectory = "";
+        try
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(allowedRootDirectory));
+            var candidate = Path.GetFullPath(imageDirectory);
+            var rootPrefix = root + Path.DirectorySeparatorChar;
+            if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            Directory.CreateDirectory(root);
+            if (Directory.Exists(candidate))
+            {
+                var attributes = File.GetAttributes(candidate);
+                var recursive = (attributes & FileAttributes.ReparsePoint) == 0;
+                Directory.Delete(candidate, recursive);
+            }
+            Directory.CreateDirectory(candidate);
+            safeImageDirectory = candidate;
+            return true;
+        }
+        catch
+        {
+            safeImageDirectory = "";
+            return false;
+        }
+    }
+
+    private static string ReplaceImageReferenceIds(
+        string markdown,
+        IReadOnlyDictionary<string, string> replacements)
+    {
+        if (replacements.Count == 0)
+        {
+            return markdown;
+        }
+
+        var builder = new StringBuilder(markdown.Length);
+        var cursor = 0;
+        foreach (var reference in MarkdownImageReferences.Enumerate(markdown))
+        {
+            builder.Append(markdown, cursor, reference.LineStart - cursor);
+            builder.Append(replacements.TryGetValue(reference.ImageId, out var replacementId)
+                ? reference.WithUrl(MarkdownImageReferences.UriPrefix + replacementId)
+                : markdown.Substring(reference.LineStart, reference.LineLength));
+            cursor = reference.LineStart + reference.LineLength;
+        }
+
+        builder.Append(markdown, cursor, markdown.Length - cursor);
+        return builder.ToString();
     }
 
     public void TrackReferences(AppState state, bool reserveRemovedIdsUntilRestart = true)
@@ -575,18 +704,50 @@ public sealed class NoteImageStore
         {
             var json = File.ReadAllText(path);
             var file = JsonSerializer.Deserialize<NoteImageStoreFile>(json, JsonOptions);
-            if (file?.Images == null)
+            if (file?.Images == null || file.Version != StoreVersion)
             {
                 return false;
             }
 
-            images = file.Images;
-            return true;
+            return TryValidateImages(file.Images, out images);
         }
         catch
         {
+            images.Clear();
             return false;
         }
+    }
+
+    private static bool TryValidateImages(
+        IEnumerable<NoteImageAsset> source,
+        out List<NoteImageAsset> images)
+    {
+        images = new List<NoteImageAsset>();
+        var usedIds = new HashSet<string>(StringComparer.Ordinal);
+        long totalBytes = 0;
+        foreach (var asset in source)
+        {
+            if (!TryValidateAsset(asset, out var bytes, out var width, out var height) ||
+                !usedIds.Add(asset.Id))
+            {
+                images.Clear();
+                return false;
+            }
+
+            totalBytes += bytes.Length;
+            if (totalBytes > MaxTotalImageBytes)
+            {
+                images.Clear();
+                return false;
+            }
+
+            asset.Mime = NormalizeMime(asset.Mime);
+            asset.Width = width;
+            asset.Height = height;
+            images.Add(asset);
+        }
+
+        return true;
     }
 
     private void ReplaceImages(IEnumerable<NoteImageAsset> images)
@@ -594,15 +755,7 @@ public sealed class NoteImageStore
         _images.Clear();
         foreach (var asset in images)
         {
-            if (!IsValidAsset(asset) || _images.ContainsKey(asset.Id))
-            {
-                continue;
-            }
-
-            asset.Mime = NormalizeMime(asset.Mime);
-            asset.Width = Math.Max(1, asset.Width);
-            asset.Height = Math.Max(1, asset.Height);
-            _images[asset.Id] = asset;
+            _images.Add(asset.Id, asset);
         }
     }
 
@@ -620,23 +773,42 @@ public sealed class NoteImageStore
         }
     }
 
-    private static bool IsValidAsset(NoteImageAsset asset)
+    private static bool TryValidateAsset(
+        NoteImageAsset asset,
+        out byte[] bytes,
+        out int width,
+        out int height)
     {
+        bytes = Array.Empty<byte>();
+        width = 0;
+        height = 0;
         if (asset == null ||
-            string.IsNullOrWhiteSpace(asset.Id) ||
+            !MarkdownImageReferences.IsValidImageId(asset.Id) ||
             string.IsNullOrWhiteSpace(asset.NoteId) ||
-            string.IsNullOrWhiteSpace(asset.Base64))
+            string.IsNullOrWhiteSpace(asset.Base64) ||
+            string.IsNullOrWhiteSpace(asset.Sha256))
         {
             return false;
         }
 
         try
         {
-            _ = Convert.FromBase64String(asset.Base64);
-            return true;
+            bytes = Convert.FromBase64String(asset.Base64);
+            if (bytes.Length is <= 0 or > MaxImageBytes ||
+                !TryReadBitmapInfo(bytes, out _, out width, out height) ||
+                Math.Max(width, height) > MaxStoredDimension)
+            {
+                return false;
+            }
+
+            var actualHash = Convert.ToHexString(SHA256.HashData(bytes));
+            return string.Equals(actualHash, asset.Sha256, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
+            bytes = Array.Empty<byte>();
+            width = 0;
+            height = 0;
             return false;
         }
     }

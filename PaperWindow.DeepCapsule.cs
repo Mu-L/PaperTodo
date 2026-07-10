@@ -881,6 +881,10 @@ public sealed partial class PaperWindow
             _deepCapsuleSlotContextMenu = menu;
             SetDeepCapsuleSlotContextMenuOpen(true);
             StartDeepCapsuleContextMenuGuards();
+            PromoteDeepCapsuleContextMenu(menu);
+            _ = menu.Dispatcher.BeginInvoke(
+                () => PromoteDeepCapsuleContextMenu(menu),
+                System.Windows.Threading.DispatcherPriority.Input);
         };
 
         menu.Closed += (_, _) =>
@@ -894,6 +898,14 @@ public sealed partial class PaperWindow
         };
 
         return menu;
+    }
+
+    private static void PromoteDeepCapsuleContextMenu(ContextMenu menu)
+    {
+        if (menu.IsOpen && PresentationSource.FromVisual(menu) is HwndSource source)
+        {
+            WindowNative.ApplyTopmostZOrder(source.Handle, topmost: true, insertAfter: IntPtr.Zero);
+        }
     }
 
     private void CloseDeepCapsuleSlotContextMenu()
@@ -1181,7 +1193,7 @@ public sealed partial class PaperWindow
             CapsuleLeftPadding +
             MeasureCapsuleIconWidth() +
             CapsuleIconGap +
-            MeasureCapsuleTitleWidth() +
+            MeasureCapsuleTitleWidth(limitForDeepCapsule: true) +
             CapsuleCloseWidth +
             CapsuleRightPadding);
         return Math.Max(PaperLayoutDefaults.CapsuleWidth, shellWidth + WindowChromeInset);
@@ -1491,7 +1503,7 @@ public sealed partial class PaperWindow
         // Resting edge-attached state is a docked tag, not a cropped full capsule. Keep the
         // close area fully off-screen and size the visible part to the icon + title only.
         return Math.Clamp(
-            WindowChromeMargin + CapsuleLeftPadding + MeasureCapsuleIconWidth() + CapsuleIconGap + MeasureCapsuleTitleWidth() + 4,
+            WindowChromeMargin + CapsuleLeftPadding + MeasureCapsuleIconWidth() + CapsuleIconGap + MeasureCapsuleTitleWidth(limitForDeepCapsule: true) + 4,
             34,
             Math.Max(34, capsuleWidth - WindowChromeMargin - 24));
     }

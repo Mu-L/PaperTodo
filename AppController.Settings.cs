@@ -450,6 +450,21 @@ public sealed partial class AppController
 
     private void ShowSettingsWindow()
     {
+        ShowSettingsWindow(SettingsPage.General);
+    }
+
+    private void ShowShortcutWindow()
+    {
+        ShowSettingsWindow(SettingsPage.Shortcuts);
+    }
+
+    private void ShowSettingsWindow(SettingsPage page)
+    {
+        _settingsPage = page;
+        if (page == SettingsPage.Shortcuts)
+        {
+            EnsureShortcutDraft();
+        }
         if (_trayMenu != null)
         {
             _trayMenu.IsOpen = false;
@@ -492,6 +507,7 @@ public sealed partial class AppController
             CommitExternalMarkdownExtension(textBox);
             Keyboard.ClearFocus();
         };
+        window.PreviewKeyDown += OnSettingsWindowPreviewKeyDown;
         window.Deactivated += (_, _) => CommitSettingsExternalMarkdownEditor();
         window.Closed += (_, _) =>
         {
@@ -505,6 +521,7 @@ public sealed partial class AppController
             _settingsRememberDeepCapsuleExpandedPositionCheckBox = null;
             _settingsCollapseExpandedDeepCapsuleOnClickCheckBox = null;
             _settingsCapsuleCollapseAllCheckBox = null;
+            DiscardShortcutDraft();
             _settingsWindow = null;
         };
         _settingsWindow = window;
@@ -523,6 +540,9 @@ public sealed partial class AppController
         }
 
         InvalidateSystemThemeCacheIfNeeded();
+        _settingsWindow.Title = _settingsPage == SettingsPage.Shortcuts
+            ? Strings.Get("SettingsShortcuts")
+            : Strings.Get("TraySettings");
         _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
         _settingsWindow.FontFamily = AppTypography.UiFontFamily;
         _settingsWindow.Language = AppTypography.Language;
@@ -560,6 +580,7 @@ public sealed partial class AppController
         };
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ChangedButton == MouseButton.Left)
@@ -570,7 +591,9 @@ public sealed partial class AppController
 
         var title = new TextBlock
         {
-            Text = Strings.Get("TraySettings"),
+            Text = _settingsPage == SettingsPage.Shortcuts
+                ? Strings.Get("SettingsShortcuts")
+                : Strings.Get("TraySettings"),
             Foreground = TrayTextBrush,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
@@ -578,6 +601,18 @@ public sealed partial class AppController
         };
         Grid.SetColumn(title, 0);
         titleRow.Children.Add(title);
+
+        var pageButton = SettingsTextButton(
+            _settingsPage == SettingsPage.Shortcuts
+                ? Strings.Get("TraySettings")
+                : Strings.Get("SettingsShortcuts"));
+        pageButton.Margin = new Thickness(0, 0, 8, 0);
+        pageButton.Click += (_, _) => ShowSettingsWindow(
+            _settingsPage == SettingsPage.Shortcuts
+                ? SettingsPage.General
+                : SettingsPage.Shortcuts);
+        Grid.SetColumn(pageButton, 1);
+        titleRow.Children.Add(pageButton);
 
         var closeButton = new Button
         {
@@ -595,11 +630,20 @@ public sealed partial class AppController
             Style = BuildSettingsCloseButtonStyle()
         };
         closeButton.Click += (_, _) => window.Close();
-        Grid.SetColumn(closeButton, 1);
+        Grid.SetColumn(closeButton, 2);
         titleRow.Children.Add(closeButton);
 
         DockPanel.SetDock(titleRow, Dock.Top);
         root.Children.Add(titleRow);
+
+        if (_settingsPage == SettingsPage.Shortcuts)
+        {
+            var shortcutFooter = BuildSettingsFooter();
+            DockPanel.SetDock(shortcutFooter, Dock.Bottom);
+            root.Children.Add(shortcutFooter);
+            root.Children.Add(BuildShortcutSettingsPage());
+            return WrapSettingsWindowContent(root);
+        }
 
         var columns = new Grid
         {
@@ -687,6 +731,8 @@ public sealed partial class AppController
         RefreshSettingsCapsuleToggleStates();
         rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
         rightColumn.Children.Add(CreateMaxTitleLengthStepper());
+        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"), topMargin: 8), "TipDeepCapsuleTitleMeasureLimit"));
+        rightColumn.Children.Add(CreateDeepCapsuleTitleMeasureLimitStepper());
 
         var separator = new Border
         {
@@ -719,6 +765,11 @@ public sealed partial class AppController
 
         root.Children.Add(scrollViewer);
 
+        return WrapSettingsWindowContent(root);
+    }
+
+    private static Border WrapSettingsWindowContent(DockPanel root)
+    {
         return new Border
         {
             Background = TrayPaperBrush,

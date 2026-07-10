@@ -147,6 +147,7 @@ public sealed partial class AppController : IDisposable
     public void Start(bool createDefaultPaper = true)
     {
         CreateTrayIcon();
+        InitializeGlobalHotkeys();
         PaperWindow.CleanupOldScriptCapsuleTempFiles();
         PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         RefreshTopmostForForegroundWindow();
@@ -193,8 +194,13 @@ public sealed partial class AppController : IDisposable
             return null;
         }
 
-        var offset = State.Papers.Count * 24;
+        (string DeviceName, Rect WorkArea)? cursorMonitor = null;
+        if (sourcePaper == null && WindowNative.TryGetCursorScreenPosition(out var cursorPosition))
+        {
+            cursorMonitor = WindowWorkAreaHelper.MonitorAtDeviceScreenPoint(cursorPosition);
+        }
 
+        var offset = State.Papers.Count * 24;
         double newX = 140 + offset;
         double newY = 140 + offset;
 
@@ -215,11 +221,19 @@ public sealed partial class AppController : IDisposable
             newX = sourceX + 30;
             newY = sourceY + 30;
         }
-
-        while (State.Papers.Any(p => Math.Abs(p.X - newX) < 5 && Math.Abs(p.Y - newY) < 5))
+        else if (cursorMonitor is { } cursorTarget)
         {
-            newX += 30;
-            newY += 30;
+            newX = cursorTarget.WorkArea.Left + 40;
+            newY = cursorTarget.WorkArea.Top + 40;
+        }
+
+        if (!cursorMonitor.HasValue)
+        {
+            while (State.Papers.Any(p => Math.Abs(p.X - newX) < 5 && Math.Abs(p.Y - newY) < 5))
+            {
+                newX += 30;
+                newY += 30;
+            }
         }
 
         var paperType = type == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
@@ -234,9 +248,27 @@ public sealed partial class AppController : IDisposable
             IsVisible = show,
             AlwaysOnTop = sourcePaper?.AlwaysOnTop ?? false
         };
-        InitializeNewPaperCapsuleQueue(paper, sourcePaper);
+        InitializeNewPaperCapsuleQueue(paper, sourcePaper, cursorMonitor?.DeviceName);
 
-        RescuePaperIfOffScreen(paper, State.Papers.Count);
+        if (cursorMonitor is { } targetMonitor)
+        {
+            paper.Width = ClampPaperDimension(
+                paper.Width,
+                paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultWidth : PaperLayoutDefaults.TodoDefaultWidth,
+                PaperLayoutDefaults.MinWidth,
+                Math.Max(PaperLayoutDefaults.MinWidth, targetMonitor.WorkArea.Width - 80));
+            paper.Height = ClampPaperDimension(
+                paper.Height,
+                paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight,
+                PaperLayoutDefaults.MinHeight,
+                Math.Max(PaperLayoutDefaults.MinHeight, targetMonitor.WorkArea.Height - 80));
+            PlacePaperInWorkArea(paper, targetMonitor.WorkArea, State.Papers.Count);
+            NudgeNewPaperAwayFromExistingPapers(paper, targetMonitor.WorkArea);
+        }
+        else
+        {
+            RescuePaperIfOffScreen(paper, State.Papers.Count);
+        }
         ClampNewPaperAwayFromDeepCapsuleStrip(paper);
 
         if (paper.Type == PaperTypes.Todo)
@@ -273,14 +305,20 @@ public sealed partial class AppController : IDisposable
         return paper;
     }
 
-    private void InitializeNewPaperCapsuleQueue(PaperData paper, PaperData? sourcePaper)
+    private void InitializeNewPaperCapsuleQueue(
+        PaperData paper,
+        PaperData? sourcePaper,
+        string? cursorMonitorDeviceName)
     {
         paper.CapsuleSide = string.IsNullOrWhiteSpace(sourcePaper?.CapsuleSide)
             ? DeepCapsuleSides.Normalize(State.DeepCapsuleSide)
             : DeepCapsuleSides.Normalize(sourcePaper.CapsuleSide);
-        var monitor = string.IsNullOrWhiteSpace(sourcePaper?.CapsuleMonitorDeviceName)
-            ? (State.DeepCapsuleMonitorDeviceName ?? "")
-            : sourcePaper.CapsuleMonitorDeviceName.Trim();
+
+        var monitor = sourcePaper != null
+            ? sourcePaper.CapsuleMonitorDeviceName ?? ""
+            : !string.IsNullOrWhiteSpace(cursorMonitorDeviceName)
+                ? cursorMonitorDeviceName
+                : State.DeepCapsuleMonitorDeviceName ?? "";
         paper.CapsuleMonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(monitor);
     }
 
@@ -2515,6 +2553,41 @@ public sealed partial class AppController : IDisposable
         paper.Y = Math.Round(Math.Clamp(area.Top + margin + offset, minY, maxY));
     }
 
+    private void NudgeNewPaperAwayFromExistingPapers(PaperData paper, Rect area)
+    {
+        const double margin = 40;
+        const double step = 22;
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - paper.Width - margin);
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - paper.Height - margin);
+
+        bool Occupied(double x, double y) =>
+            State.Papers.Any(p => Math.Abs(p.X - x) < 5 && Math.Abs(p.Y - y) < 5);
+
+        var x = paper.X;
+        var y = paper.Y;
+        var wrapped = false;
+        for (var attempts = 0; attempts <= State.Papers.Count && Occupied(x, y); attempts++)
+        {
+            x += step;
+            y += step;
+            if (x > maxX || y > maxY)
+            {
+                if (wrapped)
+                {
+                    break;
+                }
+                wrapped = true;
+                x = minX;
+                y = minY;
+            }
+        }
+
+        paper.X = Math.Round(x);
+        paper.Y = Math.Round(y);
+    }
+
     private static bool LooksLikePersistedSnapTileGeometry(PaperData paper, Rect area)
     {
         if (!IsFinite(paper.X) ||
@@ -2647,29 +2720,56 @@ public sealed partial class AppController : IDisposable
 
     public void Exit()
     {
+        if (_isExiting)
+        {
+            return;
+        }
+
         _isExiting = true;
         _saveTimer.Stop();
-        DisposeTrayIcon();
-        _settingsWindow?.Close();
+        _topmostRefreshTimer.Stop();
+        _displayMetricsRefreshTimer.Stop();
+
+        TryExitCleanup(() => SaveNow(sync: true));
+        TryExitCleanup(() => _imageStore.TrackReferences(State));
+        TryExitCleanup(DisposeGlobalHotkeys);
+        TryExitCleanup(DisposeTrayIcon);
+        TryExitCleanup(() => _settingsWindow?.Close());
         _settingsWindow = null;
-        SaveNow(sync: true);
-        _imageStore.TrackReferences(State);
 
         foreach (var window in _windows.Values.ToList())
         {
-            window.CloseForReal(saveBeforeClose: false);
+            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
         }
 
         foreach (var master in _masterCapsules.Values.ToList())
         {
-            master.CloseForReal();
+            TryExitCleanup(master.CloseForReal);
         }
         _masterCapsules.Clear();
 
-        PaperWindow.StopPersistentScriptProcesses();
+        TryExitCleanup(PaperWindow.StopPersistentScriptProcesses);
 
-        Application.Current.Shutdown();
-        Environment.Exit(0);
+        try
+        {
+            Application.Current.Shutdown();
+        }
+        finally
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    private static void TryExitCleanup(Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch
+        {
+            // One stale window or child process must not leave the app half-exited.
+        }
     }
 
     private void DisposeTrayIcon()
@@ -2708,6 +2808,7 @@ public sealed partial class AppController : IDisposable
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
+        DisposeGlobalHotkeys();
         DisposeTrayIcon();
         _settingsWindow?.Close();
         _settingsWindow = null;

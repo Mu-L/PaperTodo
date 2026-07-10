@@ -22,6 +22,8 @@ public sealed class MarkdownTextBox : TextEditor
     private const int MaxSafePasteLineLength = 6000;
     private const double ImageBlockVerticalPadding = 7;
     private const double ImageBlockHorizontalPadding = 2;
+    private static readonly string[] EncodedClipboardImageFormats =
+        ["PNG", "image/png", "JFIF", "image/jpeg", "image/jpg", "GIF", "image/gif"];
 
     private bool _isTrimmingText;
     private bool _isTrimQueued;
@@ -44,6 +46,12 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly FencedCodeStateCache _fencedCodeStateCache = new();
 
     public event Action<Exception>? ImageImportFailed;
+
+    public event Action? ImageContextMenuClosed;
+
+    public bool IsImageContextMenuOpen { get; private set; }
+
+    internal Func<ContextMenu>? ImageContextMenuFactory { get; set; }
 
     public MarkdownTextBox()
     {
@@ -926,12 +934,13 @@ public sealed class MarkdownTextBox : TextEditor
         BitmapSource? bitmap = null;
         try
         {
-            if (!Clipboard.ContainsImage())
+            var clipboardData = Clipboard.GetDataObject();
+            if (clipboardData != null)
             {
-                return false;
+                TryGetBitmapSource(clipboardData, out bitmap);
             }
 
-            bitmap = Clipboard.GetImage();
+            bitmap ??= Clipboard.GetImage();
         }
         catch
         {
@@ -1095,6 +1104,19 @@ public sealed class MarkdownTextBox : TextEditor
 
     protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
     {
+        // AvalonEdit's built-in paste command no-ops when the clipboard holds only a
+        // bitmap (no text), so its pasting handler never fires. Intercept Ctrl+V and
+        // insert the clipboard image ourselves before the editor swallows the key.
+        if (!IsReadOnly &&
+            e.Key == System.Windows.Input.Key.V &&
+            Keyboard.Modifiers == ModifierKeys.Control &&
+            !ClipboardHasText() &&
+            TryInsertImageFromClipboard())
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (HasSelectedImageReference &&
             e.Key is System.Windows.Input.Key.Back or System.Windows.Input.Key.Delete &&
             Keyboard.Modifiers == ModifierKeys.None)
@@ -1489,6 +1511,20 @@ public sealed class MarkdownTextBox : TextEditor
         {
             e.CancelCommand();
             return;
+        }
+
+        if (containsImageReference && _imageStore != null)
+        {
+            try
+            {
+                pasteText = _imageStore.CloneForeignImageReferencesForNote(_noteId, pasteText);
+            }
+            catch (Exception ex)
+            {
+                ImageImportFailed?.Invoke(ex);
+                e.CancelCommand();
+                return;
+            }
         }
 
         if (string.Equals(pasteText, clipboardText, StringComparison.Ordinal))
@@ -1919,7 +1955,8 @@ public sealed class MarkdownTextBox : TextEditor
             return false;
         }
 
-        if (_imageStore.TryGetAsset(reference.ImageId, out var found))
+        if (_imageStore.TryGetAsset(reference.ImageId, out var found) &&
+            string.Equals(found.NoteId, _noteId, StringComparison.Ordinal))
         {
             asset = found;
         }
@@ -1959,6 +1996,21 @@ public sealed class MarkdownTextBox : TextEditor
             Tag = new ImageBlockTag(referenceAnchor, caretAnchor, reference.ImageId)
         };
         host.ContextMenu = CreateImageContextMenu(reference.ImageId, referenceLine, canCopy: bitmap != null);
+        // Raise the guard before the menu (and its focus grab) opens; LostKeyboardFocus
+        // on the editor can fire before the menu's own Opened event.
+        host.ContextMenuOpening += (_, _) =>
+        {
+            IsImageContextMenuOpen = true;
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    if (host.ContextMenu is not { IsOpen: true })
+                    {
+                        IsImageContextMenuOpen = false;
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Background);
+        };
 
         if (bitmap == null)
         {
@@ -2041,10 +2093,16 @@ public sealed class MarkdownTextBox : TextEditor
 
     private ContextMenu CreateImageContextMenu(string imageId, DocumentLine referenceLine, bool canCopy)
     {
-        var menu = new ContextMenu
+        var menu = ImageContextMenuFactory?.Invoke() ?? new ContextMenu
         {
-            Placement = PlacementMode.MousePoint,
             HasDropShadow = true
+        };
+        menu.Placement = PlacementMode.MousePoint;
+        menu.Opened += (_, _) => IsImageContextMenuOpen = true;
+        menu.Closed += (_, _) =>
+        {
+            IsImageContextMenuOpen = false;
+            ImageContextMenuClosed?.Invoke();
         };
 
         var copy = new MenuItem
@@ -2129,18 +2187,11 @@ public sealed class MarkdownTextBox : TextEditor
         return Math.Max(80, width);
     }
 
-    private static bool TryGetBitmapSource(IDataObject dataObject, out BitmapSource? bitmap)
+    private static bool ClipboardHasText()
     {
-        bitmap = null;
         try
         {
-            if (!dataObject.GetDataPresent(DataFormats.Bitmap))
-            {
-                return false;
-            }
-
-            bitmap = dataObject.GetData(DataFormats.Bitmap) as BitmapSource;
-            return bitmap != null;
+            return Clipboard.ContainsText();
         }
         catch
         {
@@ -2148,6 +2199,110 @@ public sealed class MarkdownTextBox : TextEditor
         }
     }
 
+    private static bool TryGetBitmapSource(IDataObject dataObject, out BitmapSource? bitmap)
+    {
+        if (TryGetBitmapData(dataObject, DataFormats.Bitmap, autoConvert: true, out bitmap))
+        {
+            return true;
+        }
+
+        foreach (var format in EncodedClipboardImageFormats)
+        {
+            if (TryGetBitmapData(dataObject, format, autoConvert: false, out bitmap))
+            {
+                return true;
+            }
+        }
+
+        bitmap = null;
+        return false;
+    }
+
+    private static bool TryGetBitmapData(
+        IDataObject dataObject,
+        string format,
+        bool autoConvert,
+        out BitmapSource? bitmap)
+    {
+        bitmap = null;
+        try
+        {
+            return dataObject.GetDataPresent(format, autoConvert) &&
+                TryDecodeBitmapData(dataObject.GetData(format, autoConvert), out bitmap);
+        }
+        catch
+        {
+            bitmap = null;
+            return false;
+        }
+    }
+
+    private static bool TryDecodeBitmapData(object? data, out BitmapSource? bitmap)
+    {
+        bitmap = data as BitmapSource;
+        if (bitmap != null)
+        {
+            return true;
+        }
+
+        try
+        {
+            switch (data)
+            {
+                case byte[] bytes when bytes.Length > 0:
+                    using (var stream = new MemoryStream(bytes, writable: false))
+                    {
+                        bitmap = DecodeBitmapStream(stream);
+                    }
+                    break;
+
+                case Stream source when source.CanRead:
+                    using (var stream = new MemoryStream())
+                    {
+                        var originalPosition = source.CanSeek ? source.Position : 0;
+                        try
+                        {
+                            if (source.CanSeek)
+                            {
+                                source.Position = 0;
+                            }
+                            source.CopyTo(stream);
+                        }
+                        finally
+                        {
+                            if (source.CanSeek)
+                            {
+                                source.Position = originalPosition;
+                            }
+                        }
+                        stream.Position = 0;
+                        bitmap = DecodeBitmapStream(stream);
+                    }
+                    break;
+            }
+        }
+        catch
+        {
+            bitmap = null;
+        }
+
+        return bitmap != null;
+    }
+
+    private static BitmapSource DecodeBitmapStream(Stream stream)
+    {
+        var decoder = BitmapDecoder.Create(
+            stream,
+            BitmapCreateOptions.PreservePixelFormat,
+            BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames[0];
+        if (frame.CanFreeze)
+        {
+            frame.Freeze();
+        }
+
+        return frame;
+    }
     private static bool TryGetImageFileDrop(IDataObject dataObject, out List<string> paths)
     {
         paths = new List<string>();

@@ -608,4 +608,109 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="Unpin" xml:space="preserve">
     <value>Unpin</value>
   </data>
+  <data name="SettingsShortcuts" xml:space="preserve">
+    <value>Keyboard shortcuts</value>
+  </data>
+  <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>Edge capsule title measure limit</value>
+  </data>
+  <data name="TipDeepCapsuleTitleMeasureLimit" xml:space="preserve">
+    <value>Measure edge capsule width from at most the first N Unicode text characters. The title remains intact and normal capsules are unaffected. All keeps the original width behavior.</value>
+  </data>
+  <data name="SettingsAllCharacters" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="ShortcutCommandHeader" xml:space="preserve">
+    <value>Command</value>
+  </data>
+  <data name="ShortcutKeyHeader" xml:space="preserve">
+    <value>Shortcut</value>
+  </data>
+  <data name="ShortcutStatusHeader" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="ShortcutRecording" xml:space="preserve">
+    <value>Press shortcut</value>
+  </data>
+  <data name="ShortcutUnassigned" xml:space="preserve">
+    <value>Unassigned</value>
+  </data>
+  <data name="ShortcutClear" xml:space="preserve">
+    <value>Clear</value>
+  </data>
+  <data name="ShortcutRestoreDefault" xml:space="preserve">
+    <value>Restore default</value>
+  </data>
+  <data name="ShortcutRestoreAll" xml:space="preserve">
+    <value>Restore all defaults</value>
+  </data>
+  <data name="ShortcutSave" xml:space="preserve">
+    <value>Save shortcuts</value>
+  </data>
+  <data name="ShortcutStatusUnassigned" xml:space="preserve">
+    <value>Unassigned</value>
+  </data>
+  <data name="ShortcutStatusRegistered" xml:space="preserve">
+    <value>Registered</value>
+  </data>
+  <data name="ShortcutStatusDuplicate" xml:space="preserve">
+    <value>Duplicate in app</value>
+  </data>
+  <data name="ShortcutStatusSystemOccupied" xml:space="preserve">
+    <value>Used by system</value>
+  </data>
+  <data name="ShortcutStatusRegistrationFailed" xml:space="preserve">
+    <value>Registration failed</value>
+  </data>
+  <data name="ShortcutStatusPendingSave" xml:space="preserve">
+    <value>Not saved</value>
+  </data>
+  <data name="ShortcutStatusPendingBehavior" xml:space="preserve">
+    <value>Awaiting sequence rule</value>
+  </data>
+  <data name="ShortcutShowAll" xml:space="preserve">
+    <value>Show all papers</value>
+  </data>
+  <data name="ShortcutHideAll" xml:space="preserve">
+    <value>Hide all papers</value>
+  </data>
+  <data name="ShortcutToggleVisibility" xml:space="preserve">
+    <value>Toggle paper visibility</value>
+  </data>
+  <data name="ShortcutNewTodo" xml:space="preserve">
+    <value>New todo paper</value>
+  </data>
+  <data name="ShortcutNewNote" xml:space="preserve">
+    <value>New note paper</value>
+  </data>
+  <data name="ShortcutExit" xml:space="preserve">
+    <value>Exit PaperTodo</value>
+  </data>
+  <data name="ShortcutEdgeSequence1" xml:space="preserve">
+    <value>Edge sequence 1</value>
+  </data>
+  <data name="ShortcutEdgeSequence2" xml:space="preserve">
+    <value>Edge sequence 2</value>
+  </data>
+  <data name="ShortcutEdgeSequence3" xml:space="preserve">
+    <value>Edge sequence 3</value>
+  </data>
+  <data name="ShortcutEdgeSequence4" xml:space="preserve">
+    <value>Edge sequence 4</value>
+  </data>
+  <data name="ShortcutEdgeSequence5" xml:space="preserve">
+    <value>Edge sequence 5</value>
+  </data>
+  <data name="ShortcutEdgeSequence6" xml:space="preserve">
+    <value>Edge sequence 6</value>
+  </data>
+  <data name="ShortcutEdgeSequence7" xml:space="preserve">
+    <value>Edge sequence 7</value>
+  </data>
+  <data name="ShortcutEdgeSequence8" xml:space="preserve">
+    <value>Edge sequence 8</value>
+  </data>
+  <data name="ShortcutEdgeSequence9" xml:space="preserve">
+    <value>Edge sequence 9</value>
+  </data>
 </root>

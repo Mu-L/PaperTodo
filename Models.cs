@@ -174,6 +174,8 @@ public sealed class AppState
     public bool UsePersistentPowerShellProcess { get; set; }
     public bool PreferPowerShell7 { get; set; } = true;
     public bool HideScriptRunWindow { get; set; } = true;
+    public int DeepCapsuleTitleMeasureCharacterLimit { get; set; }
+    public Dictionary<string, string> GlobalHotkeys { get; set; } = new();
     public double DeepCapsuleStartTopMargin { get; set; } = DeepCapsuleLayout.StartTopMargin;
 
     // Per-queue vertical start margin, keyed by "monitorDevice|side". A missing key falls back to

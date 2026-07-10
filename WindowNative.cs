@@ -137,7 +137,11 @@ internal static class WindowNative
     // out of topmost, optionally re-insert directly above a specific window (fullscreen avoidance).
     public static void ApplyTopmostZOrder(Window window, bool topmost, IntPtr insertAfter)
     {
-        var handle = new WindowInteropHelper(window).Handle;
+        ApplyTopmostZOrder(new WindowInteropHelper(window).Handle, topmost, insertAfter);
+    }
+
+    public static void ApplyTopmostZOrder(IntPtr handle, bool topmost, IntPtr insertAfter)
+    {
         if (handle == IntPtr.Zero)
         {
             return;

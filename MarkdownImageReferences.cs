@@ -378,9 +378,9 @@ public static class MarkdownImageReferences
         return true;
     }
 
-    private static bool IsValidImageId(string id)
+    public static bool IsValidImageId(string? id)
     {
-        if (id.Length is < 3 or > 8)
+        if (string.IsNullOrEmpty(id) || id.Length is < 3 or > 8)
         {
             return false;
         }

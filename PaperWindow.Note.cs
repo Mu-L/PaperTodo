@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -165,6 +166,7 @@ public sealed partial class PaperWindow
             FocusVisualStyle = null
         };
         var box = _noteBox;
+        box.ImageContextMenuFactory = CreateContextMenu;
         box.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
         box.SetTextZoom(CurrentTextZoom());
         box.ConfigureNoteImages(_paper.Id, _controller.ImageStore);
@@ -215,6 +217,13 @@ public sealed partial class PaperWindow
             box.SetPreviewMode(true);
             box.ContextMenu = previewMenu;
             isPreviewing = true;
+            // The editor drops Focusable in preview mode, which would leave no element
+            // holding keyboard focus inside the window — the window-level ESC handler
+            // would then never fire. Park focus on the window so ESC still minimizes.
+            if (box.IsKeyboardFocusWithin || IsKeyboardFocusWithin)
+            {
+                Focus();
+            }
             TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
         }
 
@@ -502,6 +511,11 @@ public sealed partial class PaperWindow
                 TraceNoteRender("LostKeyboardFocus ignored: context menu open");
                 return;
             }
+            if (box.IsImageContextMenuOpen)
+            {
+                TraceNoteRender("LostKeyboardFocus ignored: image context menu open");
+                return;
+            }
             if (isEnteringEditorFromPreview)
             {
                 TraceNoteRender($"LostKeyboardFocus ignored: entering editor isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
@@ -519,6 +533,34 @@ public sealed partial class PaperWindow
             }
             TraceNoteRender($"LostKeyboardFocus isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             ShowPreview();
+        };
+
+        box.ImageContextMenuClosed += () =>
+        {
+            // The image menu steals keyboard focus while open. WPF restores focus
+            // asynchronously after Closed, so defer the decision: if focus hasn't
+            // come back but the window is still active (menu item clicked / Esc),
+            // hand focus back to the editor; only fall back to preview when the
+            // user actually left the window.
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    if (isPreviewing || box.IsKeyboardFocusWithin)
+                    {
+                        return;
+                    }
+                    if (IsActive)
+                    {
+                        TraceNoteRender("ImageContextMenuClosed: refocus editor");
+                        box.Focus();
+                    }
+                    else
+                    {
+                        TraceNoteRender("ImageContextMenuClosed: window inactive -> ShowPreview");
+                        ShowPreview();
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Background);
         };
 
         MouseButtonEventHandler noteMouseDown = (_, e) =>
@@ -778,14 +820,22 @@ public sealed partial class PaperWindow
         var directory = Path.Combine(Path.GetTempPath(), "PaperTodo");
         Directory.CreateDirectory(directory);
 
-        var path = Path.Combine(directory, $"paper-{_paper.Id}{CurrentExternalMarkdownExtension()}");
+        var fileStem = ExternalMarkdownFileStem();
+        var path = Path.Combine(directory, fileStem + CurrentExternalMarkdownExtension());
         var text = _noteBox?.PersistentText ?? _paper.Content ?? "";
         text = _controller.ImageStore.ConvertMarkdownForExternalEditor(
             _paper.Id,
             text,
-            Path.Combine(directory, $"paper-{_paper.Id}-images"));
-        File.WriteAllText(path, text, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            Path.Combine(directory, fileStem + "-images"),
+            directory);
+        File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return path;
+    }
+
+    private string ExternalMarkdownFileStem()
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(_paper.Id ?? ""));
+        return "paper-" + Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant();
     }
 
     private readonly record struct ScriptCapsuleSpec(string Engine, string Script, bool UsePersistentProcess);
@@ -1060,15 +1110,20 @@ public sealed partial class PaperWindow
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.Exited += (_, _) =>
             {
+                var ownsProcess = false;
                 lock (PersistentScriptProcessLock)
                 {
                     if (PersistentScriptProcesses.TryGetValue(key, out var current) && ReferenceEquals(current, process))
                     {
                         PersistentScriptProcesses.Remove(key);
+                        ownsProcess = true;
                     }
                 }
 
-                process.Dispose();
+                if (ownsProcess)
+                {
+                    process.Dispose();
+                }
             };
             process.Start();
             PersistentScriptProcesses[key] = process;
@@ -1304,45 +1359,46 @@ public sealed partial class PaperWindow
 
     internal static void StopPersistentScriptProcesses()
     {
+        List<Process> processes;
         lock (PersistentScriptProcessLock)
         {
-            foreach (var process in PersistentScriptProcesses.Values.ToList())
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        try
-                        {
-                            if (process.StartInfo.RedirectStandardInput)
-                            {
-                                process.StandardInput.Close();
-                            }
-                        }
-                        catch
-                        {
-                            // The process may already be exiting or the pipe may be broken.
-                        }
-
-                        if (!process.WaitForExit(250))
-                        {
-                            process.Kill(entireProcessTree: true);
-                            process.WaitForExit(1000);
-                        }
-                    }
-                }
-                catch
-                {
-                    // Persistent script sessions are optional and disposable.
-                }
-                finally
-                {
-                    process.Dispose();
-                }
-            }
-
+            processes = PersistentScriptProcesses.Values.ToList();
             PersistentScriptProcesses.Clear();
         }
-    }
 
+        foreach (var process in processes)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    try
+                    {
+                        if (process.StartInfo.RedirectStandardInput)
+                        {
+                            process.StandardInput.Close();
+                        }
+                    }
+                    catch
+                    {
+                        // The process may already be exiting or the pipe may be broken.
+                    }
+
+                    if (!process.WaitForExit(250))
+                    {
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit(1000);
+                    }
+                }
+            }
+            catch
+            {
+                // Persistent script sessions are optional and disposable.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+    }
 }
