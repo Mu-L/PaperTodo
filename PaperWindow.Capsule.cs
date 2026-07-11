@@ -492,8 +492,7 @@ public sealed partial class PaperWindow
             // should expand back to its own recorded paper size — NOT re-snap. So we do not
             // remember the snap tile for restore here (only maximized windows are restored, via
             // _collapsedFromMaximized). Clearing the snapped flag also lets geometry save resume.
-            _collapsedFromSnappedBounds = null;
-            _isSnappedPresentation = false;
+            EndSnapRelationshipForCollapse();
             // Both maximized AND Windows-snapped windows keep a native "restore rect". After we
             // shrink the WPF window to a capsule, that native memory still says "paper-sized", so
             // the next DragMove would make Windows un-snap/un-maximize the tiny capsule back to
@@ -848,9 +847,8 @@ public sealed partial class PaperWindow
     }
 
     // Runs when an expand transition finishes. If the paper was collapsed while maximized,
-    // re-enter the real maximized window state (rather than leaving a manually-sized rect);
-    // otherwise the snapped-rect position applied earlier already stands. Clears the
-    // one-shot capture flags either way.
+    // re-enter the real maximized window state (rather than leaving a manually-sized rect).
+    // Clears the one-shot capture flags either way.
     private void FinishExpandSnapStateRestore()
     {
         if (_collapsedFromMaximized)
@@ -860,6 +858,15 @@ public sealed partial class PaperWindow
 
         _collapsedFromMaximized = false;
         _collapsedFromSnappedBounds = null;
+    }
+
+    // A collapsed paper is a free capsule. Clear both the active snap presentation and the
+    // delayed hide/show restore cache so a later ShowPaper cannot resurrect the old tile.
+    private void EndSnapRelationshipForCollapse()
+    {
+        _collapsedFromSnappedBounds = null;
+        _snappedPresentationBoundsForRestore = null;
+        _isSnappedPresentation = false;
     }
 
     private void RestoreCollapseStartPositionIfNeeded(bool shouldRestore, double startLeft, double startTop)
