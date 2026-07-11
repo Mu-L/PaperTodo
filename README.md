@@ -168,9 +168,12 @@ PaperTodo.exe --toggle     有显示则隐藏全部，全部隐藏则显示
 PaperTodo.exe --new-todo   新建一张待办纸
 PaperTodo.exe --new-note   新建一张笔记纸
 PaperTodo.exe --exit       保存状态并退出
+PaperTodo.exe --language en-US  使用指定的默认界面语言启动
 ```
 
 参数可省略 `--`，并支持少量别名（如 `open` = `show`，`quit` = `exit`）。
+
+`--language` 支持 `zh-CN`、`en-US`、`ja-JP`、`ko-KR` 及对应区域变体，也可写成 `--language=en-US`；别名为 `--lang` 和 `--default-language`。该参数只在主实例启动时决定本次运行的默认界面语言，不会动态切换已经运行的实例，也不会写入 `data.json`。
 
 程序已运行时再次带参数启动不会创建第二个进程，而是把命令转发给当前实例；无参数再次启动则显示并拉回全部纸片。
 

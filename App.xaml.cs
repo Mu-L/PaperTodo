@@ -18,13 +18,13 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        ApplyBuildCultureOverride();
+        var startupCommand = StartupCommand.Parse(e.Args);
+        ApplyStartupCultureOverride(startupCommand.DefaultLanguage);
 
         // Register global unhandled exception handlers
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
-        var startupCommand = StartupCommand.Parse(e.Args);
         _singleInstance = new SingleInstanceHelper("PaperTodo-SingleInstance-Mutex", "PaperTodo-SingleInstance-Activate");
         if (!_singleInstance.TryAcquire())
         {
@@ -127,15 +127,59 @@ public partial class App : Application
         _controller?.ExecuteStartupCommand(command);
     }
 
-    private static void ApplyBuildCultureOverride()
+    private static void ApplyStartupCultureOverride(string? defaultLanguage)
     {
+        if (TryResolveStartupCulture(defaultLanguage, out var startupCulture))
+        {
+            ApplyCulture(startupCulture);
+            return;
+        }
+
 #if PAPERTODO_DEFAULT_ENGLISH
-        var culture = CultureInfo.GetCultureInfo("en-US");
+        ApplyCulture(CultureInfo.GetCultureInfo("en-US"));
+#endif
+    }
+
+    private static bool TryResolveStartupCulture(string? language, out CultureInfo culture)
+    {
+        culture = null!;
+        var value = (language ?? "").Trim().Replace('_', '-');
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        try
+        {
+            var requested = CultureInfo.GetCultureInfo(value);
+            if (requested.TwoLetterISOLanguageName is not ("zh" or "en" or "ja" or "ko"))
+            {
+                return false;
+            }
+
+            culture = requested.IsNeutralCulture
+                ? CultureInfo.GetCultureInfo(requested.TwoLetterISOLanguageName switch
+                {
+                    "zh" => "zh-CN",
+                    "ja" => "ja-JP",
+                    "ko" => "ko-KR",
+                    _ => "en-US"
+                })
+                : requested;
+            return true;
+        }
+        catch (CultureNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static void ApplyCulture(CultureInfo culture)
+    {
         CultureInfo.DefaultThreadCurrentCulture = culture;
         CultureInfo.DefaultThreadCurrentUICulture = culture;
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
-#endif
     }
 
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs ev)

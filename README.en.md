@@ -164,9 +164,12 @@ PaperTodo.exe --toggle     Hide all if any paper is visible; otherwise show all
 PaperTodo.exe --new-todo   Create a new todo paper
 PaperTodo.exe --new-note   Create a new note paper
 PaperTodo.exe --exit       Save state and exit
+PaperTodo.exe --language en-US  Start with the specified default UI language
 ```
 
 The `--` prefix is optional, and a few aliases are supported, such as `open` for `show` and `quit` for `exit`.
+
+`--language` accepts `zh-CN`, `en-US`, `ja-JP`, `ko-KR`, and their regional variants. The `--language=en-US` form is also supported, with `--lang` and `--default-language` as aliases. It selects the default UI language only while starting the primary instance; it does not switch an already-running instance or write the choice to `data.json`.
 
 If PaperTodo is already running, starting it again with arguments will not create a second process. The command is forwarded to the existing instance. Starting it again without arguments shows and brings back all papers.
 
