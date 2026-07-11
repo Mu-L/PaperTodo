@@ -1483,19 +1483,18 @@ public sealed class MarkdownTextBox : TextEditor
 
     private void OnPaste(object sender, DataObjectPastingEventArgs e)
     {
+        var clipboardText = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
+            ? e.DataObject.GetData(DataFormats.UnicodeText) as string
+            : null;
+
         if (!IsReadOnly &&
+            string.IsNullOrEmpty(clipboardText) &&
             (TryInsertImagesFromDataObject(e.DataObject) || TryInsertImageFromClipboard()))
         {
             e.CancelCommand();
             return;
         }
 
-        if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText))
-        {
-            return;
-        }
-
-        var clipboardText = e.DataObject.GetData(DataFormats.UnicodeText) as string;
         if (string.IsNullOrEmpty(clipboardText))
         {
             return;
