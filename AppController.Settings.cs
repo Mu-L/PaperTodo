@@ -823,8 +823,9 @@ public sealed partial class AppController
                 };
             }
 
-            segmentBorder.MouseLeftButtonDown += (_, _) =>
+            segmentBorder.MouseLeftButtonDown += (_, e) =>
             {
+                e.Handled = true;
                 if (activeKey == key)
                 {
                     return;
