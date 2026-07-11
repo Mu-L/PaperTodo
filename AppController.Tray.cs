@@ -48,8 +48,6 @@ public sealed partial class AppController
 
         _trayIcon = trayIcon;
 
-        RebuildTrayMenu();
-
         trayIcon.Visibility = Visibility.Visible;
     }
 

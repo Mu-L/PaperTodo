@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -9,7 +10,10 @@ namespace PaperTodo;
 public partial class App : Application
 {
     private const long MaxCrashLogBytes = 100 * 1024;
+    private readonly object _singleInstanceCommandGate = new();
+    private readonly Queue<IReadOnlyList<string>> _pendingSingleInstanceCommands = new();
     private AppController? _controller;
+    private bool _singleInstanceCommandsReady;
     private SingleInstanceHelper? _singleInstance;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -31,6 +35,10 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+
+        // Listen as soon as this process owns the mutex. Commands received while
+        // the controller is loading stay queued until startup is fully complete.
+        _singleInstance.StartListener(HandleSingleInstanceCommand);
 
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -64,15 +72,59 @@ public partial class App : Application
         SessionEnding += (s, args) => _controller?.Exit();
         _controller.Start(createDefaultPaper: !startupCommand.CreatesPaper);
         _controller.ExecuteStartupCommand(startupCommand);
+        CompleteSingleInstanceStartup();
+    }
 
-        _singleInstance.StartListener(args =>
+    private void HandleSingleInstanceCommand(IReadOnlyList<string> args)
+    {
+        lock (_singleInstanceCommandGate)
         {
-            Dispatcher.Invoke(() =>
+            if (!_singleInstanceCommandsReady)
             {
-                var command = StartupCommand.Parse(args, StartupCommandKind.Show);
-                _controller?.ExecuteStartupCommand(command);
-            });
-        });
+                _pendingSingleInstanceCommands.Enqueue(new List<string>(args));
+                return;
+            }
+        }
+
+        DispatchSingleInstanceCommand(args);
+    }
+
+    private void CompleteSingleInstanceStartup()
+    {
+        while (true)
+        {
+            IReadOnlyList<string> args;
+            lock (_singleInstanceCommandGate)
+            {
+                if (_pendingSingleInstanceCommands.Count == 0)
+                {
+                    _singleInstanceCommandsReady = true;
+                    return;
+                }
+
+                args = _pendingSingleInstanceCommands.Dequeue();
+            }
+
+            ExecuteSingleInstanceCommand(args);
+        }
+    }
+
+    private void DispatchSingleInstanceCommand(IReadOnlyList<string> args)
+    {
+        try
+        {
+            Dispatcher.Invoke(() => ExecuteSingleInstanceCommand(args));
+        }
+        catch (InvalidOperationException)
+        {
+            // The application is already shutting down.
+        }
+    }
+
+    private void ExecuteSingleInstanceCommand(IReadOnlyList<string> args)
+    {
+        var command = StartupCommand.Parse(args, StartupCommandKind.Show);
+        _controller?.ExecuteStartupCommand(command);
     }
 
     private static void ApplyBuildCultureOverride()

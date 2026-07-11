@@ -619,9 +619,12 @@ public sealed partial class PaperWindow : Window
         Loaded += (_, _) =>
         {
             SaveGeometryIfAllowed();
+            // Finish taskbar / Alt+Tab shell registration before ShowPaper's Render-priority
+            // reveal. Reapplying it at Background priority after the fade has started makes
+            // Windows rebuild each visible paper frame, which appears as a startup flash.
             Dispatcher.BeginInvoke(
                 (Action)ApplyDeferredStartupSystemVisibility,
-                System.Windows.Threading.DispatcherPriority.Background);
+                System.Windows.Threading.DispatcherPriority.Normal);
         };
         LocationChanged += (_, _) => SaveGeometryIfAllowed();
         SizeChanged += (_, _) => SaveGeometryIfAllowed();

@@ -148,8 +148,10 @@ public sealed partial class AppController : IDisposable
     {
         CreateTrayIcon();
         InitializeGlobalHotkeys();
-        PaperWindow.CleanupOldScriptCapsuleTempFiles();
-        PaperWindow.EnsurePersistentScriptProcessForSettings(State);
+        _ = Task.Run(PaperWindow.CleanupOldScriptCapsuleTempFiles);
+        Application.Current.Dispatcher.BeginInvoke(
+            () => PaperWindow.EnsurePersistentScriptProcessForSettings(State),
+            DispatcherPriority.ApplicationIdle);
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
 
@@ -167,12 +169,15 @@ public sealed partial class AppController : IDisposable
 
         // Closing a paper only hides it for the current session; a fresh app start
         // restores every non-deleted paper so a paper never feels "lost".
+        var papersToRestore = State.Papers.ToList();
+        var activationPaper = papersToRestore.LastOrDefault(paper =>
+            !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
         _suppressDirty = true;
         try
         {
-            foreach (var paper in State.Papers.ToList())
+            foreach (var paper in papersToRestore)
             {
-                ShowPaper(paper);
+                ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
             }
         }
         finally
@@ -846,21 +851,27 @@ public sealed partial class AppController : IDisposable
         return window;
     }
 
-    public void ShowPaper(PaperData paper)
+    public void ShowPaper(PaperData paper, bool activate = true)
     {
         if (_isExiting)
         {
             return;
         }
 
-        RefreshTopmostForForegroundWindow();
+        if (!_suppressDirty)
+        {
+            RefreshTopmostForForegroundWindow();
+        }
         if (paper.IsCollapsed && !CanPaperDisplayAsCapsule(paper))
         {
             paper.IsCollapsed = false;
         }
         paper.IsVisible = true;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
-        RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
+        if (!_suppressDirty)
+        {
+            RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
+        }
         Rect? snapTileBounds = null;
 
         var window = GetOrCreatePaperWindow(paper);
@@ -941,7 +952,7 @@ public sealed partial class AppController : IDisposable
             window.HideMainWindowForDeepCapsuleMode();
         }
 
-        if (!_suppressTopmostForFullscreenForeground && window.IsVisible)
+        if (activate && !_suppressTopmostForFullscreenForeground && window.IsVisible)
         {
             window.Activate();
         }
@@ -950,7 +961,7 @@ public sealed partial class AppController : IDisposable
             ArrangeDeepCapsules(animate: State.EnableAnimations);
         }
         RefreshTrayMenu();
-        if (paper.Type == PaperTypes.Note)
+        if (!_suppressDirty && paper.Type == PaperTypes.Note)
         {
             RefreshTodoRowsForLinkedNote(paper.Id);
         }
@@ -1337,9 +1348,12 @@ public sealed partial class AppController : IDisposable
         _trayRefreshSuppressionDepth++;
         try
         {
-            foreach (var paper in State.Papers)
+            var papersToShow = State.Papers.ToList();
+            var activationPaper = papersToShow.LastOrDefault(paper =>
+                !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
+            foreach (var paper in papersToShow)
             {
-                ShowPaper(paper);
+                ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
             }
         }
         finally

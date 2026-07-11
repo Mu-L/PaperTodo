@@ -98,7 +98,7 @@ jobs:
             --self-contained false `
             -o $frameworkDependentOut `
             /p:PublishSingleFile=true `
-            /p:PublishReadyToRun=false `
+            /p:PublishReadyToRun=true `
             /p:EnableCompressionInSingleFile=false `
             /p:PublishTrimmed=false `
             /p:DebugType=none `
