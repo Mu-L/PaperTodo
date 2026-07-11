@@ -80,7 +80,6 @@ public sealed partial class AppController : IDisposable
         Current = this;
         State = _store.Load();
         _imageStore.Load();
-        _imageStore.TrackReferences(State, reserveRemovedIdsUntilRestart: false);
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();
         NormalizePaperSystemVisibilitySettings();
         AppTypography.Configure(State.UiFontPreset);
@@ -2258,6 +2257,11 @@ public sealed partial class AppController : IDisposable
 
     public void SaveNow(bool sync = false)
     {
+        _ = TrySaveNow(sync);
+    }
+
+    private bool TrySaveNow(bool sync)
+    {
         try
         {
             _saveTimer.Stop();
@@ -2289,10 +2293,13 @@ public sealed partial class AppController : IDisposable
                     }
                 });
             }
+
+            return true;
         }
         catch (Exception ex)
         {
             HandleSaveFailure(ex);
+            return false;
         }
     }
 
@@ -2775,8 +2782,10 @@ public sealed partial class AppController : IDisposable
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
 
-        TryExitCleanup(() => SaveNow(sync: true));
-        TryExitCleanup(() => _imageStore.TrackReferences(State));
+        if (TrySaveNow(sync: true))
+        {
+            TryExitCleanup(() => _imageStore.TrackReferences(State));
+        }
         TryExitCleanup(DisposeGlobalHotkeys);
         TryExitCleanup(DisposeTrayIcon);
         TryExitCleanup(() => _settingsWindow?.Close());
@@ -2794,6 +2803,7 @@ public sealed partial class AppController : IDisposable
         _masterCapsules.Clear();
 
         TryExitCleanup(PaperWindow.StopPersistentScriptProcesses);
+        TryExitCleanup(_imageStore.Dispose);
 
         try
         {
@@ -2867,5 +2877,6 @@ public sealed partial class AppController : IDisposable
         }
         _masterCapsules.Clear();
         PaperWindow.StopPersistentScriptProcesses();
+        _imageStore.Dispose();
     }
 }

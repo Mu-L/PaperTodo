@@ -60,7 +60,7 @@
 - **多语言界面** — 中文、英文、日文、韩文，跟随系统语言。
 - **开机自启动** — 可随 Windows 启动后台运行。
 - **自定义图标** — 程序目录存在 `PaperTodo.ico` 时优先作为托盘图标，否则用内嵌图标。
-- **数据安全** — 自动保存到程序目录 `data.json`，保留 `data.backup.json`；临时文件写入降低异常退出时的损坏风险。
+- **数据安全** — 纸片自动保存到 `data.json` 并保留备份；笔记图片集中保存在单个 `note-assets.lmdb` 文件中，以事务方式增量写入。
 - **原生纸片体验**：使用 WPF 原生控件实现，优雅高效流畅。
 - **快捷参数启动**：通过启动参数即可显示、隐藏、切换和新建纸片，方便用快捷键工具或脚本调用。
 
@@ -121,7 +121,9 @@
 
 **支持的 Markdown**：标题 `#`～`######`、加粗 `**文本**`、斜体 `*文本*`、删除线 `~~文本~~`、无序列表 `-`、有序列表 `1.`、引用 `>`、分割线 `---` / `***` / `___`、行内代码 `` `code` ``、代码块 ` ``` `、超链接 `[文本](URL)`，以及少量单行内联 HTML 标签（`b/strong/i/em/s/del/u/code/a href`）。
 
-**不支持**：图片、表格、附件、嵌入内容、块级 HTML、复杂块编辑器。
+**本地图片**：可直接粘贴剪贴板图片、拖入图片文件或从菜单插入；图片使用独占行的内部 `i:` 引用保存。
+
+**不支持**：表格、附件、网络图片、其他嵌入内容、块级 HTML、复杂块编辑器。
 
 **外部编辑**：顶栏 `MD` 按钮可用系统默认 `.md` 编辑器打开临时文件
 
@@ -185,10 +187,12 @@ PaperTodo/
 ├─ PaperTodo.exe
 ├─ data.json          主数据文件
 ├─ data.backup.json   保存前备份，主文件损坏时用于恢复
+├─ note-assets.lmdb   笔记图片资产文件
 └─ PaperTodo.ico      可选：存在时优先作为自定义托盘图标，否则用内嵌图标
 ```
 
 > ⚠️ 不要把程序放在只读目录，否则可能无法保存数据。
+> 备份或迁移数据前请先从托盘退出 PaperTodo，再复制这些文件。
 
 ---
 
@@ -214,6 +218,8 @@ dotnet build -c Release
 本地打包只生成 no-runtime 单文件；云端 Release 才同时发布自包含压缩版和 no-runtime 版。
 
 - **Windows / .NET 10 / WPF** — 运行环境与 UI 框架。
+- **CMake / Visual Studio C++ 工具链** — 构建随程序打包的原生 LMDB 图片存储库。
+- **[LMDB](https://github.com/LMDB/lmdb)** — 单文件、事务式笔记图片资产存储。
 - **[AvalonEdit](https://github.com/icsharpcode/AvalonEdit)** — 笔记纸文本编辑与 Markdown 轻量高亮。
 - **[Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon)** — 托盘图标与菜单。
 

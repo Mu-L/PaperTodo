@@ -7,6 +7,7 @@ data.json
 data.json.tmp
 data.backup.json
 data.crash_recovery.json
+note-assets.lmdb
 PaperTodo.crash.log
 对比_StickyMD/
 .codex_decompile_debug/

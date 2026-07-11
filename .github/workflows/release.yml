@@ -99,6 +99,7 @@ jobs:
             -o $frameworkDependentOut `
             /p:PublishSingleFile=true `
             /p:PublishReadyToRun=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
             /p:EnableCompressionInSingleFile=false `
             /p:PublishTrimmed=false `
             /p:DebugType=none `

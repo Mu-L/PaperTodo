@@ -59,7 +59,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 - **Multi-language UI** - Chinese, English, Japanese, and Korean, selected from the system UI language.
 - **Startup at login** - Run PaperTodo when Windows starts.
 - **Custom tray icon** - If `PaperTodo.ico` exists next to the executable, it is used instead of the embedded icon.
-- **Data safety** - Auto-saves to `data.json` next to the app and keeps `data.backup.json`; temporary writes reduce corruption risk on abnormal exit.
+- **Data safety** - Papers auto-save to `data.json` with a backup, while note images are transactionally and incrementally stored in one `note-assets.lmdb` file.
 - **Native paper experience** - Built with native WPF controls for a smooth and efficient desktop feel.
 - **Command-line friendly** - Show, hide, toggle, and create papers from startup arguments, making it easy to call PaperTodo from hotkey tools or scripts.
 
@@ -118,7 +118,9 @@ Note paper is not a full Markdown editor. It only helps a sheet of paper stay a 
 
 **Supported Markdown**: headings `#` to `######`, bold `**text**`, italic `*text*`, strikethrough `~~text~~`, unordered lists `-`, ordered lists `1.`, block quotes `>`, horizontal rules `---` / `***` / `___`, inline code `` `code` ``, fenced code blocks, links `[label](URL)`, and a small set of single-line inline HTML tags (`b/strong/i/em/s/del/u/code/a href`).
 
-**Not supported**: images, tables, attachments, embedded content, block-level HTML, or complex block editing.
+**Local images**: Paste an image from the clipboard, drop image files, or insert them from the menu. Images use PaperTodo's exclusive-line internal `i:` references.
+
+**Not supported**: tables, attachments, network images, other embedded content, block-level HTML, or complex block editing.
 
 **External editing**: The `MD` button in the title bar opens the current note as a temporary `.md` file with the system default editor.
 
@@ -179,10 +181,12 @@ PaperTodo/
 ├─ PaperTodo.exe
 ├─ data.json          Main data file
 ├─ data.backup.json   Backup written before saving; used when the main file is damaged
+├─ note-assets.lmdb   Note image asset file
 └─ PaperTodo.ico      Optional custom tray icon, used before the embedded icon
 ```
 
 > Warning: Do not place the app in a read-only directory, or it may be unable to save data.
+> Exit PaperTodo from the tray before copying these files for backup or migration.
 
 ---
 
@@ -208,6 +212,8 @@ dotnet build -c Release
 Local packaging only produces the no-runtime single file; cloud Releases publish both the self-contained compressed build and the no-runtime build.
 
 - **Windows / .NET 10 / WPF** - Runtime and UI framework.
+- **CMake / Visual Studio C++ toolchain** - Builds the native LMDB image store bundled with PaperTodo.
+- **[LMDB](https://github.com/LMDB/lmdb)** - Single-file transactional storage for note image assets.
 - **[AvalonEdit](https://github.com/icsharpcode/AvalonEdit)** - Note editing and lightweight Markdown highlighting.
 - **[Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon)** - Tray icon and menu.
 

@@ -237,7 +237,7 @@
           <article class="feat"><div class="feat-icon">⚡</div><h3 data-zh>零摩擦，零等待</h3><h3 data-en>Zero friction, zero waiting</h3><p data-zh>没有启动画面、没有弹窗、没有"保存"按钮。双击托盘就能新建，写完直接关掉。三秒内完成一条记录。</p><p data-en>No splash screen, no dialogs, no save button. Double-click the tray, type, close. Three seconds from thought to record.</p></article>
           <article class="feat"><div class="feat-icon">💊</div><h3 data-zh>胶囊：看得见又不碍事</h3><h3 data-en>Capsules: visible but not in the way</h3><p data-zh>不想看时折叠成小胶囊贴到屏幕边缘，鼠标划过就能预览。既保持存在感，又不霸占桌面。</p><p data-en>Fold into a tiny capsule docked to the screen edge. Hover to peek. Your notes stay present without stealing space.</p></article>
           <article class="feat"><div class="feat-icon">📋</div><h3 data-zh>待办和笔记，两种纸</h3><h3 data-en>Two paper types: todos &amp; notes</h3><p data-zh>待办纸：勾选、拖动排序、粘贴多行自动拆条。笔记纸：轻量 Markdown 高亮，三档渲染。一个工具覆盖日常两大场景。</p><p data-en>Todo paper: check off, drag to reorder, paste multiple lines. Note paper: Markdown highlighting with three render levels. One app for both daily needs.</p></article>
-          <article class="feat"><div class="feat-icon">🔒</div><h3 data-zh>你的数据只属于你</h3><h3 data-en>Your data never leaves your machine</h3><p data-zh>一个 <code>data.json</code> 文件就是全部。永远不联网、不上传、不需要账号。放进 U 盘，换台电脑照样用。</p><p data-en>One <code>data.json</code> file is everything. Never phones home, no account needed. Toss it on a USB stick and you're good on any PC.</p></article>
+          <article class="feat"><div class="feat-icon">🔒</div><h3 data-zh>你的数据只属于你</h3><h3 data-en>Your data never leaves your machine</h3><p data-zh>纸片和图片都保存在程序目录的本地数据文件中。永远不联网、不上传、不需要账号，复制整个文件夹即可迁移。</p><p data-en>Papers and images stay in local data files next to the app. Never phones home, no account needed; copy the folder to move everything.</p></article>
           <article class="feat"><div class="feat-icon">🪶</div><h3 data-zh>轻到你感觉不到</h3><h3 data-en>So light you won't notice it</h3><p data-zh>单文件 exe，不是浏览器套壳，不吃内存。开机自启后安静待在托盘，需要时随叫随到。</p><p data-en>Single-file exe, not a browser wrapper, barely uses memory. Starts silently with Windows and waits in the tray until you need it.</p></article>
         </div>
       </div>
@@ -369,7 +369,7 @@
             <h3 data-zh>不适合</h3><h3 data-en>Not a fit</h3>
             <ul>
               <li data-zh>需要团队协作、云同步、提醒和日历</li><li data-en>Team collaboration, cloud sync, reminders and calendars</li>
-              <li data-zh>需要完整 Markdown 编辑器（图片、表格、附件）</li><li data-en>Full Markdown editor with images, tables, attachments</li>
+              <li data-zh>需要完整 Markdown 编辑器（表格、附件和复杂嵌入内容）</li><li data-en>Full Markdown editor with tables, attachments, and complex embeds</li>
               <li data-zh>需要分类、标签、搜索和项目管理</li><li data-en>Categories, tags, search and project management</li>
               <li data-zh>主要在手机或网页上使用</li><li data-en>Primarily mobile or web usage</li>
             </ul>
@@ -422,8 +422,8 @@
         <div class="faq-list">
           <details class="faq">
             <summary><span data-zh>免费吗？要联网吗？</span><span data-en>Is it free? Does it need internet?</span></summary>
-            <div class="faq-body" data-zh>完全免费，开源。不需要联网，也不需要注册。所有数据保存在程序目录的 <code>data.json</code> 中。</div>
-            <div class="faq-body" data-en>Completely free and open source. No internet and no account required. All data is stored in <code>data.json</code> next to the executable.</div>
+            <div class="faq-body" data-zh>完全免费，开源。不需要联网，也不需要注册。纸片保存在 <code>data.json</code>，笔记图片保存在同目录的 <code>note-assets.lmdb</code>。</div>
+            <div class="faq-body" data-en>Completely free and open source. No internet or account is required. Papers are stored in <code>data.json</code> and note images in <code>note-assets.lmdb</code> beside it.</div>
           </details>
           <details class="faq">
             <summary><span data-zh>支持哪些 Windows 版本？</span><span data-en>Which Windows versions are supported?</span></summary>
@@ -437,8 +437,8 @@
           </details>
           <details class="faq">
             <summary><span data-zh>数据怎么备份和迁移？</span><span data-en>How do I back up or migrate my data?</span></summary>
-            <div class="faq-body" data-zh>复制整个 PaperTodo 文件夹即可。新电脑上双击 exe 就能恢复所有纸片。日常备份只需保存 <code>data.json</code>。</div>
-            <div class="faq-body" data-en>Copy the entire PaperTodo folder. Double-click the exe on a new machine and everything comes back. For daily backups, just save <code>data.json</code>.</div>
+            <div class="faq-body" data-zh>先从托盘退出 PaperTodo，再复制整个文件夹。需要单独备份数据时，请同时保存 <code>data.json</code>、<code>data.backup.json</code> 和 <code>note-assets.lmdb</code>。</div>
+            <div class="faq-body" data-en>Exit PaperTodo from the tray before copying the folder. For a data-only backup, keep <code>data.json</code>, <code>data.backup.json</code>, and <code>note-assets.lmdb</code> together.</div>
           </details>
           <details class="faq">
             <summary><span data-zh>首次运行 SmartScreen 拦截怎么办？</span><span data-en>SmartScreen blocks it on first run?</span></summary>

@@ -2,41 +2,30 @@ using System.IO;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace PaperTodo;
 
-public sealed class NoteImageStore
+public sealed class NoteImageStore : IDisposable
 {
-    private const int StoreVersion = 1;
     private const int MaxStoredDimension = 4096;
     private const int MaxImageBytes = 8 * 1024 * 1024;
     private const int MaxInputImageBytes = 32 * 1024 * 1024;
     private const int MaxTotalImageBytes = 120 * 1024 * 1024;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerOptions.Strict)
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Skip
-    };
-
     private readonly object _gate = new();
     private readonly Dictionary<string, NoteImageAsset> _images = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BitmapSource> _bitmapCache = new(StringComparer.Ordinal);
     private readonly HashSet<string> _retiredImageIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _verifiedImageIds = new(StringComparer.Ordinal);
+    private LmdbImageDatabase? _database;
+    private long _totalImageBytes;
+    private int _nextImageNumber = 1;
     private bool _writeDisabled;
-    private bool _skipNextBackupRotation;
-    private int _deferredImageSaveDepth;
+    private bool _disposed;
 
-    public string FilePath { get; } = Path.Combine(AppContext.BaseDirectory, "note-assets.json");
-    public string BackupPath { get; } = Path.Combine(AppContext.BaseDirectory, "note-assets.backup.json");
+    public string FilePath { get; } = Path.Combine(AppContext.BaseDirectory, "note-assets.lmdb");
 
     public bool IsWriteDisabled => _writeDisabled;
 
@@ -44,34 +33,44 @@ public sealed class NoteImageStore
     {
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _database?.Dispose();
+            _database = null;
             _images.Clear();
             _bitmapCache.Clear();
             _retiredImageIds.Clear();
+            _verifiedImageIds.Clear();
+            _totalImageBytes = 0;
+            _nextImageNumber = 1;
             _writeDisabled = false;
-            _skipNextBackupRotation = false;
 
-            var mainExists = File.Exists(FilePath);
-            var backupExists = File.Exists(BackupPath);
-            if (!mainExists && !backupExists)
+            if (!File.Exists(FilePath))
             {
                 return;
             }
 
-            var mainLoaded = TryLoadFile(FilePath, out var mainImages);
-            if (mainLoaded)
+            try
             {
-                ReplaceImages(mainImages);
-                return;
-            }
+                _database = LmdbImageDatabase.Open(FilePath);
+                var index = _database.ReadIndex();
+                if (!TryValidateIndex(index, out var images))
+                {
+                    _database.Dispose();
+                    _database = null;
+                    _writeDisabled = true;
+                    return;
+                }
 
-            if (TryLoadFile(BackupPath, out var backupImages))
+                _totalImageBytes = index.TotalBytes;
+                _nextImageNumber = index.NextImageNumber;
+                ReplaceImages(images);
+            }
+            catch
             {
-                _skipNextBackupRotation = mainExists;
-                ReplaceImages(backupImages);
-                return;
+                _database?.Dispose();
+                _database = null;
+                _writeDisabled = true;
             }
-
-            _writeDisabled = true;
         }
     }
 
@@ -104,9 +103,17 @@ public sealed class NoteImageStore
             }
         }
 
+        byte[] bytes;
+        lock (_gate)
+        {
+            if (!TryReadImageBytesLocked(asset, out bytes))
+            {
+                return null;
+            }
+        }
+
         try
         {
-            var bytes = Convert.FromBase64String(asset.Base64);
             using var stream = new MemoryStream(bytes);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
@@ -168,6 +175,49 @@ public sealed class NoteImageStore
             throw new FileNotFoundException(Strings.Get("ImageImportFileMissing"), path);
         }
 
+        var image = PrepareImageFile(path);
+        return AddEncodedImage(
+            noteId,
+            image.Bytes,
+            image.Mime,
+            image.OriginalName,
+            image.Width,
+            image.Height);
+    }
+
+    public IReadOnlyList<NoteImageAsset> ImportImageFiles(string noteId, IEnumerable<string> paths)
+    {
+        if (_writeDisabled)
+        {
+            throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
+        }
+
+        if (string.IsNullOrWhiteSpace(noteId))
+        {
+            throw new InvalidOperationException(Strings.Get("ImageImportInvalidNote"));
+        }
+
+        var images = new List<PreparedImage>();
+        foreach (var path in paths)
+        {
+            if (!IsSupportedImageFile(path))
+            {
+                continue;
+            }
+
+            images.Add(PrepareImageFile(path));
+        }
+
+        return AddEncodedImages(noteId, images);
+    }
+
+    private static PreparedImage PrepareImageFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            throw new FileNotFoundException(Strings.Get("ImageImportFileMissing"), path);
+        }
+
         var sourceLength = new FileInfo(path).Length;
         if (sourceLength > MaxInputImageBytes)
         {
@@ -189,62 +239,26 @@ public sealed class NoteImageStore
 
         if (canKeepOriginal)
         {
-            return AddEncodedImage(noteId, bytes, mime, originalName, width, height);
+            return new PreparedImage(bytes, mime, originalName, width, height);
         }
 
         var normalized = NormalizeBitmapSource(frame);
         var preferJpeg = string.Equals(mime, "image/jpeg", StringComparison.OrdinalIgnoreCase);
         var encoded = EncodeConstrainedImage(normalized, preferJpeg);
-        return AddEncodedImage(noteId, encoded.Bytes, encoded.Mime, originalName);
-    }
-
-    public IReadOnlyList<NoteImageAsset> ImportImageFiles(string noteId, IEnumerable<string> paths)
-    {
-        lock (_gate)
+        if (!TryReadBitmapInfo(encoded.Bytes, out _, out width, out height))
         {
-            var imported = new List<NoteImageAsset>();
-            _deferredImageSaveDepth++;
-            try
-            {
-                foreach (var path in paths)
-                {
-                    if (!IsSupportedImageFile(path))
-                    {
-                        continue;
-                    }
-
-                    imported.Add(ImportImageFile(noteId, path));
-                }
-
-                if (imported.Count > 0)
-                {
-                    SaveLocked();
-                }
-
-                return imported;
-            }
-            catch
-            {
-                foreach (var asset in imported)
-                {
-                    RemoveImageLocked(asset.Id, reserveIdUntilRestart: false);
-                }
-
-                throw;
-            }
-            finally
-            {
-                _deferredImageSaveDepth--;
-            }
+            throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
         }
+        return new PreparedImage(encoded.Bytes, encoded.Mime, originalName, width, height);
     }
 
     public bool TryWriteImageFile(string imageId, string path)
     {
-        NoteImageAsset asset;
+        byte[] bytes;
         lock (_gate)
         {
-            if (!_images.TryGetValue(imageId, out asset!))
+            if (!_images.TryGetValue(imageId, out var asset) ||
+                !TryReadImageBytesLocked(asset, out bytes))
             {
                 return false;
             }
@@ -258,7 +272,7 @@ public sealed class NoteImageStore
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllBytes(path, Convert.FromBase64String(asset.Base64));
+            File.WriteAllBytes(path, bytes);
             return true;
         }
         catch
@@ -356,48 +370,48 @@ public sealed class NoteImageStore
                 throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
             }
 
-            var additionalBytes = foreignAssets.Sum(EstimatedDecodedLength);
-            var currentBytes = _images.Values.Sum(EstimatedDecodedLength);
-            if ((long)currentBytes + additionalBytes > MaxTotalImageBytes)
+            var additionalBytes = foreignAssets.Sum(asset => (long)asset.ByteLength);
+            if (_totalImageBytes + additionalBytes > MaxTotalImageBytes)
             {
                 throw new InvalidDataException(Strings.Format("ImageImportTotalTooLarge", MaxTotalImageBytes / 1024 / 1024));
             }
 
             var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
-            var addedIds = new List<string>();
-            try
+            var writes = new List<LmdbImageWrite>(foreignAssets.Count);
+            var nextImageNumber = _nextImageNumber;
+            foreach (var source in foreignAssets)
             {
-                foreach (var source in foreignAssets)
+                if (!TryReadImageBytesLocked(source, out var bytes))
                 {
-                    var clone = new NoteImageAsset
-                    {
-                        Id = AllocateImageIdLocked(),
-                        NoteId = noteId,
-                        Mime = source.Mime,
-                        Width = source.Width,
-                        Height = source.Height,
-                        Sha256 = source.Sha256,
-                        Base64 = source.Base64,
-                        OriginalName = source.OriginalName,
-                        CreatedAt = DateTimeOffset.UtcNow
-                    };
-                    _images[clone.Id] = clone;
-                    addedIds.Add(clone.Id);
-                    replacements[source.Id] = clone.Id;
+                    throw new InvalidDataException(Strings.Get("ImageStoreUnavailable"));
                 }
 
-                var rewritten = ReplaceImageReferenceIds(markdown, replacements);
-                SaveLocked();
-                return rewritten;
-            }
-            catch
-            {
-                foreach (var imageId in addedIds)
+                var clone = new NoteImageAsset
                 {
-                    RemoveImageLocked(imageId, reserveIdUntilRestart: false);
-                }
-                throw;
+                    Id = AllocateImageIdLocked(ref nextImageNumber),
+                    NoteId = noteId,
+                    Mime = source.Mime,
+                    Width = source.Width,
+                    Height = source.Height,
+                    Sha256 = source.Sha256,
+                    ByteLength = source.ByteLength,
+                    OriginalName = source.OriginalName,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                writes.Add(new LmdbImageWrite(clone, bytes));
+                replacements[source.Id] = clone.Id;
             }
+
+            RequireDatabaseLocked().AddImages(writes, nextImageNumber);
+            foreach (var write in writes)
+            {
+                _images.Add(write.Asset.Id, write.Asset);
+                _verifiedImageIds.Add(write.Asset.Id);
+            }
+            _totalImageBytes += additionalBytes;
+            _nextImageNumber = nextImageNumber;
+
+            return ReplaceImageReferenceIds(markdown, replacements);
         }
     }
 
@@ -477,35 +491,34 @@ public sealed class NoteImageStore
             }
         }
 
-        var changed = false;
         lock (_gate)
         {
+            var removedIds = new List<string>();
             foreach (var asset in _images.Values.ToList())
             {
                 if (!liveNotes.Contains(asset.NoteId))
                 {
-                    RemoveImageLocked(asset.Id, reserveRemovedIdsUntilRestart);
-                    changed = true;
+                    removedIds.Add(asset.Id);
                     continue;
                 }
 
                 if (referenced.Contains((asset.NoteId, asset.Id)))
                 {
-                    if (asset.OrphanedAt != null)
-                    {
-                        asset.OrphanedAt = null;
-                        changed = true;
-                    }
                     continue;
                 }
 
-                RemoveImageLocked(asset.Id, reserveRemovedIdsUntilRestart);
-                changed = true;
+                removedIds.Add(asset.Id);
             }
 
-            if (changed)
+            if (removedIds.Count == 0)
             {
-                SaveLocked();
+                return;
+            }
+
+            RequireDatabaseLocked().DeleteImages(removedIds);
+            foreach (var imageId in removedIds)
+            {
+                RemoveImageLocked(imageId, reserveRemovedIdsUntilRestart);
             }
         }
     }
@@ -529,19 +542,40 @@ public sealed class NoteImageStore
         int width = 0,
         int height = 0)
     {
-        if (bytes.Length <= 0)
+        if ((width <= 0 || height <= 0) &&
+            !TryReadBitmapInfo(bytes, out _, out width, out height))
         {
             throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
         }
 
-        if (bytes.Length > MaxImageBytes)
+        var image = new PreparedImage(bytes, mime, originalName, width, height);
+        return AddEncodedImages(noteId, new[] { image })[0];
+    }
+
+    private IReadOnlyList<NoteImageAsset> AddEncodedImages(
+        string noteId,
+        IReadOnlyList<PreparedImage> images)
+    {
+        if (images.Count == 0)
         {
-            throw new InvalidDataException(Strings.Format("ImageImportTooLarge", MaxImageBytes / 1024 / 1024));
+            return Array.Empty<NoteImageAsset>();
         }
 
-        if (width <= 0 || height <= 0)
+        foreach (var image in images)
         {
-            if (!TryReadBitmapInfo(bytes, out _, out width, out height))
+            if (image.Bytes.Length <= 0)
+            {
+                throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
+            }
+
+            if (image.Bytes.Length > MaxImageBytes)
+            {
+                throw new InvalidDataException(Strings.Format("ImageImportTooLarge", MaxImageBytes / 1024 / 1024));
+            }
+
+            if (image.Width <= 0 ||
+                image.Height <= 0 ||
+                Math.Max(image.Width, image.Height) > MaxStoredDimension)
             {
                 throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
             }
@@ -549,38 +583,53 @@ public sealed class NoteImageStore
 
         lock (_gate)
         {
-            var totalBytes = _images.Values.Sum(EstimatedDecodedLength) + bytes.Length;
-            if (totalBytes > MaxTotalImageBytes)
+            if (_writeDisabled)
+            {
+                throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
+            }
+
+            var additionalBytes = images.Sum(image => (long)image.Bytes.Length);
+            if (_totalImageBytes + additionalBytes > MaxTotalImageBytes)
             {
                 throw new InvalidDataException(Strings.Format("ImageImportTotalTooLarge", MaxTotalImageBytes / 1024 / 1024));
             }
 
-            var asset = new NoteImageAsset
+            var writes = new List<LmdbImageWrite>(images.Count);
+            var nextImageNumber = _nextImageNumber;
+            foreach (var image in images)
             {
-                Id = AllocateImageIdLocked(),
-                NoteId = noteId,
-                Mime = NormalizeMime(mime),
-                Width = Math.Max(1, width),
-                Height = Math.Max(1, height),
-                Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-                Base64 = Convert.ToBase64String(bytes),
-                OriginalName = string.IsNullOrWhiteSpace(originalName) ? null : originalName,
-                CreatedAt = DateTimeOffset.UtcNow
-            };
-
-            _images[asset.Id] = asset;
-            if (_deferredImageSaveDepth == 0)
-            {
-                SaveLocked();
+                var asset = new NoteImageAsset
+                {
+                    Id = AllocateImageIdLocked(ref nextImageNumber),
+                    NoteId = noteId,
+                    Mime = NormalizeMime(image.Mime),
+                    Width = image.Width,
+                    Height = image.Height,
+                    Sha256 = Convert.ToHexString(SHA256.HashData(image.Bytes)).ToLowerInvariant(),
+                    ByteLength = image.Bytes.Length,
+                    OriginalName = string.IsNullOrWhiteSpace(image.OriginalName) ? null : image.OriginalName,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                writes.Add(new LmdbImageWrite(asset, image.Bytes));
             }
-            return asset;
+
+            RequireDatabaseLocked().AddImages(writes, nextImageNumber);
+            foreach (var write in writes)
+            {
+                _images.Add(write.Asset.Id, write.Asset);
+                _verifiedImageIds.Add(write.Asset.Id);
+            }
+            _totalImageBytes += additionalBytes;
+            _nextImageNumber = nextImageNumber;
+            return writes.Select(write => write.Asset).ToList();
         }
     }
 
-    private string AllocateImageIdLocked()
+    private string AllocateImageIdLocked(ref int nextImageNumber)
     {
-        for (var number = 1; number < int.MaxValue; number++)
+        while (nextImageNumber <= 99_999_999)
         {
+            var number = nextImageNumber++;
             var id = FormatImageId(number);
             if (!_images.ContainsKey(id) && !_retiredImageIds.Contains(id))
             {
@@ -735,65 +784,39 @@ public sealed class NoteImageStore
             _ => ".png"
         };
 
-    private static int EstimatedDecodedLength(NoteImageAsset asset)
-        => asset.Base64.Length / 4 * 3;
-
-    private bool TryLoadFile(string path, out List<NoteImageAsset> images)
-    {
-        images = new List<NoteImageAsset>();
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-
-        try
-        {
-            var json = File.ReadAllText(path);
-            var file = JsonSerializer.Deserialize<NoteImageStoreFile>(json, JsonOptions);
-            if (file?.Images == null || file.Version != StoreVersion)
-            {
-                return false;
-            }
-
-            return TryValidateImages(file.Images, out images);
-        }
-        catch
-        {
-            images.Clear();
-            return false;
-        }
-    }
-
-    private static bool TryValidateImages(
-        IEnumerable<NoteImageAsset> source,
+    private static bool TryValidateIndex(
+        LmdbImageIndex index,
         out List<NoteImageAsset> images)
     {
         images = new List<NoteImageAsset>();
+        if (index.NextImageNumber is < 1 or > 100_000_000 ||
+            index.TotalBytes is < 0 or > MaxTotalImageBytes)
+        {
+            return false;
+        }
+
         var usedIds = new HashSet<string>(StringComparer.Ordinal);
         long totalBytes = 0;
-        foreach (var asset in source)
+        foreach (var asset in index.Assets)
         {
-            if (!TryValidateAsset(asset, out var bytes, out var width, out var height) ||
+            if (!TryValidateAssetMetadata(asset) ||
                 !usedIds.Add(asset.Id))
             {
                 images.Clear();
                 return false;
             }
 
-            totalBytes += bytes.Length;
+            totalBytes += asset.ByteLength;
             if (totalBytes > MaxTotalImageBytes)
             {
                 images.Clear();
                 return false;
             }
 
-            asset.Mime = NormalizeMime(asset.Mime);
-            asset.Width = width;
-            asset.Height = height;
             images.Add(asset);
         }
 
-        return true;
+        return totalBytes == index.TotalBytes;
     }
 
     private void ReplaceImages(IEnumerable<NoteImageAsset> images)
@@ -807,11 +830,13 @@ public sealed class NoteImageStore
 
     private void RemoveImageLocked(string imageId, bool reserveIdUntilRestart)
     {
-        if (!_images.Remove(imageId))
+        if (!_images.Remove(imageId, out var asset))
         {
             return;
         }
 
+        _totalImageBytes = Math.Max(0, _totalImageBytes - asset.ByteLength);
+        _verifiedImageIds.Remove(imageId);
         RemoveCachedBitmapsFor(imageId);
         if (reserveIdUntilRestart)
         {
@@ -819,85 +844,93 @@ public sealed class NoteImageStore
         }
     }
 
-    private static bool TryValidateAsset(
-        NoteImageAsset asset,
-        out byte[] bytes,
-        out int width,
-        out int height)
+    private static bool TryValidateAssetMetadata(NoteImageAsset asset)
     {
-        bytes = Array.Empty<byte>();
-        width = 0;
-        height = 0;
         if (asset == null ||
             !MarkdownImageReferences.IsValidImageId(asset.Id) ||
             string.IsNullOrWhiteSpace(asset.NoteId) ||
-            string.IsNullOrWhiteSpace(asset.Base64) ||
-            string.IsNullOrWhiteSpace(asset.Sha256))
+            asset.Mime != NormalizeMime(asset.Mime) ||
+            asset.Width <= 0 ||
+            asset.Height <= 0 ||
+            Math.Max(asset.Width, asset.Height) > MaxStoredDimension ||
+            asset.ByteLength is <= 0 or > MaxImageBytes ||
+            string.IsNullOrWhiteSpace(asset.Sha256) ||
+            asset.Sha256.Length != 64)
         {
             return false;
         }
 
-        try
+        Span<byte> hash = stackalloc byte[32];
+        return Convert.TryFromHexString(asset.Sha256, hash, out var written) && written == hash.Length;
+    }
+
+    private bool TryReadImageBytesLocked(NoteImageAsset asset, out byte[] bytes)
+    {
+        bytes = Array.Empty<byte>();
+        if (_database == null ||
+            !_database.TryReadBlob(asset.Id, out var storedBytes) ||
+            storedBytes.Length != asset.ByteLength)
         {
-            bytes = Convert.FromBase64String(asset.Base64);
-            if (bytes.Length is <= 0 or > MaxImageBytes ||
-                !TryReadBitmapInfo(bytes, out _, out width, out height) ||
-                Math.Max(width, height) > MaxStoredDimension)
+            return false;
+        }
+
+        if (!_verifiedImageIds.Contains(asset.Id))
+        {
+            var actualHash = Convert.ToHexString(SHA256.HashData(storedBytes));
+            if (!string.Equals(actualHash, asset.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
+            _verifiedImageIds.Add(asset.Id);
+        }
 
-            var actualHash = Convert.ToHexString(SHA256.HashData(bytes));
-            return string.Equals(actualHash, asset.Sha256, StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            bytes = Array.Empty<byte>();
-            width = 0;
-            height = 0;
-            return false;
-        }
+        bytes = storedBytes;
+        return true;
     }
 
-    private void SaveLocked()
+    private LmdbImageDatabase RequireDatabaseLocked()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_writeDisabled)
         {
-            return;
+            throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
         }
 
-        var directory = Path.GetDirectoryName(FilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
+        if (_database != null)
         {
-            Directory.CreateDirectory(directory);
+            return _database;
         }
-
-        var file = new NoteImageStoreFile
-        {
-            Version = StoreVersion,
-            Images = _images.Values
-                .OrderBy(asset => asset.CreatedAt)
-                .ThenBy(asset => asset.Id, StringComparer.Ordinal)
-                .ToList()
-        };
-        var json = JsonSerializer.Serialize(file, JsonOptions);
-        var tempPath = FilePath + ".tmp";
-        File.WriteAllText(tempPath, json);
 
         try
         {
-            if (!_skipNextBackupRotation && File.Exists(FilePath))
-            {
-                File.Copy(FilePath, BackupPath, overwrite: true);
-            }
+            _database = LmdbImageDatabase.Open(FilePath);
+            return _database;
         }
-        catch
+        catch (Exception ex)
         {
-            // Losing one asset backup rotation should not block saving the current image store.
+            _database?.Dispose();
+            _database = null;
+            _writeDisabled = true;
+            throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"), ex);
         }
+    }
 
-        File.Move(tempPath, FilePath, overwrite: true);
-        _skipNextBackupRotation = false;
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _database?.Dispose();
+            _database = null;
+            _images.Clear();
+            _bitmapCache.Clear();
+            _verifiedImageIds.Clear();
+        }
     }
 
     private void RemoveCachedBitmapsFor(string imageId)
@@ -921,11 +954,12 @@ public sealed class NoteImageStore
         }
     }
 
-    private sealed class NoteImageStoreFile
-    {
-        public int Version { get; set; } = StoreVersion;
-        public List<NoteImageAsset> Images { get; set; } = new();
-    }
+    private readonly record struct PreparedImage(
+        byte[] Bytes,
+        string Mime,
+        string OriginalName,
+        int Width,
+        int Height);
 }
 
 public sealed class NoteImageAsset
@@ -936,12 +970,7 @@ public sealed class NoteImageAsset
     public int Width { get; set; }
     public int Height { get; set; }
     public string Sha256 { get; set; } = "";
-    public string Base64 { get; set; } = "";
+    public int ByteLength { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public DateTimeOffset? OrphanedAt { get; set; }
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OriginalName { get; set; }
 }
