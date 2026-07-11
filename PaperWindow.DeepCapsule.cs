@@ -839,6 +839,7 @@ public sealed partial class PaperWindow
 
     private void CloseExpandedDeepCapsuleSlotHostForReal()
     {
+        CancelDeepCapsuleReorderDrag();
         CloseDeepCapsuleSlotContextMenu();
         if (!_paper.IsCollapsed && _deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved)
         {
@@ -880,6 +881,7 @@ public sealed partial class PaperWindow
 
             _deepCapsuleSlotContextMenu = menu;
             SetDeepCapsuleSlotContextMenuOpen(true);
+            SetDeepCapsuleHover(true);
             StartDeepCapsuleContextMenuGuards();
             PromoteDeepCapsuleContextMenu(menu);
             _ = menu.Dispatcher.BeginInvoke(
@@ -894,6 +896,7 @@ public sealed partial class PaperWindow
                 _deepCapsuleSlotContextMenu = null;
                 SetDeepCapsuleSlotContextMenuOpen(false);
                 StopDeepCapsuleContextMenuGuards();
+                SetDeepCapsuleHover(_deepCapsuleSlotShell?.IsMouseOver == true);
             }
         };
 
@@ -1559,6 +1562,11 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (!hovering && _deepCapsuleSlotContextMenuOpen)
+        {
+            return;
+        }
+
         if (IsDeepCapsuleSlotActive)
         {
             return;
@@ -2060,6 +2068,7 @@ public sealed partial class PaperWindow
 
     public void ClearDeepCapsulePlacement(bool restoreCollapsedPosition = true, bool animate = false)
     {
+        CancelDeepCapsuleReorderDrag();
         animate = animate && _controller.State.EnableAnimations;
         _deepCapsuleCrossQueueDragUnlocked = false;
         SetDeepCapsuleCrossQueueDragVisual(false, animate: false);
@@ -2530,6 +2539,35 @@ public sealed partial class PaperWindow
             _controller.CompleteDeepCapsuleReorderDrag();
             _controller.RefreshFloatingSurfaceZOrder();
         }
+    }
+
+    private void CancelDeepCapsuleReorderDrag()
+    {
+        var wasReordering = IsDeepCapsuleReordering;
+        if (!wasReordering && !IsDeepCapsuleSlotPendingClick)
+        {
+            return;
+        }
+
+        SetDeepCapsuleGestureState(DeepCapsuleGestureState.Idle);
+        _deepCapsuleCrossQueueDragUnlocked = false;
+        _deepCapsuleDragStartMonitorDeviceName = "";
+        _deepCapsuleReorderPreviewIndex = -1;
+        SetDeepCapsuleCrossQueueDragVisual(false, animate: false);
+        Mouse.OverrideCursor = null;
+
+        if (_deepCapsuleSlotLeftArea?.IsMouseCaptured == true)
+        {
+            _deepCapsuleSlotLeftArea.ReleaseMouseCapture();
+        }
+
+        if (!wasReordering)
+        {
+            return;
+        }
+
+        _controller.CompleteDeepCapsuleReorderDrag();
+        _controller.RefreshFloatingSurfaceZOrder();
     }
 
     private bool CanReorderDeepCapsuleSlot()
