@@ -755,6 +755,19 @@ public sealed partial class PaperWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // PreviewKeyDown needs a WPF keyboard-focus target. Note preview deliberately
+        // makes the editor non-focusable, so an active paper can receive WM_KEYDOWN
+        // without producing a routed key event. Handle Escape at the HWND boundary and
+        // reuse the same collapse path as focused editors.
+        if (msg == WmKeyDown &&
+            wParam.ToInt32() == VkEscape &&
+            Keyboard.Modifiers == ModifierKeys.None &&
+            TryCollapseExpandedPaperFromEscape())
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (msg is WmDpiChanged or WmDisplayChange or WmSettingChange)
         {
             if (IsDeepCapsuleReordering)

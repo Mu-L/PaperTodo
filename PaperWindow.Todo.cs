@@ -1939,33 +1939,43 @@ public sealed partial class PaperWindow
         RefreshCapsuleEligibilityForLinkedNoteChanges(currentItems);
     }
 
+    private bool TryCollapseExpandedPaperFromEscape()
+    {
+        if (_paper.IsCollapsed ||
+            !_controller.State.UseCapsuleMode ||
+            !CanDisplayAsCapsule())
+        {
+            return false;
+        }
+
+        if (_isEditingTitle)
+        {
+            CommitTitleEdit();
+        }
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            if (_noteBox != null)
+            {
+                _paper.Content = _noteBox.PersistentText;
+            }
+            ExitNoteEditor();
+        }
+        else
+        {
+            Keyboard.ClearFocus();
+        }
+
+        SetCollapsedState(true);
+        return true;
+    }
+
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape &&
             Keyboard.Modifiers == ModifierKeys.None &&
-            !_paper.IsCollapsed &&
-            _controller.State.UseCapsuleMode &&
-            CanDisplayAsCapsule())
+            TryCollapseExpandedPaperFromEscape())
         {
-            if (_isEditingTitle)
-            {
-                CommitTitleEdit();
-            }
-
-            if (_paper.Type == PaperTypes.Note)
-            {
-                if (_noteBox != null)
-                {
-                    _paper.Content = _noteBox.PersistentText;
-                }
-                ExitNoteEditor();
-            }
-            else
-            {
-                Keyboard.ClearFocus();
-            }
-
-            SetCollapsedState(true);
             e.Handled = true;
             return;
         }

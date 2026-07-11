@@ -38,6 +38,7 @@ public sealed partial class PaperWindow
     private const uint EventSystemForeground = 0x0003;
     private const uint WineventOutOfContext = 0x0000;
     private const int WhMouseLl = 14;
+    private const int WmKeyDown = 0x0100;
     private const int WmLButtonDown = 0x0201;
     private const int WmRButtonDown = 0x0204;
     private const int WmMButtonDown = 0x0207;
@@ -47,6 +48,7 @@ public sealed partial class PaperWindow
     private const int WmDpiChanged = 0x02E0;
     private const int WmWindowPosChanged = 0x0047;
     private const int WmGetMinMaxInfo = 0x0024;
+    private const int VkEscape = 0x1B;
 
     private delegate void WinEventDelegate(
         IntPtr hWinEventHook,
