@@ -453,11 +453,6 @@ public sealed partial class AppController
         ShowSettingsWindow(SettingsPage.General);
     }
 
-    private void ShowShortcutWindow()
-    {
-        ShowSettingsWindow(SettingsPage.Shortcuts);
-    }
-
     private void ShowSettingsWindow(SettingsPage page)
     {
         _settingsPage = page;
@@ -540,9 +535,7 @@ public sealed partial class AppController
         }
 
         InvalidateSystemThemeCacheIfNeeded();
-        _settingsWindow.Title = _settingsPage == SettingsPage.Shortcuts
-            ? Strings.Get("SettingsShortcuts")
-            : Strings.Get("TraySettings");
+        _settingsWindow.Title = Strings.Get("TraySettings");
         _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
         _settingsWindow.FontFamily = AppTypography.UiFontFamily;
         _settingsWindow.Language = AppTypography.Language;
@@ -580,7 +573,6 @@ public sealed partial class AppController
         };
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ChangedButton == MouseButton.Left)
@@ -591,9 +583,7 @@ public sealed partial class AppController
 
         var title = new TextBlock
         {
-            Text = _settingsPage == SettingsPage.Shortcuts
-                ? Strings.Get("SettingsShortcuts")
-                : Strings.Get("TraySettings"),
+            Text = Strings.Get("TraySettings"),
             Foreground = TrayTextBrush,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
@@ -601,18 +591,6 @@ public sealed partial class AppController
         };
         Grid.SetColumn(title, 0);
         titleRow.Children.Add(title);
-
-        var pageButton = SettingsTextButton(
-            _settingsPage == SettingsPage.Shortcuts
-                ? Strings.Get("TraySettings")
-                : Strings.Get("SettingsShortcuts"));
-        pageButton.Margin = new Thickness(0, 0, 8, 0);
-        pageButton.Click += (_, _) => ShowSettingsWindow(
-            _settingsPage == SettingsPage.Shortcuts
-                ? SettingsPage.General
-                : SettingsPage.Shortcuts);
-        Grid.SetColumn(pageButton, 1);
-        titleRow.Children.Add(pageButton);
 
         var closeButton = new Button
         {
@@ -630,11 +608,15 @@ public sealed partial class AppController
             Style = BuildSettingsCloseButtonStyle()
         };
         closeButton.Click += (_, _) => window.Close();
-        Grid.SetColumn(closeButton, 2);
+        Grid.SetColumn(closeButton, 1);
         titleRow.Children.Add(closeButton);
 
         DockPanel.SetDock(titleRow, Dock.Top);
         root.Children.Add(titleRow);
+
+        var pageSelector = CreateSettingsPageSelector();
+        DockPanel.SetDock(pageSelector, Dock.Top);
+        root.Children.Add(pageSelector);
 
         if (_settingsPage == SettingsPage.Shortcuts)
         {
@@ -768,6 +750,30 @@ public sealed partial class AppController
         return WrapSettingsWindowContent(root);
     }
 
+    private UIElement CreateSettingsPageSelector()
+    {
+        const string generalKey = "general";
+        const string shortcutsKey = "shortcuts";
+        var segments = new[]
+        {
+            (Key: generalKey, Label: Strings.Get("SettingsGeneral")),
+            (Key: shortcutsKey, Label: Strings.Get("SettingsShortcuts"))
+        };
+        var activeKey = _settingsPage == SettingsPage.Shortcuts
+            ? shortcutsKey
+            : generalKey;
+        var selector = (FrameworkElement)CreateSegmentSelector(
+            segments,
+            activeKey,
+            key => ShowSettingsWindow(key == shortcutsKey
+                ? SettingsPage.Shortcuts
+                : SettingsPage.General));
+        selector.Width = 260;
+        selector.HorizontalAlignment = HorizontalAlignment.Left;
+        selector.Margin = new Thickness(0, 0, 0, 10);
+        return selector;
+    }
+
     private static Border WrapSettingsWindowContent(DockPanel root)
     {
         return new Border
@@ -851,8 +857,11 @@ public sealed partial class AppController
     {
         const double verticalPadding = 26;
         const double titleRowHeight = 34;
+        const double pageSelectorHeight = 36;
         const double footerHeight = 24;
-        return Math.Max(180, SettingsWindowMaxHeight() - verticalPadding - titleRowHeight - footerHeight);
+        return Math.Max(
+            180,
+            SettingsWindowMaxHeight() - verticalPadding - titleRowHeight - pageSelectorHeight - footerHeight);
     }
 
     private static TextBlock SettingsSectionLabel(string text)

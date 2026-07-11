@@ -433,7 +433,6 @@ public sealed partial class AppController
         _trayMenu.Items.Add(TraySeparator());
 
         _trayMenu.Items.Add(TrayItem(Strings.Get("TraySettings"), ShowSettingsWindow));
-        _trayMenu.Items.Add(TrayItem(Strings.Get("SettingsShortcuts"), ShowShortcutWindow));
         _trayMenu.Items.Add(TraySeparator());
 
         _trayMenu.Items.Add(TrayItem(Strings.Get("TrayShowAll"), ShowAllPapers));
