@@ -217,13 +217,19 @@ public sealed partial class PaperWindow
             box.SetPreviewMode(true);
             box.ContextMenu = previewMenu;
             isPreviewing = true;
-            // The editor drops Focusable in preview mode, which would leave no element
-            // holding keyboard focus inside the window — the window-level ESC handler
-            // would then never fire. Park focus on the window so ESC still minimizes.
-            if (box.IsKeyboardFocusWithin || IsKeyboardFocusWithin)
-            {
-                Focus();
-            }
+            // Focus can be cleared by the caller before preview mode is entered. Defer the
+            // decision until WPF has finished the current focus transition, then park focus
+            // on the active window only when no child control has claimed it. This keeps the
+            // window-level ESC handler available without stealing focus from title editing.
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    if (isPreviewing && IsActive && !IsKeyboardFocusWithin)
+                    {
+                        Focus();
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Input);
             TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
         }
 
