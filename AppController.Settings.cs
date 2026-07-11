@@ -766,11 +766,11 @@ public sealed partial class AppController
         // Premium main segmented capsule container
         var container = new Border
         {
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(6),
             Background = TrayHoverBrush, // Sunken tab track background
-            Margin = new Thickness(0, 0, 0, 14),
-            Height = 36,
-            Width = 260,
+            Margin = new Thickness(0, 0, 0, 10),
+            Height = 30,
+            Width = 220,
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -787,8 +787,8 @@ public sealed partial class AppController
             // Segment item card
             var segmentBorder = new Border
             {
-                CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(3), // Hovering capsule look inside track
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(2), // Smaller margin for a compact capsule look
                 Background = isActive ? Theme.ActiveBrush : Brushes.Transparent,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
@@ -798,7 +798,7 @@ public sealed partial class AppController
                 Text = label,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                FontSize = 12.5,
+                FontSize = 12,
                 FontWeight = isActive ? FontWeights.Bold : FontWeights.Medium,
                 Foreground = isActive ? TrayPaperBrush : TrayWeakTextBrush,
                 TextTrimming = TextTrimming.CharacterEllipsis
@@ -919,7 +919,7 @@ public sealed partial class AppController
     {
         const double verticalPadding = 26;
         const double titleRowHeight = 34;
-        const double pageSelectorHeight = 36;
+        const double pageSelectorHeight = 30;
         const double footerHeight = 24;
         return Math.Max(
             180,
