@@ -762,16 +762,78 @@ public sealed partial class AppController
         var activeKey = _settingsPage == SettingsPage.Shortcuts
             ? shortcutsKey
             : generalKey;
-        var selector = (FrameworkElement)CreateSegmentSelector(
-            segments,
-            activeKey,
-            key => ShowSettingsWindow(key == shortcutsKey
-                ? SettingsPage.Shortcuts
-                : SettingsPage.General));
-        selector.Width = 260;
-        selector.HorizontalAlignment = HorizontalAlignment.Left;
-        selector.Margin = new Thickness(0, 0, 0, 10);
-        return selector;
+
+        // Premium main segmented capsule container
+        var container = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Background = TrayHoverBrush, // Sunken tab track background
+            Margin = new Thickness(0, 0, 0, 14),
+            Height = 36,
+            Width = 260,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        for (int i = 0; i < segments.Length; i++)
+        {
+            var key = segments[i].Key;
+            var label = segments[i].Label;
+            var isActive = activeKey == key;
+
+            // Segment item card
+            var segmentBorder = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(3), // Hovering capsule look inside track
+                Background = isActive ? Theme.ActiveBrush : Brushes.Transparent,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            var textBlock = new TextBlock
+            {
+                Text = label,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12.5,
+                FontWeight = isActive ? FontWeights.Bold : FontWeights.Medium,
+                Foreground = isActive ? TrayPaperBrush : TrayWeakTextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+
+            segmentBorder.Child = textBlock;
+
+            // Micro-interaction hover behavior
+            if (!isActive)
+            {
+                segmentBorder.MouseEnter += (_, _) =>
+                {
+                    textBlock.Foreground = TrayTextBrush; // Elevate text readability on hover
+                };
+                segmentBorder.MouseLeave += (_, _) =>
+                {
+                    textBlock.Foreground = TrayWeakTextBrush;
+                };
+            }
+
+            segmentBorder.MouseLeftButtonDown += (_, _) =>
+            {
+                if (activeKey == key)
+                {
+                    return;
+                }
+                ShowSettingsWindow(key == shortcutsKey ? SettingsPage.Shortcuts : SettingsPage.General);
+            };
+
+            Grid.SetColumn(segmentBorder, i);
+            grid.Children.Add(segmentBorder);
+        }
+
+        container.Child = grid;
+        return container;
     }
 
     private static Border WrapSettingsWindowContent(DockPanel root)
