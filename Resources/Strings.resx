@@ -19,7 +19,7 @@
 错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>2.1</value>
+    <value>2.2</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 启动失败</value>
@@ -183,6 +183,12 @@
   <data name="ImageImportFailureMessage" xml:space="preserve">
     <value>无法插入图片：
 {0}</value>
+  </data>
+  <data name="NotePasteRejectedTitle" xml:space="preserve">
+    <value>无法粘贴</value>
+  </data>
+  <data name="NotePasteRejectedMessage" xml:space="preserve">
+    <value>粘贴内容超过单次 30000 字符、单行 6000 字符或笔记 100000 字符上限，未插入任何内容。</value>
   </data>
   <data name="ImageStoreUnavailable" xml:space="preserve">
     <value>图片数据文件无法加载。为避免覆盖现有图片，当前已停止写入图片数据。</value>

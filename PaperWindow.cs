@@ -88,12 +88,13 @@ public sealed partial class PaperWindow : Window
     private string? _activeOriginalItemId;
     private string? _activeOriginalText;
     private bool _suppressTodoBackspaceUntilKeyUp;
-    private bool _isApplyingCollapsedState;
     private Button? _closeButton;
     private Grid _capsuleShell = null!;
     private Window? _deepCapsuleSlotHost;
     private Grid? _deepCapsuleSlotHostRoot;
-    private ScaleTransform? _deepCapsuleSlotDragScale;
+    // Cross-edge dragging owns a separate top-level window. The docked slot host never changes
+    // into a floating pill, so its edge columns/corners cannot leak across a drag transition.
+    private DeepCapsuleDragWindow? _deepCapsuleFloatingDragHost;
     private Border? _deepCapsuleSlotChrome;
     private Border? _deepCapsuleSlotOutline;
     private Grid? _deepCapsuleSlotShell;
@@ -104,7 +105,6 @@ public sealed partial class PaperWindow : Window
     private TextBlock? _deepCapsuleSlotCloseGlyph;
     private TranslateTransform? _deepCapsuleSlotCloseGlyphOffset;
     private TextBlock? _deepCapsuleSlotLabelText;
-    private DeepCapsuleEdge? _appliedSlotEdge;
     private ContextMenu? _deepCapsuleSlotContextMenu;
     private bool _deepCapsuleSlotContextMenuOpen;
     private IntPtr _deepCapsuleForegroundHook;
@@ -116,29 +116,9 @@ public sealed partial class PaperWindow : Window
     private TextBlock? _capsuleCloseGlyph;
     private TranslateTransform? _capsuleCloseGlyphOffset;
     private TextBlock _capsuleLabelText = null!;
-    private bool _isMaybeDragging;
-    private Point _mouseDownScreenPos;
     private bool _suppressGeometrySave;
-    private DeepCapsuleSlotState _deepCapsuleSlotState = DeepCapsuleSlotState.None;
-    private DeepCapsuleVisualState _deepCapsuleVisualState = DeepCapsuleVisualState.Resting;
-    private DeepCapsuleGestureState _deepCapsuleGestureState = DeepCapsuleGestureState.Idle;
-    private DeepCapsuleOpenOrigin _deepCapsuleOpenOrigin = DeepCapsuleOpenOrigin.Normal;
-    private bool _isCollapseAllRetracted;
-    private double _deepCapsuleDragMouseOffsetY;
-    private double _deepCapsuleDragLeft;
-    private bool _deepCapsuleCrossQueueDragUnlocked;
-    private bool _deepCapsuleCrossQueueDragVisualActive;
-    private double _deepCapsuleCrossQueueDragWidth = PaperLayoutDefaults.CapsuleHeight;
-    private Point _deepCapsuleDragStartDip;
-    // Cross-edge/monitor drag: cursor offset inside the pill, last DIP point for layout/drop
-    // ordering, and last raw PointToScreen point for Win32 monitor resolution.
-    private double _deepCapsuleDragMouseOffsetX;
-    private int _deepCapsuleReorderPreviewIndex = -1;
-    private string _deepCapsuleDragStartMonitorDeviceName = "";
-    private Point _deepCapsuleDragLastDip;
-    private Point _deepCapsuleDragLastScreenPos;
-    private double _deepCapsuleSlotLeft;
-    private double _deepCapsuleSlotTop;
+    private DeviceScreenRect _deepCapsuleSlotDeviceBounds;
+    private double _deepCapsuleSlotTop = double.NaN;
     private int _deepCapsuleIndex = -1;
     // Visual slot shift: when the "collapse-all" master capsule occupies slot 0, real
     // capsules render at slot index+offset while _deepCapsuleIndex stays the paper-list index.
@@ -146,38 +126,35 @@ public sealed partial class PaperWindow : Window
     // Total visual slots in this capsule's queue, including the optional master slot. Top
     // clamping must use the whole stack; clamping per capsule makes lower slots collapse together.
     private int _deepCapsuleSlotCount = 1;
-    // Monotonic tokens guarding superseded animations; a stale Completed handler bails when its
-    // captured value no longer matches.
-    private int _deepCapsuleSlotMoveGeneration;
+    // Geometry and visibility are independent transition channels. A new vertical/width target
+    // must not accidentally validate or cancel a pending hide, and canceling a fade must not
+    // invalidate an otherwise current geometry settle.
+    private int _deepCapsuleGeometryGeneration;
+    private int _deepCapsuleVisibilityGeneration;
     private int _collapseTransitionGeneration;
     // The slot host and its content share this one real rectangle. The previous implementation
     // kept a full-width pill inside a narrower "viewport" window and relied on clipping to decide
     // which part was visible; any delayed WPF layout could then clip the interior cap or icon.
-    private Rect _deepCapsuleSlotRequestedBounds = Rect.Empty;
+    private DeviceScreenRect _deepCapsuleSlotRequestedBounds;
     private double _deepCapsuleSlotRequestedTop;
     private double _deepCapsuleSlotRequestedCloseWidth;
     private bool _deepCapsuleSlotLayoutSettlePending;
     private bool _deepCapsuleSlotLayoutSettleScheduled;
+    private bool _deepCapsuleSlotMeasureRefreshPending;
     private bool _deepCapsuleSlotMeasureRefreshScheduled;
-    private double _deepCapsuleSlotStartWidth;
-    private double _deepCapsuleSlotTargetWidth;
+    private int _deepCapsuleSlotStartWidth;
+    private int _deepCapsuleSlotTargetWidth;
     private double _deepCapsuleSlotStartCloseWidth;
     private double _deepCapsuleSlotTargetCloseWidth;
-    private Point _deepCapsuleSlotMouseDownScreenPos;
     private double _startTransitionWidth;
     private double _startTransitionHeight;
     private double _targetTransitionWidth;
     private double _targetTransitionHeight;
     private double _transitionBaseWidth;
     private double _transitionBaseHeight;
-    private bool _isTransitionVisualsActive;
     private bool _isEditingTitle;
     private bool _suppressTitleEditFromCurrentClick;
-    private bool _pendingTitleBarDrag;
-    private Point _titleBarDragStart;
-    private bool _pendingTitleEdit;
     private Rect? _snappedPresentationBoundsForRestore;
-    private Rect? _collapsedFromSnappedBounds;
     private bool _collapsedFromMaximized;
     private int _themeAnimationGeneration;
     private int _clearDoneGeneration;
@@ -214,7 +191,6 @@ public sealed partial class PaperWindow : Window
     private const double TitleBarDragThreshold = 1.0;
     private const double TodoPaperIconFontSize = 14;
     private const double NotePaperIconFontSize = 16;
-    private const double CapsuleCloseGlyphDeepOffset = -6;
     private const double CapsuleCloseGlyphNormalOffset = -1;
     private const double DeepCapsuleSlotOutlineThickness = 2;
     private const double DeepCapsuleSlotOutlineOverlap = 1;
@@ -239,10 +215,12 @@ public sealed partial class PaperWindow : Window
         IsVisible &&
         WindowState != WindowState.Minimized &&
         !_paper.IsCollapsed;
-    public bool IsCollapseAllRetracted => _isCollapseAllRetracted;
-    public bool IsClosed { get; private set; }
-    public bool HasExpandedDeepCapsuleSlotReservation => _deepCapsuleSlotState is DeepCapsuleSlotState.ExpandedReserved or DeepCapsuleSlotState.Retracting;
-    public bool OccupiesDeepCapsuleSlot => _paper.IsVisible && (_paper.IsCollapsed || _deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved);
+    public bool IsCollapseAllRetracted => IsDeepCapsuleRetractedIntoMaster;
+    public bool HasExpandedDeepCapsuleSlotReservation => DeepCapsuleSlot is
+        DeepCapsuleSlotState.ExpandedReserved or
+        DeepCapsuleSlotState.RetractedExpanded or
+        DeepCapsuleSlotState.RetractingExpanded;
+    public bool OccupiesDeepCapsuleSlot => _paper.IsVisible && HasDeepCapsuleSlotPlacement;
     public bool IsDeepCapsuleReorderDragInProgress => IsDeepCapsuleReordering;
     public bool SuppressGeometrySave => _suppressGeometrySave;
     // Ordinary collapsed capsules are the main PaperWindow and should still save X/Y.
@@ -251,7 +229,7 @@ public sealed partial class PaperWindow : Window
     public bool UsesNonPaperGeometry => _paper.IsCollapsed && HasDeepCapsuleSlotPlacement;
     public bool ShouldSaveDeepCapsuleExpandedGeometry => ExpandedFromDeepCapsuleEdge && !_paper.IsCollapsed && _paper.IsVisible;
     public double DesiredCapsuleWindowWidth => CapsuleWindowWidth();
-    public double DeepCapsuleRestingVisibleWidth => _deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved
+    public double DeepCapsuleRestingVisibleWidth => HoldsDeepCapsuleSlotWhileExpanded
         ? ExpandedDeepCapsuleVisibleWidth()
         : DeepCapsuleVisibleWidth();
 
@@ -260,71 +238,6 @@ public sealed partial class PaperWindow : Window
         End,
         Start
     }
-
-    // ── Deep-capsule state machine (currently implicit; transitions are scattered across
-    // SetCollapsedState, Apply*/Clear*DeepCapsule*, ArrangeDeepCapsules). Documented here until
-    // it can be extracted into a dedicated presenter that owns these transitions centrally.
-    //
-    // Four orthogonal axes track one docked capsule:
-    //
-    //   SlotState   — does this paper occupy/reserve an edge slot, and is its slot-host window live?
-    //       None            : not in the stack; slot-host hidden.
-    //       CollapsedDocked : paper is collapsed and shown as an edge pill (slot-host visible).
-    //       ExpandedReserved: paper is expanded but still holds its slot (ShowDeepCapsuleWhileExpanded).
-    //       Retracting      : transient — slot-host is animating out before going None.
-    //     Legal: None⇄CollapsedDocked, None⇄ExpandedReserved, CollapsedDocked⇄ExpandedReserved,
-    //            (CollapsedDocked|ExpandedReserved)→Retracting→None.
-    //     Invariant: paper not visible ⇒ SlotState must reach None (slot-host hidden). The
-    //                single correct teardown is DetachFromDeepCapsuleStack().
-    //
-    //   VisualState — resting tag / expanded hover / persistent active. Independent of SlotState.
-    //   GestureState— pointer interaction: Idle / PendingClick / Reordering (edge-locked reorder or cross-queue drag).
-    //   OpenOrigin  — whether the expanded window came from an edge slot (affects re-dock on collapse).
-    private enum DeepCapsuleSlotState
-    {
-        None,
-        CollapsedDocked,
-        ExpandedReserved,
-        Retracting
-    }
-
-    private enum DeepCapsuleVisualState
-    {
-        Resting,
-        Hovered,
-        Active
-    }
-
-    private enum DeepCapsuleGestureState
-    {
-        Idle,
-        PendingClick,
-        Reordering
-    }
-
-    private enum DeepCapsuleOpenOrigin
-    {
-        Normal,
-        EdgeSlot
-    }
-
-    private bool HasDeepCapsuleSlotPlacement => _deepCapsuleSlotState != DeepCapsuleSlotState.None;
-    private bool HoldsDeepCapsuleSlotWhileExpanded => _deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved;
-    private bool IsDeepCapsuleSlotRetracting => _deepCapsuleSlotState == DeepCapsuleSlotState.Retracting;
-    private bool IsDeepCapsuleHovered => _deepCapsuleVisualState == DeepCapsuleVisualState.Hovered;
-    private bool IsDeepCapsuleSlotActive => _deepCapsuleVisualState == DeepCapsuleVisualState.Active;
-    private bool IsDeepCapsuleSlotPendingClick => _deepCapsuleGestureState == DeepCapsuleGestureState.PendingClick;
-    private bool IsDeepCapsuleReordering => _deepCapsuleGestureState == DeepCapsuleGestureState.Reordering;
-    private bool ExpandedFromDeepCapsuleEdge => _deepCapsuleOpenOrigin == DeepCapsuleOpenOrigin.EdgeSlot;
-
-    private void SetDeepCapsuleSlotState(DeepCapsuleSlotState state) => _deepCapsuleSlotState = state;
-    private void SetDeepCapsuleVisualState(DeepCapsuleVisualState state)
-    {
-        _deepCapsuleVisualState = state;
-        UpdateDeepCapsuleSlotOutlineState();
-    }
-    private void SetDeepCapsuleGestureState(DeepCapsuleGestureState state) => _deepCapsuleGestureState = state;
-    private void SetDeepCapsuleOpenOrigin(DeepCapsuleOpenOrigin origin) => _deepCapsuleOpenOrigin = origin;
 
     private void ClearCapsuleInteractionKeyboardFocus()
     {
@@ -614,6 +527,7 @@ public sealed partial class PaperWindow : Window
     {
         _paper = paper;
         _controller = controller;
+        InitializePaperPresentationState();
 
         ConfigureWindow();
         BuildShell();
@@ -647,20 +561,9 @@ public sealed partial class PaperWindow : Window
             }
         };
         Activated += (_, _) => _controller.RefreshFloatingSurfaceZOrder();
-        Deactivated += (_, _) =>
-        {
-            if (_todoDrag != null)
-            {
-                EndTodoMouseDrag(commit: false);
-            }
-
-            if (_noteLinkDrag != null)
-            {
-                EndNoteLinkMouseGesture(commit: false);
-            }
-        };
+        Deactivated += (_, _) => AbortAllInteractions(InteractionAbortReason.Deactivated);
         Closing += OnClosing;
-        Closed += (_, _) => IsClosed = true;
+        Closed += (_, _) => CompletePaperWindowClose();
 
         if (_paper.Type == PaperTypes.Note)
         {
@@ -685,6 +588,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
+        BeginPaperWindowClose();
         CloseExpandedDeepCapsuleSlotHostForReal();
 
         if (saveBeforeClose)
@@ -854,8 +758,7 @@ public sealed partial class PaperWindow : Window
         }
 
         var snapped = !_paper.IsCollapsed &&
-            !_isTransitionVisualsActive &&
-            !_isApplyingCollapsedState &&
+            !IsPaperFormTransitioning &&
             LooksSnappedNow();
 
         if (snapped == _isSnappedPresentation)
@@ -883,7 +786,7 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        if (IsVisible && !_paper.IsCollapsed && !_isApplyingCollapsedState && !_isTransitionVisualsActive)
+        if (IsVisible && !_paper.IsCollapsed && !IsPaperFormTransitioning)
         {
             _snappedPresentationBoundsForRestore = null;
         }
@@ -1231,23 +1134,10 @@ public sealed partial class PaperWindow : Window
     public void CancelPendingVisibilityTransitions()
     {
         BeginAnimation(Window.OpacityProperty, null);
-        if (!_isCollapseAllRetracted)
-        {
-            Opacity = 1.0;
-        }
+        Opacity = 1.0;
 
-        _deepCapsuleSlotMoveGeneration++;
-        if (_deepCapsuleSlotHost != null)
-        {
-            _deepCapsuleSlotHost.BeginAnimation(Window.OpacityProperty, null);
-            _deepCapsuleSlotHost.Opacity = 1.0;
-        }
-
-        if (_deepCapsuleSlotHostRoot != null)
-        {
-            _deepCapsuleSlotHostRoot.BeginAnimation(UIElement.OpacityProperty, null);
-            _deepCapsuleSlotHostRoot.Opacity = 1.0;
-        }
+        _deepCapsuleGeometryGeneration++;
+        _deepCapsuleVisibilityGeneration++;
 
         if (IsDeepCapsuleSlotRetracting)
         {
@@ -1261,6 +1151,8 @@ public sealed partial class PaperWindow : Window
                 UpdateDeepCapsuleSlotClosePlacement();
             }
         }
+
+        ReconcileDeepCapsuleHostPresentation();
     }
 
     private void ConfigureWindow()
@@ -1540,13 +1432,7 @@ public sealed partial class PaperWindow : Window
                 EndTitleBarDragGesture(_paperChrome);
             }
         };
-        _paperChrome.LostMouseCapture += (_, _) =>
-        {
-            if (Mouse.LeftButton != MouseButtonState.Pressed)
-            {
-                _pendingTitleBarDrag = false;
-            }
-        };
+        _paperChrome.LostMouseCapture += (_, _) => EndTitleBarDragGesture(_paperChrome);
 
         _windowHost.Children.Add(_paperChrome);
 
@@ -1622,15 +1508,16 @@ public sealed partial class PaperWindow : Window
             return;
         }
 
-        _pendingTitleBarDrag = true;
-        _titleBarDragStart = e.GetPosition(this);
+        EndTitleBarDragGesture();
+        _titleBarDragSession = new TitleBarDragSession(dragSource, e.GetPosition(this));
         dragSource.CaptureMouse();
         e.Handled = true;
     }
 
     private void UpdateTitleBarDragGesture(FrameworkElement dragSource, MouseEventArgs e)
     {
-        if (!_pendingTitleBarDrag)
+        var session = _titleBarDragSession;
+        if (session == null || !ReferenceEquals(session.Source, dragSource))
         {
             return;
         }
@@ -1642,8 +1529,8 @@ public sealed partial class PaperWindow : Window
         }
 
         var current = e.GetPosition(this);
-        if (Math.Abs(current.X - _titleBarDragStart.X) < TitleBarDragThreshold &&
-            Math.Abs(current.Y - _titleBarDragStart.Y) < TitleBarDragThreshold)
+        if (Math.Abs(current.X - session.StartPosition.X) < TitleBarDragThreshold &&
+            Math.Abs(current.Y - session.StartPosition.Y) < TitleBarDragThreshold)
         {
             return;
         }
@@ -1655,10 +1542,21 @@ public sealed partial class PaperWindow : Window
 
     private void EndTitleBarDragGesture(FrameworkElement dragSource)
     {
-        _pendingTitleBarDrag = false;
-        if (dragSource.IsMouseCaptured)
+        if (_titleBarDragSession == null || !ReferenceEquals(_titleBarDragSession.Source, dragSource))
         {
-            dragSource.ReleaseMouseCapture();
+            return;
+        }
+
+        EndTitleBarDragGesture();
+    }
+
+    private void EndTitleBarDragGesture()
+    {
+        var session = _titleBarDragSession;
+        _titleBarDragSession = null;
+        if (session?.Source.IsMouseCaptured == true)
+        {
+            session.Source.ReleaseMouseCapture();
         }
     }
 
@@ -1705,13 +1603,7 @@ public sealed partial class PaperWindow : Window
         };
         top.PreviewMouseMove += (_, e) => UpdateTitleBarDragGesture(top, e);
         top.PreviewMouseLeftButtonUp += (_, _) => EndTitleBarDragGesture(top);
-        top.LostMouseCapture += (_, _) =>
-        {
-            if (Mouse.LeftButton != MouseButtonState.Pressed)
-            {
-                _pendingTitleBarDrag = false;
-            }
-        };
+        top.LostMouseCapture += (_, _) => EndTitleBarDragGesture(top);
 
         var titleArea = new Grid
         {
@@ -1907,13 +1799,7 @@ public sealed partial class PaperWindow : Window
         topHost.MouseLeftButtonDown += (_, e) => BeginTitleBarDragGesture(topHost, e);
         topHost.PreviewMouseMove += (_, e) => UpdateTitleBarDragGesture(topHost, e);
         topHost.PreviewMouseLeftButtonUp += (_, _) => EndTitleBarDragGesture(topHost);
-        topHost.LostMouseCapture += (_, _) =>
-        {
-            if (Mouse.LeftButton != MouseButtonState.Pressed)
-            {
-                _pendingTitleBarDrag = false;
-            }
-        };
+        topHost.LostMouseCapture += (_, _) => EndTitleBarDragGesture(topHost);
 
         Grid.SetRow(topHost, 0);
         _shell.Children.Add(topHost);
@@ -1941,7 +1827,8 @@ public sealed partial class PaperWindow : Window
 
         if (e.LeftButton != MouseButtonState.Pressed)
         {
-            EndNoteLinkMouseGesture(commit: state.IsDragging);
+            // Only the explicit MouseUp handler may commit a link.
+            EndNoteLinkMouseGesture(commit: false);
             e.Handled = true;
             return;
         }
@@ -2254,18 +2141,39 @@ public sealed partial class PaperWindow : Window
         }
 
         RefreshDeepCapsuleSlotTopmost();
+        if (_noteLinkDrag?.Ghost is { } noteLinkGhost)
+        {
+            var ghostTopmost = !_controller.SuppressTopmostForFullscreenForeground;
+            noteLinkGhost.Topmost = ghostTopmost;
+            if (noteLinkGhost.IsVisible)
+            {
+                WindowNative.ApplyTopmostZOrder(
+                    noteLinkGhost,
+                    ghostTopmost,
+                    _controller.FullscreenAvoidanceWindow);
+            }
+        }
     }
 
     internal void RefreshDeepCapsuleSlotTopmost()
     {
+        var slotShouldBeTopmost = !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
+            !_controller.SuppressTopmostForFullscreenForeground;
         if (_deepCapsuleSlotHost != null)
         {
-            var slotShouldBeTopmost = !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
-                !_controller.SuppressTopmostForFullscreenForeground;
             _deepCapsuleSlotHost.Topmost = slotShouldBeTopmost;
             if (_deepCapsuleSlotHost.IsVisible)
             {
                 WindowNative.ApplyTopmostZOrder(_deepCapsuleSlotHost, slotShouldBeTopmost, _controller.FullscreenAvoidanceWindow);
+            }
+        }
+
+        if (_deepCapsuleFloatingDragHost != null)
+        {
+            _deepCapsuleFloatingDragHost.Topmost = slotShouldBeTopmost;
+            if (_deepCapsuleFloatingDragHost.IsVisible)
+            {
+                WindowNative.ApplyTopmostZOrder(_deepCapsuleFloatingDragHost, slotShouldBeTopmost, _controller.FullscreenAvoidanceWindow);
             }
         }
     }
@@ -2305,14 +2213,12 @@ public sealed partial class PaperWindow : Window
         RefreshPaperContextMenus();
     }
 
-    private void RequestTitleEdit()
-    {
-        QueueTitleEditAfterWindowIsExpanded();
-    }
-
     private void BeginTitleEdit()
     {
-        if (_titleText == null || _titleEditBox == null)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            !_paper.IsVisible ||
+            _titleText == null ||
+            _titleEditBox == null)
         {
             return;
         }
@@ -2379,21 +2285,20 @@ public sealed partial class PaperWindow : Window
     {
         return IsVisible &&
             !_paper.IsCollapsed &&
-            !_isApplyingCollapsedState &&
-            !_isTransitionVisualsActive &&
+            !IsPaperFormTransitioning &&
             Width > DesiredCapsuleWindowWidth + 8 &&
             Height > PaperLayoutDefaults.CapsuleHeight + 8;
     }
 
     private void QueueTitleEditAfterWindowIsExpanded()
     {
-        if (_pendingTitleEdit)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive || !_paper.IsVisible)
         {
             return;
         }
 
-        _pendingTitleEdit = true;
-        if (_paper.IsCollapsed || !IsVisible)
+        var generation = ++_titleEditIntentGeneration;
+        if (_paper.IsCollapsed)
         {
             ExpandForProgrammaticOpen();
         }
@@ -2410,8 +2315,27 @@ public sealed partial class PaperWindow : Window
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            _pendingTitleEdit = false;
-            Dispatcher.BeginInvoke((Action)BeginTitleEdit, System.Windows.Threading.DispatcherPriority.Input);
+            if (generation != _titleEditIntentGeneration ||
+                _windowLifecycle != PaperWindowLifecycleState.Alive ||
+                IsClosed ||
+                !_paper.IsVisible ||
+                !CanBeginTitleEditNow())
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    if (generation == _titleEditIntentGeneration &&
+                        _windowLifecycle == PaperWindowLifecycleState.Alive &&
+                        _paper.IsVisible &&
+                        CanBeginTitleEditNow())
+                    {
+                        BeginTitleEdit();
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Input);
         };
         timer.Start();
     }
@@ -2881,7 +2805,7 @@ public sealed partial class PaperWindow : Window
 
     private void UpdateTransitionVisuals(double progress)
     {
-        if (!_isTransitionVisualsActive)
+        if (!IsPaperFormTransitioning)
         {
             return;
         }
@@ -2908,7 +2832,6 @@ public sealed partial class PaperWindow : Window
 
     private void ResetTransitionVisuals()
     {
-        _isTransitionVisualsActive = false;
         _paperChrome.Width = double.NaN;
         _paperChrome.Height = double.NaN;
         _paperChrome.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -2948,36 +2871,19 @@ public sealed partial class PaperWindow : Window
 
     private double CapsuleWindowWidth()
     {
-        return CapsuleWindowWidth(UsesDeepCapsulePresentation);
-    }
-
-    private double CapsuleWindowWidth(bool usesDeepCapsulePresentation)
-    {
-        var minWidth = usesDeepCapsulePresentation ? PaperLayoutDefaults.CapsuleWidth : CapsuleNormalMinWidth;
-        return Math.Max(minWidth, CapsuleShellWidth(usesDeepCapsulePresentation) + WindowChromeInset);
+        return Math.Max(CapsuleNormalMinWidth, CapsuleShellWidth() + WindowChromeInset);
     }
 
     private double CapsuleShellWidth()
     {
-        return CapsuleShellWidth(UsesDeepCapsulePresentation);
+        return Math.Ceiling(
+            CapsuleLeftPadding +
+            MeasureCapsuleIconWidth() +
+            CapsuleIconGap +
+            MeasureCapsuleTitleWidth() +
+            CapsuleNormalCloseWidth +
+            CapsuleRightPadding);
     }
-
-    private double CapsuleShellWidth(bool usesDeepCapsulePresentation)
-    {
-        return Math.Ceiling(CapsuleLeftPadding + MeasureCapsuleIconWidth() + CapsuleIconGap + MeasureCapsuleTitleWidth(limitForDeepCapsule: usesDeepCapsulePresentation) + CapsuleCloseWidthForPlacement(usesDeepCapsulePresentation) + CapsuleRightPadding);
-    }
-
-    private double CapsuleCloseWidthForCurrentPlacement()
-    {
-        return CapsuleCloseWidthForPlacement(UsesDeepCapsulePresentation);
-    }
-
-    private static double CapsuleCloseWidthForPlacement(bool usesDeepCapsulePresentation)
-    {
-        return usesDeepCapsulePresentation ? CapsuleCloseWidth : CapsuleNormalCloseWidth;
-    }
-
-    private bool UsesDeepCapsulePresentation => false;
 
     // The pill window clamps to a minimum width (CapsuleWidth), so for short titles the pill is
     // wider than the raw content. The shell must always fill the pill interior, otherwise it is
@@ -2985,12 +2891,7 @@ public sealed partial class PaperWindow : Window
     // pill's actual curve. Pill interior = window width minus the chrome margin on both sides.
     private double CapsuleShellLayoutWidth()
     {
-        return CapsuleShellLayoutWidth(UsesDeepCapsulePresentation);
-    }
-
-    private double CapsuleShellLayoutWidth(bool usesDeepCapsulePresentation)
-    {
-        return Math.Max(CapsuleShellWidth(usesDeepCapsulePresentation), CapsuleWindowWidth(usesDeepCapsulePresentation) - WindowChromeInset);
+        return Math.Max(CapsuleShellWidth(), CapsuleWindowWidth() - WindowChromeInset);
     }
 
     private double MeasureCapsuleTitleWidth(bool limitForDeepCapsule = false, double? pixelsPerDip = null)
@@ -3088,7 +2989,7 @@ public sealed partial class PaperWindow : Window
 
     private void SaveGeometryIfAllowed()
     {
-        if (_isApplyingCollapsedState || SuppressGeometrySave)
+        if (IsPaperFormTransitioning || SuppressGeometrySave)
         {
             return;
         }
@@ -3125,30 +3026,4 @@ public sealed partial class PaperWindow : Window
         }
     }
 
-    private void AnimateWindowOpacity(double to, bool animate)
-    {
-        if (!animate || Math.Abs(Opacity - to) < 0.001)
-        {
-            BeginAnimation(OpacityProperty, null);
-            Opacity = to;
-            return;
-        }
-
-        var anim = new System.Windows.Media.Animation.DoubleAnimation
-        {
-            From = Opacity,
-            To = to,
-            Duration = TimeSpan.FromMilliseconds(160),
-            EasingFunction = new System.Windows.Media.Animation.CubicEase
-            {
-                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
-            }
-        };
-        anim.Completed += (_, _) =>
-        {
-            BeginAnimation(OpacityProperty, null);
-            Opacity = to;
-        };
-        BeginAnimation(OpacityProperty, anim);
-    }
 }

@@ -1360,7 +1360,10 @@ public sealed partial class PaperWindow
 
         if (e.LeftButton != MouseButtonState.Pressed)
         {
-            EndTodoMouseDrag(commit: _todoDrag.IsDragging);
+            // A released button observed from MouseMove means the owning MouseUp was lost
+            // (for example because capture changed). Only the explicit MouseUp handler may
+            // commit a reorder or the destructive trash drop.
+            EndTodoMouseDrag(commit: false);
             e.Handled = true;
             return;
         }
@@ -1637,16 +1640,6 @@ public sealed partial class PaperWindow
         RebuildTodoRows(state.ItemId);
     }
 
-    private void MoveItemBefore(string draggedId, string targetId, bool focusDragged = true)
-    {
-        MoveItem(draggedId, targetId, DropPlacement.Before, focusDragged);
-    }
-
-    private void MoveItemAfter(string draggedId, string targetId, bool focusDragged = true)
-    {
-        MoveItem(draggedId, targetId, DropPlacement.After, focusDragged);
-    }
-
     private void MoveItem(string draggedId, string targetId, DropPlacement placement, bool focusDragged)
     {
         if (draggedId == targetId)
@@ -1692,32 +1685,6 @@ public sealed partial class PaperWindow
         NormalizeOrders();
         _controller.MarkDirty();
 
-        RebuildTodoRows(focusDragged ? dragged.Id : null);
-    }
-
-    private void MoveItemToEnd(string draggedId, bool focusDragged = true)
-    {
-        var ordered = OrderedItems().ToList();
-        var dragged = ordered.FirstOrDefault(i => i.Id == draggedId);
-        if (dragged == null)
-        {
-            return;
-        }
-
-        var oldIndex = ordered.IndexOf(dragged);
-        if (oldIndex == ordered.Count - 1)
-        {
-            return;
-        }
-
-        PushUndoSnapshot();
-        ordered.Remove(dragged);
-        ordered.Add(dragged);
-
-        _paper.Items = ordered;
-        NormalizeTodoItems();
-        NormalizeOrders();
-        _controller.MarkDirty();
         RebuildTodoRows(focusDragged ? dragged.Id : null);
     }
 
@@ -1941,6 +1908,18 @@ public sealed partial class PaperWindow
 
     private bool TryCollapseExpandedPaperFromEscape()
     {
+        if (_todoDrag != null ||
+            _noteLinkDrag != null ||
+            IsDeepCapsuleReordering ||
+            IsDeepCapsuleSlotPendingClick ||
+            _titleBarDragSession != null)
+        {
+            // Escape first cancels the active gesture. It must not change form while a drag can
+            // still receive a later MouseUp and commit against a hidden/collapsed visual tree.
+            AbortAllInteractions(InteractionAbortReason.FormChanging);
+            return true;
+        }
+
         if (_paper.IsCollapsed ||
             !_controller.State.UseCapsuleMode ||
             !CanDisplayAsCapsule())

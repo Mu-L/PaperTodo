@@ -16,7 +16,7 @@
     <value>시작에 실패했습니다: 데이터 파일을 불러올 수 없습니다. 파일이 사용 중이거나 손상되었을 수 있습니다.&#x0A;기존 데이터가 덮어써지지 않도록 앱 시작을 중지했습니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>2.1</value>
+    <value>2.2</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 시작 실패</value>
@@ -173,6 +173,12 @@
   </data>
   <data name="ImageImportFailureMessage" xml:space="preserve">
     <value>이미지를 삽입할 수 없습니다:&#x0A;{0}</value>
+  </data>
+  <data name="NotePasteRejectedTitle" xml:space="preserve">
+    <value>붙여넣을 수 없음</value>
+  </data>
+  <data name="NotePasteRejectedMessage" xml:space="preserve">
+    <value>붙여넣기 내용이 30,000자, 한 줄 6,000자 또는 메모 전체 100,000자 제한을 초과하여 아무 내용도 삽입하지 않았습니다.</value>
   </data>
   <data name="ImageStoreUnavailable" xml:space="preserve">
     <value>이미지 데이터 파일을 불러올 수 없습니다. 기존 이미지가 덮어써지지 않도록 이미지 데이터 쓰기를 중지했습니다.</value>

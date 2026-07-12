@@ -8,6 +8,17 @@ namespace PaperTodo;
 internal static class WindowWorkAreaHelper
 {
     private const uint MonitorDefaultToNearest = 2;
+    private const uint MonitorInfoPrimary = 1;
+    private static readonly object MonitorCacheGate = new();
+    private static IReadOnlyList<MonitorEntry>? _cachedMonitors;
+
+    public static void InvalidateMonitorGeometryCache()
+    {
+        lock (MonitorCacheGate)
+        {
+            _cachedMonitors = null;
+        }
+    }
 
     public static Rect WorkAreaFor(Rect dipRect)
     {
@@ -93,7 +104,12 @@ internal static class WindowWorkAreaHelper
             return null;
         }
 
-        foreach (var monitor in EnumerateMonitors())
+        if (!TryEnumerateMonitors(out var monitors))
+        {
+            return null;
+        }
+
+        foreach (var monitor in monitors)
         {
             if (string.Equals(monitor.DeviceName, deviceName, StringComparison.Ordinal) &&
                 !monitor.WorkArea.IsEmpty)
@@ -149,23 +165,23 @@ internal static class WindowWorkAreaHelper
     // Convert a PointToScreen point (physical screen pixels) into the app's screen DIP space.
     // Most persisted/window geometry in this app uses the system-DPI coordinate space, so callers
     // should use this when comparing a raw Win32 screen point with DeviceRectToDip rectangles.
-    public static Point DeviceScreenPointToDip(Point screenPoint)
+    public static GlobalScreenDipPoint DeviceScreenPointToDip(DeviceScreenPoint screenPoint)
     {
         try
         {
             var (scaleX, scaleY) = SystemDpiScale();
-            return new Point(screenPoint.X / scaleX, screenPoint.Y / scaleY);
+            return new GlobalScreenDipPoint(screenPoint.X / scaleX, screenPoint.Y / scaleY);
         }
         catch
         {
-            return screenPoint;
+            return new GlobalScreenDipPoint(screenPoint.X, screenPoint.Y);
         }
     }
 
     // The device name + DIP work-area of the monitor under a PointToScreen point (physical
     // screen pixels). Falls back to the nearest monitor. Used when dropping a capsule across
     // edges/monitors; using the raw device point avoids mixed-DPI monitor misidentification.
-    public static (string DeviceName, Rect WorkArea)? MonitorAtDeviceScreenPoint(Point screenPoint)
+    public static (string DeviceName, Rect WorkArea)? MonitorAtDeviceScreenPoint(DeviceScreenPoint screenPoint)
     {
         try
         {
@@ -195,66 +211,217 @@ internal static class WindowWorkAreaHelper
         }
     }
 
-    // The device name + DIP work-area of the monitor under a screen point (in DIPs).
-    // Falls back to the nearest monitor. Used by older callers that already have system-DPI
-    // screen coordinates, not raw PointToScreen pixels.
-    public static (string DeviceName, Rect WorkArea)? MonitorAtScreenPoint(Point dipPoint)
+    public static bool TryGetMonitorGeometryForDevice(string? deviceName, out MonitorGeometry geometry)
+        => TryGetMonitorGeometryForDevice(deviceName, dpiWindow: null, out geometry);
+
+    public static bool TryGetMonitorGeometryForDevice(
+        string? deviceName,
+        Window? dpiWindow,
+        out MonitorGeometry geometry)
     {
-        try
+        geometry = default;
+        if (!TryEnumerateMonitors(out var monitors) || monitors.Count == 0)
         {
-            var (scaleX, scaleY) = SystemDpiScale();
-            var nativePoint = new NativePoint
-            {
-                X = (int)Math.Round(dipPoint.X * scaleX),
-                Y = (int)Math.Round(dipPoint.Y * scaleY)
-            };
-            var monitor = MonitorFromPoint(nativePoint, MonitorDefaultToNearest);
-            if (monitor == IntPtr.Zero)
-            {
-                return null;
-            }
-
-            var info = new MonitorInfoEx();
-            info.Size = Marshal.SizeOf<MonitorInfoEx>();
-            if (!GetMonitorInfoEx(monitor, ref info) || info.WorkArea.IsEmpty)
-            {
-                return null;
-            }
-
-            return (info.DeviceNameString, DeviceRectToDip(info.WorkArea));
+            return false;
         }
-        catch
+
+        var requestedName = (deviceName ?? "").Trim();
+        var monitor = string.IsNullOrEmpty(requestedName)
+            ? monitors.FirstOrDefault(entry => entry.IsPrimary)
+            : monitors.FirstOrDefault(entry =>
+                string.Equals(entry.DeviceName, requestedName, StringComparison.Ordinal));
+        if (monitor.Handle == IntPtr.Zero)
         {
-            return null;
+            monitor = monitors.FirstOrDefault(entry => entry.IsPrimary);
+            if (monitor.Handle == IntPtr.Zero)
+            {
+                return false;
+            }
         }
+
+        geometry = CreateMonitorGeometry(monitor, dpiWindow);
+        return true;
     }
 
-    private static IEnumerable<MonitorEntry> EnumerateMonitors()
+    public static bool TryGetMonitorGeometryAtDeviceScreenPoint(
+        DeviceScreenPoint screenPoint,
+        out MonitorGeometry geometry)
+        => TryGetMonitorGeometryAtDeviceScreenPoint(screenPoint, dpiWindow: null, out geometry);
+
+    public static bool TryGetMonitorGeometryAtDeviceScreenPoint(
+        DeviceScreenPoint screenPoint,
+        Window? dpiWindow,
+        out MonitorGeometry geometry)
     {
-        var results = new List<MonitorEntry>();
-        try
+        geometry = default;
+        var nativePoint = new NativePoint
         {
-            EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr _, ref NativeRect _, IntPtr _) =>
+            X = (int)Math.Round(screenPoint.X),
+            Y = (int)Math.Round(screenPoint.Y)
+        };
+        var handle = MonitorFromPoint(nativePoint, MonitorDefaultToNearest);
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (TryEnumerateMonitors(out var monitors))
+        {
+            var cachedMonitor = monitors.FirstOrDefault(entry => entry.Handle == handle);
+            if (cachedMonitor.Handle != IntPtr.Zero)
             {
-                var info = new MonitorInfoEx();
-                info.Size = Marshal.SizeOf<MonitorInfoEx>();
-                if (GetMonitorInfoEx(hMonitor, ref info))
+                geometry = CreateMonitorGeometry(cachedMonitor, dpiWindow);
+                return true;
+            }
+        }
+
+        var info = new MonitorInfoEx { Size = Marshal.SizeOf<MonitorInfoEx>() };
+        if (!GetMonitorInfoEx(handle, ref info) || info.WorkArea.IsEmpty)
+        {
+            return false;
+        }
+
+        geometry = CreateMonitorGeometry(CreateMonitorEntry(
+            handle,
+            info.DeviceNameString,
+            info.WorkArea,
+            (info.Flags & MonitorInfoPrimary) != 0), dpiWindow);
+        return true;
+    }
+
+    private static bool TryEnumerateMonitors(out IReadOnlyList<MonitorEntry> monitors)
+    {
+        lock (MonitorCacheGate)
+        {
+            if (_cachedMonitors is { Count: > 0 } cached)
+            {
+                monitors = cached;
+                return true;
+            }
+
+            var results = new List<MonitorEntry>();
+            try
+            {
+                var succeeded = EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr _, ref NativeRect _, IntPtr _) =>
                 {
-                    results.Add(new MonitorEntry(info.DeviceNameString, info.WorkArea));
+                    var info = new MonitorInfoEx();
+                    info.Size = Marshal.SizeOf<MonitorInfoEx>();
+                    if (GetMonitorInfoEx(hMonitor, ref info))
+                    {
+                        results.Add(CreateMonitorEntry(
+                            hMonitor,
+                            info.DeviceNameString,
+                            info.WorkArea,
+                            (info.Flags & MonitorInfoPrimary) != 0));
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+                if (!succeeded || results.Count == 0)
+                {
+                    monitors = results;
+                    return false;
                 }
 
+                _cachedMonitors = results;
+                monitors = results;
                 return true;
-            }, IntPtr.Zero);
+            }
+            catch
+            {
+                monitors = Array.Empty<MonitorEntry>();
+                return false;
+            }
+        }
+    }
+
+    private static MonitorEntry CreateMonitorEntry(
+        IntPtr handle,
+        string deviceName,
+        NativeRect workArea,
+        bool isPrimary)
+    {
+        // This is only the pre-HWND bootstrap for a target monitor. Once a real capsule host is
+        // on that monitor, CreateMonitorGeometry replaces these scales with GetDpiForWindow so
+        // layout and physical bounds share the DPI of the HWND that Windows is actually moving.
+        double scaleX;
+        double scaleY;
+        if (GetDpiForMonitor(handle, 0, out var dpiX, out var dpiY) == 0)
+        {
+            scaleX = ValidScale(dpiX / 96.0);
+            scaleY = ValidScale(dpiY / 96.0);
+        }
+        else
+        {
+            (scaleX, scaleY) = SystemDpiScale();
+        }
+
+        return new MonitorEntry(handle, deviceName, workArea, isPrimary, scaleX, scaleY);
+    }
+
+    private static MonitorGeometry CreateMonitorGeometry(MonitorEntry monitor, Window? dpiWindow)
+    {
+        var scaleX = monitor.DpiScaleX;
+        var scaleY = monitor.DpiScaleY;
+        if (TryGetWindowDpiScaleForMonitor(dpiWindow, monitor.Handle, out var windowScale))
+        {
+            scaleX = windowScale;
+            scaleY = windowScale;
+        }
+
+        return new MonitorGeometry(
+            monitor.DeviceName,
+            new DeviceScreenRect(
+                monitor.WorkArea.Left,
+                monitor.WorkArea.Top,
+                monitor.WorkArea.Right,
+                monitor.WorkArea.Bottom),
+            scaleX,
+            scaleY);
+    }
+
+    private static bool TryGetWindowDpiScaleForMonitor(
+        Window? window,
+        IntPtr monitor,
+        out double scale)
+    {
+        scale = 1.0;
+        if (window == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            if (handle == IntPtr.Zero ||
+                MonitorFromWindow(handle, MonitorDefaultToNearest) != monitor)
+            {
+                return false;
+            }
+
+            var dpi = GetDpiForWindow(handle);
+            if (dpi == 0)
+            {
+                return false;
+            }
+
+            scale = ValidScale(dpi / 96.0);
+            return true;
         }
         catch
         {
-            // Enumeration failure leaves results empty; callers fall back to the primary work area.
+            return false;
         }
-
-        return results;
     }
 
-    private readonly record struct MonitorEntry(string DeviceName, NativeRect WorkArea);
+    private readonly record struct MonitorEntry(
+        IntPtr Handle,
+        string DeviceName,
+        NativeRect WorkArea,
+        bool IsPrimary,
+        double DpiScaleX,
+        double DpiScaleY);
 
     private static Rect DeviceRectToDip(Visual reference, NativeRect rect)
     {
@@ -341,6 +508,12 @@ internal static class WindowWorkAreaHelper
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(NativePoint pt, uint dwFlags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);

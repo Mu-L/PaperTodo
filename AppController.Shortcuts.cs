@@ -75,7 +75,7 @@ public sealed partial class AppController
     private void OnGlobalHotkeyInvoked(string commandId)
     {
         var definition = GlobalShortcutCatalog.Find(commandId);
-        if (definition?.IsExecutable != true || _isExiting)
+        if (definition?.IsExecutable != true || IsExiting)
         {
             return;
         }

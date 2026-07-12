@@ -17,7 +17,6 @@ public readonly record struct MarkdownImageReference(
 
 public readonly record struct MarkdownImageDisplayOptions(
     double? LabelWidth,
-    double? LabelHeight,
     double? LabelScalePercent,
     MarkdownImageWidthAttribute? WidthAttribute);
 
@@ -32,9 +31,6 @@ public static class MarkdownImageReferences
 
     public static string CreateReference(string imageId)
         => $"![image|100%]({UriPrefix}{imageId})";
-
-    public static string CreateReference(string imageId, int width, int height)
-        => CreateReference(imageId);
 
     public static bool TryParseLine(string line, out string imageId)
     {
@@ -56,7 +52,7 @@ public static class MarkdownImageReferences
             return false;
         }
 
-        var trimmed = StripRenderMarkers(line).Trim();
+        var trimmed = line.Trim();
         if (!trimmed.StartsWith("![", StringComparison.Ordinal) ||
             !TrySplitMarkdownImage(trimmed, out var label, out var url, out var attributeText))
         {
@@ -150,7 +146,7 @@ public static class MarkdownImageReferences
             yield break;
         }
 
-        var insideFencedCodeBlock = false;
+        var fencedCodeState = default(MarkdownFencedCodeState);
         var lineStart = 0;
         while (lineStart <= markdown.Length)
         {
@@ -161,11 +157,15 @@ public static class MarkdownImageReferences
             }
 
             var line = markdown[lineStart..lineEnd];
-            if (IsFenceLine(line))
-            {
-                insideFencedCodeBlock = !insideFencedCodeBlock;
-            }
-            else if (!insideFencedCodeBlock && TryParseReferenceLine(line, out var reference))
+            var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
+                line,
+                fencedCodeState,
+                out var nextFencedCodeState);
+            var wasInsideFencedCodeBlock = fencedCodeState.IsInside;
+            fencedCodeState = nextFencedCodeState;
+            if (fenceKind == MarkdownFenceLineKind.None &&
+                !wasInsideFencedCodeBlock &&
+                TryParseReferenceLine(line, out var reference))
             {
                 yield return reference with
                 {
@@ -187,34 +187,6 @@ public static class MarkdownImageReferences
         }
     }
 
-    public static bool IsFenceLine(string text)
-    {
-        var start = 0;
-        while (start < text.Length && start < 3 && text[start] == ' ')
-        {
-            start++;
-        }
-
-        if (start >= text.Length)
-        {
-            return false;
-        }
-
-        var marker = text[start];
-        if (marker is not ('`' or '~'))
-        {
-            return false;
-        }
-
-        var count = 0;
-        while (start + count < text.Length && text[start + count] == marker)
-        {
-            count++;
-        }
-
-        return count >= 3;
-    }
-
     public static string ReplaceForExternalMarkdown(
         string markdown,
         Func<string, string?> externalPathForImageId)
@@ -224,7 +196,6 @@ public static class MarkdownImageReferences
             return markdown;
         }
 
-        markdown = StripRenderMarkers(markdown);
         var builder = new StringBuilder(markdown.Length);
         var cursor = 0;
         foreach (var reference in Enumerate(markdown))
@@ -232,7 +203,7 @@ public static class MarkdownImageReferences
             builder.Append(markdown, cursor, reference.LineStart - cursor);
             var externalPath = externalPathForImageId(reference.ImageId);
             builder.Append(externalPath == null
-                ? StripRenderMarkers(markdown.Substring(reference.LineStart, reference.LineLength))
+                ? markdown.Substring(reference.LineStart, reference.LineLength)
                 : reference.WithUrl(externalPath));
             cursor = reference.LineStart + reference.LineLength;
         }
@@ -280,7 +251,6 @@ public static class MarkdownImageReferences
     private static MarkdownImageDisplayOptions ParseDisplayOptions(string label, string attributeText)
     {
         var labelWidth = (double?)null;
-        var labelHeight = (double?)null;
         var labelScalePercent = (double?)null;
 
         var pipe = label.IndexOf('|');
@@ -290,10 +260,9 @@ public static class MarkdownImageReferences
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             foreach (var spec in specs)
             {
-                if (TryParseDimensions(spec, out var width, out var height))
+                if (TryParseDimensions(spec, out var width, out _))
                 {
                     labelWidth = width;
-                    labelHeight = height;
                     continue;
                 }
 
@@ -306,7 +275,6 @@ public static class MarkdownImageReferences
 
         return new MarkdownImageDisplayOptions(
             labelWidth,
-            labelHeight,
             labelScalePercent,
             TryParseWidthAttribute(attributeText, out var widthAttribute) ? widthAttribute : null);
     }

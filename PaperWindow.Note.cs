@@ -16,6 +16,50 @@ public sealed partial class PaperWindow
 {
     private static readonly object PersistentScriptProcessLock = new();
     private static readonly Dictionary<string, Process> PersistentScriptProcesses = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object ActiveScriptProcessLock = new();
+    private static readonly Dictionary<Guid, Process> ActiveScriptProcesses = new();
+    private int _notePresenterGeneration;
+    private int _noteDeferredWorkGeneration;
+    private Action? _cancelNotePresenterInteractions;
+    private Action? _settlePendingNoteBodyRebuild;
+
+    private int BeginNotePresenterSession()
+    {
+        CancelNotePresenterDeferredWork();
+        _cancelNotePresenterInteractions = null;
+        _showNotePreview = null;
+        return ++_notePresenterGeneration;
+    }
+
+    private bool IsCurrentNotePresenter(int presenterGeneration, MarkdownTextBox box)
+    {
+        return presenterGeneration == _notePresenterGeneration &&
+            ReferenceEquals(_noteBox, box) &&
+            _windowLifecycle == PaperWindowLifecycleState.Alive &&
+            !IsClosed;
+    }
+
+    private bool IsCurrentNoteDeferredWork(
+        int presenterGeneration,
+        int deferredWorkGeneration,
+        MarkdownTextBox box)
+    {
+        return deferredWorkGeneration == _noteDeferredWorkGeneration &&
+            IsCurrentNotePresenter(presenterGeneration, box);
+    }
+
+    // Window lifecycle code calls this before hiding/closing. Settling the structural body swap
+    // first leaves a complete body ready for a later Show(), while incrementing the callback
+    // generation prevents queued focus/image work from the old interaction from running.
+    private void CancelNotePresenterDeferredWork()
+    {
+        var settleRebuild = _settlePendingNoteBodyRebuild;
+        _settlePendingNoteBodyRebuild = null;
+        settleRebuild?.Invoke();
+
+        _noteDeferredWorkGeneration++;
+        _cancelNotePresenterInteractions?.Invoke();
+    }
 
     public void UpdateMarkdownRenderMode()
     {
@@ -79,9 +123,6 @@ public sealed partial class PaperWindow
             }
         }
 
-        _noteBox = null;
-        _showNotePreview = null;
-
         var body = BuildNoteBody();
         body.Opacity = 0;
         body.IsHitTestVisible = false;
@@ -90,35 +131,66 @@ public sealed partial class PaperWindow
         _noteBodyElement = body;
         _shell.Children.Add(body);
 
-        if (_noteBox == null)
+        var rebuiltBox = _noteBox;
+        if (rebuiltBox == null)
         {
             TraceNoteRender("RebuildNoteBody end: no note box");
             return;
         }
 
-        _noteBox.CaretIndex = Math.Clamp(caret, 0, _noteBox.Text.Length);
-        _showNotePreview?.Invoke();
+        var presenterGeneration = _notePresenterGeneration;
+        var showPreview = _showNotePreview;
+        rebuiltBox.CaretIndex = Math.Clamp(caret, 0, rebuiltBox.Text.Length);
+        showPreview?.Invoke();
         body.UpdateLayout();
+
+        void RemoveSupersededBodies()
+        {
+            foreach (var oldBody in oldBodies)
+            {
+                if (!ReferenceEquals(oldBody, _noteBodyElement))
+                {
+                    _shell.Children.Remove(oldBody);
+                }
+            }
+        }
+
+        Action? settleRebuild = null;
+        settleRebuild = () =>
+        {
+            RemoveSupersededBodies();
+            if (!IsCurrentNotePresenter(presenterGeneration, rebuiltBox))
+            {
+                return;
+            }
+
+            body.Opacity = 1;
+            body.IsHitTestVisible = true;
+            rebuiltBox.ScrollToHorizontalOffset(horizontalOffset);
+            rebuiltBox.ScrollToVerticalOffset(verticalOffset);
+            showPreview?.Invoke();
+            if (ReferenceEquals(_settlePendingNoteBodyRebuild, settleRebuild))
+            {
+                _settlePendingNoteBodyRebuild = null;
+            }
+            TraceNoteRender($"RebuildNoteBody restored caret={rebuiltBox.CaretIndex} v={verticalOffset:F1} h={horizontalOffset:F1}");
+        };
+        _settlePendingNoteBodyRebuild = settleRebuild;
+        var deferredWorkGeneration = _noteDeferredWorkGeneration;
 
         Dispatcher.BeginInvoke(
             (Action)(() =>
             {
-                if (_noteBox == null)
+                if (!IsCurrentNoteDeferredWork(
+                        presenterGeneration,
+                        deferredWorkGeneration,
+                        rebuiltBox))
                 {
+                    RemoveSupersededBodies();
                     return;
                 }
 
-                foreach (var oldBody in oldBodies)
-                {
-                    _shell.Children.Remove(oldBody);
-                }
-
-                body.Opacity = 1;
-                body.IsHitTestVisible = true;
-                _noteBox.ScrollToHorizontalOffset(horizontalOffset);
-                _noteBox.ScrollToVerticalOffset(verticalOffset);
-                _showNotePreview?.Invoke();
-                TraceNoteRender($"RebuildNoteBody restored caret={_noteBox.CaretIndex} v={verticalOffset:F1} h={horizontalOffset:F1}");
+                settleRebuild!();
             }),
             System.Windows.Threading.DispatcherPriority.Render);
     }
@@ -142,6 +214,7 @@ public sealed partial class PaperWindow
 
     private UIElement BuildNoteBody()
     {
+        var presenterGeneration = BeginNotePresenterSession();
         var host = new Grid();
 
         _noteBox = new MarkdownTextBox
@@ -171,6 +244,7 @@ public sealed partial class PaperWindow
         box.SetTextZoom(CurrentTextZoom());
         box.ConfigureNoteImages(_paper.Id, _controller.ImageStore);
         box.ImageImportFailed += ShowNoteImageImportFailure;
+        box.PasteRejected += ShowNotePasteRejected;
 
         host.Children.Add(box);
         var isPreviewing = false;
@@ -179,6 +253,30 @@ public sealed partial class PaperWindow
         var isOpeningImagePicker = false;
         int? pendingImageReferenceOffset = null;
         string? pendingImageId = null;
+        var editorEntryGeneration = 0;
+        var imageInteractionGeneration = 0;
+
+        bool IsCurrentPresenter()
+        {
+            return IsCurrentNotePresenter(presenterGeneration, box);
+        }
+
+        _cancelNotePresenterInteractions = () =>
+        {
+            if (!IsCurrentPresenter())
+            {
+                return;
+            }
+
+            editorEntryGeneration++;
+            imageInteractionGeneration++;
+            isEnteringEditorFromPreview = false;
+            isInteractingWithImage = false;
+            isOpeningImagePicker = false;
+            pendingImageReferenceOffset = null;
+            pendingImageId = null;
+        };
+
         var editorMenu = CreateContextMenu();
         editorMenu.Items.Add(MenuHeader(Strings.Get("MenuFormat")));
         editorMenu.Items.Add(MenuItem(Strings.Get("MenuBold"), (_, _) => box.WrapSelection("**", "**")));
@@ -211,6 +309,11 @@ public sealed partial class PaperWindow
         var previewMenu = BuildPaperContextMenu();
         void ShowPreview()
         {
+            if (!IsCurrentPresenter())
+            {
+                return;
+            }
+
             TraceNoteRender($"ShowPreview before isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             box.ClearImageSelection();
             box.SelectionLength = 0;
@@ -221,9 +324,18 @@ public sealed partial class PaperWindow
             // decision until WPF has finished the current focus transition, then park focus
             // on the active window only when no child control has claimed it. This keeps the
             // window-level ESC handler available without stealing focus from title editing.
+            var deferredWorkGeneration = _noteDeferredWorkGeneration;
             Dispatcher.BeginInvoke(
                 (Action)(() =>
                 {
+                    if (!IsCurrentNoteDeferredWork(
+                            presenterGeneration,
+                            deferredWorkGeneration,
+                            box))
+                    {
+                        return;
+                    }
+
                     if (isPreviewing && IsActive && !IsKeyboardFocusWithin)
                     {
                         Focus();
@@ -237,6 +349,11 @@ public sealed partial class PaperWindow
 
         void ShowEditor(bool focus = true)
         {
+            if (!IsCurrentPresenter())
+            {
+                return;
+            }
+
             TraceNoteRender($"ShowEditor before focus={focus} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
             box.SetPreviewMode(false);
             box.ContextMenu = editorMenu;
@@ -254,6 +371,12 @@ public sealed partial class PaperWindow
             DependencyObject? originalSource = null,
             bool selectImage = true)
         {
+            if (!IsCurrentPresenter())
+            {
+                return;
+            }
+
+            var entryGeneration = ++editorEntryGeneration;
             TraceNoteRender($"ShowEditorAtPreviewPoint x={previewPoint.X:F1} y={previewPoint.Y:F1}");
             var hasImageSelection = false;
             var imageReferenceOffset = 0;
@@ -315,9 +438,19 @@ public sealed partial class PaperWindow
                 box.SelectionLength = 0;
             }
             TraceNoteRender($"ShowEditorAtPreviewPoint after hasPosition={hasPreviewPosition} caret={box.CaretIndex}");
+            var deferredWorkGeneration = _noteDeferredWorkGeneration;
             Dispatcher.BeginInvoke(
                 (Action)(() =>
                 {
+                    if (!IsCurrentNoteDeferredWork(
+                            presenterGeneration,
+                            deferredWorkGeneration,
+                            box) ||
+                        entryGeneration != editorEntryGeneration)
+                    {
+                        return;
+                    }
+
                     isEnteringEditorFromPreview = false;
                     TraceNoteRender($"ShowEditorAtPreviewPoint release focused={box.IsKeyboardFocusWithin} isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
                 }),
@@ -326,11 +459,17 @@ public sealed partial class PaperWindow
 
         void MarkImageInteraction()
         {
+            imageInteractionGeneration++;
             isInteractingWithImage = true;
         }
 
         void FinishImageInteraction(int referenceOffset, string imageId)
         {
+            if (!IsCurrentPresenter())
+            {
+                return;
+            }
+
             if (isPreviewing)
             {
                 ShowEditor(focus: false);
@@ -342,9 +481,20 @@ public sealed partial class PaperWindow
             }
             box.SelectImageReference(referenceOffset, imageId);
 
+            var finishingInteractionGeneration = imageInteractionGeneration;
+            var deferredWorkGeneration = _noteDeferredWorkGeneration;
             Dispatcher.BeginInvoke(
                 (Action)(() =>
                 {
+                    if (!IsCurrentNoteDeferredWork(
+                            presenterGeneration,
+                            deferredWorkGeneration,
+                            box) ||
+                        finishingInteractionGeneration != imageInteractionGeneration)
+                    {
+                        return;
+                    }
+
                     if (isPreviewing)
                     {
                         ShowEditor(focus: false);
@@ -364,6 +514,11 @@ public sealed partial class PaperWindow
 
         bool TrySelectImage(Point point, DependencyObject? originalSource)
         {
+            if (!IsCurrentPresenter())
+            {
+                return false;
+            }
+
             var hasImageReference = box.TryGetImageReferenceFromSource(
                 originalSource,
                 out var referenceOffset,
@@ -394,6 +549,11 @@ public sealed partial class PaperWindow
 
         bool TryPlaceCaretOnImageForDrop(Point point, DependencyObject? originalSource)
         {
+            if (!IsCurrentPresenter())
+            {
+                return false;
+            }
+
             var hasImageCaret = box.TryGetImageCaretFromSource(originalSource, out var caretIndex);
             if (!hasImageCaret)
             {
@@ -548,9 +708,18 @@ public sealed partial class PaperWindow
             // come back but the window is still active (menu item clicked / Esc),
             // hand focus back to the editor; only fall back to preview when the
             // user actually left the window.
+            var deferredWorkGeneration = _noteDeferredWorkGeneration;
             Dispatcher.BeginInvoke(
                 (Action)(() =>
                 {
+                    if (!IsCurrentNoteDeferredWork(
+                            presenterGeneration,
+                            deferredWorkGeneration,
+                            box))
+                    {
+                        return;
+                    }
+
                     if (isPreviewing || box.IsKeyboardFocusWithin)
                     {
                         return;
@@ -580,6 +749,7 @@ public sealed partial class PaperWindow
             var textViewPoint = e.GetPosition(box.TextArea.TextView);
             var point = e.GetPosition(box);
             var originalSource = e.OriginalSource as DependencyObject;
+            imageInteractionGeneration++;
             pendingImageReferenceOffset = null;
             pendingImageId = null;
             isInteractingWithImage = false;
@@ -703,6 +873,14 @@ public sealed partial class PaperWindow
             this,
             Strings.Get("ImageImportFailureTitle"),
             Strings.Format("ImageImportFailureMessage", ex.Message));
+    }
+
+    private void ShowNotePasteRejected()
+    {
+        PaperNoticeDialog.Show(
+            this,
+            Strings.Get("NotePasteRejectedTitle"),
+            Strings.Get("NotePasteRejectedMessage"));
     }
 
 
@@ -993,6 +1171,8 @@ public sealed partial class PaperWindow
         }
 
         string? path = null;
+        var executionId = Guid.NewGuid();
+        var registeredProcess = false;
         try
         {
             path = WriteScriptCapsuleFile(spec.Script);
@@ -1021,6 +1201,12 @@ public sealed partial class PaperWindow
                 return;
             }
 
+            lock (ActiveScriptProcessLock)
+            {
+                ActiveScriptProcesses[executionId] = process;
+                registeredProcess = true;
+            }
+
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
@@ -1038,6 +1224,14 @@ public sealed partial class PaperWindow
         }
         finally
         {
+            if (registeredProcess)
+            {
+                lock (ActiveScriptProcessLock)
+                {
+                    ActiveScriptProcesses.Remove(executionId);
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(path))
             {
                 try
@@ -1339,6 +1533,11 @@ public sealed partial class PaperWindow
 
     private void ShowScriptCapsuleFailure(string message)
     {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed || !_paper.IsVisible)
+        {
+            return;
+        }
+
         MessageBox.Show(
             message,
             Strings.Get("ScriptCapsuleFailureTitle"),
@@ -1403,6 +1602,34 @@ public sealed partial class PaperWindow
             finally
             {
                 process.Dispose();
+            }
+        }
+    }
+
+    internal static void StopAllScriptProcesses()
+    {
+        StopPersistentScriptProcesses();
+
+        List<Process> activeProcesses;
+        lock (ActiveScriptProcessLock)
+        {
+            activeProcesses = ActiveScriptProcesses.Values.Distinct().ToList();
+            ActiveScriptProcesses.Clear();
+        }
+
+        foreach (var process in activeProcesses)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(1000);
+                }
+            }
+            catch
+            {
+                // The execution task owns disposal and temporary-file cleanup in its finally.
             }
         }
     }

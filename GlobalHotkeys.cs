@@ -270,11 +270,13 @@ internal sealed class GlobalHotkeyManager : IDisposable
     {
         failedCommandId = null;
         failure = GlobalShortcutRegistrationFailure.None;
+        var activeIds = activeCommandIds.ToHashSet(StringComparer.Ordinal);
         var desired = new List<(string CommandId, string Text, ShortcutGesture Gesture)>();
         var commandByGesture = new Dictionary<ShortcutGesture, string>();
         foreach (var pair in desiredBindings)
         {
-            if (string.IsNullOrWhiteSpace(pair.Value) ||
+            if (!activeIds.Contains(pair.Key) ||
+                string.IsNullOrWhiteSpace(pair.Value) ||
                 !ShortcutGesture.TryParse(pair.Value, out var gesture) ||
                 gesture.Key == Key.None)
             {
@@ -314,9 +316,7 @@ internal sealed class GlobalHotkeyManager : IDisposable
             newlyRegistered.Add(binding.Gesture);
         }
 
-        var activeIds = activeCommandIds.ToHashSet(StringComparer.Ordinal);
         var activeByGesture = desired
-            .Where(binding => activeIds.Contains(binding.CommandId))
             .ToDictionary(binding => binding.Gesture, binding => binding.CommandId);
 
         foreach (var pair in _nativeIdByGesture.ToArray())
@@ -331,7 +331,6 @@ internal sealed class GlobalHotkeyManager : IDisposable
         }
 
         _activeBindings = desired
-            .Where(binding => activeIds.Contains(binding.CommandId))
             .ToDictionary(binding => binding.CommandId, binding => binding.Text, StringComparer.Ordinal);
         return true;
     }

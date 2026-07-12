@@ -81,26 +81,6 @@ public static class DeepCapsuleLayout
             || (c >= 0xFFE0 && c <= 0xFFE6);  // Fullwidth signs
     }
 
-    public static Rect WorkArea => ResolveWorkArea();
-
-    // The screen edge the stack docks to and the monitor that hosts it. These are kept in
-    // sync with AppState by AppController (the single owner of state) so every capsule and the
-    // master pill resolve their geometry against the same anchor — exactly as they previously
-    // all shared SystemParameters.WorkArea + the right edge.
-    public static DeepCapsuleEdge Edge { get; private set; } = DeepCapsuleEdge.Right;
-    public static string MonitorDeviceName { get; private set; } = "";
-
-    public static void SetAnchor(DeepCapsuleEdge edge, string? monitorDeviceName)
-    {
-        Edge = edge;
-        MonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(monitorDeviceName);
-    }
-
-    private static Rect ResolveWorkArea()
-    {
-        return WorkAreaForQueue(MonitorDeviceName);
-    }
-
     // Work area of a specific monitor device (empty => primary), with nearest-monitor fallback.
     // Per-queue geometry resolves through this so each (monitor, edge) queue is independent.
     public static Rect WorkAreaForQueue(string? monitorDeviceName)
@@ -118,18 +98,19 @@ public static class DeepCapsuleLayout
         return SystemParameters.WorkArea;
     }
 
-    public static bool IsLeftEdgeOf(DeepCapsuleEdge edge) => edge == DeepCapsuleEdge.Left;
+    // Edge HWNDs lay out in the target monitor's own 96-DPI coordinate space, then convert the
+    // finished rectangle to physical pixels. This keeps slot height, gap and width consistent on
+    // mixed-scale displays without mixing the primary monitor's desktop coordinates into sizing.
+    internal static Rect LocalWorkAreaForQueue(string? monitorDeviceName)
+    {
+        return WindowWorkAreaHelper.TryGetMonitorGeometryForDevice(monitorDeviceName, out var geometry)
+            ? geometry.LocalWorkAreaDip
+            : new Rect(0, 0, SystemParameters.WorkArea.Width, SystemParameters.WorkArea.Height);
+    }
 
     // ── Pure per-queue geometry: same math as the static-anchor methods below, but every
     // input (edge + work area) is explicit, so N independent queues can each compute their own
     // docked positions without sharing one global anchor.
-
-    public static double DockedLeft(Rect area, double width, DeepCapsuleEdge edge)
-    {
-        return edge == DeepCapsuleEdge.Left
-            ? area.Left
-            : area.Right - width;
-    }
 
     public static double TopForIndex(int index, double startTopMargin, Rect area, int slotCount)
     {
@@ -157,31 +138,5 @@ public static class DeepCapsuleLayout
         return Math.Round(Math.Clamp(value, TopMargin, max), 1);
     }
 
-    // The window Left that docks a real-width edge tag to the anchored edge.
-    // Right edge pins the window's right side to area.Right; left edge pins Left to area.Left.
-    public static double DockedLeft(Rect area, double width)
-    {
-        return Edge == DeepCapsuleEdge.Left
-            ? area.Left
-            : area.Right - width;
-    }
-
-    public static bool IsLeftEdge => Edge == DeepCapsuleEdge.Left;
-
     public static double SlotHeight => PaperLayoutDefaults.CapsuleHeight + Gap;
-
-    public static double TopForIndex(int index, double startTopMargin = StartTopMargin)
-    {
-        return TopForIndex(index, startTopMargin, WorkArea, 1);
-    }
-
-    public static double MaxStartTopMarginForCount(int slotCount)
-    {
-        return MaxStartTopMarginForCount(slotCount, WorkArea);
-    }
-
-    public static double NormalizeStartTopMargin(double value, int slotCount = 1)
-    {
-        return NormalizeStartTopMargin(value, WorkArea, slotCount);
-    }
 }

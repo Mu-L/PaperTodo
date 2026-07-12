@@ -16,7 +16,7 @@
     <value>起動に失敗しました: データファイルを読み込めません。ファイルが使用中、または破損している可能性があります。&#x0A;既存データの上書きを避けるため、アプリは起動を停止しました。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>2.1</value>
+    <value>2.2</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 起動失敗</value>
@@ -173,6 +173,12 @@
   </data>
   <data name="ImageImportFailureMessage" xml:space="preserve">
     <value>画像を挿入できませんでした:&#x0A;{0}</value>
+  </data>
+  <data name="NotePasteRejectedTitle" xml:space="preserve">
+    <value>貼り付けできません</value>
+  </data>
+  <data name="NotePasteRejectedMessage" xml:space="preserve">
+    <value>貼り付け内容が 30,000 文字、1 行 6,000 文字、またはメモ全体の 100,000 文字の上限を超えるため、何も挿入されませんでした。</value>
   </data>
   <data name="ImageStoreUnavailable" xml:space="preserve">
     <value>画像データファイルを読み込めませんでした。既存画像の上書きを避けるため、画像データの書き込みを停止しています。</value>

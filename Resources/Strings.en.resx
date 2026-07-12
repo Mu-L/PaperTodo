@@ -16,7 +16,7 @@
     <value>Startup failed: the data file could not be loaded. It may be in use or corrupted.&#x0A;To avoid overwriting existing data, the app has stopped.&#x0A;&#x0A;Error: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>2.1</value>
+    <value>2.2</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - Startup Failed</value>
@@ -173,6 +173,12 @@
   </data>
   <data name="ImageImportFailureMessage" xml:space="preserve">
     <value>Could not insert the image:&#x0A;{0}</value>
+  </data>
+  <data name="NotePasteRejectedTitle" xml:space="preserve">
+    <value>Cannot paste</value>
+  </data>
+  <data name="NotePasteRejectedMessage" xml:space="preserve">
+    <value>Nothing was inserted because the paste exceeds 30,000 characters, 6,000 characters on one line, or the note limit of 100,000 characters.</value>
   </data>
   <data name="ImageStoreUnavailable" xml:space="preserve">
     <value>The image data file could not be loaded. To avoid overwriting existing images, image writes are disabled.</value>

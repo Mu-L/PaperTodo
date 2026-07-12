@@ -20,13 +20,12 @@ public sealed class MarkdownTextBox : TextEditor
 {
     private const int MaxSafePasteLength = 30000;
     private const int MaxSafePasteLineLength = 6000;
+    private const int MaxClipboardEncodedImageBytes = 32 * 1024 * 1024;
     private const double ImageBlockVerticalPadding = 7;
     private const double ImageBlockHorizontalPadding = 2;
     private static readonly string[] EncodedClipboardImageFormats =
         ["PNG", "image/png", "JFIF", "image/jpeg", "image/jpg", "GIF", "image/gif"];
 
-    private bool _isTrimmingText;
-    private bool _isTrimQueued;
     private bool _acceptsReturn = true;
     private bool _acceptsTab = true;
     private bool _isPreviewMode;
@@ -46,6 +45,8 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly FencedCodeStateCache _fencedCodeStateCache = new();
 
     public event Action<Exception>? ImageImportFailed;
+
+    public event Action? PasteRejected;
 
     public event Action? ImageContextMenuClosed;
 
@@ -87,7 +88,6 @@ public sealed class MarkdownTextBox : TextEditor
         TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
         TextArea.TextView.LineTransformers.Add(_markerColorizer);
         DataObject.AddPastingHandler(this, OnPaste);
-        DataObject.AddCopyingHandler(this, OnCopying);
         SizeChanged += (_, _) => QueuePostPasteRefresh();
         RefreshVisualStyle();
     }
@@ -126,17 +126,12 @@ public sealed class MarkdownTextBox : TextEditor
 
     public bool IsPreviewMode => _isPreviewMode;
 
-    public string PersistentText => MarkdownImageReferences.StripRenderMarkers(Text);
+    public string PersistentText => Text;
 
     public void ConfigureNoteImages(string noteId, NoteImageStore imageStore)
     {
         _noteId = noteId ?? "";
         _imageStore = imageStore;
-        var cleaned = MarkdownImageReferences.StripRenderMarkers(Text);
-        if (!string.Equals(cleaned, Text, StringComparison.Ordinal))
-        {
-            Text = cleaned;
-        }
         EnsureTrailingImageAnchorLine();
         _hadInternalImageReferences = HasInternalImageReference(Text);
         RefreshTextView();
@@ -870,17 +865,11 @@ public sealed class MarkdownTextBox : TextEditor
         }
         _hadInternalImageReferences = hasInternalImageReferences;
 
-        if (_isTrimmingText || MaxLength <= 0 || Text.Length <= CurrentTextLengthLimit())
-        {
-            return;
-        }
-
-        QueueTrimToMaxLength();
     }
 
     public bool CanInsertImagesFromDataObject(IDataObject dataObject)
     {
-        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId))
+        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId) || IsReadOnly)
         {
             return false;
         }
@@ -890,12 +879,14 @@ public sealed class MarkdownTextBox : TextEditor
             return true;
         }
 
-        return TryGetBitmapSource(dataObject, out _);
+        // DragOver runs for every pointer move. It must only inspect advertised formats;
+        // retrieving or decoding the payload here can repeatedly allocate a full bitmap.
+        return HasBitmapDataFormat(dataObject);
     }
 
     public bool TryInsertImagesFromDataObject(IDataObject dataObject)
     {
-        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId))
+        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId) || IsReadOnly)
         {
             return false;
         }
@@ -910,8 +901,7 @@ public sealed class MarkdownTextBox : TextEditor
 
             if (TryGetBitmapSource(dataObject, out var bitmap) && bitmap != null)
             {
-                var asset = _imageStore.ImportBitmapSource(_noteId, bitmap);
-                InsertImageReference(asset);
+                ImportAndInsertBitmap(bitmap);
                 return true;
             }
         }
@@ -954,8 +944,7 @@ public sealed class MarkdownTextBox : TextEditor
 
         try
         {
-            var asset = _imageStore.ImportBitmapSource(_noteId, bitmap);
-            InsertImageReference(asset);
+            ImportAndInsertBitmap(bitmap);
         }
         catch (Exception ex)
         {
@@ -967,140 +956,264 @@ public sealed class MarkdownTextBox : TextEditor
 
     public int InsertImagesFromFiles(IEnumerable<string> paths)
     {
-        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId) || IsReadOnly)
+        var imageStore = _imageStore;
+        var noteId = _noteId;
+        if (imageStore == null || string.IsNullOrWhiteSpace(noteId) || IsReadOnly)
         {
             return 0;
         }
 
-        var imported = _imageStore.ImportImageFiles(_noteId, paths);
-        foreach (var asset in imported)
+        var candidatePaths = paths.ToList();
+        if (candidatePaths.Count == 0)
         {
-            InsertImageReference(asset);
+            return 0;
         }
 
+        // Reserve enough text for the longest possible generated IDs before the store is touched.
+        // ImportImageFiles is all-or-nothing, so the source count is also the reference count.
+        var insertionPlan = CreateImageInsertionPlan(candidatePaths.Count);
+        var imported = imageStore.ImportImageFiles(noteId, candidatePaths);
+        InsertImportedImages(imageStore, noteId, imported, insertionPlan);
         return imported.Count;
     }
 
-    private void InsertImageReference(NoteImageAsset asset)
+    private void ImportAndInsertBitmap(BitmapSource bitmap)
     {
-        var insertion = BuildBlockInsertion(
-            MarkdownImageReferences.CreateReference(asset.Id, asset.Width, asset.Height));
-        var start = SelectionStart;
-        SelectedText = insertion;
-        var caret = start + insertion.Length;
+        var imageStore = _imageStore
+            ?? throw new InvalidOperationException(Strings.Get("ImageStoreUnavailable"));
+        var noteId = _noteId;
+        if (string.IsNullOrWhiteSpace(noteId) || IsReadOnly)
+        {
+            throw new InvalidOperationException(Strings.Get("ImageImportInvalidNote"));
+        }
+
+        // The length check intentionally runs before ImportBitmapSource writes the blob to LMDB.
+        var insertionPlan = CreateImageInsertionPlan(imageCount: 1);
+        var asset = imageStore.ImportBitmapSource(noteId, bitmap);
+        InsertImportedImages(imageStore, noteId, new[] { asset }, insertionPlan);
+    }
+
+    private ImageInsertionPlan CreateImageInsertionPlan(int imageCount)
+    {
+        if (imageCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(imageCount));
+        }
+
+        var target = CaptureDocumentReplacementTarget();
+        var placeholderBlock = BuildImageReferenceBlock(
+            imageCount,
+            static _ => MarkdownImageReferences.CreateReference("99999999"));
+        var placeholderInsertion = BuildBlockInsertion(
+            target.OriginalText,
+            target.Start,
+            placeholderBlock);
+        EnsureImageInsertionFits(
+            ReplaceRange(
+                target.OriginalText,
+                target.Start,
+                target.SelectionLength,
+                placeholderInsertion),
+            imageCount);
+
+        return new ImageInsertionPlan(target, imageCount);
+    }
+
+    private void InsertImportedImages(
+        NoteImageStore imageStore,
+        string noteId,
+        IReadOnlyList<NoteImageAsset> assets,
+        ImageInsertionPlan insertionPlan)
+    {
+        if (!ReferenceEquals(_imageStore, imageStore) ||
+            !string.Equals(_noteId, noteId, StringComparison.Ordinal) ||
+            assets.Any(asset => !string.Equals(asset.NoteId, noteId, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(Strings.Get("ImageImportInvalidNote"));
+        }
+
+        var caret = CommitImportedImages(assets, insertionPlan);
         CaretIndex = caret;
         Select(caret, 0);
         Focus();
         QueuePostPasteRefresh();
     }
 
-    private string BuildBlockInsertion(string blockText)
+    private int CommitImportedImages(
+        IReadOnlyList<NoteImageAsset> assets,
+        ImageInsertionPlan insertionPlan)
     {
-        var start = SelectionStart;
-        var end = SelectionStart + SelectionLength;
+        if (assets.Count != insertionPlan.ImageCount)
+        {
+            throw new InvalidOperationException(Strings.Get("ImageImportUnsupported"));
+        }
+
+        var referenceBlock = BuildImageReferenceBlock(
+            assets.Count,
+            index => MarkdownImageReferences.CreateReference(assets[index].Id));
+        var insertion = BuildBlockInsertion(
+            insertionPlan.Target.OriginalText,
+            insertionPlan.Target.Start,
+            referenceBlock);
+        var candidateText = ReplaceRange(
+            insertionPlan.Target.OriginalText,
+            insertionPlan.Target.Start,
+            insertionPlan.Target.SelectionLength,
+            insertion);
+        EnsureImageInsertionFits(candidateText, assets.Count);
+
+        return CommitDocumentReplacement(insertionPlan.Target, insertion);
+    }
+
+    private DocumentReplacementTarget CaptureDocumentReplacementTarget()
+    {
+        var document = Document
+            ?? throw new InvalidOperationException(Strings.Get("ImageImportUnsupported"));
+        var originalText = Text;
+        var start = Math.Clamp(SelectionStart, 0, originalText.Length);
+        var selectionLength = Math.Clamp(SelectionLength, 0, originalText.Length - start);
+        return new DocumentReplacementTarget(
+            document,
+            originalText,
+            start,
+            selectionLength);
+    }
+
+    private int CommitDocumentReplacement(
+        DocumentReplacementTarget target,
+        string replacement)
+    {
+        if (!ReferenceEquals(Document, target.Document) ||
+            !string.Equals(Text, target.OriginalText, StringComparison.Ordinal) ||
+            SelectionStart != target.Start ||
+            SelectionLength != target.SelectionLength)
+        {
+            throw new InvalidOperationException(Strings.Get("ImageImportUnsupported"));
+        }
+
+        // One replacement inside one update is one document/undo operation for the whole batch.
+        // Callers validate the exact candidate first, so OnTextChanged never needs to trim old text.
+        target.Document.BeginUpdate();
+        try
+        {
+            target.Document.Replace(target.Start, target.SelectionLength, replacement);
+        }
+        finally
+        {
+            target.Document.EndUpdate();
+        }
+
+        return target.Start + replacement.Length;
+    }
+
+    private void EnsureImageInsertionFits(string candidateText, int imageCount)
+    {
+        if (MaxLength <= 0 || candidateText.Length <= TextLengthLimitFor(candidateText))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Cannot insert {imageCount} image reference(s): the note's {MaxLength:N0}-character limit would be exceeded.");
+    }
+
+    private static string BuildImageReferenceBlock(
+        int imageCount,
+        Func<int, string> createReference)
+    {
         var builder = new StringBuilder();
-
-        if (start > 0 && Text[start - 1] is not '\n' and not '\r')
+        for (var index = 0; index < imageCount; index++)
         {
-            builder.Append(Environment.NewLine);
-        }
+            if (index > 0)
+            {
+                builder.Append(Environment.NewLine);
+            }
 
-        builder.Append(blockText);
-
-        if (end < Text.Length && Text[end] is not '\n' and not '\r')
-        {
-            builder.Append(Environment.NewLine);
-        }
-        else
-        {
-            builder.Append(Environment.NewLine);
+            builder.Append(createReference(index));
         }
 
         return builder.ToString();
     }
 
-    private void QueueTrimToMaxLength()
+    private static string BuildBlockInsertion(
+        string documentText,
+        int start,
+        string blockText)
     {
-        if (_isTrimQueued)
+        var builder = new StringBuilder();
+
+        if (start > 0 && documentText[start - 1] is not '\n' and not '\r')
         {
-            return;
+            builder.Append(Environment.NewLine);
         }
 
-        _isTrimQueued = true;
-        Dispatcher.BeginInvoke((Action)TrimTextToMaxLength, System.Windows.Threading.DispatcherPriority.Background);
+        builder.Append(blockText);
+        builder.Append(Environment.NewLine);
+
+        return builder.ToString();
     }
 
-    private void TrimTextToMaxLength()
-    {
-        _isTrimQueued = false;
-        var limit = CurrentTextLengthLimit();
-        if (_isTrimmingText || MaxLength <= 0 || Text.Length <= limit)
-        {
-            return;
-        }
-
-        try
-        {
-            _isTrimmingText = true;
-            var caret = CaretIndex;
-            Text = Text[..SafeTrimLength(limit)];
-            var finalLimit = CurrentTextLengthLimit();
-            if (Text.Length > finalLimit)
-            {
-                Text = Text[..SafeTrimLength(finalLimit)];
-            }
-
-            caret = Math.Min(caret, Text.Length);
-            CaretIndex = caret;
-            Select(caret, 0);
-        }
-        finally
-        {
-            _isTrimmingText = false;
-        }
-    }
-
-    private int SafeTrimLength(int limit)
-    {
-        if (Document == null || Text.Length <= limit)
-        {
-            return Text.Length;
-        }
-
-        var cut = Math.Clamp(limit, 0, Text.Length);
-        if (cut <= 0 || cut >= Document.TextLength)
-        {
-            return cut;
-        }
-
-        var line = Document.GetLineByOffset(cut);
-        if (cut > line.Offset &&
-            cut < line.EndOffset &&
-            MarkdownImageReferences.TryParseReferenceLine(Document.GetText(line), out _))
-        {
-            return line.Offset;
-        }
-
-        return cut;
-    }
+    private static string ReplaceRange(string text, int start, int length, string replacement)
+        => string.Concat(text.AsSpan(0, start), replacement, text.AsSpan(start + length));
 
     private int CurrentTextLengthLimit()
     {
-        if (MaxLength <= 0 || Document == null || Document.TextLength <= 0)
+        return TextLengthLimitFor(Text);
+    }
+
+    private int TextLengthLimitFor(string text)
+    {
+        if (MaxLength <= 0 || text.Length <= 0)
         {
             return MaxLength;
         }
 
-        var lastLine = Document.GetLineByOffset(Document.TextLength);
-        var structuralDelimiterLength = lastLine.PreviousLine is { } previousLine &&
-            previousLine.DelimiterLength > 0 &&
-            MarkdownImageReferences.TryParseReferenceLine(Document.GetText(previousLine), out _)
-                ? previousLine.DelimiterLength
-                : 0;
+        var structuralDelimiterLength = TrailingImageReferenceDelimiterLength(text);
         return MaxLength > int.MaxValue - structuralDelimiterLength
             ? int.MaxValue
             : MaxLength + structuralDelimiterLength;
     }
+
+    private static int TrailingImageReferenceDelimiterLength(string text)
+    {
+        var delimiterStart = text.Length;
+        if (delimiterStart > 0 && text[delimiterStart - 1] == '\n')
+        {
+            delimiterStart--;
+            if (delimiterStart > 0 && text[delimiterStart - 1] == '\r')
+            {
+                delimiterStart--;
+            }
+        }
+        else if (delimiterStart > 0 && text[delimiterStart - 1] == '\r')
+        {
+            delimiterStart--;
+        }
+        else
+        {
+            return 0;
+        }
+
+        var lineStart = delimiterStart;
+        while (lineStart > 0 && text[lineStart - 1] is not '\r' and not '\n')
+        {
+            lineStart--;
+        }
+
+        return MarkdownImageReferences.TryParseReferenceLine(text[lineStart..delimiterStart], out _)
+            ? text.Length - delimiterStart
+            : 0;
+    }
+
+    private readonly record struct DocumentReplacementTarget(
+        TextDocument Document,
+        string OriginalText,
+        int Start,
+        int SelectionLength);
+
+    private readonly record struct ImageInsertionPlan(
+        DocumentReplacementTarget Target,
+        int ImageCount);
 
     protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
     {
@@ -1163,6 +1276,24 @@ public sealed class MarkdownTextBox : TextEditor
             return;
         }
 
+        if (!IsReadOnly &&
+            _acceptsReturn &&
+            e.Key == System.Windows.Input.Key.Enter &&
+            !CanApplyTextReplacement(NewLineTextAtCaret()))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (!IsReadOnly &&
+            _acceptsTab &&
+            e.Key == System.Windows.Input.Key.Tab &&
+            !CanApplyTextReplacement("\t"))
+        {
+            e.Handled = true;
+            return;
+        }
+
         base.OnPreviewKeyDown(e);
     }
 
@@ -1173,7 +1304,67 @@ public sealed class MarkdownTextBox : TextEditor
             TryDeleteSelectedImageReference();
         }
 
+        if (!IsReadOnly &&
+            !string.IsNullOrEmpty(e.Text) &&
+            !CanApplyTextReplacement(e.Text))
+        {
+            e.Handled = true;
+            return;
+        }
+
         base.OnPreviewTextInput(e);
+    }
+
+    private bool CanApplyTextReplacement(string replacement)
+    {
+        if (MaxLength <= 0)
+        {
+            return true;
+        }
+
+        var start = Math.Clamp(SelectionStart, 0, Text.Length);
+        var selectedLength = Math.Clamp(SelectionLength, 0, Text.Length - start);
+        var projectedLength = checked(Text.Length - selectedLength + replacement.Length);
+        if (projectedLength <= MaxLength)
+        {
+            return true;
+        }
+
+        // Never make an already-oversized legacy note larger, but always permit an edit that
+        // reduces or preserves its length. Most importantly, never "repair" it by deleting a
+        // different part of the document after the edit has happened.
+        if (Text.Length > CurrentTextLengthLimit() && projectedLength <= Text.Length)
+        {
+            return true;
+        }
+
+        // Only a trailing delimiter after an internal image reference may live just beyond the
+        // nominal limit. Build the exact candidate for that narrow boundary case.
+        if (projectedLength > MaxLength + Environment.NewLine.Length)
+        {
+            return false;
+        }
+
+        var candidate = ReplaceRange(Text, start, selectedLength, replacement);
+        return candidate.Length <= TextLengthLimitFor(candidate);
+    }
+
+    private string NewLineTextAtCaret()
+    {
+        if (Document == null || Document.TextLength == 0)
+        {
+            return Environment.NewLine;
+        }
+
+        try
+        {
+            var offset = Math.Clamp(CaretOffset, 0, Document.TextLength);
+            return NewLineTextFor(Document.GetLineByOffset(offset));
+        }
+        catch
+        {
+            return Environment.NewLine;
+        }
     }
 
     private bool TryDeleteSelectedImageReference()
@@ -1500,15 +1691,50 @@ public sealed class MarkdownTextBox : TextEditor
             return;
         }
 
-        var text = MarkdownImageReferences.StripRenderMarkers(clipboardText);
+        if (IsReadOnly)
+        {
+            return;
+        }
 
-        var selectedLength = Math.Max(0, SelectionLength);
+        var text = clipboardText;
+        var replacementTarget = CaptureDocumentReplacementTarget();
+        var selectedLength = replacementTarget.SelectionLength;
         var containsImageReference = MarkdownImageReferences.Enumerate(text).Any();
-        var blockPasteText = EnsureImageReferencePasteIsBlock(text, selectedLength);
-        if (!TryBuildSafePasteText(blockPasteText, selectedLength, out var pasteText) ||
-            (containsImageReference && pasteText.Length != blockPasteText.Length))
+        var blockPasteText = EnsureImageReferencePasteIsBlock(text, replacementTarget);
+        string pasteText;
+        if (containsImageReference)
+        {
+            try
+            {
+                if (!IsSafeImageReferencePaste(blockPasteText, replacementTarget))
+                {
+                    e.CancelCommand();
+                    PasteRejected?.Invoke();
+                    return;
+                }
+
+                var maximumIdPasteText = ExpandImageReferenceIdsForLengthPreflight(blockPasteText);
+                if (!IsSafeImageReferencePaste(maximumIdPasteText, replacementTarget))
+                {
+                    e.CancelCommand();
+                    PasteRejected?.Invoke();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                ImageImportFailed?.Invoke(ex);
+                e.CancelCommand();
+                return;
+            }
+
+            // Image references are atomic: unlike ordinary text, never clip a partial batch.
+            pasteText = blockPasteText;
+        }
+        else if (!TryBuildSafePasteText(blockPasteText, selectedLength, out pasteText))
         {
             e.CancelCommand();
+            PasteRejected?.Invoke();
             return;
         }
 
@@ -1526,6 +1752,32 @@ public sealed class MarkdownTextBox : TextEditor
             }
         }
 
+        if (containsImageReference)
+        {
+            try
+            {
+                if (!IsSafeImageReferencePaste(pasteText, replacementTarget))
+                {
+                    e.CancelCommand();
+                    PasteRejected?.Invoke();
+                    return;
+                }
+
+                e.CancelCommand();
+                var caret = CommitDocumentReplacement(replacementTarget, pasteText);
+                CaretIndex = caret;
+                Select(caret, 0);
+                Focus();
+                QueuePostPasteRefresh();
+            }
+            catch (Exception ex)
+            {
+                ImageImportFailed?.Invoke(ex);
+                e.CancelCommand();
+            }
+            return;
+        }
+
         if (string.Equals(pasteText, clipboardText, StringComparison.Ordinal))
         {
             return;
@@ -1539,7 +1791,9 @@ public sealed class MarkdownTextBox : TextEditor
         QueuePostPasteRefresh();
     }
 
-    private string EnsureImageReferencePasteIsBlock(string pasteText, int selectedLength)
+    private static string EnsureImageReferencePasteIsBlock(
+        string pasteText,
+        DocumentReplacementTarget replacementTarget)
     {
         if (string.IsNullOrWhiteSpace(pasteText))
         {
@@ -1550,15 +1804,16 @@ public sealed class MarkdownTextBox : TextEditor
         var firstLine = firstLineEnd < 0 ? pasteText : pasteText[..firstLineEnd];
         var lastLineStart = pasteText.LastIndexOfAny(['\r', '\n']) + 1;
         var lastLine = pasteText[lastLineStart..];
-        var selectionStart = Math.Clamp(SelectionStart, 0, Text.Length);
-        var selectionEnd = Math.Clamp(selectionStart + selectedLength, selectionStart, Text.Length);
+        var selectionStart = replacementTarget.Start;
+        var selectionEnd = selectionStart + replacementTarget.SelectionLength;
         var needsLeadingNewLine =
             MarkdownImageReferences.TryParseReferenceLine(firstLine, out _) &&
             selectionStart > 0 &&
-            Text[selectionStart - 1] is not '\r' and not '\n';
+            replacementTarget.OriginalText[selectionStart - 1] is not '\r' and not '\n';
         var needsTrailingNewLine =
             MarkdownImageReferences.TryParseReferenceLine(lastLine, out _) &&
-            (selectionEnd >= Text.Length || Text[selectionEnd] is not '\r' and not '\n');
+            (selectionEnd >= replacementTarget.OriginalText.Length ||
+                replacementTarget.OriginalText[selectionEnd] is not '\r' and not '\n');
         if (!needsLeadingNewLine && !needsTrailingNewLine)
         {
             return pasteText;
@@ -1574,6 +1829,61 @@ public sealed class MarkdownTextBox : TextEditor
         {
             builder.Append(Environment.NewLine);
         }
+        return builder.ToString();
+    }
+
+    private bool IsSafeImageReferencePaste(
+        string pasteText,
+        DocumentReplacementTarget replacementTarget)
+    {
+        if (pasteText.Length > MaxSafePasteLength ||
+            ContainsLineLongerThan(pasteText, MaxSafePasteLineLength))
+        {
+            return false;
+        }
+
+        var candidateText = ReplaceRange(
+            replacementTarget.OriginalText,
+            replacementTarget.Start,
+            replacementTarget.SelectionLength,
+            pasteText);
+        return MaxLength <= 0 || candidateText.Length <= TextLengthLimitFor(candidateText);
+    }
+
+    private static string ExpandImageReferenceIdsForLengthPreflight(string markdown)
+    {
+        const string maximumImageId = "99999999";
+        var references = MarkdownImageReferences.Enumerate(markdown).ToList();
+        if (references.Count == 0)
+        {
+            return markdown;
+        }
+
+        var additionalLength = references.Sum(reference => maximumImageId.Length - reference.ImageId.Length);
+        var builder = new StringBuilder(checked(markdown.Length + additionalLength));
+        var cursor = 0;
+        foreach (var reference in references)
+        {
+            builder.Append(markdown, cursor, reference.LineStart - cursor);
+            var line = markdown.Substring(reference.LineStart, reference.LineLength);
+            var urlMarker = line.IndexOf("](", StringComparison.Ordinal);
+            var imageToken = MarkdownImageReferences.UriPrefix + reference.ImageId;
+            var tokenStart = urlMarker >= 0
+                ? line.IndexOf(imageToken, urlMarker + 2, StringComparison.Ordinal)
+                : -1;
+            if (tokenStart < 0)
+            {
+                throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
+            }
+
+            var idStart = tokenStart + MarkdownImageReferences.UriPrefix.Length;
+            builder.Append(line, 0, idStart);
+            builder.Append(maximumImageId);
+            builder.Append(line, idStart + reference.ImageId.Length, line.Length - idStart - reference.ImageId.Length);
+            cursor = reference.LineStart + reference.LineLength;
+        }
+
+        builder.Append(markdown, cursor, markdown.Length - cursor);
         return builder.ToString();
     }
 
@@ -1631,36 +1941,6 @@ public sealed class MarkdownTextBox : TextEditor
         return false;
     }
 
-    private void OnCopying(object sender, DataObjectCopyingEventArgs e)
-    {
-        try
-        {
-            if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText))
-            {
-                return;
-            }
-
-            var text = e.DataObject.GetData(DataFormats.UnicodeText) as string;
-            if (string.IsNullOrEmpty(text))
-            {
-                return;
-            }
-
-            var cleaned = MarkdownImageReferences.StripRenderMarkers(text);
-            if (string.Equals(cleaned, text, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            e.DataObject.SetData(DataFormats.UnicodeText, cleaned);
-            e.DataObject.SetData(DataFormats.Text, cleaned);
-        }
-        catch
-        {
-            // Clipboard cleanup should not block copy/cut.
-        }
-    }
-
     private void EnsureVisualLines()
     {
         TextArea.TextView.EnsureVisualLines();
@@ -1672,58 +1952,14 @@ public sealed class MarkdownTextBox : TextEditor
     private bool TryBuildSafePasteText(string text, int selectedLength, out string pasteText)
     {
         pasteText = text;
-        var allowed = MaxLength > 0
-            ? CurrentTextLengthLimit() - Math.Max(0, Text.Length - selectedLength)
-            : int.MaxValue;
-        if (allowed <= 0)
+        if (text.Length > MaxSafePasteLength ||
+            ContainsLineLongerThan(text, MaxSafePasteLineLength))
         {
-            pasteText = "";
             return false;
         }
 
-        var maxPasteLength = Math.Min(allowed, MaxSafePasteLength);
-        if (text.Length <= maxPasteLength && !ContainsLineLongerThan(text, MaxSafePasteLineLength))
-        {
-            return true;
-        }
-
-        pasteText = ClipPasteText(text, maxPasteLength, MaxSafePasteLineLength);
-        return pasteText.Length > 0;
-    }
-
-    private static string ClipPasteText(string text, int maxLength, int maxLineLength)
-    {
-        if (maxLength <= 0 || maxLineLength <= 0)
-        {
-            return "";
-        }
-
-        var builder = new StringBuilder(Math.Min(text.Length, maxLength));
-        var lineLength = 0;
-        foreach (var c in text)
-        {
-            if (builder.Length >= maxLength)
-            {
-                break;
-            }
-
-            if (c is '\r' or '\n')
-            {
-                builder.Append(c);
-                lineLength = 0;
-                continue;
-            }
-
-            if (lineLength >= maxLineLength)
-            {
-                break;
-            }
-
-            builder.Append(c);
-            lineLength++;
-        }
-
-        return builder.ToString();
+        var candidateLength = Text.Length - Math.Max(0, selectedLength) + text.Length;
+        return MaxLength <= 0 || candidateLength <= CurrentTextLengthLimit();
     }
 
     private static bool ContainsLineLongerThan(string text, int maxLength)
@@ -2220,6 +2456,31 @@ public sealed class MarkdownTextBox : TextEditor
         return false;
     }
 
+    private static bool HasBitmapDataFormat(IDataObject dataObject)
+    {
+        try
+        {
+            if (dataObject.GetDataPresent(DataFormats.Bitmap, autoConvert: true))
+            {
+                return true;
+            }
+
+            foreach (var format in EncodedClipboardImageFormats)
+            {
+                if (dataObject.GetDataPresent(format, autoConvert: false))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // A third-party IDataObject can throw while enumerating delayed formats.
+        }
+
+        return false;
+    }
+
     private static bool TryGetBitmapData(
         IDataObject dataObject,
         string format,
@@ -2251,7 +2512,7 @@ public sealed class MarkdownTextBox : TextEditor
         {
             switch (data)
             {
-                case byte[] bytes when bytes.Length > 0:
+                case byte[] bytes when bytes.Length is > 0 and <= MaxClipboardEncodedImageBytes:
                     using (var stream = new MemoryStream(bytes, writable: false))
                     {
                         bitmap = DecodeBitmapStream(stream);
@@ -2267,8 +2528,13 @@ public sealed class MarkdownTextBox : TextEditor
                             if (source.CanSeek)
                             {
                                 source.Position = 0;
+                                if (source.Length > MaxClipboardEncodedImageBytes)
+                                {
+                                    break;
+                                }
                             }
-                            source.CopyTo(stream);
+
+                            CopyStreamWithLimit(source, stream, MaxClipboardEncodedImageBytes);
                         }
                         finally
                         {
@@ -2289,6 +2555,30 @@ public sealed class MarkdownTextBox : TextEditor
         }
 
         return bitmap != null;
+    }
+
+    private static void CopyStreamWithLimit(Stream source, Stream destination, int maximumBytes)
+    {
+        var buffer = new byte[81920];
+        var totalBytes = 0;
+        while (true)
+        {
+            var read = source.Read(buffer, 0, Math.Min(buffer.Length, maximumBytes - totalBytes + 1));
+            if (read <= 0)
+            {
+                return;
+            }
+
+            totalBytes = checked(totalBytes + read);
+            if (totalBytes > maximumBytes)
+            {
+                throw new InvalidDataException(Strings.Format(
+                    "ImageImportSourceTooLarge",
+                    maximumBytes / 1024 / 1024));
+            }
+
+            destination.Write(buffer, 0, read);
+        }
     }
 
     private static BitmapSource DecodeBitmapStream(Stream stream)
@@ -2344,6 +2634,21 @@ public sealed class MarkdownTextBox : TextEditor
 
     private MarkdownLineStyle AnalyzeLine(IDocument document, DocumentLine line, string text)
     {
+        var fencedCodeState = _fencedCodeStateCache.GetStateBeforeLine(document, line);
+        var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
+            text,
+            fencedCodeState,
+            out _);
+        if (fenceKind != MarkdownFenceLineKind.None)
+        {
+            return new MarkdownLineStyle(MarkdownLineKind.CodeFence, text.Length, text.Length);
+        }
+
+        if (fencedCodeState.IsInside)
+        {
+            return new MarkdownLineStyle(MarkdownLineKind.CodeBlock, 0, 0);
+        }
+
         if (string.IsNullOrEmpty(text))
         {
             return new MarkdownLineStyle(MarkdownLineKind.Plain, 0, 0);
@@ -2353,16 +2658,6 @@ public sealed class MarkdownTextBox : TextEditor
         if (indent >= text.Length)
         {
             return new MarkdownLineStyle(MarkdownLineKind.Plain, 0, 0);
-        }
-
-        if (IsFenceLine(text, out _))
-        {
-            return new MarkdownLineStyle(MarkdownLineKind.CodeFence, text.Length, text.Length);
-        }
-
-        if (_fencedCodeStateCache.IsInFencedCodeBlockBeforeLine(document, line))
-        {
-            return new MarkdownLineStyle(MarkdownLineKind.CodeBlock, 0, 0);
         }
 
         if (IsHorizontalRuleLine(text, indent))
@@ -2511,12 +2806,6 @@ public sealed class MarkdownTextBox : TextEditor
         return value is ' ' or 'x' or 'X';
     }
 
-    private static bool IsFenceLine(string text, out int start)
-    {
-        start = CountIndent(text);
-        return MarkdownImageReferences.IsFenceLine(text);
-    }
-
     private static bool IsHorizontalRuleLine(string text, int start)
     {
         if (start >= text.Length || text[start] is not ('-' or '_' or '*'))
@@ -2545,51 +2834,51 @@ public sealed class MarkdownTextBox : TextEditor
 
     private sealed class FencedCodeStateCache
     {
-        private readonly Dictionary<int, bool> _insideBeforeLine = new();
+        private readonly Dictionary<int, MarkdownFencedCodeState> _stateBeforeLine = new();
         private IDocument? _document;
         private int _maxCachedLineNumber = 1;
 
         public void Clear()
         {
             _document = null;
-            _insideBeforeLine.Clear();
+            _stateBeforeLine.Clear();
             _maxCachedLineNumber = 1;
         }
 
-        public bool IsInFencedCodeBlockBeforeLine(IDocument document, DocumentLine line)
+        public MarkdownFencedCodeState GetStateBeforeLine(IDocument document, DocumentLine line)
         {
             if (!ReferenceEquals(_document, document))
             {
                 _document = document;
-                _insideBeforeLine.Clear();
-                _insideBeforeLine[1] = false;
+                _stateBeforeLine.Clear();
+                _stateBeforeLine[1] = default;
                 _maxCachedLineNumber = 1;
             }
 
             var lineNumber = Math.Max(1, line.LineNumber);
-            if (_insideBeforeLine.TryGetValue(lineNumber, out var cached))
+            if (_stateBeforeLine.TryGetValue(lineNumber, out var cached))
             {
                 return cached;
             }
 
             var nearestLine = Math.Min(_maxCachedLineNumber, lineNumber);
-            var inside = _insideBeforeLine.TryGetValue(nearestLine, out var nearestState)
+            var state = _stateBeforeLine.TryGetValue(nearestLine, out var nearestState)
                 ? nearestState
-                : false;
+                : default;
 
             for (var number = nearestLine; number < lineNumber; number++)
             {
                 var current = document.GetLineByNumber(number);
-                if (IsFenceLine(document.GetText(current), out _))
-                {
-                    inside = !inside;
-                }
-
-                _insideBeforeLine[number + 1] = inside;
+                _ = MarkdownFencedCodeScanner.ClassifyLine(
+                    document.GetText(current),
+                    state,
+                    out var stateAfterLine);
+                state = stateAfterLine;
+                _stateBeforeLine[number + 1] = state;
             }
 
             _maxCachedLineNumber = Math.Max(_maxCachedLineNumber, lineNumber);
-            return inside;
+            return state;
         }
     }
 

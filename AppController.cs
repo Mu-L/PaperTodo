@@ -20,6 +20,20 @@ namespace PaperTodo;
 
 public sealed partial class AppController : IDisposable
 {
+    private enum AppLifecycleState
+    {
+        Running,
+        Exiting,
+        Disposed
+    }
+
+    private enum DisplayMetricsRefreshState
+    {
+        Idle,
+        Scheduled,
+        DeferredForCapsuleDrag
+    }
+
     public static AppController Current { get; private set; } = null!;
 
     private readonly StateStore _store = new();
@@ -41,22 +55,25 @@ public sealed partial class AppController : IDisposable
     private CheckBox? _settingsRememberDeepCapsuleExpandedPositionCheckBox;
     private CheckBox? _settingsCollapseExpandedDeepCapsuleOnClickCheckBox;
     private CheckBox? _settingsCapsuleCollapseAllCheckBox;
-    private bool _isExiting;
+    private AppLifecycleState _lifecycleState = AppLifecycleState.Running;
     private bool _suppressDirty;
     private bool _hasShownSaveFailure;
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
     private long _saveVersion;
+    private long _stateRevision;
     private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
     private bool _suppressTopmostForFullscreenForeground;
     private IntPtr _fullscreenAvoidanceWindow;
     private DateTimeOffset _lastFullscreenGlobalScanAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastFullscreenDebugLogAt = DateTimeOffset.MinValue;
     private bool? _lastFullscreenDebugSuppressState;
-    private bool _displayMetricsRefreshDeferredForDeepCapsuleDrag;
+    private DisplayMetricsRefreshState _displayMetricsRefreshState;
+    private bool _deepCapsuleArrangePending;
+    private bool _deepCapsuleArrangePendingAnimate;
     private PaperWindow? _noteLinkTargetWindow;
     private string? _noteLinkTargetItemId;
-    private int _deepCapsuleContextMenuOpenCount;
+    private readonly HashSet<string> _deepCapsuleContextMenuOwners = new(StringComparer.Ordinal);
     // One master pill per docked-capsule queue, keyed by QueueKey(monitorDevice, edge).
     private readonly Dictionary<string, MasterCapsuleWindow> _masterCapsules = new();
 
@@ -71,9 +88,10 @@ public sealed partial class AppController : IDisposable
     public AppState State { get; private set; }
     public NoteImageStore ImageStore => _imageStore;
     public bool SuppressTopmostForFullscreenForeground => _suppressTopmostForFullscreenForeground;
-    public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOpenCount > 0;
+    public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOwners.Count > 0;
     public IntPtr FullscreenAvoidanceWindow => _fullscreenAvoidanceWindow;
     private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
+    private bool IsExiting => _lifecycleState != AppLifecycleState.Running;
 
     public AppController()
     {
@@ -442,6 +460,13 @@ public sealed partial class AppController : IDisposable
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             window.RefreshPaperTitle();
+            if (State.UseCapsuleMode && State.UseDeepCapsuleMode)
+            {
+                // The slot schedules its own real-width refresh. A title edit does not change
+                // queue order or slot semantics, so a global non-animated arrange would only
+                // snap unrelated hover/close animations.
+                window.ReconcileExpandedDeepCapsuleInset();
+            }
         }
         if (paper.Type == PaperTypes.Note)
         {
@@ -853,7 +878,7 @@ public sealed partial class AppController : IDisposable
 
     public void ShowPaper(PaperData paper, bool activate = true)
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
@@ -916,7 +941,11 @@ public sealed partial class AppController : IDisposable
 
             window.Dispatcher.InvokeAsync(() =>
             {
-                if (!paper.IsVisible || !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion))
+                if (!paper.IsVisible ||
+                    window.IsClosed ||
+                    !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion) ||
+                    !_windows.TryGetValue(paper.Id, out var currentWindow) ||
+                    !ReferenceEquals(currentWindow, window))
                 {
                     return;
                 }
@@ -969,7 +998,7 @@ public sealed partial class AppController : IDisposable
         MarkDirty();
     }
 
-    private static void ForceWindowToFront(Window window)
+    private static void ForceWindowToFront(PaperWindow window)
     {
         RestoreWindowIfMinimized(window);
         if (Current.ShouldAvoidFullscreenTopmost && FullscreenForegroundWindowDetector.IsForegroundFullscreen())
@@ -977,16 +1006,23 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        var restoreTopmost = window.Topmost;
         window.Topmost = true;
         window.Activate();
         window.Focus();
         window.Dispatcher.BeginInvoke(
-            () => window.Topmost = restoreTopmost,
+            () =>
+            {
+                if (!window.IsClosed && window.IsVisible)
+                {
+                    // Recompute from current app/fullscreen/pin state. Restoring a captured bool
+                    // can overwrite a setting changed while this dispatcher pulse was pending.
+                    window.RefreshEffectiveTopmost();
+                }
+            },
             DispatcherPriority.ApplicationIdle);
     }
 
-    private static void ForceWindowToFrontWithEmphasis(Window window, AppState state)
+    private static void ForceWindowToFrontWithEmphasis(PaperWindow window, AppState state)
     {
         ForceWindowToFront(window);
 
@@ -995,7 +1031,10 @@ public sealed partial class AppController : IDisposable
         {
             window.Dispatcher.InvokeAsync(() =>
             {
-                AnimationHelper.QuickBounce(window, 1.03, 100);
+                if (!window.IsClosed && window.IsVisible && !window.IsDeepCapsulePlaced)
+                {
+                    AnimationHelper.QuickBounce(window, 1.03, 100);
+                }
             }, DispatcherPriority.Render);
         }
     }
@@ -1079,7 +1118,7 @@ public sealed partial class AppController : IDisposable
 
     private void RefreshTopmostAfterSystemResume()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
@@ -1102,11 +1141,12 @@ public sealed partial class AppController : IDisposable
 
     internal void ScheduleDisplayMetricsRefresh()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
 
+        WindowWorkAreaHelper.InvalidateMonitorGeometryCache();
         var dispatcher = _displayMetricsRefreshTimer.Dispatcher;
         if (dispatcher.CheckAccess())
         {
@@ -1121,18 +1161,19 @@ public sealed partial class AppController : IDisposable
 
     private void RestartDisplayMetricsRefreshTimer()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
 
         _displayMetricsRefreshTimer.Stop();
+        _displayMetricsRefreshState = DisplayMetricsRefreshState.Scheduled;
         _displayMetricsRefreshTimer.Start();
     }
 
     private void RefreshAfterDisplayMetricsChanged()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
@@ -1144,6 +1185,7 @@ public sealed partial class AppController : IDisposable
         }
         else
         {
+            _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
             ArrangeDeepCapsules(animate: false);
         }
         foreach (var window in _windows.Values)
@@ -1161,21 +1203,42 @@ public sealed partial class AppController : IDisposable
 
     internal void DeferDisplayMetricsRefreshUntilDeepCapsuleDragEnds()
     {
-        if (!_isExiting)
+        if (!IsExiting)
         {
-            _displayMetricsRefreshDeferredForDeepCapsuleDrag = true;
+            _displayMetricsRefreshTimer.Stop();
+            _displayMetricsRefreshState = DisplayMetricsRefreshState.DeferredForCapsuleDrag;
         }
     }
 
     internal void CompleteDeepCapsuleReorderDrag()
     {
-        if (_isExiting || !_displayMetricsRefreshDeferredForDeepCapsuleDrag)
+        if (IsExiting || HasDeepCapsuleReorderDragInProgress())
         {
             return;
         }
 
-        _displayMetricsRefreshDeferredForDeepCapsuleDrag = false;
-        ScheduleDisplayMetricsRefresh();
+        if (_displayMetricsRefreshState == DisplayMetricsRefreshState.DeferredForCapsuleDrag)
+        {
+            // The display refresh performs a complete non-animated arrange with fresh monitor
+            // geometry, so it also consumes any ordinary arrange request accumulated by the drag.
+            _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
+            _deepCapsuleArrangePending = false;
+            _deepCapsuleArrangePendingAnimate = false;
+            ScheduleDisplayMetricsRefresh();
+            return;
+        }
+
+        FlushPendingDeepCapsuleArrange();
+    }
+
+    private void FlushPendingDeepCapsuleArrange()
+    {
+        if (IsExiting || HasDeepCapsuleReorderDragInProgress() || !_deepCapsuleArrangePending)
+        {
+            return;
+        }
+
+        ArrangeDeepCapsules(_deepCapsuleArrangePendingAnimate);
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
@@ -1256,28 +1319,30 @@ public sealed partial class AppController : IDisposable
         foreach (var m in _masterCapsules.Values) m.RefreshEffectiveTopmost();
     }
 
-    public void BeginDeepCapsuleContextMenu()
+    public void SetDeepCapsuleContextMenuOpen(string paperId, bool open)
     {
-        _deepCapsuleContextMenuOpenCount++;
-        RefreshFloatingSurfaceZOrder();
-    }
-
-    public void EndDeepCapsuleContextMenu()
-    {
-        if (_deepCapsuleContextMenuOpenCount > 0)
+        if (string.IsNullOrWhiteSpace(paperId))
         {
-            _deepCapsuleContextMenuOpenCount--;
+            return;
         }
 
-        RefreshFloatingSurfaceZOrder();
+        var changed = open
+            ? _deepCapsuleContextMenuOwners.Add(paperId)
+            : _deepCapsuleContextMenuOwners.Remove(paperId);
+        if (changed)
+        {
+            RefreshFloatingSurfaceZOrder();
+        }
     }
 
     public void HidePaper(PaperData paper)
     {
+        _windows.TryGetValue(paper.Id, out var window);
+        window?.PrepareForHide();
         paper.IsVisible = false;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
 
-        if (_windows.TryGetValue(paper.Id, out var window))
+        if (window != null)
         {
             var saveGeometry = !window.IsDeepCapsulePlaced;
             if (!paper.IsCollapsed && saveGeometry)
@@ -1297,7 +1362,11 @@ public sealed partial class AppController : IDisposable
                 {
                     window.BeginAnimation(Window.OpacityProperty, null);
                     window.Opacity = 1;
-                    if (paper.IsVisible || !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion))
+                    if (paper.IsVisible ||
+                        window.IsClosed ||
+                        !IsVisibilityAnimationCurrent(paper.Id, visibilityVersion) ||
+                        !_windows.TryGetValue(paper.Id, out var currentWindow) ||
+                        !ReferenceEquals(currentWindow, window))
                     {
                         return;
                     }
@@ -1337,7 +1406,7 @@ public sealed partial class AppController : IDisposable
 
     public void ShowAllPapers()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
@@ -1369,6 +1438,11 @@ public sealed partial class AppController : IDisposable
 
     public void HideAllPapers()
     {
+        foreach (var window in _windows.Values)
+        {
+            window.PrepareForHide();
+        }
+
         foreach (var paper in State.Papers)
         {
             paper.IsVisible = false;
@@ -1397,6 +1471,8 @@ public sealed partial class AppController : IDisposable
     public void DeletePaper(PaperData paper)
     {
         var deletedNoteId = paper.Type == PaperTypes.Note ? paper.Id : null;
+        paper.IsVisible = false;
+        NextVisibilityAnimationVersion(paper.Id);
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
@@ -1405,6 +1481,7 @@ public sealed partial class AppController : IDisposable
         }
 
         State.Papers.RemoveAll(p => p.Id == paper.Id);
+        _visibilityAnimationVersions.Remove(paper.Id);
 
         if (!string.IsNullOrWhiteSpace(deletedNoteId))
         {
@@ -1575,6 +1652,21 @@ public sealed partial class AppController : IDisposable
             }
         }
 
+        if (State.UseCapsuleCollapseAll)
+        {
+            var queueCount = DeepCapsulePapersInOrder().Count(p => QueueKey(p) == targetKey);
+            if (queueCount > 0)
+            {
+                // During the first arrange the master HWND does not exist yet, so reserve the
+                // standard pill width. Subsequent layouts use the master's actual localized,
+                // DPI-aware text width.
+                var masterWidth = _masterCapsules.TryGetValue(targetKey, out var master)
+                    ? master.DesiredDockedWidth
+                    : PaperLayoutDefaults.CapsuleWidth;
+                width = Math.Max(width, masterWidth);
+            }
+        }
+
         return width;
     }
 
@@ -1679,7 +1771,11 @@ public sealed partial class AppController : IDisposable
     // drag. The paper keeps its identity; only its queue tag + position among the target queue's
     // members change. Order within State.Papers is rebuilt so the dragged paper lands at the slot
     // matching the drop height in the target queue.
-    public void MoveCapsuleToQueue(PaperData paper, string monitorDeviceName, string side, double dropDipY)
+    internal void MoveCapsuleToQueue(
+        PaperData paper,
+        string monitorDeviceName,
+        string side,
+        DeviceScreenPoint dropPoint)
     {
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
@@ -1688,6 +1784,10 @@ public sealed partial class AppController : IDisposable
 
         var normalizedSide = DeepCapsuleSides.Normalize(side);
         var normalizedMonitor = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(monitorDeviceName);
+        if (!WindowWorkAreaHelper.TryGetMonitorGeometryForDevice(normalizedMonitor, out var monitorGeometry))
+        {
+            return;
+        }
 
         paper.CapsuleSide = normalizedSide;
         paper.CapsuleMonitorDeviceName = normalizedMonitor;
@@ -1708,7 +1808,8 @@ public sealed partial class AppController : IDisposable
         }
 
         // Insertion index by drop height against the target queue's monitor work area.
-        var area = DeepCapsuleLayout.WorkAreaForQueue(normalizedMonitor);
+        var area = monitorGeometry.LocalWorkAreaDip;
+        var dropY = monitorGeometry.DeviceYToLocalDip(dropPoint.Y);
         var targetRealCount = targetMembers.Count + 1;
         var visualOffset = State.UseCapsuleCollapseAll && targetRealCount > 0 ? 1 : 0;
         var startTop = DeepCapsuleLayout.NormalizeStartTopMargin(
@@ -1718,7 +1819,7 @@ public sealed partial class AppController : IDisposable
             targetRealCount + visualOffset);
         var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleLayout.Gap;
         var firstTop = DeepCapsuleLayout.TopForIndex(visualOffset, startTop, area, targetRealCount + visualOffset);
-        var rawIndex = (int)Math.Floor((dropDipY - firstTop) / slotHeight + 0.5);
+        var rawIndex = (int)Math.Floor((dropY - firstTop) / slotHeight + 0.5);
         var insertAt = Math.Clamp(rawIndex, 0, targetMembers.Count);
 
         // Rebuild State.Papers: drop the dragged paper, then re-insert it right before the target
@@ -1986,11 +2087,15 @@ public sealed partial class AppController : IDisposable
     {
         if (HasDeepCapsuleReorderDragInProgress())
         {
+            _deepCapsuleArrangePending = true;
+            _deepCapsuleArrangePendingAnimate |= animate;
             return;
         }
 
+        animate |= _deepCapsuleArrangePendingAnimate;
+        _deepCapsuleArrangePending = false;
+        _deepCapsuleArrangePendingAnimate = false;
         animate = animate && State.EnableAnimations;
-        SyncDeepCapsuleAnchor();
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
             foreach (var window in _windows.Values)
@@ -2037,14 +2142,14 @@ public sealed partial class AppController : IDisposable
                 var queueShowMaster = showMasterGlobally && queues.TryGetValue(key, out var q) && q.Count > 0;
                 var visualOffset = queueShowMaster ? 1 : 0;
                 var slotCount = (queues.TryGetValue(key, out var ql) ? ql.Count : 0) + visualOffset;
-                var area = DeepCapsuleLayout.WorkAreaForQueue(paper.CapsuleMonitorDeviceName);
+                var area = DeepCapsuleLayout.LocalWorkAreaForQueue(paper.CapsuleMonitorDeviceName);
                 var startTop = DeepCapsuleLayout.NormalizeStartTopMargin(DeepCapsuleStartTopMarginFor(paper), area, slotCount);
                 var retracted = queueShowMaster && IsCapsuleCollapseAllActiveForQueue(key);
 
                 var idx = perQueueIndex.TryGetValue(key, out var v) ? v : 0;
                 if (retracted)
                 {
-                    window.RetractIntoMaster(DeepCapsuleLayout.TopForIndex(0, startTop, area, slotCount), animate);
+                    window.RetractIntoMaster(animate);
                 }
                 else if (paper.IsCollapsed)
                 {
@@ -2247,11 +2352,12 @@ public sealed partial class AppController : IDisposable
 
     public void MarkDirty()
     {
-        if (_isExiting || _suppressDirty)
+        if (IsExiting || _suppressDirty)
         {
             return;
         }
 
+        Interlocked.Increment(ref _stateRevision);
         _saveTimer.Stop();
         _saveTimer.Start();
     }
@@ -2267,10 +2373,12 @@ public sealed partial class AppController : IDisposable
         {
             _saveTimer.Stop();
             var version = Interlocked.Increment(ref _saveVersion);
+            var stateRevision = Interlocked.Read(ref _stateRevision);
             var json = _store.SerializeState(State);
             if (sync)
             {
                 _store.SaveJsonSync(json, version);
+                TryTrackCurrentImageReferences();
                 _hasShownSaveFailure = false;
             }
             else
@@ -2282,6 +2390,11 @@ public sealed partial class AppController : IDisposable
                         await _store.SaveJsonAsync(json, version);
                         Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                         {
+                            if (version == Interlocked.Read(ref _saveVersion) &&
+                                stateRevision == Interlocked.Read(ref _stateRevision))
+                            {
+                                TryTrackCurrentImageReferences();
+                            }
                             _hasShownSaveFailure = false;
                         }));
                     }
@@ -2301,6 +2414,18 @@ public sealed partial class AppController : IDisposable
         {
             HandleSaveFailure(ex);
             return false;
+        }
+    }
+
+    private void TryTrackCurrentImageReferences()
+    {
+        try
+        {
+            _imageStore.TrackReferences(State);
+        }
+        catch
+        {
+            // Reference cleanup is opportunistic; the saved note data remains authoritative.
         }
     }
 
@@ -2381,7 +2506,11 @@ public sealed partial class AppController : IDisposable
                 var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
                 Grid.SetRow(btnPanel, 1);
                 var btnOk = new Button { Content = Strings.Get("CommonOk"), Width = 80, Margin = new Thickness(0, 0, 10, 0), Style = BuildDialogButtonStyle() };
-                btnOk.Click += (s, e) => { _hasShownSaveFailure = false; dlg.Close(); };
+                btnOk.Click += (s, e) =>
+                {
+                    _hasShownSaveFailure = false;
+                    dlg.Close();
+                };
                 var btnIgnore = new Button { Content = Strings.Get("SaveFailureIgnore"), Width = 110, Style = BuildDialogButtonStyle() };
                 btnIgnore.Click += (s, e) => { _ignoreSaveFailures = true; dlg.Close(); };
                 btnPanel.Children.Add(btnOk);
@@ -2692,16 +2821,6 @@ public sealed partial class AppController : IDisposable
         return SystemParameters.WorkArea;
     }
 
-    // Push the persisted dock anchor (edge + monitor) into the shared layout statics so every
-    // capsule and the master pill resolve geometry against the same screen. Cheap and idempotent.
-    private void SyncDeepCapsuleAnchor()
-    {
-        var edge = State.DeepCapsuleSide == DeepCapsuleSides.Left
-            ? DeepCapsuleEdge.Left
-            : DeepCapsuleEdge.Right;
-        DeepCapsuleLayout.SetAnchor(edge, State.DeepCapsuleMonitorDeviceName);
-    }
-
     // Per-queue vertical rest position, keyed by (monitor, edge). Falls back to the legacy global
     // margin when a queue has no stored value, so old configs are unchanged and a queue's first
     // slide forks it from the global default.
@@ -2741,7 +2860,7 @@ public sealed partial class AppController : IDisposable
 
         var side = edge == DeepCapsuleEdge.Left ? DeepCapsuleSides.Left : DeepCapsuleSides.Right;
         var key = QueueKey(monitorDeviceName, side);
-        var area = DeepCapsuleLayout.WorkAreaForQueue(monitorDeviceName);
+        var area = DeepCapsuleLayout.LocalWorkAreaForQueue(monitorDeviceName);
 
         // Slot count for THIS queue (+1 if its master occupies slot 0).
         var queueCount = DeepCapsulePapersInOrder().Count(p => QueueKey(p) == key);
@@ -2765,47 +2884,29 @@ public sealed partial class AppController : IDisposable
         {
             SaveNow();
         }
-        else
-        {
-            MarkDirty();
-        }
     }
 
     public void Exit()
     {
-        if (_isExiting)
+        if (IsExiting)
         {
             return;
         }
 
-        _isExiting = true;
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.CommitPendingEditsForSave();
+        }
+
+        _lifecycleState = AppLifecycleState.Exiting;
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
 
-        if (TrySaveNow(sync: true))
-        {
-            TryExitCleanup(() => _imageStore.TrackReferences(State));
-        }
-        TryExitCleanup(DisposeGlobalHotkeys);
-        TryExitCleanup(DisposeTrayIcon);
-        TryExitCleanup(() => _settingsWindow?.Close());
-        _settingsWindow = null;
+        TrySaveNow(sync: true);
 
-        foreach (var window in _windows.Values.ToList())
-        {
-            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
-        }
-
-        foreach (var master in _masterCapsules.Values.ToList())
-        {
-            TryExitCleanup(master.CloseForReal);
-        }
-        _masterCapsules.Clear();
-
-        TryExitCleanup(PaperWindow.StopPersistentScriptProcesses);
-        TryExitCleanup(_imageStore.Dispose);
-
+        DisposeRuntimeResources();
+        _lifecycleState = AppLifecycleState.Disposed;
         try
         {
             Application.Current.Shutdown();
@@ -2857,6 +2958,28 @@ public sealed partial class AppController : IDisposable
 
     public void Dispose()
     {
+        if (_lifecycleState == AppLifecycleState.Disposed)
+        {
+            return;
+        }
+
+        if (_lifecycleState == AppLifecycleState.Running)
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.CommitPendingEditsForSave();
+            }
+
+            TrySaveNow(sync: true);
+        }
+
+        _lifecycleState = AppLifecycleState.Exiting;
+        DisposeRuntimeResources();
+        _lifecycleState = AppLifecycleState.Disposed;
+    }
+
+    private void DisposeRuntimeResources()
+    {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
@@ -2864,20 +2987,24 @@ public sealed partial class AppController : IDisposable
         _saveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
-        DisposeGlobalHotkeys();
-        DisposeTrayIcon();
-        _settingsWindow?.Close();
+        ClearNoteLinkDropTarget();
+        _deepCapsuleContextMenuOwners.Clear();
+        _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
+        TryExitCleanup(DisposeGlobalHotkeys);
+        TryExitCleanup(DisposeTrayIcon);
+        TryExitCleanup(() => _settingsWindow?.Close());
         _settingsWindow = null;
         foreach (var window in _windows.Values.ToList())
         {
-            window.CloseForReal();
+            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
         }
+        _windows.Clear();
         foreach (var m in _masterCapsules.Values.ToList())
         {
-            m.CloseForReal();
+            TryExitCleanup(m.CloseForReal);
         }
         _masterCapsules.Clear();
-        PaperWindow.StopPersistentScriptProcesses();
-        _imageStore.Dispose();
+        TryExitCleanup(PaperWindow.StopAllScriptProcesses);
+        TryExitCleanup(_imageStore.Dispose);
     }
 }

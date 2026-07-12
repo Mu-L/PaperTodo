@@ -202,15 +202,50 @@ internal static class WindowNative
         _ = SetFocus(IntPtr.Zero);
     }
 
-    public static bool TryGetCursorScreenPosition(out Point point)
+    public static bool TryGetCursorScreenPosition(out DeviceScreenPoint point)
     {
         if (GetCursorPos(out var nativePoint))
         {
-            point = new Point(nativePoint.X, nativePoint.Y);
+            point = new DeviceScreenPoint(nativePoint.X, nativePoint.Y);
             return true;
         }
 
         point = default;
+        return false;
+    }
+
+    // Commit position and size as one native operation. Edge surfaces use physical screen pixels
+    // as their source of truth; assigning WPF Left/Top/Width separately creates observable
+    // intermediate HWND rectangles and was the direct cause of one-frame edge clipping.
+    public static bool TrySetWindowDeviceBounds(Window window, DeviceScreenRect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return false;
+        }
+
+        var helper = new WindowInteropHelper(window);
+        var handle = helper.Handle != IntPtr.Zero ? helper.Handle : helper.EnsureHandle();
+        return handle != IntPtr.Zero && SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            bounds.Left,
+            bounds.Top,
+            bounds.Width,
+            bounds.Height,
+            SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    public static bool TryGetWindowDeviceBounds(Window window, out DeviceScreenRect bounds)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero && GetWindowRect(handle, out var nativeRect))
+        {
+            bounds = new DeviceScreenRect(nativeRect.Left, nativeRect.Top, nativeRect.Right, nativeRect.Bottom);
+            return !bounds.IsEmpty;
+        }
+
+        bounds = default;
         return false;
     }
 
@@ -219,9 +254,9 @@ internal static class WindowNative
         var handle = new WindowInteropHelper(window).Handle;
         if (handle != IntPtr.Zero && GetWindowRect(handle, out var nativeRect))
         {
-            var topLeft = WindowWorkAreaHelper.DeviceScreenPointToDip(new Point(nativeRect.Left, nativeRect.Top));
-            var bottomRight = WindowWorkAreaHelper.DeviceScreenPointToDip(new Point(nativeRect.Right, nativeRect.Bottom));
-            bounds = new Rect(topLeft, bottomRight);
+            var topLeft = WindowWorkAreaHelper.DeviceScreenPointToDip(new DeviceScreenPoint(nativeRect.Left, nativeRect.Top));
+            var bottomRight = WindowWorkAreaHelper.DeviceScreenPointToDip(new DeviceScreenPoint(nativeRect.Right, nativeRect.Bottom));
+            bounds = new Rect(topLeft.ToPoint(), bottomRight.ToPoint());
             return true;
         }
 
@@ -252,7 +287,7 @@ internal static class WindowNative
             return target.TransformFromDevice.Transform(point);
         }
 
-        return WindowWorkAreaHelper.DeviceScreenPointToDip(point);
+        return WindowWorkAreaHelper.DeviceScreenPointToDip(DeviceScreenPoint.FromPoint(point)).ToPoint();
     }
 
     public static void BeginWindowCaptionDrag(Window window)

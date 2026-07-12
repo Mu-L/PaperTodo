@@ -155,10 +155,8 @@ public sealed class NoteImageStore : IDisposable
         }
         catch
         {
-            lock (_gate)
-            {
-                MarkImageCorruptedLocked(imageId);
-            }
+            // The blob has already passed length and SHA-256 verification. A WIC/codec or memory
+            // failure is not evidence that the stored data is corrupt, so leave it retryable.
             return null;
         }
     }
@@ -258,6 +256,14 @@ public sealed class NoteImageStore : IDisposable
 
         var originalName = Path.GetFileName(path);
         var bytes = File.ReadAllBytes(path);
+        if (bytes.Length > MaxInputImageBytes)
+        {
+            throw new InvalidDataException(Strings.Format("ImageImportSourceTooLarge", MaxInputImageBytes / 1024 / 1024));
+        }
+        if (!AutoCompressLargeImages && bytes.Length > MaxImageBytes)
+        {
+            throw new InvalidDataException(Strings.Format("ImageImportTooLargeCompressionDisabled", MaxImageBytes / 1024 / 1024));
+        }
         if (!TryReadBitmapInfo(bytes, out var frame, out var width, out var height))
         {
             throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
@@ -265,7 +271,8 @@ public sealed class NoteImageStore : IDisposable
 
         ValidateImageDimensions(width, height);
 
-        var mime = MimeFromExtension(path);
+        var mime = MimeFromEncodedBytes(bytes)
+            ?? throw new InvalidDataException(Strings.Get("ImageImportUnsupported"));
         if (!AutoCompressLargeImages || !RequiresAutomaticCompression(bytes.Length, width, height))
         {
             return new PreparedImage(bytes, mime, originalName, width, height);
@@ -372,7 +379,7 @@ public sealed class NoteImageStore : IDisposable
         var references = MarkdownImageReferences.Enumerate(markdown).ToList();
         if (references.Count == 0)
         {
-            return MarkdownImageReferences.StripRenderMarkers(markdown);
+            return markdown;
         }
 
         if (!TryPrepareImageDirectory(imageDirectory, allowedRootDirectory, out var safeImageDirectory))
@@ -962,15 +969,32 @@ public sealed class NoteImageStore : IDisposable
         return Math.Clamp(requested, 32, asset.Width);
     }
 
-    private static string MimeFromExtension(string path)
-        => Path.GetExtension(path).ToLowerInvariant() switch
+    private static string? MimeFromEncodedBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }))
         {
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".bmp" => "image/bmp",
-            ".gif" => "image/gif",
-            ".tif" or ".tiff" => "image/tiff",
-            _ => "image/png"
-        };
+            return "image/png";
+        }
+        if (bytes.StartsWith(new byte[] { 0xFF, 0xD8, 0xFF }))
+        {
+            return "image/jpeg";
+        }
+        if (bytes.StartsWith("GIF87a"u8) || bytes.StartsWith("GIF89a"u8))
+        {
+            return "image/gif";
+        }
+        if (bytes.StartsWith("BM"u8))
+        {
+            return "image/bmp";
+        }
+        if (bytes.StartsWith(new byte[] { 0x49, 0x49, 0x2A, 0x00 }) ||
+            bytes.StartsWith(new byte[] { 0x4D, 0x4D, 0x00, 0x2A }))
+        {
+            return "image/tiff";
+        }
+
+        return null;
+    }
 
     private static string NormalizeMime(string mime)
         => mime is "image/jpeg" or "image/png" or "image/gif" or "image/bmp" or "image/tiff"

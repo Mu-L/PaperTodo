@@ -130,6 +130,39 @@ internal sealed class LmdbImageDatabase : IDisposable
                 LmdbNative.Check(result, "enumerate metadata");
             }
 
+            LmdbNative.mdb_cursor_close(cursor);
+            cursor = IntPtr.Zero;
+            LmdbNative.Check(
+                LmdbNative.mdb_cursor_open(transaction, _blobDatabase, out cursor),
+                "open blob cursor");
+
+            key = default;
+            value = default;
+            result = LmdbNative.mdb_cursor_get(cursor, ref key, ref value, LmdbNative.CursorFirst);
+            while (result == LmdbNative.Success)
+            {
+                var keyBytes = CopyValue(key);
+                var imageId = Encoding.ASCII.GetString(keyBytes);
+                if (MarkdownImageReferences.IsValidImageId(imageId) &&
+                    int.TryParse(imageId, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+                {
+                    maximumImageNumber = Math.Max(maximumImageNumber, number);
+                    if (!TryGetLength(transaction, _metadataDatabase, keyBytes, out _))
+                    {
+                        // Preserve blob-only keys and reserve their ids. They may be recoverable,
+                        // and the allocator must never repeatedly collide with them.
+                        corruptedImageIds.Add(imageId);
+                    }
+                }
+
+                result = LmdbNative.mdb_cursor_get(cursor, ref key, ref value, LmdbNative.CursorNext);
+            }
+
+            if (result != LmdbNative.NotFound)
+            {
+                LmdbNative.Check(result, "enumerate blobs");
+            }
+
             var nextImageNumber = Math.Max(store.NextImageNumber, maximumImageNumber + 1);
             return new LmdbImageIndex(assets, corruptedImageIds, nextImageNumber);
         }
@@ -272,9 +305,15 @@ internal sealed class LmdbImageDatabase : IDisposable
     {
         var store = JsonSerializer.Deserialize<ImageStoreMetadata>(bytes, JsonOptions)
             ?? throw new InvalidDataException("The image database store metadata is empty.");
-        if (store.Version != StoreVersion || store.NextImageNumber < 1)
+        if (store.Version != StoreVersion)
         {
             throw new InvalidDataException("The image database format is not supported.");
+        }
+        if (store.NextImageNumber < 1)
+        {
+            // The numeric allocator is derivable from the union of metadata/blob keys. Keep
+            // healthy assets readable and let ReadIndex reconstruct a collision-free value.
+            store.NextImageNumber = 1;
         }
         return store;
     }

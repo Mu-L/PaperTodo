@@ -555,6 +555,7 @@ public sealed partial class AppController
         {
             masterCapsule.UpdateTypography();
         }
+        ArrangeDeepCapsules(animate: false);
     }
 
     private UIElement BuildSettingsWindowContent(Window window)
@@ -1367,6 +1368,14 @@ public sealed partial class AppController
     private void ToggleAnimations()
     {
         State.EnableAnimations = !State.EnableAnimations;
+        if (!State.EnableAnimations)
+        {
+            foreach (var window in _windows.Values)
+            {
+                window.SettleAnimationsForDisabledSetting();
+            }
+            ArrangeDeepCapsules(animate: false);
+        }
         SaveNow();
         RefreshSettingsWindowContent();
     }

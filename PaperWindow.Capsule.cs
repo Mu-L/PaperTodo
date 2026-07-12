@@ -24,7 +24,6 @@ using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using MenuItem = System.Windows.Controls.MenuItem;
 using MessageBox = System.Windows.MessageBox;
 using Orientation = System.Windows.Controls.Orientation;
-using Point = System.Windows.Point;
 using Separator = System.Windows.Controls.Separator;
 using SolidColorBrush = System.Windows.Media.SolidColorBrush;
 using TextBox = System.Windows.Controls.TextBox;
@@ -35,6 +34,18 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private enum CapsulePointerState
+    {
+        Idle,
+        PendingClick,
+        NativeMoving
+    }
+
+    private sealed record CapsulePointerSession(DeviceScreenPoint PointerDownScreenPosition);
+
+    private CapsulePointerState _capsulePointerState;
+    private CapsulePointerSession? _capsulePointerSession;
+
     private bool CanDisplayAsCapsule()
     {
         return _controller.CanPaperDisplayAsCapsule(_paper);
@@ -142,20 +153,15 @@ public sealed partial class PaperWindow
 
     private void UpdateCapsuleClosePlacement()
     {
-        var usesDeepCapsulePresentation = UsesDeepCapsulePresentation;
         if (_capsuleCloseArea != null)
         {
-            _capsuleCloseArea.Width = CapsuleCloseWidthForCurrentPlacement();
-            _capsuleCloseArea.Margin = usesDeepCapsulePresentation
-                ? new Thickness(0, 0, 2, 0)
-                : new Thickness(0);
+            _capsuleCloseArea.Width = CapsuleNormalCloseWidth;
+            _capsuleCloseArea.Margin = new Thickness(0);
         }
 
         if (_capsuleCloseGlyphOffset != null)
         {
-            _capsuleCloseGlyphOffset.X = usesDeepCapsulePresentation
-                ? CapsuleCloseGlyphDeepOffset
-                : CapsuleCloseGlyphNormalOffset;
+            _capsuleCloseGlyphOffset.X = CapsuleCloseGlyphNormalOffset;
         }
 
         if (_capsuleShell != null)
@@ -188,18 +194,57 @@ public sealed partial class PaperWindow
 
         if (updateHostWidth && _deepCapsuleSlotHost != null && HasDeepCapsuleSlotPlacement)
         {
-            ApplyDeepCapsuleSlotHostWidth(_deepCapsuleSlotHost.Width);
+            ApplyDeepCapsuleSlotFixedLayout();
         }
     }
 
-    private Point CapsulePointerScreenPosition(MouseEventArgs e)
+    private DeviceScreenPoint CapsulePointerScreenPosition(MouseEventArgs e)
     {
         if (_capsuleShell != null && PresentationSource.FromVisual(_capsuleShell) != null)
         {
-            return _capsuleShell.PointToScreen(e.GetPosition(_capsuleShell));
+            return DeviceScreenPoint.FromPoint(_capsuleShell.PointToScreen(e.GetPosition(_capsuleShell)));
         }
 
-        return PointToScreen(e.GetPosition(this));
+        return DeviceScreenPoint.FromPoint(PointToScreen(e.GetPosition(this)));
+    }
+
+    private void BeginCapsulePointerInteraction(DeviceScreenPoint pointerDownScreenPosition)
+    {
+        if (_capsulePointerState != CapsulePointerState.Idle)
+        {
+            CancelCapsulePointerInteraction();
+        }
+
+        _capsulePointerSession = new CapsulePointerSession(pointerDownScreenPosition);
+        _capsulePointerState = CapsulePointerState.PendingClick;
+    }
+
+    private void SetCapsulePointerState(CapsulePointerState state)
+    {
+        if (state != CapsulePointerState.Idle && _capsulePointerSession == null)
+        {
+            throw new InvalidOperationException($"Capsule pointer state {state} requires a session.");
+        }
+
+        _capsulePointerState = state;
+        if (state == CapsulePointerState.Idle)
+        {
+            _capsulePointerSession = null;
+        }
+    }
+
+    private void CancelCapsulePointerInteraction()
+    {
+        if (_capsulePointerState == CapsulePointerState.Idle)
+        {
+            return;
+        }
+
+        SetCapsulePointerState(CapsulePointerState.Idle);
+        if (_capsuleLeftArea?.IsMouseCaptured == true)
+        {
+            _capsuleLeftArea.ReleaseMouseCapture();
+        }
     }
 
     private void BuildCapsuleShell()
@@ -263,24 +308,27 @@ public sealed partial class PaperWindow
 
         leftArea.PreviewMouseLeftButtonDown += (s, e) =>
         {
-            _mouseDownScreenPos = CapsulePointerScreenPosition(e);
-            _isMaybeDragging = true;
+            BeginCapsulePointerInteraction(CapsulePointerScreenPosition(e));
             leftArea.CaptureMouse();
             e.Handled = true;
         };
 
         leftArea.PreviewMouseMove += (s, e) =>
         {
-            if (!_isMaybeDragging) return;
+            if (_capsulePointerState != CapsulePointerState.PendingClick ||
+                _capsulePointerSession == null)
+            {
+                return;
+            }
 
-            Point currentScreenPos = CapsulePointerScreenPosition(e);
-            double deltaX = Math.Abs(currentScreenPos.X - _mouseDownScreenPos.X);
-            double deltaY = Math.Abs(currentScreenPos.Y - _mouseDownScreenPos.Y);
+            var currentScreenPos = CapsulePointerScreenPosition(e);
+            var deltaX = Math.Abs(currentScreenPos.X - _capsulePointerSession.PointerDownScreenPosition.X);
+            var deltaY = Math.Abs(currentScreenPos.Y - _capsulePointerSession.PointerDownScreenPosition.Y);
 
             if (deltaX >= SystemParameters.MinimumHorizontalDragDistance ||
                 deltaY >= SystemParameters.MinimumVerticalDragDistance)
             {
-                _isMaybeDragging = false;
+                SetCapsulePointerState(CapsulePointerState.NativeMoving);
 
                 leftArea.ReleaseMouseCapture();
                 leftArea.Background = Brushes.Transparent;
@@ -288,7 +336,6 @@ public sealed partial class PaperWindow
 
                 try
                 {
-                    _collapsedFromSnappedBounds = null;
                     _collapsedFromMaximized = false;
                     DragMove();
                 }
@@ -298,6 +345,7 @@ public sealed partial class PaperWindow
                 }
                 finally
                 {
+                    SetCapsulePointerState(CapsulePointerState.Idle);
                     leftArea.Cursor = Cursors.Hand;
                     ClearCapsuleInteractionKeyboardFocus();
                 }
@@ -308,9 +356,9 @@ public sealed partial class PaperWindow
 
         leftArea.PreviewMouseLeftButtonUp += (s, e) =>
         {
-            if (_isMaybeDragging)
+            if (_capsulePointerState == CapsulePointerState.PendingClick)
             {
-                _isMaybeDragging = false;
+                SetCapsulePointerState(CapsulePointerState.Idle);
                 leftArea.ReleaseMouseCapture();
 
                 try
@@ -327,7 +375,10 @@ public sealed partial class PaperWindow
 
         leftArea.LostMouseCapture += (s, e) =>
         {
-            _isMaybeDragging = false;
+            if (_capsulePointerState == CapsulePointerState.PendingClick)
+            {
+                SetCapsulePointerState(CapsulePointerState.Idle);
+            }
         };
 
         leftArea.ContextMenu = BuildPaperContextMenu();
@@ -352,7 +403,7 @@ public sealed partial class PaperWindow
 
         var capsuleClose = new Border
         {
-            Width = CapsuleCloseWidth,
+            Width = CapsuleNormalCloseWidth,
             VerticalAlignment = VerticalAlignment.Stretch,
             Background = Brushes.Transparent,
             // Concentric with the capsule pill's right edge.
@@ -420,17 +471,22 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (_isApplyingCollapsedState)
+        double? interruptedVisualWidth = null;
+        double? interruptedVisualHeight = null;
+        if (IsPaperFormTransitioning)
         {
-            // Capture current animated values to prevent snapping
-            double currentWidth = Width;
-            double currentHeight = Height;
+            // Capture the actually rendered chrome, not the top-level Window size. During a
+            // collapse the HWND remains expanded while the chrome is scaled toward the capsule;
+            // using Window.Width here made a reversed transition jump to an endpoint first.
+            interruptedVisualWidth = IsFiniteWindowCoordinate(_paperChrome.Width)
+                ? _paperChrome.Width + WindowChromeInset
+                : Width;
+            interruptedVisualHeight = IsFiniteWindowCoordinate(_paperChrome.Height)
+                ? _paperChrome.Height + WindowChromeInset
+                : Height;
             double currentShellOpacity = _shell.Opacity;
             double currentCapsuleOpacity = _capsuleShell.Opacity;
 
-            // Set them as local values
-            Width = currentWidth;
-            Height = currentHeight;
             _shell.Opacity = currentShellOpacity;
             _capsuleShell.Opacity = currentCapsuleOpacity;
 
@@ -442,10 +498,10 @@ public sealed partial class PaperWindow
 
             _shell.Width = double.NaN;
             _shell.Height = double.NaN;
-            _isApplyingCollapsedState = false;
         }
 
-        _isApplyingCollapsedState = true;
+        PrepareForFormTransition();
+        BeginPaperFormTransition(collapsed);
         var transitionGeneration = ++_collapseTransitionGeneration;
         var shouldRestoreCollapseStartPosition = collapsed &&
             IsVisible &&
@@ -460,7 +516,6 @@ public sealed partial class PaperWindow
         double targetHeight = collapsed ? PaperLayoutDefaults.CapsuleHeight : _paper.Height;
         var usesDeepCapsuleMode = _paper.IsVisible && _controller.State.UseCapsuleMode && _controller.State.UseDeepCapsuleMode;
         var arrangeDeepCapsulesAfterCollapse = collapsed && usesDeepCapsuleMode;
-        Rect? restoreSnappedBounds = null;
         if (collapsed)
         {
             var wasMaximized = WindowState == WindowState.Maximized;
@@ -488,12 +543,6 @@ public sealed partial class PaperWindow
                 });
             }
         }
-        else if (_collapsedFromSnappedBounds is Rect snappedBounds)
-        {
-            restoreSnappedBounds = snappedBounds;
-            targetWidth = snappedBounds.Width;
-            targetHeight = snappedBounds.Height;
-        }
 
         var wasDeepCapsulePlaced = HasDeepCapsuleSlotPlacement;
         var expandingFromDeepCapsuleEdge = !collapsed && usesDeepCapsuleMode && wasDeepCapsulePlaced;
@@ -508,8 +557,7 @@ public sealed partial class PaperWindow
             && ExpandedFromDeepCapsuleEdge
             && !_controller.State.ShowDeepCapsuleWhileExpanded;
         Rect? rememberedDeepCapsuleExpandedGeometry = null;
-        if (restoreSnappedBounds is null &&
-            expandingFromDeepCapsuleEdge &&
+        if (expandingFromDeepCapsuleEdge &&
             _controller.TryGetRememberedDeepCapsuleExpandedGeometry(_paper, targetWidth, targetHeight, out var rememberedGeometry))
         {
             rememberedDeepCapsuleExpandedGeometry = rememberedGeometry;
@@ -528,17 +576,11 @@ public sealed partial class PaperWindow
             {
                 SetDeepCapsuleOpenOrigin(DeepCapsuleOpenOrigin.EdgeSlot);
             }
-            SetDeepCapsuleSlotState(keepDeepCapsuleSlotReservation ? DeepCapsuleSlotState.ExpandedReserved : DeepCapsuleSlotState.None);
+            SetDeepCapsuleSlotForPaperForm(
+                collapsed: false,
+                reserveWhileExpanded: keepDeepCapsuleSlotReservation);
             SetDeepCapsuleVisualState(keepDeepCapsuleSlotReservation ? DeepCapsuleVisualState.Active : DeepCapsuleVisualState.Resting);
-            if (restoreSnappedBounds is Rect snappedRect)
-            {
-                MoveWindowWithoutGeometrySave(() =>
-                {
-                    Left = RoundToDevicePixelX(snappedRect.Left);
-                    Top = RoundToDevicePixelY(snappedRect.Top);
-                });
-            }
-            else if (alignExpandedToDockedEdge || expandingFromDeepCapsuleEdge)
+            if (alignExpandedToDockedEdge || expandingFromDeepCapsuleEdge)
             {
                 var requiredEdgeInset = keepDeepCapsuleSlotReservation
                     ? ExpandedDeepCapsuleVisibleWidth() + DeepCapsuleGap
@@ -563,9 +605,9 @@ public sealed partial class PaperWindow
         }
         else
         {
-            if (_deepCapsuleSlotState == DeepCapsuleSlotState.ExpandedReserved)
+            if (wasDeepCapsulePlaced)
             {
-                SetDeepCapsuleSlotState(DeepCapsuleSlotState.CollapsedDocked);
+                SetDeepCapsuleSlotForPaperForm(collapsed: true, reserveWhileExpanded: false);
             }
             if (usesDeepCapsuleMode && !wasDeepCapsulePlaced && !returningToHiddenDeepCapsuleSlot)
             {
@@ -606,11 +648,10 @@ public sealed partial class PaperWindow
             var expandedHeight = collapsed ? RoundToDevicePixelY(Height) : finalTargetHeight;
             _transitionBaseWidth = expandedWidth;
             _transitionBaseHeight = expandedHeight;
-            _startTransitionWidth = collapsed ? expandedWidth : capsuleWidth;
-            _startTransitionHeight = collapsed ? expandedHeight : PaperLayoutDefaults.CapsuleHeight;
+            _startTransitionWidth = interruptedVisualWidth ?? (collapsed ? expandedWidth : capsuleWidth);
+            _startTransitionHeight = interruptedVisualHeight ?? (collapsed ? expandedHeight : PaperLayoutDefaults.CapsuleHeight);
             _targetTransitionWidth = collapsed ? finalTargetWidth : expandedWidth;
             _targetTransitionHeight = collapsed ? finalTargetHeight : expandedHeight;
-            _isTransitionVisualsActive = true;
 
             // Prevent shell content reflow/wrapping by locking its size to the expanded dimensions
             _shell.Width = Math.Max(0, expandedWidth - WindowChromeInset);
@@ -737,7 +778,7 @@ public sealed partial class PaperWindow
                 _shell.Width = double.NaN;
                 _shell.Height = double.NaN;
 
-                _isApplyingCollapsedState = false;
+                CompletePaperFormTransition(collapsed);
                 // Re-judge snap state and force re-apply: transition-time position messages
                 // were guarded off, and ResetTransitionVisuals rewrote the corner radius.
                 RefreshSnappedPresentation(forceApply: true);
@@ -797,7 +838,7 @@ public sealed partial class PaperWindow
             Width = finalTargetWidth;
             Height = finalTargetHeight;
 
-            _isApplyingCollapsedState = false;
+            CompletePaperFormTransition(collapsed);
             // Same as the animated path: re-judge and force re-apply after the transition
             // rewrote the chrome visuals.
             RefreshSnappedPresentation(forceApply: true);
@@ -866,14 +907,12 @@ public sealed partial class PaperWindow
         }
 
         _collapsedFromMaximized = false;
-        _collapsedFromSnappedBounds = null;
     }
 
     // A collapsed paper is a free capsule. Clear both the active snap presentation and the
     // delayed hide/show restore cache so a later ShowPaper cannot resurrect the old tile.
     private void EndSnapRelationshipForCollapse()
     {
-        _collapsedFromSnappedBounds = null;
         _snappedPresentationBoundsForRestore = null;
         _isSnappedPresentation = false;
     }

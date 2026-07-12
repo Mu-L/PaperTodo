@@ -29,7 +29,7 @@ public sealed partial class AppController
         trayIcon.ContextMenu = _trayMenu;
         trayIcon.PreviewTrayContextMenuOpen += (_, _) =>
         {
-            if (_isExiting)
+            if (IsExiting)
             {
                 return;
             }
@@ -38,7 +38,7 @@ public sealed partial class AppController
         };
         trayIcon.TrayMouseDoubleClick += (_, _) =>
         {
-            if (_isExiting)
+            if (IsExiting)
             {
                 return;
             }
