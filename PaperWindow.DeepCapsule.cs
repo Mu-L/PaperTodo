@@ -292,18 +292,33 @@ public sealed partial class PaperWindow
         };
         leftArea.LostMouseCapture += (_, _) =>
         {
+            if (_deepCapsuleIgnoreCaptureLoss)
+            {
+                return;
+            }
+
             if (IsDeepCapsuleSlotPendingClick)
             {
                 FinishDeepCapsulePointerInteraction();
             }
-            if (IsDeepCapsuleReordering)
+
+            if (!IsDeepCapsuleReordering)
             {
-                // Capture loss is cancellation regardless of the current button state. If another
-                // HWND steals capture while the button is still down, this slot will never receive
-                // the matching MouseUp and must not leave the controller in drag mode forever.
-                EndDeepCapsuleReorderDrag(commit: false);
-                ClearCapsuleInteractionKeyboardFocus();
+                return;
             }
+
+            // Opening the floating drag HWND often steals capture while the button is still down.
+            // Re-capture and keep dragging so move/up still reach this slot instead of cancelling.
+            if (Mouse.LeftButton == MouseButtonState.Pressed &&
+                leftArea.IsVisible &&
+                leftArea.IsEnabled)
+            {
+                leftArea.CaptureMouse();
+                return;
+            }
+
+            EndDeepCapsuleReorderDrag(commit: false);
+            ClearCapsuleInteractionKeyboardFocus();
         };
         leftArea.ContextMenu = BuildDeepCapsuleSlotContextMenu();
 
@@ -2433,6 +2448,8 @@ public sealed partial class PaperWindow
 
         var session = RequireDeepCapsuleDragSession();
         session.LastScreenPosition = currentScreenPos;
+        var leftArea = _deepCapsuleSlotLeftArea;
+        _deepCapsuleIgnoreCaptureLoss = true;
         try
         {
             var floatingHost = CreateDeepCapsuleFloatingDragHost(currentScreenPos);
@@ -2441,12 +2458,31 @@ public sealed partial class PaperWindow
             WindowNative.BringToFrontNoActivate(floatingHost);
             RefreshDeepCapsuleSlotTopmost();
             Mouse.OverrideCursor = Cursors.SizeAll;
+            // Show() of the floating top-level window steals capture from the docked content.
+            // Re-capture so subsequent move/up keep driving the floating host.
+            if (leftArea != null &&
+                Mouse.LeftButton == MouseButtonState.Pressed &&
+                !leftArea.IsMouseCaptured)
+            {
+                leftArea.CaptureMouse();
+            }
         }
         catch
         {
             CloseDeepCapsuleFloatingDragHost(restoreDockedRoot: true);
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
             _controller.ArrangeDeepCapsules(animate: true);
+        }
+        finally
+        {
+            _deepCapsuleIgnoreCaptureLoss = false;
+            if (IsDeepCapsuleFloatingReordering &&
+                leftArea != null &&
+                Mouse.LeftButton == MouseButtonState.Pressed &&
+                !leftArea.IsMouseCaptured)
+            {
+                leftArea.CaptureMouse();
+            }
         }
     }
 

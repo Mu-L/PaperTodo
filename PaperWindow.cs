@@ -142,6 +142,9 @@ public sealed partial class PaperWindow : Window
     private bool _deepCapsuleSlotLayoutSettleScheduled;
     private bool _deepCapsuleSlotMeasureRefreshPending;
     private bool _deepCapsuleSlotMeasureRefreshScheduled;
+    // Showing the floating drag HWND can steal capture from the docked slot. While true,
+    // LostMouseCapture must not cancel the reorder; the caller re-captures after Show returns.
+    private bool _deepCapsuleIgnoreCaptureLoss;
     private int _deepCapsuleSlotStartWidth;
     private int _deepCapsuleSlotTargetWidth;
     private double _deepCapsuleSlotStartCloseWidth;
