@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,15 +11,11 @@ namespace PaperTodo;
 
 internal sealed record EdgeCapsuleDragWindowOptions
 {
-    public required double Width { get; init; }
-    public required double Height { get; init; }
-    public required double BodyHeight { get; init; }
-    public required double BodyRadius { get; init; }
+    public required EdgeCapsuleFloatingShape Shape { get; init; }
     public required double WindowChromeMargin { get; init; }
     public required double OutlineMargin { get; init; }
     public required double OutlineThickness { get; init; }
     public required double OutlineOverlap { get; init; }
-    public required double CloseWidth { get; init; }
     public required double LeftPadding { get; init; }
     public required double IconGap { get; init; }
     public required double RightPadding { get; init; }
@@ -34,7 +31,6 @@ internal sealed record EdgeCapsuleDragWindowOptions
     public required Brush IconBrush { get; init; }
     public required Brush LabelBrush { get; init; }
     public required Brush OutlineBrush { get; init; }
-    public required bool ShowOutline { get; init; }
     public required bool Topmost { get; init; }
 }
 
@@ -66,8 +62,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
         UseLayoutRounding = true;
         Topmost = options.Topmost;
         Opacity = 0;
-        _widthDip = options.Width;
-        _heightDip = options.Height;
+        Debug.Assert(
+            options.Shape.Visible && options.Shape.Kind == EdgeCapsuleSurfaceKind.FloatingFree,
+            "EdgeCapsuleDragWindow only renders the FloatingFree shape.");
+        _widthDip = options.Shape.WindowWidthDip;
+        _heightDip = options.Shape.WindowHeightDip;
         Content = BuildContent(options);
 
         SourceInitialized += (_, _) =>
@@ -199,21 +198,18 @@ internal sealed class EdgeCapsuleDragWindow : Window
             Background = options.PaperBrush,
             BorderBrush = options.PaperBorderBrush,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(options.BodyRadius),
+            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
             SnapsToDevicePixels = true
         });
 
         var shell = new Grid
         {
             Margin = new Thickness(options.WindowChromeMargin),
-            Height = options.BodyHeight,
+            Height = options.Shape.BodyHeightDip,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center,
             Background = Brushes.Transparent
         };
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
         var content = new Grid
         {
             Margin = new Thickness(options.LeftPadding, 0, options.RightPadding, 0),
@@ -252,30 +248,10 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var contentArea = new Border
         {
             Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(options.BodyRadius, 0, 0, options.BodyRadius),
+            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
             Child = content
         };
-        Grid.SetColumn(contentArea, 0);
         shell.Children.Add(contentArea);
-
-        var closeArea = new Border
-        {
-            Width = options.CloseWidth,
-            Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(0, options.BodyRadius, options.BodyRadius, 0),
-            IsHitTestVisible = false,
-            Child = new TextBlock
-            {
-                Text = "×",
-                Foreground = options.LabelBrush,
-                FontFamily = options.SymbolFontFamily,
-                FontSize = 18,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-        Grid.SetColumn(closeArea, 1);
-        shell.Children.Add(closeArea);
         Panel.SetZIndex(shell, 10);
         root.Children.Add(shell);
 
@@ -284,10 +260,10 @@ internal sealed class EdgeCapsuleDragWindow : Window
             Margin = new Thickness(options.OutlineMargin),
             BorderBrush = options.OutlineBrush,
             BorderThickness = new Thickness(options.OutlineThickness),
-            CornerRadius = new CornerRadius(options.BodyRadius + options.OutlineThickness - options.OutlineOverlap),
+            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip + options.OutlineThickness - options.OutlineOverlap),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
-            Visibility = options.ShowOutline ? Visibility.Visible : Visibility.Collapsed,
+            Visibility = options.Shape.OutlineVisible ? Visibility.Visible : Visibility.Collapsed,
             SnapsToDevicePixels = true
         };
         Panel.SetZIndex(outline, 20);

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
@@ -34,7 +35,7 @@ internal sealed record EdgeCapsuleHostOptions(
     bool Topmost);
 
 internal sealed record EdgeCapsuleHostCallbacks(
-    Action<bool> HoverChanged,
+    Action PointerInvalidated,
     Action<DeviceScreenPoint> PointerPressed,
     Func<DeviceScreenPoint, bool, bool> PointerMoved,
     Func<DeviceScreenPoint, bool> PointerReleased,
@@ -53,7 +54,9 @@ internal sealed class EdgeCapsuleHost : IDisposable
     private Brush _textBrush;
     private Brush _weakTextBrush;
     private double _maximumCloseWidth;
+    private double _appliedCloseWidth;
     private EdgeCapsuleEdge? _appliedEdge;
+    private EdgeCapsulePresentationFrame _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
     private bool _disposed;
     private Window Window { get; }
     private Grid Root { get; }
@@ -138,17 +141,22 @@ internal sealed class EdgeCapsuleHost : IDisposable
             window.Hide();
             window.Opacity = 1;
             root.Opacity = 1;
-            root.IsHitTestVisible = true;
+            root.IsHitTestVisible = false;
+            _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
             return true;
         }
 
+        Debug.Assert(
+            frame.Surface != EdgeCapsuleSurfaceKind.FloatingFree,
+            "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         ApplyFixedLayout(frame.Edge);
         var closeWidth = EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
             frame.Bounds.Width,
-            frame.RestingWidthDevice,
+            frame.BodyWindowWidthDevice,
             frame.DpiScaleX,
             frame.MaximumCloseWidthDip);
-        SetCloseWidth(
+        ApplySegmentWidths(
+            frame,
             closeWidth,
             frame.MaximumCloseWidthDip,
             frame.IsHitTestVisible);
@@ -161,8 +169,11 @@ internal sealed class EdgeCapsuleHost : IDisposable
         {
             window.Opacity = 0;
         }
+        var previousFrame = _appliedFrame;
+        _appliedFrame = frame;
         if (!WindowNative.TrySetWindowDeviceBounds(window, frame.Bounds))
         {
+            _appliedFrame = previousFrame;
             return false;
         }
         if (firstShow)
@@ -170,6 +181,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
             window.Show();
             if (!WindowNative.TrySetWindowDeviceBounds(window, frame.Bounds))
             {
+                _appliedFrame = previousFrame;
                 return false;
             }
         }
@@ -177,22 +189,17 @@ internal sealed class EdgeCapsuleHost : IDisposable
         return true;
     }
 
-    public bool ContainsScreenPoint(DeviceScreenPoint point)
+    private bool ContainsScreenPoint(DeviceScreenPoint point)
     {
-        var window = Window;
-        if (_disposed || !window.IsVisible ||
-            !WindowNative.TryGetWindowDeviceBounds(window, out var bounds))
+        if (_disposed || !Window.IsVisible || !_appliedFrame.IsHitTestVisible)
         {
             return false;
         }
 
-        // Use the native rectangle, not WPF ActualWidth. During a right-edge SetWindowPos the
-        // HWND moves left before WPF's next arrange pass; sampling the stale visual width there
-        // turns a synthetic MouseLeave into a real collapse request and causes the visible twitch.
-        return point.X >= bounds.Left &&
-            point.X < bounds.Right &&
-            point.Y >= bounds.Top &&
-            point.Y < bounds.Bottom;
+        // The frame carries the physical body/close rectangle and excludes transparent shadow
+        // margins. A leave into that margin is a real leave, while a WPF leave caused only by a
+        // right-edge HWND resize is rejected against the already-committed physical frame.
+        return EdgeCapsuleGeometry.Contains(_appliedFrame.InteractiveBounds, point);
     }
 
     public static EdgeCapsuleHost Create(EdgeCapsuleHostOptions options)
@@ -224,8 +231,8 @@ internal sealed class EdgeCapsuleHost : IDisposable
             VerticalAlignment = VerticalAlignment.Top,
             Background = Brushes.Transparent
         };
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
+        shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
 
         var contentArea = new Border
         {
@@ -359,8 +366,8 @@ internal sealed class EdgeCapsuleHost : IDisposable
 
         content.MouseEnter += (_, _) => content.Background = _hoverBrush;
         content.MouseLeave += (_, _) => content.Background = Brushes.Transparent;
-        shell.MouseEnter += (_, _) => callbacks.HoverChanged(true);
-        shell.MouseLeave += (_, _) => callbacks.HoverChanged(false);
+        shell.MouseEnter += (_, _) => callbacks.PointerInvalidated();
+        shell.MouseLeave += (_, _) => callbacks.PointerInvalidated();
         content.PreviewMouseLeftButtonDown += (_, e) =>
         {
             callbacks.PointerPressed(PointerScreenPosition(e));
@@ -404,7 +411,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
         {
             close.Background = Brushes.Transparent;
             closeGlyph.Foreground = _weakTextBrush;
-            close.Opacity = Math.Clamp(close.Width / Math.Max(1, _maximumCloseWidth), 0, 1);
+            close.Opacity = Math.Clamp(_appliedCloseWidth / Math.Max(1, _maximumCloseWidth), 0, 1);
         };
         close.MouseLeftButtonDown += (_, e) =>
         {
@@ -427,8 +434,6 @@ internal sealed class EdgeCapsuleHost : IDisposable
     }
 
     public bool IsContentPointerCaptured => !_disposed && ContentArea.IsMouseCaptured;
-    public bool IsSurfaceMouseOver =>
-        WindowNative.TryGetCursorScreenPosition(out var pointer) && ContainsScreenPoint(pointer);
     public bool IsTopmost => !_disposed && Window.Topmost;
 
     public void CaptureContentPointer()
@@ -619,7 +624,8 @@ internal sealed class EdgeCapsuleHost : IDisposable
         _appliedEdge = edge;
     }
 
-    private void SetCloseWidth(
+    private void ApplySegmentWidths(
+        EdgeCapsulePresentationFrame frame,
         double width,
         double maximumWidth,
         bool enableHitTest)
@@ -631,24 +637,29 @@ internal sealed class EdgeCapsuleHost : IDisposable
 
         width = Math.Clamp(width, 0, maximumWidth);
         _maximumCloseWidth = maximumWidth;
-        CloseArea.Width = width;
+        _appliedCloseWidth = width;
+        var bodyWindowWidthDip = frame.BodyWindowWidthDevice / Math.Max(1, frame.DpiScaleX);
+        var contentWidth = Math.Max(0, bodyWindowWidthDip - _options.WindowChromeMargin);
+        if (frame.Edge == EdgeCapsuleEdge.Left)
+        {
+            Shell.ColumnDefinitions[0].Width = new GridLength(width);
+            Shell.ColumnDefinitions[1].Width = new GridLength(contentWidth);
+        }
+        else
+        {
+            Shell.ColumnDefinitions[0].Width = new GridLength(contentWidth);
+            Shell.ColumnDefinitions[1].Width = new GridLength(width);
+        }
+        CloseArea.Width = double.NaN;
         CloseArea.Opacity = maximumWidth <= 0 ? 0 : width / maximumWidth;
-        CloseArea.IsHitTestVisible = enableHitTest && width >= maximumWidth - 0.5;
+        CloseArea.IsHitTestVisible =
+            enableHitTest && maximumWidth > 0 && width >= maximumWidth - 0.5;
     }
 
     private void ApplyContentOrder(EdgeCapsuleEdge edge, EdgeCapsuleHostOptions options)
     {
         var leftEdge = edge == EdgeCapsuleEdge.Left;
         ContentArea.Cursor = Cursors.Hand;
-        if (Shell.ColumnDefinitions.Count >= 2)
-        {
-            Shell.ColumnDefinitions[0].Width = leftEdge
-                ? GridLength.Auto
-                : new GridLength(1, GridUnitType.Star);
-            Shell.ColumnDefinitions[1].Width = leftEdge
-                ? new GridLength(1, GridUnitType.Star)
-                : GridLength.Auto;
-        }
         Grid.SetColumn(ContentArea, leftEdge ? 1 : 0);
         Grid.SetColumn(CloseArea, leftEdge ? 0 : 1);
 

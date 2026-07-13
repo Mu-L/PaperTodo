@@ -27,6 +27,7 @@ internal readonly record struct EdgeCapsuleGeometryInput(
 
 internal readonly record struct EdgeCapsuleGeometryResult(
     DeviceScreenRect Bounds,
+    DeviceScreenRect InteractiveBounds,
     int RestingWidthDevice,
     int WallDeviceX,
     double DpiScaleX,
@@ -57,8 +58,15 @@ internal static class EdgeCapsuleGeometry
             ? wall
             : wall - width;
 
+        var bounds = new DeviceScreenRect(left, top, left + width, top + height);
         return new EdgeCapsuleGeometryResult(
-            new DeviceScreenRect(left, top, left + width, top + height),
+            bounds,
+            InteractiveBoundsForAppliedBounds(
+                bounds,
+                input.Edge,
+                scaleX,
+                scaleY,
+                EdgeCapsuleLayout.WindowChromeMargin),
             restingWidth,
             wall,
             scaleX,
@@ -74,6 +82,38 @@ internal static class EdgeCapsuleGeometry
         var width = (appliedWidth - restingWidth) / Math.Max(1, dpiScaleX);
         return Math.Clamp(width, 0, Math.Max(0, maximumCloseWidthDip));
     }
+
+    public static DeviceScreenRect InteractiveBoundsForAppliedBounds(
+        DeviceScreenRect bounds,
+        EdgeCapsuleEdge edge,
+        double dpiScaleX,
+        double dpiScaleY,
+        double chromeMarginDip)
+    {
+        if (bounds.IsEmpty)
+        {
+            return default;
+        }
+
+        var horizontalMargin = Math.Max(0, RoundDevice(chromeMarginDip * Math.Max(1, dpiScaleX)));
+        var verticalMargin = Math.Max(0, RoundDevice(chromeMarginDip * Math.Max(1, dpiScaleY)));
+        var left = edge == EdgeCapsuleEdge.Left
+            ? bounds.Left
+            : Math.Min(bounds.Right, bounds.Left + horizontalMargin);
+        var right = edge == EdgeCapsuleEdge.Left
+            ? Math.Max(bounds.Left, bounds.Right - horizontalMargin)
+            : bounds.Right;
+        var top = Math.Min(bounds.Bottom, bounds.Top + verticalMargin);
+        var bottom = Math.Max(top, bounds.Bottom - verticalMargin);
+        return new DeviceScreenRect(left, top, right, bottom);
+    }
+
+    public static bool Contains(DeviceScreenRect bounds, DeviceScreenPoint point) =>
+        !bounds.IsEmpty &&
+        point.X >= bounds.Left &&
+        point.X < bounds.Right &&
+        point.Y >= bounds.Top &&
+        point.Y < bounds.Bottom;
 
     public static EdgeCapsuleVerticalEdges CalculateVerticalEdges(
         MonitorGeometry monitor,

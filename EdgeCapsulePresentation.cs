@@ -19,6 +19,18 @@ internal enum EdgeCapsuleTransitionReason
     FloatingTransfer
 }
 
+internal enum EdgeCapsuleSurfaceKind
+{
+    Hidden,
+    DockedResting,
+    DockedHovered,
+    DockedActive,
+    DockedSuppressed,
+    DockedRetracted,
+    DockedRetracting,
+    FloatingFree
+}
+
 internal readonly record struct EdgeCapsuleMotion(
     EdgeCapsuleMotionKind Kind,
     int DurationMilliseconds,
@@ -37,8 +49,8 @@ internal readonly record struct EdgeCapsuleMotion(
 }
 
 /// <summary>
-/// Effect-surface facts captured by PaperWindow. This contains no desired-state decisions: the
-/// planner chooses the visible form, close width, master position and interaction state.
+/// Environment facts captured from the target monitor and WPF text measurement. This value
+/// contains no state decisions; the shape planner owns all Resting/Hover/Active/Floating policy.
 /// </summary>
 internal readonly record struct EdgeCapsuleLayoutSnapshot(
     MonitorGeometry Monitor,
@@ -55,15 +67,36 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
         HeightDip > 0;
 }
 
+internal readonly record struct EdgeCapsuleFloatingShape(
+    bool Visible,
+    EdgeCapsuleSurfaceKind Kind,
+    double WindowWidthDip,
+    double WindowHeightDip,
+    double BodyHeightDip,
+    double CornerRadiusDip,
+    bool OutlineVisible)
+{
+    public static EdgeCapsuleFloatingShape Hidden => new(
+        false,
+        EdgeCapsuleSurfaceKind.Hidden,
+        0,
+        0,
+        0,
+        0,
+        false);
+}
+
 /// <summary>
-/// One immutable target truth. No WPF width, native Left or close-column value is allowed to live
-/// beside this value as another independently animated target.
+/// One immutable docked target. Body width is distinct from the total HWND width; the only
+/// permitted close segment is total device width minus BodyWindowWidthDevice.
 /// </summary>
 internal readonly record struct EdgeCapsuleTargetPresentation(
     bool Visible,
+    EdgeCapsuleSurfaceKind Surface,
     DeviceScreenRect Bounds,
+    DeviceScreenRect InteractiveBounds,
     EdgeCapsuleEdge Edge,
-    int RestingWidthDevice,
+    int BodyWindowWidthDevice,
     int WallDeviceX,
     double DpiScaleX,
     double DpiScaleY,
@@ -75,6 +108,8 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
 {
     public static EdgeCapsuleTargetPresentation Hidden => new(
         false,
+        EdgeCapsuleSurfaceKind.Hidden,
+        default,
         default,
         EdgeCapsuleEdge.Right,
         0,
@@ -89,9 +124,11 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
 
     public EdgeCapsulePresentationFrame ToFrame() => new(
         Visible,
+        Surface,
         Bounds,
+        InteractiveBounds,
         Edge,
-        RestingWidthDevice,
+        BodyWindowWidthDevice,
         WallDeviceX,
         DpiScaleX,
         DpiScaleY,
@@ -102,15 +139,26 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
         IsHitTestVisible);
 }
 
+internal readonly record struct EdgeCapsulePresentationPlan(
+    EdgeCapsuleTargetPresentation Docked,
+    EdgeCapsuleFloatingShape Floating)
+{
+    public static EdgeCapsulePresentationPlan Hidden => new(
+        EdgeCapsuleTargetPresentation.Hidden,
+        EdgeCapsuleFloatingShape.Hidden);
+}
+
 /// <summary>
-/// The complete frame sent to EdgeCapsuleHost.Apply. Applied presentation is stored only as this
-/// value; top, width, opacity and interaction cannot be committed as unrelated sideband fields.
+/// Complete atomic Host.Apply contract. Native bounds, interactive physical bounds, body/close
+/// segmentation, opacity and input state always advance as one frame.
 /// </summary>
 internal readonly record struct EdgeCapsulePresentationFrame(
     bool Visible,
+    EdgeCapsuleSurfaceKind Surface,
     DeviceScreenRect Bounds,
+    DeviceScreenRect InteractiveBounds,
     EdgeCapsuleEdge Edge,
-    int RestingWidthDevice,
+    int BodyWindowWidthDevice,
     int WallDeviceX,
     double DpiScaleX,
     double DpiScaleY,
@@ -136,172 +184,3 @@ internal readonly record struct EdgeCapsuleTransition(
 internal readonly record struct EdgeCapsuleTransitionSample(
     EdgeCapsulePresentationFrame Frame,
     bool IsComplete);
-
-/// <summary>
-/// Pure desired-state to target-layout planner. It is the only place that decides whether the
-/// wall-side close segment exists and whether the docked surface is visible or interactive.
-/// </summary>
-internal static class EdgeCapsuleTargetPlanner
-{
-    public static EdgeCapsuleTargetPresentation Calculate(
-        EdgeCapsuleModel model,
-        EdgeCapsuleLayoutSnapshot layout)
-    {
-        if (model.State.Slot == EdgeCapsuleSlotState.None ||
-            !model.Placement.IsPlaced ||
-            !layout.IsUsable)
-        {
-            return EdgeCapsuleTargetPresentation.Hidden;
-        }
-
-        var retracted = model.State.Slot is
-            EdgeCapsuleSlotState.RetractedCollapsed or
-            EdgeCapsuleSlotState.RetractedExpanded or
-            EdgeCapsuleSlotState.RetractingCollapsed or
-            EdgeCapsuleSlotState.RetractingExpanded;
-        var floating = model.State.Gesture is
-            EdgeCapsuleGestureState.FloatingTransfer or
-            EdgeCapsuleGestureState.FloatingReordering;
-        var expanded = !retracted && model.State.Visual is
-            EdgeCapsuleVisualState.Hovered or
-            EdgeCapsuleVisualState.Active;
-        var top = model.DockedDragTopDipOverride ??
-            (retracted ? layout.MasterTopDip : layout.NormalTopDip);
-        var closeWidth = expanded ? layout.MaximumCloseWidthDip : 0;
-        var geometry = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
-            layout.Monitor,
-            layout.Edge,
-            top,
-            layout.RestingWidthDip,
-            closeWidth,
-            layout.HeightDip));
-
-        return new EdgeCapsuleTargetPresentation(
-            true,
-            geometry.Bounds,
-            layout.Edge,
-            geometry.RestingWidthDevice,
-            geometry.WallDeviceX,
-            geometry.DpiScaleX,
-            geometry.DpiScaleY,
-            layout.MaximumCloseWidthDip,
-            retracted ? 0 : 1,
-            floating ? 0 : 1,
-            !retracted && model.State.Visual == EdgeCapsuleVisualState.Active,
-            !retracted && !floating);
-    }
-}
-
-/// <summary>
-/// Pure transition policy. It can retarget from the last applied frame; Hover never has to wait
-/// for an obsolete transition to finish.
-/// </summary>
-internal static class EdgeCapsuleTransitionPolicy
-{
-    public static EdgeCapsuleTransition? Create(
-        EdgeCapsulePresentationFrame applied,
-        EdgeCapsuleTargetPresentation target,
-        EdgeCapsuleMotion motion,
-        bool transitionAlreadyActive,
-        long nowTimestamp,
-        long timestampFrequency)
-    {
-        if (!target.Visible ||
-            !applied.Visible ||
-            applied.Bounds.IsEmpty ||
-            motion.Kind == EdgeCapsuleMotionKind.Snap ||
-            (motion.Kind == EdgeCapsuleMotionKind.Preserve && !transitionAlreadyActive) ||
-            applied.Edge != target.Edge ||
-            applied.WallDeviceX != target.WallDeviceX ||
-            Math.Abs(applied.DpiScaleX - target.DpiScaleX) > 0.001 ||
-            Math.Abs(applied.DpiScaleY - target.DpiScaleY) > 0.001)
-        {
-            return null;
-        }
-
-        if (FramesMatch(applied, target))
-        {
-            return null;
-        }
-
-        var durationMilliseconds = motion.Kind == EdgeCapsuleMotionKind.Preserve
-            ? EdgeCapsuleLayout.SlotMoveMilliseconds
-            : Math.Max(1, motion.DurationMilliseconds);
-        var durationTicks = Math.Max(
-            1,
-            (long)Math.Round(timestampFrequency * durationMilliseconds / 1000.0));
-        return new EdgeCapsuleTransition(
-            applied,
-            target,
-            nowTimestamp,
-            durationTicks,
-            motion.Reason);
-    }
-
-    public static EdgeCapsuleTransitionSample Sample(
-        EdgeCapsuleTransition transition,
-        long nowTimestamp)
-    {
-        var elapsed = Math.Max(0, nowTimestamp - transition.StartedAtTimestamp);
-        var rawProgress = Math.Clamp(
-            elapsed / (double)Math.Max(1, transition.DurationTimestampTicks),
-            0,
-            1);
-        if (rawProgress >= 1)
-        {
-            return new EdgeCapsuleTransitionSample(transition.Target.ToFrame(), true);
-        }
-
-        var progress = EaseOutCubic(rawProgress);
-        var target = transition.Target;
-        var start = transition.Start;
-        var width = LerpDevice(start.Bounds.Width, target.Bounds.Width, progress);
-        var height = LerpDevice(start.Bounds.Height, target.Bounds.Height, progress);
-        var top = LerpDevice(start.Bounds.Top, target.Bounds.Top, progress);
-        var left = target.Edge == EdgeCapsuleEdge.Left
-            ? target.WallDeviceX
-            : target.WallDeviceX - width;
-        var right = target.Edge == EdgeCapsuleEdge.Left
-            ? target.WallDeviceX + width
-            : target.WallDeviceX;
-        var frame = new EdgeCapsulePresentationFrame(
-            true,
-            new DeviceScreenRect(left, top, right, top + height),
-            target.Edge,
-            LerpDevice(start.RestingWidthDevice, target.RestingWidthDevice, progress),
-            target.WallDeviceX,
-            target.DpiScaleX,
-            target.DpiScaleY,
-            target.MaximumCloseWidthDip,
-            Lerp(start.Opacity, target.Opacity, progress),
-            Lerp(start.ContentOpacity, target.ContentOpacity, progress),
-            target.OutlineVisible,
-            target.IsHitTestVisible);
-        return new EdgeCapsuleTransitionSample(frame, false);
-    }
-
-    public static bool FramesMatch(
-        EdgeCapsulePresentationFrame applied,
-        EdgeCapsuleTargetPresentation target) =>
-        applied.Visible == target.Visible &&
-        applied.Bounds == target.Bounds &&
-        applied.Edge == target.Edge &&
-        applied.RestingWidthDevice == target.RestingWidthDevice &&
-        applied.WallDeviceX == target.WallDeviceX &&
-        Math.Abs(applied.DpiScaleX - target.DpiScaleX) < 0.001 &&
-        Math.Abs(applied.DpiScaleY - target.DpiScaleY) < 0.001 &&
-        Math.Abs(applied.MaximumCloseWidthDip - target.MaximumCloseWidthDip) < 0.001 &&
-        Math.Abs(applied.Opacity - target.Opacity) < 0.001 &&
-        Math.Abs(applied.ContentOpacity - target.ContentOpacity) < 0.001 &&
-        applied.OutlineVisible == target.OutlineVisible &&
-        applied.IsHitTestVisible == target.IsHitTestVisible;
-
-    private static int LerpDevice(int from, int to, double progress) =>
-        (int)Math.Round(Lerp(from, to, progress), MidpointRounding.AwayFromZero);
-
-    private static double Lerp(double from, double to, double progress) =>
-        from + (to - from) * progress;
-
-    private static double EaseOutCubic(double progress) =>
-        1.0 - Math.Pow(1.0 - progress, 3.0);
-}

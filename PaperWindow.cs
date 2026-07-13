@@ -1102,17 +1102,22 @@ public sealed partial class PaperWindow : Window
 
         if (IsDeepCapsuleSlotRetracting)
         {
-            SetEdgeCapsuleSlotState(EdgeCapsuleSlotState.None);
             if (!_paper.IsCollapsed &&
                 _controller.State.UseCapsuleMode &&
                 _controller.State.UseDeepCapsuleMode &&
                 _edgeCapsuleHost?.IsVisible == true)
             {
-                SetEdgeCapsuleSlotState(EdgeCapsuleSlotState.ExpandedReserved);
+                ChangeEdgeCapsulePaperForm(
+                    EdgeCapsulePaperForm.Expanded,
+                    reserveWhileExpanded: true);
+            }
+            else
+            {
+                DetachEdgeCapsuleFromQueue();
             }
         }
 
-        ReconcileDeepCapsuleHostPresentation();
+        FlushEdgeCapsulePresentation(EdgeCapsuleTransitionReason.State);
     }
 
     private void ConfigureWindow()
