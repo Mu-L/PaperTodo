@@ -46,7 +46,7 @@ public sealed class StateStore
                 var state = JsonSerializer.Deserialize<AppState>(json, JsonOptions);
                 if (state != null)
                 {
-                    Normalize(state);
+                    NormalizeAfterLoad(state);
                     return state;
                 }
 
@@ -72,7 +72,7 @@ public sealed class StateStore
                         _preserveRecoveredLoadFilesOnNextSave = true;
                     }
 
-                    Normalize(state);
+                    NormalizeAfterLoad(state);
                     return state;
                 }
 
@@ -95,7 +95,7 @@ public sealed class StateStore
 
     public string SerializeState(AppState state)
     {
-        Normalize(state);
+        PrepareForSave(state);
         return JsonSerializer.Serialize(state, JsonOptions);
     }
 
@@ -221,7 +221,94 @@ public sealed class StateStore
         _preservedRecoveryBackupPath = null;
     }
 
-    private static void Normalize(AppState state)
+    private static void PrepareForSave(AppState state)
+    {
+        // Runtime commands own business invariants. Saving only repairs values that could make
+        // serialization fail; it must not rebuild collections, migrate settings, or change links.
+        state.Papers ??= new List<PaperData>();
+        RemoveNullEntriesInPlace(state.Papers);
+
+        state.CapsuleCollapseAllActiveQueues ??= new Dictionary<string, bool>();
+        state.GlobalHotkeys ??= new Dictionary<string, string>();
+        state.DeepCapsuleQueueStartTopMargins ??= new Dictionary<string, double>();
+        RemoveNonFiniteValues(state.DeepCapsuleQueueStartTopMargins);
+
+        if (!IsFinite(state.Zoom))
+        {
+            state.Zoom = 1.0;
+        }
+        if (!IsFinite(state.DeepCapsuleStartTopMargin))
+        {
+            state.DeepCapsuleStartTopMargin = EdgeCapsuleLayout.StartTopMargin;
+        }
+
+        foreach (var paper in state.Papers)
+        {
+            paper.Items ??= new List<PaperItem>();
+            RemoveNullEntriesInPlace(paper.Items);
+
+            paper.Content ??= "";
+            paper.X = NormalizeCoordinate(paper.X, 120);
+            paper.Y = NormalizeCoordinate(paper.Y, 120);
+            if (!IsFinite(paper.TextZoom))
+            {
+                paper.TextZoom = 1.0;
+            }
+
+            var defaultWidth = paper.Type == PaperTypes.Note
+                ? PaperLayoutDefaults.NoteDefaultWidth
+                : PaperLayoutDefaults.TodoDefaultWidth;
+            var defaultHeight = paper.Type == PaperTypes.Note
+                ? PaperLayoutDefaults.NoteDefaultHeight
+                : PaperLayoutDefaults.TodoDefaultHeight;
+            if (!IsFinite(paper.Width))
+            {
+                paper.Width = defaultWidth;
+            }
+            if (!IsFinite(paper.Height))
+            {
+                paper.Height = defaultHeight;
+            }
+
+            if ((paper.DeepCapsuleExpandedX.HasValue && !IsFinite(paper.DeepCapsuleExpandedX.Value)) ||
+                (paper.DeepCapsuleExpandedY.HasValue && !IsFinite(paper.DeepCapsuleExpandedY.Value)) ||
+                (paper.DeepCapsuleExpandedWidth.HasValue && !IsFinite(paper.DeepCapsuleExpandedWidth.Value)) ||
+                (paper.DeepCapsuleExpandedHeight.HasValue && !IsFinite(paper.DeepCapsuleExpandedHeight.Value)))
+            {
+                ClearDeepCapsuleExpandedGeometry(paper);
+            }
+
+            foreach (var item in paper.Items)
+            {
+                item.Text ??= "";
+            }
+        }
+    }
+
+    private static void RemoveNonFiniteValues(Dictionary<string, double> values)
+    {
+        List<string>? invalidKeys = null;
+        foreach (var (key, value) in values)
+        {
+            if (!IsFinite(value))
+            {
+                invalidKeys ??= new List<string>();
+                invalidKeys.Add(key);
+            }
+        }
+
+        if (invalidKeys == null)
+        {
+            return;
+        }
+
+        foreach (var key in invalidKeys)
+        {
+            values.Remove(key);
+        }
+    }
+
+    private static void NormalizeAfterLoad(AppState state)
     {
         state.Papers ??= new List<PaperData>();
         RemoveNullEntriesInPlace(state.Papers);
