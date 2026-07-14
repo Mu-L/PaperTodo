@@ -347,6 +347,12 @@ public sealed partial class PaperWindow
             var floatingHost = CreateDeepCapsuleFloatingDragHost(
                 currentScreenPos,
                 _edgeCapsule.FloatingShape);
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                ClearCapsuleInteractionKeyboardFocus();
+                return;
+            }
             if (!BeginEdgeCapsuleFloatingReorder())
             {
                 CancelDeepCapsuleReorderDrag(restoreLayout: true);
@@ -369,11 +375,17 @@ public sealed partial class PaperWindow
         }
         finally
         {
-            if (IsDeepCapsuleFloatingReordering &&
-                Mouse.LeftButton == MouseButtonState.Pressed &&
-                !edgeHost.IsContentPointerCaptured)
+            if (IsDeepCapsuleFloatingReordering)
             {
-                edgeHost.CaptureContentPointer();
+                if (Mouse.LeftButton != MouseButtonState.Pressed)
+                {
+                    CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                    ClearCapsuleInteractionKeyboardFocus();
+                }
+                else if (!edgeHost.IsContentPointerCaptured)
+                {
+                    edgeHost.CaptureContentPointer();
+                }
             }
         }
     }

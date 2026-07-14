@@ -59,7 +59,9 @@ internal sealed class EdgeCapsulePresenter
         switch (State.Gesture)
         {
             case EdgeCapsuleGestureState.FloatingTransfer:
-                return EdgeCapsuleCaptureAction.IgnoreExpectedTransfer;
+                return leftButtonPressed
+                    ? EdgeCapsuleCaptureAction.IgnoreExpectedTransfer
+                    : EdgeCapsuleCaptureAction.CancelDrag;
             case EdgeCapsuleGestureState.PendingClick:
                 Dispatch(EdgeCapsuleIntent.PointerInteractionFinished());
                 return EdgeCapsuleCaptureAction.None;
