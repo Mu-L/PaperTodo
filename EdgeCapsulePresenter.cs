@@ -110,7 +110,9 @@ internal sealed class EdgeCapsulePresenter
         }
         if ((dirty & EdgeCapsuleDirty.Pointer) != 0 && SamplePointer(pointer))
         {
-            RequestPresentation(EdgeCapsuleMotion.Animate(EdgeCapsuleTransitionReason.Pointer));
+            RequestPresentation(EdgeCapsuleMotion.Animate(
+                EdgeCapsuleTransitionReason.Pointer,
+                EdgeCapsuleLayout.HorizontalResizeMilliseconds));
             dirty |= EdgeCapsuleDirty.Presentation;
         }
 
@@ -154,7 +156,9 @@ internal sealed class EdgeCapsulePresenter
         // that exact frame; if intent changes, retarget from the frame already on screen.
         if (SamplePointer(pointer))
         {
-            RequestPresentation(EdgeCapsuleMotion.Animate(EdgeCapsuleTransitionReason.Pointer));
+            RequestPresentation(EdgeCapsuleMotion.Animate(
+                EdgeCapsuleTransitionReason.Pointer,
+                EdgeCapsuleLayout.HorizontalResizeMilliseconds));
             var retarget = ReconcilePresentation(layout, apply, now);
             if (!retarget.Applied)
             {

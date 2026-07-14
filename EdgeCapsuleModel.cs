@@ -90,12 +90,14 @@ internal readonly record struct EdgeCapsuleModel(
     EdgeCapsulePlacement Placement,
     EdgeCapsuleDragSession? DragSession,
     bool ContextMenuOpen,
+    bool PeerReorderActive,
     double? DockedDragTopDipOverride)
 {
     public static EdgeCapsuleModel Initial => new(
         EdgeCapsuleState.Initial,
         EdgeCapsulePlacement.None,
         null,
+        false,
         false,
         null);
 }
@@ -123,6 +125,8 @@ internal abstract record EdgeCapsuleIntent
     internal sealed record CompleteRetraction : EdgeCapsuleIntent;
     internal sealed record SamplePointer(bool OverInteractiveSurface) : EdgeCapsuleIntent;
     internal sealed record ChangeContextMenu(bool Open) : EdgeCapsuleIntent;
+    internal sealed record BeginPeerReorder : EdgeCapsuleIntent;
+    internal sealed record FinishPeerReorder : EdgeCapsuleIntent;
     internal sealed record BeginPointer(DeviceScreenPoint Point) : EdgeCapsuleIntent;
 
     internal sealed record BeginDockedReorder(
@@ -172,6 +176,12 @@ internal abstract record EdgeCapsuleIntent
 
     public static EdgeCapsuleIntent ContextMenuChanged(bool open) =>
         new ChangeContextMenu(open);
+
+    public static EdgeCapsuleIntent PeerReorderStarted() =>
+        new BeginPeerReorder();
+
+    public static EdgeCapsuleIntent PeerReorderFinished() =>
+        new FinishPeerReorder();
 
     public static EdgeCapsuleIntent PointerPressed(DeviceScreenPoint point) =>
         new BeginPointer(point);

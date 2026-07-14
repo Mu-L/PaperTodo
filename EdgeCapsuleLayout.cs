@@ -31,6 +31,7 @@ public static class EdgeCapsuleLayout
     // configurable 20-character capsule title at the 12-DIP label size without resizing on edits.
     // An unusually wider measured title may still raise the per-host capacity rather than clip.
     public const double HostCapacityWidth = 384;
+    public const int HorizontalResizeMilliseconds = 160;
     public const int SlotMoveMilliseconds = 200;
     // Quick retract toward the master when a slot leaves the queue.
     public const int SlotRetractMoveMilliseconds = 120;

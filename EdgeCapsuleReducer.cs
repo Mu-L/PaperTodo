@@ -18,6 +18,8 @@ internal static class EdgeCapsuleReducer
             EdgeCapsuleIntent.SamplePointer pointer =>
                 SamplePointer(model, pointer.OverInteractiveSurface),
             EdgeCapsuleIntent.ChangeContextMenu menu => SetContextMenu(model, menu.Open),
+            EdgeCapsuleIntent.BeginPeerReorder => ChangePeerReorder(model, active: true),
+            EdgeCapsuleIntent.FinishPeerReorder => ChangePeerReorder(model, active: false),
             EdgeCapsuleIntent.BeginPointer pointer => BeginPointer(model, pointer.Point),
             EdgeCapsuleIntent.BeginDockedReorder reorder => BeginDockedReorder(model, reorder),
             EdgeCapsuleIntent.MoveDockedReorder reorder => MoveDockedReorder(model, reorder),
@@ -181,6 +183,7 @@ internal static class EdgeCapsuleReducer
         EdgeCapsuleModel model,
         bool overInteractiveSurface)
     {
+        overInteractiveSurface &= !model.PeerReorderActive;
         var visual = model.State.Slot switch
         {
             EdgeCapsuleSlotState.ExpandedReserved => EdgeCapsuleVisualState.Active,
@@ -195,6 +198,18 @@ internal static class EdgeCapsuleReducer
             _ => EdgeCapsuleVisualState.Resting
         };
         return Accept(model, model with { State = model.State with { Visual = visual } });
+    }
+
+    private static EdgeCapsuleDispatchResult ChangePeerReorder(
+        EdgeCapsuleModel model,
+        bool active)
+    {
+        if (active && model.State.Slot == EdgeCapsuleSlotState.None)
+        {
+            return Unchanged(model);
+        }
+
+        return Accept(model, model with { PeerReorderActive = active });
     }
 
     private static EdgeCapsuleDispatchResult SetContextMenu(
@@ -356,6 +371,7 @@ internal static class EdgeCapsuleReducer
         Placement = EdgeCapsulePlacement.None,
         DragSession = null,
         ContextMenuOpen = false,
+        PeerReorderActive = false,
         DockedDragTopDipOverride = null
     };
 
@@ -363,6 +379,7 @@ internal static class EdgeCapsuleReducer
     {
         var attached = model.State.Slot != EdgeCapsuleSlotState.None;
         return attached == model.Placement.IsPlaced &&
+            (attached || !model.PeerReorderActive) &&
             ((model.State.Gesture == EdgeCapsuleGestureState.Idle) == (model.DragSession == null)) &&
             (model.State.Slot is not (
                 EdgeCapsuleSlotState.RetractedCollapsed or

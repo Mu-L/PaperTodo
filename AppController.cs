@@ -1242,6 +1242,21 @@ public sealed partial class AppController : IDisposable
     private bool HasDeepCapsuleReorderDragInProgress()
         => _windows.Values.Any(window => window.IsDeepCapsuleReorderDragInProgress);
 
+    internal void BeginDeepCapsuleReorderDrag(PaperData draggedPaper)
+    {
+        foreach (var entry in _windows)
+        {
+            if (string.Equals(entry.Key, draggedPaper.Id, StringComparison.Ordinal))
+            {
+                entry.Value.NotifyEdgeCapsulePeerReorderFinished();
+            }
+            else
+            {
+                entry.Value.NotifyEdgeCapsulePeerReorderStarted();
+            }
+        }
+    }
+
     internal void DeferDisplayMetricsRefreshUntilDeepCapsuleDragEnds()
     {
         if (!IsExiting)
@@ -1256,6 +1271,11 @@ public sealed partial class AppController : IDisposable
         if (IsExiting || HasDeepCapsuleReorderDragInProgress())
         {
             return;
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.NotifyEdgeCapsulePeerReorderFinished();
         }
 
         if (_displayMetricsRefreshState == DisplayMetricsRefreshState.DeferredForCapsuleDrag)

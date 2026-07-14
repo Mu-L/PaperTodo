@@ -21,7 +21,8 @@ public sealed partial class PaperWindow
                 _deepCapsuleSlotContextMenu.IsOpen = false;
             }
 
-            _deepCapsuleSlotContextMenu = menu;
+            System.Threading.Interlocked.Increment(ref _deepCapsuleContextMenuOpenVersion);
+            System.Threading.Volatile.Write(ref _deepCapsuleSlotContextMenu, menu);
             SetDeepCapsuleSlotContextMenuOpen(true);
             StartDeepCapsuleContextMenuGuards();
             PromoteDeepCapsuleContextMenu(menu);
@@ -34,7 +35,7 @@ public sealed partial class PaperWindow
         {
             if (ReferenceEquals(_deepCapsuleSlotContextMenu, menu))
             {
-                _deepCapsuleSlotContextMenu = null;
+                System.Threading.Volatile.Write(ref _deepCapsuleSlotContextMenu, null);
                 SetDeepCapsuleSlotContextMenuOpen(false);
                 StopDeepCapsuleContextMenuGuards();
                 InvalidateEdgeCapsulePointer();
@@ -84,30 +85,89 @@ public sealed partial class PaperWindow
         }
     }
 
+    private void QueueCloseDeepCapsuleSlotContextMenu()
+    {
+        var menu = System.Threading.Volatile.Read(ref _deepCapsuleSlotContextMenu);
+        var version = System.Threading.Interlocked.Read(ref _deepCapsuleContextMenuOpenVersion);
+        if (menu == null)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => QueueCloseDeepCapsuleSlotContextMenu(menu, version)));
+            return;
+        }
+
+        QueueCloseDeepCapsuleSlotContextMenu(menu, version);
+    }
+
+    private void QueueCloseDeepCapsuleSlotContextMenu(ContextMenu menu, long version)
+    {
+        if (!ReferenceEquals(_deepCapsuleSlotContextMenu, menu) ||
+            _deepCapsuleContextMenuOpenVersion != version ||
+            !menu.IsOpen)
+        {
+            return;
+        }
+
+        _pendingDeepCapsuleContextMenuClose = menu;
+        _pendingDeepCapsuleContextMenuCloseVersion = version;
+        if (_deepCapsuleContextMenuCloseScheduled)
+        {
+            return;
+        }
+
+        _deepCapsuleContextMenuCloseScheduled = true;
+        _ = Dispatcher.BeginInvoke(new Action(ExecuteQueuedDeepCapsuleContextMenuClose));
+    }
+
+    private void ExecuteQueuedDeepCapsuleContextMenuClose()
+    {
+        var menu = _pendingDeepCapsuleContextMenuClose;
+        var version = _pendingDeepCapsuleContextMenuCloseVersion;
+        _pendingDeepCapsuleContextMenuClose = null;
+        _pendingDeepCapsuleContextMenuCloseVersion = 0;
+        _deepCapsuleContextMenuCloseScheduled = false;
+
+        if (menu != null &&
+            ReferenceEquals(_deepCapsuleSlotContextMenu, menu) &&
+            _deepCapsuleContextMenuOpenVersion == version)
+        {
+            CloseDeepCapsuleSlotContextMenu();
+        }
+    }
+
     private void CloseDeepCapsuleSlotContextMenu()
     {
         var menu = _deepCapsuleSlotContextMenu;
-        if (menu != null)
+        if (menu?.IsOpen == true)
         {
             menu.IsOpen = false;
         }
 
-        _deepCapsuleSlotContextMenu = null;
-        SetDeepCapsuleSlotContextMenuOpen(false);
-        StopDeepCapsuleContextMenuGuards();
+        // Closing a WPF ContextMenu normally raises Closed synchronously. Keep this fallback for
+        // already-closed/disconnected popups, but never clear a replacement opened re-entrantly.
+        if (menu == null || ReferenceEquals(_deepCapsuleSlotContextMenu, menu))
+        {
+            System.Threading.Volatile.Write(ref _deepCapsuleSlotContextMenu, null);
+            SetDeepCapsuleSlotContextMenuOpen(false);
+            StopDeepCapsuleContextMenuGuards();
+        }
     }
 
     private void SetDeepCapsuleSlotContextMenuOpen(bool open)
     {
-        if (_edgeCapsule.ContextMenuOpen == open)
+        if (_edgeCapsule.ContextMenuOpen != open)
         {
-            RefreshDeepCapsuleSlotTopmost();
-            return;
+            SetEdgeCapsuleContextMenuOpen(open);
         }
 
-        SetEdgeCapsuleContextMenuOpen(open);
+        // The reducer can reset ContextMenuOpen while detaching. Always synchronize the external
+        // owner set as well; HashSet add/remove makes this operation naturally idempotent.
         _controller.SetDeepCapsuleContextMenuOpen(_paper.Id, open);
-
         RefreshDeepCapsuleSlotTopmost();
     }
 
@@ -161,12 +221,12 @@ public sealed partial class PaperWindow
         uint dwEventThread,
         uint dwmsEventTime)
     {
-        if (_deepCapsuleSlotContextMenu?.IsOpen != true || hwnd == IntPtr.Zero || IsWindowFromCurrentProcess(hwnd))
+        if (hwnd == IntPtr.Zero || IsWindowFromCurrentProcess(hwnd))
         {
             return;
         }
 
-        Dispatcher.BeginInvoke(new Action(CloseDeepCapsuleSlotContextMenu));
+        QueueCloseDeepCapsuleSlotContextMenu();
     }
 
     private IntPtr OnDeepCapsuleMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
@@ -177,7 +237,7 @@ public sealed partial class PaperWindow
             var screenPoint = new Point(hook.Point.X, hook.Point.Y);
             if (!IsPointInsideDeepCapsuleContextSurface(screenPoint))
             {
-                Dispatcher.BeginInvoke(new Action(CloseDeepCapsuleSlotContextMenu));
+                QueueCloseDeepCapsuleSlotContextMenu();
             }
         }
 

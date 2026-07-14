@@ -599,9 +599,15 @@ public sealed partial class PaperWindow
         {
             if (wasDeepCapsulePlaced)
             {
-                ChangeEdgeCapsulePaperForm(
-                    EdgeCapsulePaperForm.Collapsed,
-                    reserveWhileExpanded: false);
+                if (ChangeEdgeCapsulePaperForm(
+                        EdgeCapsulePaperForm.Collapsed,
+                        reserveWhileExpanded: false))
+                {
+                    RequestEdgeCapsulePresentation(
+                        animate,
+                        EdgeCapsuleTransitionReason.State,
+                        EdgeCapsuleLayout.HorizontalResizeMilliseconds);
+                }
             }
             if (usesDeepCapsuleMode && !wasDeepCapsulePlaced && !returningToHiddenDeepCapsuleSlot)
             {

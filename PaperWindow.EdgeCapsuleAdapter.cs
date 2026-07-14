@@ -37,28 +37,58 @@ public sealed partial class PaperWindow
     private bool AttachEdgeCapsuleToQueue(
         EdgeCapsulePlacement placement,
         EdgeCapsulePaperForm paperForm,
-        bool retracted) =>
-        DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Attach(placement, paperForm, retracted));
+        bool retracted)
+    {
+        if (retracted)
+        {
+            CloseDeepCapsuleSlotContextMenu();
+        }
+
+        return DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Attach(placement, paperForm, retracted));
+    }
 
     private bool UpdateEdgeCapsuleQueuePlacement(EdgeCapsulePlacement placement) =>
         DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.QueuePlacementChanged(placement));
 
     private bool ChangeEdgeCapsulePaperForm(
         EdgeCapsulePaperForm paperForm,
-        bool reserveWhileExpanded) =>
-        DispatchEdgeCapsuleIntent(
+        bool reserveWhileExpanded)
+    {
+        if (paperForm == EdgeCapsulePaperForm.Expanded && !reserveWhileExpanded)
+        {
+            CloseDeepCapsuleSlotContextMenu();
+        }
+
+        return DispatchEdgeCapsuleIntent(
             EdgeCapsuleIntent.PaperFormChanged(paperForm, reserveWhileExpanded));
+    }
 
-    private bool BeginEdgeCapsuleRetraction() =>
-        DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.RetractionStarted());
+    private bool BeginEdgeCapsuleRetraction()
+    {
+        CloseDeepCapsuleSlotContextMenu();
+        return DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.RetractionStarted());
+    }
 
-    private bool DetachEdgeCapsuleFromQueue() =>
-        DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());
+    private bool DetachEdgeCapsuleFromQueue()
+    {
+        CloseDeepCapsuleSlotContextMenu();
+        return DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());
+    }
 
     private bool SetEdgeCapsuleContextMenuOpen(bool open) =>
         DispatchEdgeCapsuleIntent(
             EdgeCapsuleIntent.ContextMenuChanged(open),
             EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Pointer);
+
+    internal void NotifyEdgeCapsulePeerReorderStarted() =>
+        DispatchEdgeCapsuleIntent(
+            EdgeCapsuleIntent.PeerReorderStarted(),
+            EdgeCapsuleDirty.Pointer);
+
+    internal void NotifyEdgeCapsulePeerReorderFinished() =>
+        DispatchEdgeCapsuleIntent(
+            EdgeCapsuleIntent.PeerReorderFinished(),
+            EdgeCapsuleDirty.Pointer);
 
     private bool BeginEdgeCapsulePointerInteraction(DeviceScreenPoint point) =>
         DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.PointerPressed(point));

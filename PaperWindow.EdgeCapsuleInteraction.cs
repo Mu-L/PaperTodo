@@ -255,6 +255,7 @@ public sealed partial class PaperWindow
             return;
         }
 
+        _controller.BeginDeepCapsuleReorderDrag(_paper);
         CloseDeepCapsuleFloatingDragHost();
         FlushEdgeCapsulePresentation(EdgeCapsuleTransitionReason.Drag);
         _edgeCapsuleHost.BringToFrontNoActivate();

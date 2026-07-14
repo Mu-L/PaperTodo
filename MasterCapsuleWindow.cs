@@ -40,7 +40,7 @@ public sealed class MasterCapsuleWindow : Window
     private const double WindowChromeMargin = EdgeCapsuleLayout.WindowChromeMargin;
     private const double MasterLeftPadding = 5;
     private const double MasterGlyphGap = 4;
-    private const double MasterRightPadding = 10;
+    private const double MasterRightPadding = 3;
     private const double MasterGlyphFontSize = 12;
     private const double MasterLabelFontSize = 12;
     private const double MasterInteriorBorderThickness = 1;

@@ -95,6 +95,10 @@ public sealed partial class PaperWindow : Window
     // into a floating pill, so its edge columns/corners cannot leak across a drag transition.
     private EdgeCapsuleDragWindow? _deepCapsuleFloatingDragHost;
     private ContextMenu? _deepCapsuleSlotContextMenu;
+    private ContextMenu? _pendingDeepCapsuleContextMenuClose;
+    private long _deepCapsuleContextMenuOpenVersion;
+    private long _pendingDeepCapsuleContextMenuCloseVersion;
+    private bool _deepCapsuleContextMenuCloseScheduled;
     private IntPtr _deepCapsuleForegroundHook;
     private IntPtr _deepCapsuleMouseHook;
     private WinEventDelegate? _deepCapsuleForegroundHookProc;
@@ -141,7 +145,7 @@ public sealed partial class PaperWindow : Window
     private const double CapsuleNormalMinWidth = 76;
     private const double CapsuleLeftPadding = 6;
     private const double CapsuleIconGap = 4;
-    private const double CapsuleCloseWidth = 28;
+    private const double CapsuleCloseWidth = 14;
     private const double CapsuleNormalCloseWidth = 21;
     private const double CapsuleRightPadding = 6;
     private const double CapsuleIconFontSize = 13;
