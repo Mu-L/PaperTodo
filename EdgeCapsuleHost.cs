@@ -796,25 +796,25 @@ internal sealed class EdgeCapsuleHost : IDisposable
         Grid.SetColumn(CloseArea, leftEdge ? 0 : 1);
 
         ContentGrid.Margin = leftEdge
-            ? new Thickness(options.LeftPadding, 0, 0, 0)
-            : new Thickness(0, 0, options.LeftPadding, 0);
+            ? new Thickness(0, 0, options.LeftPadding, 0)
+            : new Thickness(options.LeftPadding, 0, 0, 0);
         if (ContentGrid.ColumnDefinitions.Count >= 2)
         {
             ContentGrid.ColumnDefinitions[0].Width = leftEdge
-                ? GridLength.Auto
-                : new GridLength(1, GridUnitType.Star);
-            ContentGrid.ColumnDefinitions[1].Width = leftEdge
                 ? new GridLength(1, GridUnitType.Star)
                 : GridLength.Auto;
+            ContentGrid.ColumnDefinitions[1].Width = leftEdge
+                ? GridLength.Auto
+                : new GridLength(1, GridUnitType.Star);
         }
-        Grid.SetColumn(Icon, leftEdge ? 0 : 1);
-        Icon.HorizontalAlignment = leftEdge ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        Icon.TextAlignment = leftEdge ? TextAlignment.Left : TextAlignment.Right;
-        Grid.SetColumn(Label, leftEdge ? 1 : 0);
+        Grid.SetColumn(Icon, leftEdge ? 1 : 0);
+        Icon.HorizontalAlignment = leftEdge ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+        Icon.TextAlignment = leftEdge ? TextAlignment.Right : TextAlignment.Left;
+        Grid.SetColumn(Label, leftEdge ? 0 : 1);
         Label.Margin = leftEdge
-            ? new Thickness(options.IconGap, 0, 0, 0)
-            : new Thickness(0, 0, options.IconGap, 0);
-        Label.TextAlignment = leftEdge ? TextAlignment.Left : TextAlignment.Right;
+            ? new Thickness(0, 0, options.IconGap, 0)
+            : new Thickness(options.IconGap, 0, 0, 0);
+        Label.TextAlignment = leftEdge ? TextAlignment.Right : TextAlignment.Left;
     }
 
     private void ApplySegmentCorners(EdgeCapsuleEdge edge, double radius)
