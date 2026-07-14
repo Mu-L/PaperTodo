@@ -1,4 +1,7 @@
 bin/
+!native/lmdb/bin/
+!native/lmdb/bin/win-x64/
+!native/lmdb/bin/win-x64/papertodo_lmdb.dll
 obj/
 输出/
 .vs/

@@ -113,6 +113,8 @@ dotnet build PaperTodo.csproj -c Release
 
 云端 Release 发布两个 Windows x64 单文件：自包含 .NET Runtime 的压缩单文件，以及不带运行库的 no-runtime 单文件。本地打包只生成 no-runtime 单文件。WPF 版本不要开启 `PublishTrimmed` 或 Native AOT。
 
+仓库内 `native/lmdb/bin/win-x64/papertodo_lmdb.dll` 是本地没有 CMake / MSVC 环境时使用的默认原生库，普通 `dotnet build` / `dotnet publish` 必须复制或嵌入它，并在缺失时直接失败。GitHub Release 必须先调用 `native/lmdb/build.ps1 -ForceRebuild` 从仓库内 LMDB 源码重新生成 DLL，不能直接拿默认 DLL 冒充云端编译产物。
+
 稳定正式版不要靠 tag push 自动发布；完成真实多屏 / 混合 DPI 等发布前手测后，用 GitHub Actions `workflow_dispatch` 并显式确认稳定版发布。`rc` / `alpha` / `beta` / `preview` 标签可以继续由 tag push 发布为预发布。
 
 推送或移动稳定版 tag 只会把 tag/commit 送到 GitHub；Actions 是后置检查，失败不会撤回这次 push。不要把稳定版 tag push 当作发布步骤，也不要为了正式发布制造必然失败的稳定版 tag push run；正式版发布只认成功的 `workflow_dispatch` run。

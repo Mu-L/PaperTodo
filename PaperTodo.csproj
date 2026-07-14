@@ -13,6 +13,7 @@
     <InformationalVersion>2.2</InformationalVersion>
     <ApplicationIcon>assets\icons\PaperTodo.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PaperTodoLmdbLibrary>$(MSBuildProjectDirectory)\native\lmdb\bin\win-x64\papertodo_lmdb.dll</PaperTodoLmdbLibrary>
     <OutputPath>$(MSBuildProjectDirectory)\输出\PaperTodo-v$(Version)\</OutputPath>
     <SatelliteResourceLanguages>en;ja;ko</SatelliteResourceLanguages>
     <DefaultItemExcludes>$(DefaultItemExcludes);对比_StickyMD\**;输出\**;PaperTodo_v*\**;.codex_decompile_debug\**</DefaultItemExcludes>
@@ -23,9 +24,19 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="assets\icons\PaperTodo.ico" />
+    <Content Include="$(PaperTodoLmdbLibrary)">
+      <Link>papertodo_lmdb.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
   </ItemGroup>
+  <Target Name="EnsurePaperTodoLmdbLibrary" BeforeTargets="PrepareForBuild">
+    <Error
+      Condition="!Exists('$(PaperTodoLmdbLibrary)')"
+      Text="PaperTodo's native LMDB library is missing. Restore native\lmdb\bin\win-x64\papertodo_lmdb.dll or build it with native\lmdb\build.ps1." />
+  </Target>
 </Project>
