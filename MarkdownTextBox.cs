@@ -31,8 +31,15 @@ public sealed class MarkdownTextBox : TextEditor
     private bool _isPreviewMode;
     private bool _isPostPasteRefreshQueued;
     private bool _isImageRenderRedrawQueued;
+    private bool _isMarkdownSuffixRedrawQueued;
     private bool _isEnsuringImageAnchorLine;
     private bool _hadInternalImageReferences;
+    private int _pendingChangeStartLine = 1;
+    private int _pendingChangeEndLine = 1;
+    private bool _pendingChangeTouchesImageReference;
+    private bool _pendingChangeTouchesFence;
+    private int _queuedMarkdownRedrawStartLine = int.MaxValue;
+    private readonly HashSet<int> _queuedImageRedrawLines = new();
     private TextAnchor? _selectedImageReferenceAnchor;
     private string? _selectedImageId;
     private double _textZoom = 1.0;
@@ -43,6 +50,7 @@ public sealed class MarkdownTextBox : TextEditor
     private readonly MarkdownHorizontalRuleRenderer _horizontalRuleRenderer;
     private readonly MarkdownImageElementGenerator _imageElementGenerator;
     private readonly FencedCodeStateCache _fencedCodeStateCache = new();
+    private readonly MarkdownLineAnalysisCache _lineAnalysisCache;
 
     public event Action<Exception>? ImageImportFailed;
 
@@ -82,13 +90,22 @@ public sealed class MarkdownTextBox : TextEditor
         _listBulletRenderer = new MarkdownListBulletRenderer(this);
         _horizontalRuleRenderer = new MarkdownHorizontalRuleRenderer(this);
         _imageElementGenerator = new MarkdownImageElementGenerator(this);
+        _lineAnalysisCache = new MarkdownLineAnalysisCache(this);
         TextArea.TextView.ElementGenerators.Add(_imageElementGenerator);
         TextArea.TextView.BackgroundRenderers.Add(new MarkdownBlockBackgroundRenderer(this));
         TextArea.TextView.BackgroundRenderers.Add(_listBulletRenderer);
         TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
         TextArea.TextView.LineTransformers.Add(_markerColorizer);
         DataObject.AddPastingHandler(this, OnPaste);
-        SizeChanged += (_, _) => QueuePostPasteRefresh();
+        Document.Changing += OnDocumentChanging;
+        Document.Changed += OnDocumentChanged;
+        SizeChanged += (_, _) =>
+        {
+            if (_hadInternalImageReferences)
+            {
+                QueuePostPasteRefresh();
+            }
+        };
         RefreshVisualStyle();
     }
 
@@ -133,7 +150,7 @@ public sealed class MarkdownTextBox : TextEditor
         _noteId = noteId ?? "";
         _imageStore = imageStore;
         EnsureTrailingImageAnchorLine();
-        _hadInternalImageReferences = HasInternalImageReference(Text);
+        _hadInternalImageReferences = HasInternalImageReference(Document.Text);
         RefreshTextView();
     }
 
@@ -598,6 +615,7 @@ public sealed class MarkdownTextBox : TextEditor
             return false;
         }
 
+        var previousLineNumber = SelectedImageReferenceLineNumber();
         ClearImageSelection(redraw: false);
         var anchor = Document.CreateAnchor(line.Offset);
         anchor.MovementType = AnchorMovementType.BeforeInsertion;
@@ -608,7 +626,11 @@ public sealed class MarkdownTextBox : TextEditor
         Select(line.Offset, 0);
         CaretBrush = Brushes.Transparent;
         TextArea.Caret.DesiredXPos = double.NaN;
-        QueueImageRenderRedraw();
+        if (previousLineNumber.HasValue)
+        {
+            QueueImageLineRedraw(previousLineNumber.Value);
+        }
+        QueueImageLineRedraw(line.LineNumber);
         return true;
     }
 
@@ -622,12 +644,30 @@ public sealed class MarkdownTextBox : TextEditor
             return;
         }
 
+        var lineNumber = redraw ? SelectedImageReferenceLineNumber() : null;
         _selectedImageReferenceAnchor = null;
         _selectedImageId = null;
         CaretBrush = _isPreviewMode ? Brushes.Transparent : Theme.TextBrush;
-        if (redraw)
+        if (lineNumber.HasValue)
         {
-            QueueImageRenderRedraw();
+            QueueImageLineRedraw(lineNumber.Value);
+        }
+    }
+
+    private int? SelectedImageReferenceLineNumber()
+    {
+        if (_selectedImageReferenceAnchor is not { IsDeleted: false } anchor || Document == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Document.GetLineByOffset(Math.Clamp(anchor.Offset, 0, Document.TextLength)).LineNumber;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -846,25 +886,108 @@ public sealed class MarkdownTextBox : TextEditor
     protected override void OnTextChanged(EventArgs e)
     {
         base.OnTextChanged(e);
-        _fencedCodeStateCache.Clear();
 
         if (_selectedImageReferenceAnchor?.IsDeleted == true)
         {
-            ClearImageSelection();
+            ClearImageSelection(redraw: false);
         }
 
         if (!_isEnsuringImageAnchorLine)
         {
             EnsureTrailingImageAnchorLine();
         }
+    }
 
-        var hasInternalImageReferences = HasInternalImageReference(Text);
-        if (_hadInternalImageReferences || hasInternalImageReferences)
+    private void OnDocumentChanging(object? sender, DocumentChangeEventArgs e)
+    {
+        var document = Document;
+        GetAffectedLineRange(document, e.Offset, e.RemovalLength, out var startLine, out var endLine);
+        _pendingChangeStartLine = startLine;
+        _pendingChangeEndLine = endLine;
+
+        _pendingChangeTouchesImageReference = false;
+        _pendingChangeTouchesFence = false;
+
+        InspectMarkdownLineRange(
+            document,
+            Math.Max(1, startLine - 1),
+            Math.Min(document.LineCount, endLine + 1),
+            ref _pendingChangeTouchesImageReference,
+            ref _pendingChangeTouchesFence);
+    }
+
+    private void OnDocumentChanged(object? sender, DocumentChangeEventArgs e)
+    {
+        var document = Document;
+        var startLine = Math.Clamp(_pendingChangeStartLine, 1, Math.Max(1, document.LineCount));
+        _fencedCodeStateCache.InvalidateFromLine(startLine);
+
+        GetAffectedLineRange(document, e.Offset, e.InsertionLength, out _, out var changedEndLine);
+        var inspectStartLine = Math.Max(1, startLine - 1);
+        var inspectEndLine = Math.Min(
+            document.LineCount,
+            Math.Max(_pendingChangeEndLine, changedEndLine) + 1);
+        var touchesImageReference = _pendingChangeTouchesImageReference;
+        var touchesFence = _pendingChangeTouchesFence;
+        InspectMarkdownLineRange(
+            document,
+            inspectStartLine,
+            inspectEndLine,
+            ref touchesImageReference,
+            ref touchesFence);
+
+        _pendingChangeTouchesImageReference = false;
+        _pendingChangeTouchesFence = false;
+
+        if (touchesFence)
         {
-            QueueImageRenderRedraw();
+            if (_imageStore != null)
+            {
+                _hadInternalImageReferences = HasInternalImageReference(document.Text);
+            }
+            QueueMarkdownSuffixRedraw(startLine);
+            return;
         }
-        _hadInternalImageReferences = hasInternalImageReferences;
 
+        if (!touchesImageReference || _imageStore == null)
+        {
+            return;
+        }
+
+        _hadInternalImageReferences = HasInternalImageReference(document.Text);
+        for (var lineNumber = inspectStartLine; lineNumber <= inspectEndLine; lineNumber++)
+        {
+            QueueImageLineRedraw(lineNumber);
+        }
+    }
+
+    private static void GetAffectedLineRange(
+        TextDocument document,
+        int offset,
+        int length,
+        out int startLine,
+        out int endLine)
+    {
+        var startOffset = Math.Clamp(offset, 0, document.TextLength);
+        var endOffset = Math.Clamp(offset + Math.Max(0, length), 0, document.TextLength);
+        startLine = document.GetLineByOffset(startOffset).LineNumber;
+        endLine = document.GetLineByOffset(endOffset).LineNumber;
+    }
+
+    private void InspectMarkdownLineRange(
+        TextDocument document,
+        int startLine,
+        int endLine,
+        ref bool touchesImageReference,
+        ref bool touchesFence)
+    {
+        for (var lineNumber = startLine; lineNumber <= endLine; lineNumber++)
+        {
+            var line = document.GetLineByNumber(lineNumber);
+            var analysis = GetLineAnalysis(document, line);
+            touchesImageReference |= analysis.ParsedImageReference.HasValue;
+            touchesFence |= analysis.Style.Kind == MarkdownLineKind.CodeFence;
+        }
     }
 
     public bool CanInsertImagesFromDataObject(IDataObject dataObject)
@@ -1495,8 +1618,9 @@ public sealed class MarkdownTextBox : TextEditor
             return false;
         }
 
-        var text = Document.GetText(line);
-        var style = AnalyzeLine(Document, line, text);
+        var analysis = GetLineAnalysis(Document, line);
+        var text = analysis.Text;
+        var style = analysis.Style;
         if (style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList))
         {
             return false;
@@ -1945,28 +2069,9 @@ public sealed class MarkdownTextBox : TextEditor
 
     private static bool HasInternalImageReference(string? text)
     {
-        if (string.IsNullOrEmpty(text))
+        foreach (var _ in MarkdownImageReferences.Enumerate(text))
         {
-            return false;
-        }
-
-        var search = 0;
-        while ((search = text.IndexOf("](", search, StringComparison.Ordinal)) >= 0)
-        {
-            var uriStart = search + 2;
-            while (uriStart < text.Length &&
-                   text[uriStart] is not '\r' and not '\n' &&
-                   char.IsWhiteSpace(text[uriStart]))
-            {
-                uriStart++;
-            }
-
-            if (text.IndexOf(MarkdownImageReferences.UriPrefix, uriStart, StringComparison.Ordinal) == uriStart)
-            {
-                return true;
-            }
-
-            search += 2;
+            return true;
         }
 
         return false;
@@ -2036,8 +2141,9 @@ public sealed class MarkdownTextBox : TextEditor
             System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
-    private void QueueImageRenderRedraw()
+    private void QueueImageLineRedraw(int lineNumber)
     {
+        _queuedImageRedrawLines.Add(Math.Max(1, lineNumber));
         if (_isImageRenderRedrawQueued)
         {
             return;
@@ -2048,7 +2154,51 @@ public sealed class MarkdownTextBox : TextEditor
             (Action)(() =>
             {
                 _isImageRenderRedrawQueued = false;
-                TextArea.TextView.Redraw(System.Windows.Threading.DispatcherPriority.Render);
+                var document = Document;
+                var textView = TextArea.TextView;
+                foreach (var queuedLineNumber in _queuedImageRedrawLines)
+                {
+                    var currentLineNumber = Math.Clamp(queuedLineNumber, 1, Math.Max(1, document.LineCount));
+                    var line = document.GetLineByNumber(currentLineNumber);
+                    var length = Math.Min(line.TotalLength, document.TextLength - line.Offset);
+                    if (length > 0)
+                    {
+                        textView.Redraw(line.Offset, length, System.Windows.Threading.DispatcherPriority.Render);
+                    }
+                }
+                _queuedImageRedrawLines.Clear();
+            }),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    private void QueueMarkdownSuffixRedraw(int startLine)
+    {
+        _queuedMarkdownRedrawStartLine = Math.Min(_queuedMarkdownRedrawStartLine, Math.Max(1, startLine));
+        if (_isMarkdownSuffixRedrawQueued)
+        {
+            return;
+        }
+
+        _isMarkdownSuffixRedrawQueued = true;
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                _isMarkdownSuffixRedrawQueued = false;
+                var document = Document;
+                var lineNumber = Math.Clamp(
+                    _queuedMarkdownRedrawStartLine,
+                    1,
+                    Math.Max(1, document.LineCount));
+                _queuedMarkdownRedrawStartLine = int.MaxValue;
+                var line = document.GetLineByNumber(lineNumber);
+                var length = document.TextLength - line.Offset;
+                if (length > 0)
+                {
+                    TextArea.TextView.Redraw(
+                        line.Offset,
+                        length,
+                        System.Windows.Threading.DispatcherPriority.Render);
+                }
             }),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
@@ -2167,6 +2317,11 @@ public sealed class MarkdownTextBox : TextEditor
         public int ContentStart { get; }
     }
 
+    private readonly record struct MarkdownLineAnalysis(
+        string Text,
+        MarkdownLineStyle Style,
+        MarkdownImageReference? ParsedImageReference);
+
     private readonly struct InlineSpan
     {
         public InlineSpan(int start, int end)
@@ -2209,17 +2364,12 @@ public sealed class MarkdownTextBox : TextEditor
             return false;
         }
 
-        var text = Document.GetText(line);
-        var style = AnalyzeLine(Document, line, text);
-        if (style.Kind is MarkdownLineKind.CodeFence or MarkdownLineKind.CodeBlock)
+        var analysis = GetLineAnalysis(Document, line);
+        if (!analysis.ParsedImageReference.HasValue)
         {
             return false;
         }
-
-        if (!MarkdownImageReferences.TryParseReferenceLine(text, out reference))
-        {
-            return false;
-        }
+        reference = analysis.ParsedImageReference.Value;
 
         if (_imageStore.TryGetAsset(reference.ImageId, out var found) &&
             string.Equals(found.NoteId, _noteId, StringComparison.Ordinal))
@@ -2663,7 +2813,10 @@ public sealed class MarkdownTextBox : TextEditor
         return false;
     }
 
-    private MarkdownLineStyle AnalyzeLine(IDocument document, DocumentLine line, string text)
+    private MarkdownLineAnalysis GetLineAnalysis(IDocument document, DocumentLine line)
+        => _lineAnalysisCache.Get(document, line);
+
+    private MarkdownLineStyle AnalyzeLineCore(IDocument document, DocumentLine line, string text)
     {
         var fencedCodeState = _fencedCodeStateCache.GetStateBeforeLine(document, line);
         var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
@@ -2863,17 +3016,69 @@ public sealed class MarkdownTextBox : TextEditor
         return count >= 3;
     }
 
+    private sealed class MarkdownLineAnalysisCache
+    {
+        private readonly MarkdownTextBox _owner;
+        private readonly Dictionary<int, MarkdownLineAnalysis> _analysisByLine = new();
+        private IDocument? _document;
+        private ITextSourceVersion? _version;
+
+        public MarkdownLineAnalysisCache(MarkdownTextBox owner)
+        {
+            _owner = owner;
+        }
+
+        public MarkdownLineAnalysis Get(IDocument document, DocumentLine line)
+        {
+            var version = document.Version;
+            if (!ReferenceEquals(_document, document) || !ReferenceEquals(_version, version))
+            {
+                _document = document;
+                _version = version;
+                _analysisByLine.Clear();
+            }
+
+            if (_analysisByLine.TryGetValue(line.LineNumber, out var cached))
+            {
+                return cached;
+            }
+
+            var text = document.GetText(line);
+            var style = _owner.AnalyzeLineCore(document, line, text);
+            MarkdownImageReference? parsedImageReference = null;
+            if (style.Kind is not (MarkdownLineKind.CodeFence or MarkdownLineKind.CodeBlock) &&
+                text.IndexOf("![", StringComparison.Ordinal) >= 0 &&
+                MarkdownImageReferences.TryParseReferenceLine(text, out var parsed))
+            {
+                parsedImageReference = parsed;
+            }
+
+            var analysis = new MarkdownLineAnalysis(text, style, parsedImageReference);
+            _analysisByLine[line.LineNumber] = analysis;
+            return analysis;
+        }
+    }
+
     private sealed class FencedCodeStateCache
     {
         private readonly Dictionary<int, MarkdownFencedCodeState> _stateBeforeLine = new();
         private IDocument? _document;
         private int _maxCachedLineNumber = 1;
 
-        public void Clear()
+        public void InvalidateFromLine(int changedLine)
         {
-            _document = null;
-            _stateBeforeLine.Clear();
-            _maxCachedLineNumber = 1;
+            if (_document == null)
+            {
+                return;
+            }
+
+            var keepThroughLine = Math.Max(1, changedLine);
+            for (var lineNumber = _maxCachedLineNumber; lineNumber > keepThroughLine; lineNumber--)
+            {
+                _stateBeforeLine.Remove(lineNumber);
+            }
+
+            _maxCachedLineNumber = Math.Min(_maxCachedLineNumber, keepThroughLine);
         }
 
         public MarkdownFencedCodeState GetStateBeforeLine(IDocument document, DocumentLine line)
@@ -3521,8 +3726,9 @@ public sealed class MarkdownTextBox : TextEditor
                      line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
                      line = line.NextLine)
                 {
-                    var text = document.GetText(line);
-                    var style = _owner.AnalyzeLine(document, line, text);
+                    var analysis = _owner.GetLineAnalysis(document, line);
+                    var text = analysis.Text;
+                    var style = analysis.Style;
                     if (style.Kind is not (MarkdownLineKind.CodeBlock or MarkdownLineKind.CodeFence))
                     {
                         foreach (var span in EnumerateClosedInlineCodeSpans(text))
@@ -3606,8 +3812,9 @@ public sealed class MarkdownTextBox : TextEditor
                      line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
                      line = line.NextLine)
                 {
-                    var text = document.GetText(line);
-                    var style = _owner.AnalyzeLine(document, line, text);
+                    var analysis = _owner.GetLineAnalysis(document, line);
+                    var text = analysis.Text;
+                    var style = analysis.Style;
                     if (style.Kind is not (MarkdownLineKind.UnorderedList or MarkdownLineKind.OrderedList) ||
                         IsTaskList(style, text))
                     {
@@ -3716,8 +3923,9 @@ public sealed class MarkdownTextBox : TextEditor
                      line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
                      line = line.NextLine)
                 {
-                    var text = document.GetText(line);
-                    var style = _owner.AnalyzeLine(document, line, text);
+                    var analysis = _owner.GetLineAnalysis(document, line);
+                    var text = analysis.Text;
+                    var style = analysis.Style;
                     if (style.Kind != MarkdownLineKind.HorizontalRule)
                     {
                         continue;
@@ -3800,7 +4008,8 @@ public sealed class MarkdownTextBox : TextEditor
         protected override void ColorizeLine(DocumentLine line)
         {
             var document = CurrentContext.Document;
-            var text = document.GetText(line);
+            var analysis = _owner.GetLineAnalysis(document, line);
+            var text = analysis.Text;
             if (string.IsNullOrEmpty(text))
             {
                 return;
@@ -3815,7 +4024,7 @@ public sealed class MarkdownTextBox : TextEditor
             var weak = Theme.WeakTextBrush;
             var link = Theme.LinkBrush;
             var code = Theme.ActiveBrush;
-            var style = _owner.AnalyzeLine(document, line, text);
+            var style = analysis.Style;
             var isPreviewMode = _owner.IsPreviewMode;
             var symbol = options.FadeSyntax ? PreviewSyntaxBrush : Theme.ActiveBrush;
             var rawLink = options.FadeSyntax ? PreviewSyntaxBrush : weak;
