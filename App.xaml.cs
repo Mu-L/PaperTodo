@@ -205,6 +205,15 @@ public partial class App : Application
             var controller = AppController.Current;
             if (controller != null && controller.State != null)
             {
+                try
+                {
+                    controller.CommitPendingNoteContentsForSave();
+                }
+                catch
+                {
+                    // Recovery should still preserve the last committed model if a live editor is broken.
+                }
+
                 var store = new StateStore();
                 var recoveryPath = Path.Combine(AppContext.BaseDirectory, "data.crash_recovery.json");
                 var json = store.SerializeState(controller.State);

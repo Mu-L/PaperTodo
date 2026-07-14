@@ -91,10 +91,21 @@ public sealed partial class PaperWindow
             EndTitleEdit(commit: true);
         }
 
-        if (_paper.Type == PaperTypes.Note && _noteBox != null)
+        CommitPendingNoteContent();
+    }
+
+    internal void CommitPendingNoteContentForSave()
+        => CommitPendingNoteContent();
+
+    private void CommitPendingNoteContent()
+    {
+        if (_paper.Type != PaperTypes.Note || _noteBox == null || !_noteContentDirty)
         {
-            _paper.Content = _noteBox.PersistentText;
+            return;
         }
+
+        _paper.Content = _noteBox.PersistentText;
+        _noteContentDirty = false;
     }
 
     internal void PrepareForHide()

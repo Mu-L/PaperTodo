@@ -557,19 +557,26 @@ public sealed partial class AppController : IDisposable
     private bool IsLinkedScriptCapsule(string? noteId)
     {
         var note = FindNote(noteId);
-        return note != null && PaperWindow.IsScriptCapsuleContent(note.Content);
+        return note != null && IsCurrentScriptCapsule(note);
     }
 
     public bool RunLinkedScriptCapsule(string? noteId)
     {
         var note = FindNote(noteId);
-        if (note == null || !PaperWindow.IsScriptCapsuleContent(note.Content))
+        if (note == null || !IsCurrentScriptCapsule(note))
         {
             return false;
         }
 
         var window = GetOrCreatePaperWindow(note);
         return window.TryRunScriptCapsule();
+    }
+
+    private bool IsCurrentScriptCapsule(PaperData note)
+    {
+        return _windows.TryGetValue(note.Id, out var window)
+            ? window.IsCurrentScriptCapsule()
+            : PaperWindow.IsScriptCapsuleContent(note.Content);
     }
 
     public void RefreshTodoRowsForLinkedNote(string? noteId)
@@ -1616,7 +1623,9 @@ public sealed partial class AppController : IDisposable
     {
         if (paper.Type == PaperTypes.Note)
         {
-            return string.IsNullOrWhiteSpace(paper.Content);
+            return _windows.TryGetValue(paper.Id, out var window)
+                ? window.IsCurrentNoteEmpty()
+                : string.IsNullOrWhiteSpace(paper.Content);
         }
 
         return !paper.Items.Any(item =>
@@ -2383,6 +2392,7 @@ public sealed partial class AppController : IDisposable
         try
         {
             _saveTimer.Stop();
+            CommitPendingNoteContentsForSave();
             var version = Interlocked.Increment(ref _saveVersion);
             var stateRevision = Interlocked.Read(ref _stateRevision);
             var json = _store.SerializeState(State);
@@ -2425,6 +2435,21 @@ public sealed partial class AppController : IDisposable
         {
             HandleSaveFailure(ex);
             return false;
+        }
+    }
+
+    internal void CommitPendingNoteContentsForSave()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            // A background crash handler must never wait on a blocked or shutting-down UI thread.
+            return;
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.CommitPendingNoteContentForSave();
         }
     }
 

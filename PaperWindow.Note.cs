@@ -22,6 +22,8 @@ public sealed partial class PaperWindow
     private int _noteDeferredWorkGeneration;
     private Action? _cancelNotePresenterInteractions;
     private Action? _settlePendingNoteBodyRebuild;
+    private bool _noteContentDirty;
+    private bool _liveIsScriptCapsule;
 
     private int BeginNotePresenterSession()
     {
@@ -103,6 +105,7 @@ public sealed partial class PaperWindow
         var verticalOffset = oldBox?.VerticalOffset ?? 0;
         var horizontalOffset = oldBox?.HorizontalOffset ?? 0;
         _paper.Content = text;
+        _noteContentDirty = false;
 
         TraceNoteRender($"RebuildNoteBody start textLength={text.Length} caret={caret} v={verticalOffset:F1} h={horizontalOffset:F1}");
 
@@ -243,6 +246,8 @@ public sealed partial class PaperWindow
         box.SetMarkdownRenderMode(_controller.State.MarkdownRenderMode);
         box.SetTextZoom(CurrentTextZoom());
         box.ConfigureNoteImages(_paper.Id, _controller.ImageStore);
+        _noteContentDirty = box.Document.TextLength != (_paper.Content?.Length ?? 0);
+        _liveIsScriptCapsule = IsScriptCapsuleDocument(box);
         box.ImageImportFailed += ShowNoteImageImportFailure;
         box.PasteRejected += ShowNotePasteRejected;
 
@@ -634,9 +639,10 @@ public sealed partial class PaperWindow
 
         box.TextChanged += (_, _) =>
         {
-            var wasScriptCapsule = IsScriptCapsuleText(_paper.Content ?? "");
-            _paper.Content = box.PersistentText;
-            var isScriptCapsule = IsScriptCapsuleText(_paper.Content ?? "");
+            _noteContentDirty = true;
+            var wasScriptCapsule = _liveIsScriptCapsule;
+            var isScriptCapsule = IsScriptCapsuleDocument(box);
+            _liveIsScriptCapsule = isScriptCapsule;
             if (wasScriptCapsule != isScriptCapsule)
             {
                 RefreshCapsuleLabel();
@@ -1005,12 +1011,13 @@ public sealed partial class PaperWindow
 
     private string WriteExternalMarkdownFile()
     {
+        CommitPendingNoteContent();
         var directory = Path.Combine(Path.GetTempPath(), "PaperTodo");
         Directory.CreateDirectory(directory);
 
         var fileStem = ExternalMarkdownFileStem();
         var path = Path.Combine(directory, fileStem + CurrentExternalMarkdownExtension());
-        var text = _noteBox?.PersistentText ?? _paper.Content ?? "";
+        var text = _paper.Content ?? "";
         text = _controller.ImageStore.ConvertMarkdownForExternalEditor(
             _paper.Id,
             text,
@@ -1046,7 +1053,29 @@ public sealed partial class PaperWindow
 
     private bool IsScriptCapsule()
     {
-        return TryGetScriptCapsule(out _);
+        return IsCurrentScriptCapsule();
+    }
+
+    internal bool IsCurrentScriptCapsule()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return false;
+        }
+
+        return _noteBox != null
+            ? _liveIsScriptCapsule
+            : IsScriptCapsuleContent(_paper.Content);
+    }
+
+    internal bool IsCurrentNoteEmpty()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(_noteBox?.PersistentText ?? _paper.Content);
     }
 
     internal static bool IsScriptCapsuleContent(string? text)
@@ -1104,7 +1133,8 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        var text = _noteBox?.PersistentText ?? _paper.Content ?? "";
+        CommitPendingNoteContent();
+        var text = _paper.Content ?? "";
         if (string.IsNullOrEmpty(text))
         {
             return false;
@@ -1144,6 +1174,17 @@ public sealed partial class PaperWindow
         var firstLineEnd = text.IndexOfAny(new[] { '\r', '\n' });
         var firstLine = firstLineEnd >= 0 ? text[..firstLineEnd] : text;
         return TryParseScriptCapsuleMarker(firstLine, out _);
+    }
+
+    private static bool IsScriptCapsuleDocument(MarkdownTextBox box)
+    {
+        if (box.Document.TextLength <= 0)
+        {
+            return false;
+        }
+
+        var firstLine = box.Document.GetLineByNumber(1);
+        return TryParseScriptCapsuleMarker(box.Document.GetText(firstLine), out _);
     }
 
     private static bool TryParseScriptCapsuleMarker(string firstLine, out ScriptCapsuleMarkerSpec spec)

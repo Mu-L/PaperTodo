@@ -852,9 +852,9 @@ public sealed partial class AppController
         return PaperCapsuleTitle(paper);
     }
 
-    private static string PaperTypeIcon(PaperData paper)
+    private string PaperTypeIcon(PaperData paper)
     {
-        if (paper.Type == PaperTypes.Note && PaperWindow.IsScriptCapsuleContent(paper.Content))
+        if (paper.Type == PaperTypes.Note && IsCurrentScriptCapsule(paper))
         {
             return "⚡";
         }
@@ -862,9 +862,9 @@ public sealed partial class AppController
         return paper.Type == PaperTypes.Note ? "✎" : "✓";
     }
 
-    private static double PaperTypeIconFontSize(PaperData paper)
+    private double PaperTypeIconFontSize(PaperData paper)
     {
-        return paper.Type == PaperTypes.Note && PaperWindow.IsScriptCapsuleContent(paper.Content)
+        return paper.Type == PaperTypes.Note && IsCurrentScriptCapsule(paper)
             ? 15.0
             : 14.0;
     }

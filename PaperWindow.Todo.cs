@@ -1934,10 +1934,7 @@ public sealed partial class PaperWindow
 
         if (_paper.Type == PaperTypes.Note)
         {
-            if (_noteBox != null)
-            {
-                _paper.Content = _noteBox.PersistentText;
-            }
+            CommitPendingNoteContentForSave();
             ExitNoteEditor();
         }
         else
