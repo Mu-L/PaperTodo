@@ -249,15 +249,6 @@ public sealed partial class AppController : IDisposable
             newY = cursorTarget.WorkArea.Top + 40;
         }
 
-        if (!cursorMonitor.HasValue)
-        {
-            while (State.Papers.Any(p => Math.Abs(p.X - newX) < 5 && Math.Abs(p.Y - newY) < 5))
-            {
-                newX += 30;
-                newY += 30;
-            }
-        }
-
         var paperType = type == PaperTypes.Note ? PaperTypes.Note : PaperTypes.Todo;
         var paper = new PaperData
         {
@@ -285,13 +276,16 @@ public sealed partial class AppController : IDisposable
                 PaperLayoutDefaults.MinHeight,
                 Math.Max(PaperLayoutDefaults.MinHeight, targetMonitor.WorkArea.Height - 80));
             PlacePaperInWorkArea(paper, targetMonitor.WorkArea, State.Papers.Count);
-            NudgeNewPaperAwayFromExistingPapers(paper, targetMonitor.WorkArea);
         }
         else
         {
             RescuePaperIfOffScreen(paper, State.Papers.Count);
         }
         ClampNewPaperAwayFromDeepCapsuleStrip(paper);
+        var placementArea = cursorMonitor is { } target
+            ? target.WorkArea
+            : WorkAreaForPaper(paper);
+        NudgeNewPaperAwayFromExistingPapers(paper, placementArea);
 
         if (paper.Type == PaperTypes.Todo)
         {
@@ -364,6 +358,32 @@ public sealed partial class AppController : IDisposable
         const double margin = 8;
         var width = Math.Max(paper.Width, PaperLayoutDefaults.MinWidth);
         var height = Math.Max(paper.Height, PaperLayoutDefaults.MinHeight);
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - width - margin);
+        ApplyNewPaperCapsuleStripBounds(paper, area, width, ref minX, ref maxX);
+
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - height - margin);
+        paper.X = Math.Round(Math.Clamp(paper.X, minX, maxX));
+        paper.Y = Math.Round(Math.Clamp(paper.Y, minY, maxY));
+    }
+
+    private void ApplyNewPaperCapsuleStripBounds(
+        PaperData paper,
+        Rect area,
+        double width,
+        ref double minX,
+        ref double maxX)
+    {
+        if (!paper.IsVisible ||
+            !State.UseCapsuleMode ||
+            !State.UseDeepCapsuleMode ||
+            !State.ShowDeepCapsuleWhileExpanded ||
+            !CanPaperDisplayAsCapsule(paper))
+        {
+            return;
+        }
+
         var edgeInset = Math.Min(
             Math.Max(
                 EdgeCapsuleLayout.ExpandedEdgeInset,
@@ -371,9 +391,6 @@ public sealed partial class AppController : IDisposable
                     VisibleDeepCapsuleRestingWidthForQueue(paper) + EdgeCapsuleLayout.Gap,
                     PaperLayoutDefaults.CapsuleWidth + EdgeCapsuleLayout.Gap)),
             Math.Max(0, area.Width - width));
-
-        var minX = area.Left + margin;
-        var maxX = Math.Max(minX, area.Right - width - margin);
         if (paper.CapsuleSide == DeepCapsuleSides.Left)
         {
             minX = Math.Min(maxX, Math.Max(minX, area.Left + edgeInset));
@@ -382,11 +399,6 @@ public sealed partial class AppController : IDisposable
         {
             maxX = Math.Max(minX, Math.Min(maxX, area.Right - width - edgeInset));
         }
-
-        var minY = area.Top + margin;
-        var maxY = Math.Max(minY, area.Bottom - height - margin);
-        paper.X = Math.Round(Math.Clamp(paper.X, minX, maxX));
-        paper.Y = Math.Round(Math.Clamp(paper.Y, minY, maxY));
     }
 
     private int NextTitleNumber(string paperType)
@@ -2725,6 +2737,7 @@ public sealed partial class AppController : IDisposable
         var maxX = Math.Max(minX, area.Right - paper.Width - margin);
         var minY = area.Top + margin;
         var maxY = Math.Max(minY, area.Bottom - paper.Height - margin);
+        ApplyNewPaperCapsuleStripBounds(paper, area, paper.Width, ref minX, ref maxX);
 
         bool Occupied(double x, double y) =>
             State.Papers.Any(p => Math.Abs(p.X - x) < 5 && Math.Abs(p.Y - y) < 5);
