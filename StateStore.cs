@@ -109,6 +109,7 @@ public sealed class StateStore
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var hasPersistedState = FileExistsForCollection(FilePath);
             AddIfExists(paths, BackupPath);
+            AddIfExists(paths, FilePath + ".tmp");
 
             var directory = Path.GetDirectoryName(FilePath);
             if (string.IsNullOrWhiteSpace(directory))

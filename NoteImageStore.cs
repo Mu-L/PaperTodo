@@ -557,68 +557,33 @@ public sealed class NoteImageStore : IDisposable
         return builder.ToString();
     }
 
-    public void TrackReferences(AppState state)
+    public void ReleaseUnreferencedBitmapCache(AppState state)
     {
         if (_writeDisabled)
         {
             return;
         }
 
-        var referenced = new HashSet<(string NoteId, string ImageId)>();
-        var liveNotes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var note in state.Papers.Where(p => p.Type == PaperTypes.Note))
-        {
-            liveNotes.Add(note.Id);
-            foreach (var imageId in MarkdownImageReferences.CollectImageIds(note.Content))
-            {
-                referenced.Add((note.Id, imageId));
-            }
-        }
+        var referencedImageIds = state.Papers
+            .Where(paper => paper.Type == PaperTypes.Note)
+            .SelectMany(paper => MarkdownImageReferences.CollectImageIds(paper.Content))
+            .ToHashSet(StringComparer.Ordinal);
 
         lock (_gate)
         {
-            var updates = new List<LmdbImagePendingDeleteUpdate>();
             foreach (var asset in _images.Values)
             {
-                var pendingDelete = !liveNotes.Contains(asset.NoteId) ||
-                    !referenced.Contains((asset.NoteId, asset.Id));
-                if (pendingDelete)
+                if (!referencedImageIds.Contains(asset.Id))
                 {
-                    // A pending image may have been decoded again by undo before redo removed
-                    // its reference, so release decoded pixels on every reference pass.
+                    // Keep the original bytes for undo; only decoded pixels are disposable
+                    // while the image is absent from the current document.
                     RemoveCachedBitmapsFor(asset.Id);
                 }
-
-                if (asset.PendingDelete == pendingDelete)
-                {
-                    continue;
-                }
-
-                updates.Add(new LmdbImagePendingDeleteUpdate(asset.Id, pendingDelete));
-            }
-
-            if (updates.Count == 0)
-            {
-                return;
-            }
-
-            // Saving only marks an image as collectible. The blob remains readable for the
-            // editor's undo/redo history until a safe startup/exit collection checks every
-            // persisted recovery snapshot.
-            RequireDatabaseLocked().UpdatePendingDeleteFlags(updates);
-            foreach (var update in updates)
-            {
-                if (!_images.TryGetValue(update.ImageId, out var asset))
-                {
-                    continue;
-                }
-
-                asset.PendingDelete = update.PendingDelete;
             }
         }
     }
 
-    internal void CollectPendingDeletes(IReadOnlySet<string> protectedImageIds)
+    internal void CollectUnprotectedImages(IReadOnlySet<string> protectedImageIds)
     {
         if (_writeDisabled)
         {
@@ -628,7 +593,7 @@ public sealed class NoteImageStore : IDisposable
         lock (_gate)
         {
             var removedIds = _images.Values
-                .Where(asset => asset.PendingDelete && !protectedImageIds.Contains(asset.Id))
+                .Where(asset => !protectedImageIds.Contains(asset.Id))
                 .Select(asset => asset.Id)
                 .ToList();
             if (removedIds.Count == 0)
@@ -1269,5 +1234,4 @@ public sealed class NoteImageAsset
     public int ByteLength { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string? OriginalName { get; set; }
-    public bool PendingDelete { get; set; }
 }

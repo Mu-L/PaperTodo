@@ -99,7 +99,7 @@ public sealed partial class AppController : IDisposable
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         _imageStore.Load();
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();
-        TryCollectPendingImageDeletes();
+        TryCollectUnprotectedImages();
         NormalizePaperSystemVisibilitySettings();
         AppTypography.Configure(State.UiFontPreset);
         ToolTipPreferences.Register(() => State.EnableToolTips);
@@ -2426,7 +2426,7 @@ public sealed partial class AppController : IDisposable
             if (sync)
             {
                 _store.SaveJsonSync(json, version);
-                TryTrackCurrentImageReferences();
+                TryReleaseUnreferencedImageCache();
                 _hasShownSaveFailure = false;
             }
             else
@@ -2441,7 +2441,7 @@ public sealed partial class AppController : IDisposable
                             if (version == Interlocked.Read(ref _saveVersion) &&
                                 stateRevision == Interlocked.Read(ref _stateRevision))
                             {
-                                TryTrackCurrentImageReferences();
+                                TryReleaseUnreferencedImageCache();
                             }
                             _hasShownSaveFailure = false;
                         }));
@@ -2480,19 +2480,19 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    private void TryTrackCurrentImageReferences()
+    private void TryReleaseUnreferencedImageCache()
     {
         try
         {
-            _imageStore.TrackReferences(State);
+            _imageStore.ReleaseUnreferencedBitmapCache(State);
         }
         catch
         {
-            // Reference cleanup is opportunistic; the saved note data remains authoritative.
+            // Decoded-image cache cleanup is optional; the saved note data remains authoritative.
         }
     }
 
-    private void TryCollectPendingImageDeletes()
+    private void TryCollectUnprotectedImages()
     {
         try
         {
@@ -2501,10 +2501,7 @@ public sealed partial class AppController : IDisposable
                 return;
             }
 
-            // Mark against the current in-memory document first, then physically remove only
-            // candidates that no persisted backup or recovery snapshot can still reach.
-            _imageStore.TrackReferences(State);
-            _imageStore.CollectPendingDeletes(protectedImageIds);
+            _imageStore.CollectUnprotectedImages(protectedImageIds);
         }
         catch
         {
@@ -2998,12 +2995,7 @@ public sealed partial class AppController : IDisposable
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
 
-        var saved = TrySaveNow(sync: true);
-        if (saved)
-        {
-            TryCollectPendingImageDeletes();
-        }
-        else
+        if (!TrySaveNow(sync: true))
         {
             TryExitCleanup(() =>
             {
@@ -3080,10 +3072,7 @@ public sealed partial class AppController : IDisposable
                 window.CommitPendingEditsForSave();
             }
 
-            if (TrySaveNow(sync: true))
-            {
-                TryCollectPendingImageDeletes();
-            }
+            TrySaveNow(sync: true);
         }
 
         _lifecycleState = AppLifecycleState.Exiting;
