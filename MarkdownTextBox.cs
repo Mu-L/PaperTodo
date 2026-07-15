@@ -1829,9 +1829,18 @@ public sealed class MarkdownTextBox : TextEditor
 
     private void OnPaste(object sender, DataObjectPastingEventArgs e)
     {
-        var clipboardText = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
-            ? e.DataObject.GetData(DataFormats.UnicodeText) as string
-            : null;
+        string? clipboardText;
+        try
+        {
+            clipboardText = e.DataObject.GetDataPresent(DataFormats.UnicodeText)
+                ? e.DataObject.GetData(DataFormats.UnicodeText) as string
+                : null;
+        }
+        catch
+        {
+            e.CancelCommand();
+            return;
+        }
 
         if (!IsReadOnly &&
             string.IsNullOrEmpty(clipboardText) &&
