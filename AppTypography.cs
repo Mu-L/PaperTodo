@@ -29,8 +29,8 @@ public static class AppTypography
     public static FontFamily SymbolFontFamily { get; } = new(SymbolFallback);
 
     public static TextFormattingMode TextFormattingMode => TextFormattingMode.Display;
-    public static TextRenderingMode TextRenderingMode => TextRenderingMode.ClearType;
-    public static TextHintingMode TextHintingMode => TextHintingMode.Fixed;
+    public static TextRenderingMode TextRenderingMode => TextRenderingMode.Grayscale;
+    public static TextHintingMode TextHintingMode => TextHintingMode.Auto;
 
     public static bool HasCustomFont => _customFontFamily != null;
 

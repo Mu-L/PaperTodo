@@ -61,6 +61,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
         Language = options.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
+        AppTypography.ApplyTextRendering(this);
         Topmost = options.Topmost;
         Opacity = 0;
         Debug.Assert(

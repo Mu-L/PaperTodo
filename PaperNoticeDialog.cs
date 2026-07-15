@@ -31,6 +31,7 @@ internal static class PaperNoticeDialog
             SnapsToDevicePixels = true,
             UseLayoutRounding = true
         };
+        AppTypography.ApplyTextRendering(dialog);
 
         var root = new Border
         {

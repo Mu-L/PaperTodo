@@ -137,6 +137,7 @@ public sealed class MasterCapsuleWindow : Window
         Language = AppTypography.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
+        AppTypography.ApplyTextRendering(this);
         // Don't steal foreground when first shown — activating would force every other
         // paper window to repaint, which reads as a whole-app flash.
         ShowActivated = false;
@@ -515,6 +516,8 @@ public sealed class MasterCapsuleWindow : Window
                 new Typeface(fontFamily, FontStyles.Normal, weight, FontStretches.Normal),
                 fontSize,
                 Theme.WeakTextBrush,
+                null,
+                AppTypography.TextFormattingMode,
                 pixelsPerDip);
             return formatted.WidthIncludingTrailingWhitespace;
         }

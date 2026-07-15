@@ -1198,6 +1198,7 @@ public sealed partial class PaperWindow : Window
         Language = AppTypography.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
+        AppTypography.ApplyTextRendering(this);
     }
 
     private void InitializeThemeResources()
@@ -2815,6 +2816,7 @@ public sealed partial class PaperWindow : Window
             HasDropShadow = true,
             Template = SharedContextMenuTemplate
         };
+        AppTypography.ApplyTextRendering(menu);
         UpdateContextMenuTheme(menu);
         menu.Opened += (_, _) =>
         {
@@ -3092,6 +3094,8 @@ public sealed partial class PaperWindow : Window
                 new Typeface(fontFamily, FontStyles.Normal, weight, FontStretches.Normal),
                 fontSize,
                 WeakTextBrush,
+                null,
+                AppTypography.TextFormattingMode,
                 pixelsPerDip ?? VisualTreeHelper.GetDpi(this).PixelsPerDip);
             return formatted.WidthIncludingTrailingWhitespace;
         }

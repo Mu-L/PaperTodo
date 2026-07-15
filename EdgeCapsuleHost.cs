@@ -450,6 +450,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
             Topmost = options.Topmost,
             Content = root
         };
+        AppTypography.ApplyTextRendering(window);
 
         return new EdgeCapsuleHost(
             options,

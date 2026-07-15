@@ -39,9 +39,9 @@ public static class NoteTypography
 
     public static void ApplyTextRendering(DependencyObject target)
     {
-        target.ClearValue(TextOptions.TextFormattingModeProperty);
-        target.ClearValue(TextOptions.TextRenderingModeProperty);
-        target.ClearValue(TextOptions.TextHintingModeProperty);
+        TextOptions.SetTextFormattingMode(target, TextFormattingMode.Ideal);
+        TextOptions.SetTextRenderingMode(target, TextRenderingMode.Grayscale);
+        TextOptions.SetTextHintingMode(target, TextHintingMode.Auto);
         target.ClearValue(RenderOptions.ClearTypeHintProperty);
     }
 }

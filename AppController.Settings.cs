@@ -660,6 +660,7 @@ public sealed partial class AppController
             SnapsToDevicePixels = true,
             UseLayoutRounding = true
         };
+        AppTypography.ApplyTextRendering(window);
 
         window.PreviewMouseDown += (_, e) =>
         {

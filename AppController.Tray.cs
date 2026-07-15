@@ -366,6 +366,7 @@ public sealed partial class AppController
             MaxHeight = TrayMenuMaxHeight(),
             Template = SharedTrayMenuTemplate
         };
+        AppTypography.ApplyTextRendering(menu);
         UpdateTrayMenuResources(menu);
         menu.Opened += (_, _) => ActivateTrayContextMenu(menu);
         return menu;
