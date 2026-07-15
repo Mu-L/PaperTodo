@@ -306,15 +306,7 @@ public sealed partial class AppController
             rows.Children.Add(BuildShortcutRow(GlobalShortcutCatalog.EdgeSequenceUiDefinition(group)));
         }
 
-        root.Children.Add(new ScrollViewer
-        {
-            Content = rows,
-            Height = Math.Max(120, SettingsOptionsMaxHeight() - 42),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            CanContentScroll = false,
-            PanningMode = PanningMode.VerticalOnly
-        });
+        root.Children.Add(rows);
 
         return root;
     }

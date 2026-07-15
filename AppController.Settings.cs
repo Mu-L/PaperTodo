@@ -632,7 +632,7 @@ public sealed partial class AppController
         {
             Title = Strings.Get("TraySettings"),
             Width = SettingsWindowWidth(),
-            Height = SettingsWindowHeight(),
+            // Height is fitted from measured page content in RefreshSettingsWindowContent.
             SizeToContent = SizeToContent.Manual,
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
@@ -692,14 +692,19 @@ public sealed partial class AppController
         }
 
         InvalidateSystemThemeCacheIfNeeded();
+        var width = SettingsWindowWidth();
         _settingsWindow.Title = Strings.Get("TraySettings");
-        _settingsWindow.Width = SettingsWindowWidth();
-        _settingsWindow.Height = SettingsWindowHeight();
+        _settingsWindow.Width = width;
         _settingsWindow.SizeToContent = SizeToContent.Manual;
-        _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
         _settingsWindow.FontFamily = AppTypography.UiFontFamily;
         _settingsWindow.FontSize = AppTypography.Scale(12);
         _settingsWindow.Language = AppTypography.Language;
+
+        // Fit once from real layout of all pages at the current typography, so options are not
+        // clipped and the height does not jump with a guessed Scale(base) formula.
+        var fittedHeight = MeasureRequiredSettingsWindowHeight(width);
+        _settingsWindow.Height = fittedHeight;
+        _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow, fittedHeight);
         ApplyToolTipSetting(_settingsWindow);
     }
 
@@ -719,7 +724,7 @@ public sealed partial class AppController
         ArrangeDeepCapsules(animate: false);
     }
 
-    private UIElement BuildSettingsWindowContent(Window window)
+    private UIElement BuildSettingsWindowContent(Window window, double? fittedHeight = null)
     {
         var root = new DockPanel
         {
@@ -790,7 +795,7 @@ public sealed partial class AppController
             DockPanel.SetDock(shortcutFooter, Dock.Bottom);
             root.Children.Add(shortcutFooter);
             root.Children.Add(BuildShortcutSettingsPage());
-            return WrapSettingsWindowContent(root);
+            return WrapSettingsWindowContent(root, fittedHeight);
         }
 
         if (_settingsPage == SettingsPage.Visual)
@@ -799,7 +804,7 @@ public sealed partial class AppController
             DockPanel.SetDock(visualFooter, Dock.Bottom);
             root.Children.Add(visualFooter);
             root.Children.Add(BuildVisualSettingsPage());
-            return WrapSettingsWindowContent(root);
+            return WrapSettingsWindowContent(root, fittedHeight);
         }
 
         var columns = new Grid
@@ -819,14 +824,8 @@ public sealed partial class AppController
             Margin = new Thickness(14, 0, 0, 0)
         };
 
-        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton), "TipNewTodoButton"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton), "TipNewNoteButton"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton), "TipExternalOpenButton"));
-
+        // Left: everyday desktop / window behavior. Right: paper features, capsule first.
         leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
-        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode")), "TipFullscreenTopmostMode"));
-        leftColumn.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
         _settingsHidePapersFromTaskbarCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromTaskbar"), State.HidePapersFromTaskbar, ToggleHidePapersFromTaskbar);
         _settingsHidePapersFromWindowSwitcherCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromWindowSwitcher"), State.HidePapersFromWindowSwitcher, ToggleHidePapersFromWindowSwitcher);
@@ -834,34 +833,25 @@ public sealed partial class AppController
         leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode"), topMargin: 8), "TipFullscreenTopmostMode"));
+        leftColumn.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode"), topMargin: 8), "TipMarkdownRender"));
         leftColumn.Children.Add(CreateMarkdownRenderSegmentSelector());
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages), "TipAutoCompressLargeImages"));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoClearCompletedTodos"), State.AutoClearCompletedTodos, ToggleAutoClearCompletedTodos), "TipAutoClearCompletedTodos"));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
-        var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
-        showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
-        var allowLongLinkedNoteTitlesToggle = SettingsToggle(Strings.Get("SettingsAllowLongLinkedNoteTitles"), State.AllowLongLinkedNoteTitles, ToggleLongLinkedNoteTitles);
-        allowLongLinkedNoteTitlesToggle.IsEnabled = State.EnableTodoNoteLinks && State.ShowLinkedNoteName;
-        rightColumn.Children.Add(WrapWithHint(allowLongLinkedNoteTitlesToggle, "TipAllowLongLinkedNoteTitles"));
-        var hideLinkedNotesFromCapsulesToggle = SettingsToggle(Strings.Get("SettingsHideLinkedNotesFromCapsules"), State.HideLinkedNotesFromCapsules, ToggleHideLinkedNotesFromCapsules);
-        hideLinkedNotesFromCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
-        var runLinkedScriptCapsulesToggle = SettingsToggle(Strings.Get("SettingsRunLinkedScriptCapsulesOnClick"), State.RunLinkedScriptCapsulesOnClick, ToggleRunLinkedScriptCapsulesOnClick);
-        runLinkedScriptCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(runLinkedScriptCapsulesToggle, "TipRunLinkedScriptCapsulesOnClick"));
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTopBarButtons")));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewTodoButton"), State.ShowTopBarNewTodoButton, ToggleTopBarNewTodoButton), "TipNewTodoButton"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarNewNoteButton"), State.ShowTopBarNewNoteButton, ToggleTopBarNewNoteButton), "TipNewNoteButton"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsShowTopBarExternalOpenButton"), State.ShowTopBarExternalOpenButton, ToggleTopBarExternalOpenButton), "TipExternalOpenButton"));
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
-        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
-        rightColumn.Children.Add(CreateExternalMarkdownExtensionEditor());
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsExternalOpen")));
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
+        leftColumn.Children.Add(CreateExternalMarkdownExtensionEditor());
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsScriptCapsule")));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPersistentPowerShellProcess"), State.UsePersistentPowerShellProcess, TogglePersistentPowerShellProcess), "TipPersistentPowerShellProcess"));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPreferPowerShell7"), State.PreferPowerShell7, TogglePreferPowerShell7), "TipPreferPowerShell7"));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHideScriptRunWindow"), State.HideScriptRunWindow, ToggleHideScriptRunWindow), "TipHideScriptRunWindow"));
+        // Keep script options on the shorter left column so they stay visible without scrolling.
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsScriptCapsule")));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPersistentPowerShellProcess"), State.UsePersistentPowerShellProcess, TogglePersistentPowerShellProcess), "TipPersistentPowerShellProcess"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPreferPowerShell7"), State.PreferPowerShell7, TogglePreferPowerShell7), "TipPreferPowerShell7"));
+        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHideScriptRunWindow"), State.HideScriptRunWindow, ToggleHideScriptRunWindow), "TipHideScriptRunWindow"));
 
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
@@ -882,6 +872,23 @@ public sealed partial class AppController
         rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"), topMargin: 8), "TipDeepCapsuleTitleMeasureLimit"));
         rightColumn.Children.Add(CreateDeepCapsuleTitleMeasureLimitStepper());
 
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages), "TipAutoCompressLargeImages"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoClearCompletedTodos"), State.AutoClearCompletedTodos, ToggleAutoClearCompletedTodos), "TipAutoClearCompletedTodos"));
+        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
+        var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
+        showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
+        rightColumn.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
+        var allowLongLinkedNoteTitlesToggle = SettingsToggle(Strings.Get("SettingsAllowLongLinkedNoteTitles"), State.AllowLongLinkedNoteTitles, ToggleLongLinkedNoteTitles);
+        allowLongLinkedNoteTitlesToggle.IsEnabled = State.EnableTodoNoteLinks && State.ShowLinkedNoteName;
+        rightColumn.Children.Add(WrapWithHint(allowLongLinkedNoteTitlesToggle, "TipAllowLongLinkedNoteTitles"));
+        var hideLinkedNotesFromCapsulesToggle = SettingsToggle(Strings.Get("SettingsHideLinkedNotesFromCapsules"), State.HideLinkedNotesFromCapsules, ToggleHideLinkedNotesFromCapsules);
+        hideLinkedNotesFromCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
+        rightColumn.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
+        var runLinkedScriptCapsulesToggle = SettingsToggle(Strings.Get("SettingsRunLinkedScriptCapsulesOnClick"), State.RunLinkedScriptCapsulesOnClick, ToggleRunLinkedScriptCapsulesOnClick);
+        runLinkedScriptCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
+        rightColumn.Children.Add(WrapWithHint(runLinkedScriptCapsulesToggle, "TipRunLinkedScriptCapsulesOnClick"));
+
         var separator = new Border
         {
             Width = 1,
@@ -897,23 +904,13 @@ public sealed partial class AppController
         columns.Children.Add(separator);
         columns.Children.Add(rightColumn);
 
-        var scrollViewer = new ScrollViewer
-        {
-            Content = columns,
-            Height = SettingsOptionsMaxHeight(),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            CanContentScroll = false,
-            PanningMode = PanningMode.VerticalOnly
-        };
-
         var footer = BuildSettingsFooter();
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
-        root.Children.Add(scrollViewer);
+        root.Children.Add(columns);
 
-        return WrapSettingsWindowContent(root);
+        return WrapSettingsWindowContent(root, fittedHeight);
     }
 
     private UIElement BuildVisualSettingsPage()
@@ -952,16 +949,18 @@ public sealed partial class AppController
             string activeSize,
             Action<string> setSize,
             bool isBold,
-            Action toggleBold)
+            Action toggleBold,
+            bool leadingDivider)
         {
-            column.Children.Add(SettingsSectionLabel(Strings.Get(sectionKey)));
-            column.Children.Add(WrapWithHint(
-                SettingsFieldLabel(Strings.Get("SettingsTextSizeCorrection")),
-                tipKey));
+            if (leadingDivider)
+            {
+                column.Children.Add(SettingsSoftDivider());
+            }
+
+            // One shared tip on the section title: size + bold are the same style group.
+            column.Children.Add(SettingsSectionLabelWithHint(Strings.Get(sectionKey), tipKey));
             column.Children.Add(CreateVisualTextSizeSegmentSelector(activeSize, setSize));
-            column.Children.Add(WrapWithHint(
-                SettingsToggle(Strings.Get("SettingsTextBold"), isBold, toggleBold),
-                tipKey));
+            column.Children.Add(SettingsToggle(Strings.Get("SettingsTextBold"), isBold, toggleBold));
         }
 
         AddTextStyleEditor(
@@ -971,16 +970,18 @@ public sealed partial class AppController
             State.NoteTextSize,
             SetNoteTextSize,
             State.NoteTextBold,
-            ToggleNoteTextBold);
+            ToggleNoteTextBold,
+            leadingDivider: false);
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoBodyText")));
-        rightColumn.Children.Add(WrapWithHint(
-            SettingsFieldLabel(Strings.Get("SettingsTextSizeCorrection")),
+        rightColumn.Children.Add(SettingsSoftDivider());
+        rightColumn.Children.Add(SettingsSectionLabelWithHint(
+            Strings.Get("SettingsTodoBodyText"),
             "TipTodoBodyTextStyle"));
         rightColumn.Children.Add(CreateTodoVisualSizeSegmentSelector());
-        rightColumn.Children.Add(WrapWithHint(
-            SettingsToggle(Strings.Get("SettingsTextBold"), State.TodoTextBold, ToggleTodoTextBold),
-            "TipTodoBodyTextStyle"));
+        rightColumn.Children.Add(SettingsToggle(
+            Strings.Get("SettingsTextBold"),
+            State.TodoTextBold,
+            ToggleTodoTextBold));
 
         AddTextStyleEditor(
             rightColumn,
@@ -989,7 +990,8 @@ public sealed partial class AppController
             State.TitleTextSize,
             SetTitleTextSize,
             State.TitleTextBold,
-            ToggleTitleTextBold);
+            ToggleTitleTextBold,
+            leadingDivider: true);
         AddTextStyleEditor(
             rightColumn,
             "SettingsCapsuleText",
@@ -997,7 +999,8 @@ public sealed partial class AppController
             State.CapsuleTextSize,
             SetCapsuleTextSize,
             State.CapsuleTextBold,
-            ToggleCapsuleTextBold);
+            ToggleCapsuleTextBold,
+            leadingDivider: true);
 
         var separator = new Border
         {
@@ -1014,15 +1017,7 @@ public sealed partial class AppController
         columns.Children.Add(separator);
         columns.Children.Add(rightColumn);
 
-        return new ScrollViewer
-        {
-            Content = columns,
-            Height = SettingsOptionsMaxHeight(),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            CanContentScroll = false,
-            PanningMode = PanningMode.VerticalOnly
-        };
+        return columns;
     }
 
     private UIElement CreateSettingsPageSelector()
@@ -1124,19 +1119,69 @@ public sealed partial class AppController
         return container;
     }
 
-    private static Border WrapSettingsWindowContent(DockPanel root)
+    private static Border WrapSettingsWindowContent(DockPanel root, double? fittedHeight = null)
     {
-        return new Border
+        var border = new Border
         {
             Background = TrayPaperBrush,
             BorderBrush = TrayBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Width = SettingsWindowWidth(),
-            Height = SettingsWindowHeight(),
             Padding = new Thickness(14, 12, 14, 14),
             Child = root
         };
+        if (fittedHeight is > 0)
+        {
+            // Keep chrome height stable across pages (max of measured pages); shorter pages leave empty space.
+            border.Height = fittedHeight.Value;
+        }
+
+        return border;
+    }
+
+    private double MeasureRequiredSettingsWindowHeight(double windowWidth)
+    {
+        if (_settingsWindow == null)
+        {
+            return Math.Min(660, SettingsWindowMaxHeight());
+        }
+
+        var previousPage = _settingsPage;
+        var maxHeight = 0.0;
+        try
+        {
+            // Use the tallest page so switching tabs does not resize, and options on dense pages stay visible.
+            foreach (var page in new[]
+                     {
+                         SettingsPage.General,
+                         SettingsPage.Visual,
+                         SettingsPage.Shortcuts
+                     })
+            {
+                _settingsPage = page;
+                if (page == SettingsPage.Shortcuts)
+                {
+                    EnsureShortcutDraft();
+                }
+
+                var probe = BuildSettingsWindowContent(_settingsWindow);
+                probe.Measure(new Size(windowWidth, double.PositiveInfinity));
+                maxHeight = Math.Max(maxHeight, probe.DesiredSize.Height);
+            }
+        }
+        finally
+        {
+            _settingsPage = previousPage;
+        }
+
+        if (maxHeight < 1)
+        {
+            maxHeight = 400;
+        }
+
+        // Ceiling avoids sub-pixel clipping of the last row after layout rounding.
+        return Math.Min(Math.Ceiling(maxHeight + 2), SettingsWindowMaxHeight());
     }
 
     private UIElement BuildSettingsFooter()
@@ -1204,23 +1249,6 @@ public sealed partial class AppController
         return Math.Max(260, SystemParameters.WorkArea.Height - 48);
     }
 
-    private static double SettingsWindowHeight()
-    {
-        // Fixed height across General / Visual / Shortcuts so page switches do not resize the window.
-        return Math.Clamp(AppTypography.Scale(560), 420, SettingsWindowMaxHeight());
-    }
-
-    private static double SettingsOptionsMaxHeight()
-    {
-        const double verticalPadding = 26;
-        const double titleRowHeight = 34;
-        const double pageSelectorHeight = 0;
-        const double footerHeight = 24;
-        return Math.Max(
-            180,
-            SettingsWindowHeight() - verticalPadding - titleRowHeight - pageSelectorHeight - footerHeight);
-    }
-
     private static TextBlock SettingsSectionLabel(string text)
     {
         return new TextBlock
@@ -1229,7 +1257,46 @@ public sealed partial class AppController
             Foreground = TrayWeakTextBrush,
             FontSize = AppTypography.Scale(12),
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 12, 0, 3)
+            Margin = new Thickness(0, 10, 0, 2)
+        };
+    }
+
+    private UIElement SettingsSectionLabelWithHint(string text, string tipKey)
+    {
+        // Same layout as WrapWithHint: section title left, ⓘ pinned to the far right.
+        var grid = new Grid
+        {
+            Margin = new Thickness(0, 2, 0, 4)
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(12),
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(label, 0);
+        grid.Children.Add(label);
+
+        var hint = CreateSettingsHintGlyph(tipKey, margin: new Thickness(6, 0, 0, 0));
+        Grid.SetColumn(hint, 1);
+        grid.Children.Add(hint);
+        return grid;
+    }
+
+    private static UIElement SettingsSoftDivider()
+    {
+        return new Border
+        {
+            Height = 1,
+            Margin = new Thickness(0, 14, 0, 8),
+            Background = TrayBorderBrush,
+            Opacity = 0.4,
+            SnapsToDevicePixels = true
         };
     }
 
@@ -1278,6 +1345,15 @@ public sealed partial class AppController
         Grid.SetColumn(option, 0);
         grid.Children.Add(option);
 
+        var hint = CreateSettingsHintGlyph(tipKey, margin: new Thickness(6, 0, 0, 0));
+        Grid.SetColumn(hint, 1);
+        grid.Children.Add(hint);
+
+        return grid;
+    }
+
+    private Border CreateSettingsHintGlyph(string tipKey, Thickness margin)
+    {
         var hintGlyph = new TextBlock
         {
             Text = "ⓘ",
@@ -1292,9 +1368,10 @@ public sealed partial class AppController
         {
             Width = 18,
             Height = 18,
-            Margin = new Thickness(6, 0, 0, 0),
+            Margin = margin,
             Background = Brushes.Transparent,
             Cursor = System.Windows.Input.Cursors.Help,
+            VerticalAlignment = VerticalAlignment.Center,
             Child = hintGlyph,
             ToolTip = BuildSettingsHintTooltip(Strings.Get(tipKey))
         };
@@ -1304,10 +1381,7 @@ public sealed partial class AppController
         ToolTipService.SetBetweenShowDelay(hint, 0);
         hint.MouseEnter += (_, _) => hintGlyph.Foreground = TrayTextBrush;
         hint.MouseLeave += (_, _) => hintGlyph.Foreground = TrayWeakTextBrush;
-        Grid.SetColumn(hint, 1);
-        grid.Children.Add(hint);
-
-        return grid;
+        return hint;
     }
 
     private ToolTip BuildSettingsHintTooltip(string text)

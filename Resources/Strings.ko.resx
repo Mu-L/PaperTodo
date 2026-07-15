@@ -671,9 +671,6 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
   <data name="TipOverallFontScale" xml:space="preserve">
     <value>앱 전체의 글자를 80%~120% 범위에서 5%씩 조절합니다. 노트별 백분율 확대/축소는 여기에 추가로 적용됩니다.</value>
   </data>
-  <data name="SettingsTextSizeCorrection" xml:space="preserve">
-    <value>크기 보정</value>
-  </data>
   <data name="SettingsTextBold" xml:space="preserve">
     <value>굵게</value>
   </data>
@@ -681,25 +678,25 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>노트 본문</value>
   </data>
   <data name="TipNoteBodyTextStyle" xml:space="preserve">
-    <value>전체 글꼴 크기에 소·중·대 보정과 굵게를 적용합니다. 노트별 백분율 확대/축소는 추가 배율로 유지됩니다.</value>
+    <value>전체 글꼴 크기에 소·중·대 크기와 굵게를 적용합니다. 노트별 백분율 확대/축소는 추가 배율로 유지됩니다.</value>
   </data>
   <data name="SettingsTodoBodyText" xml:space="preserve">
     <value>할 일 본문</value>
   </data>
   <data name="TipTodoBodyTextStyle" xml:space="preserve">
-    <value>할 일 본문과 행 레이아웃을 세 단계로 보정하고 본문 굵게를 전환합니다.</value>
+    <value>할 일 본문과 행 레이아웃을 소·중·대로 조절하고 본문 굵게를 전환합니다.</value>
   </data>
   <data name="SettingsTitleText" xml:space="preserve">
     <value>제목 글자</value>
   </data>
   <data name="TipTitleTextStyle" xml:space="preserve">
-    <value>종이 상단 제목의 소·중·대 크기 보정과 굵게를 조절합니다.</value>
+    <value>종이 상단 제목의 소·중·대 크기와 굵게를 조절합니다.</value>
   </data>
   <data name="SettingsCapsuleText" xml:space="preserve">
     <value>캡슐 글자</value>
   </data>
   <data name="TipCapsuleTextStyle" xml:space="preserve">
-    <value>일반, 가장자리, 드래그, 마스터 캡슐에 동일한 세 단계 보정과 굵게를 적용합니다.</value>
+    <value>일반, 가장자리, 드래그, 마스터 캡슐에 동일한 소·중·대 크기와 굵게를 적용합니다.</value>
   </data>
   <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
     <value>가장자리 캡슐 제목 측정 글자 수</value>
@@ -720,10 +717,10 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>사용 안 함</value>
   </data>
   <data name="ShortcutGroupGeneral" xml:space="preserve">
-    <value>일반 동작</value>
+    <value>일반</value>
   </data>
   <data name="ShortcutGroupEdgeSequences" xml:space="preserve">
-    <value>가장자리 캡슐 순서</value>
+    <value>가장자리 캡슐</value>
   </data>
   <data name="ShortcutEdgeEnableTip" xml:space="preserve">
     <value>전환 즉시 같은 쪽의 1~9 전체를 등록하거나 해제합니다.</value>
@@ -732,10 +729,10 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>수정 키 두 개와 1~9 중 아무 숫자나 누르세요. 숫자는 고정이며 수정 키는 같은 쪽 1~9 전체에 적용됩니다.</value>
   </data>
   <data name="ShortcutEdgeLeftSequence" xml:space="preserve">
-    <value>왼쪽 우선 순서</value>
+    <value>왼쪽 1~9</value>
   </data>
   <data name="ShortcutEdgeRightSequence" xml:space="preserve">
-    <value>오른쪽 우선 순서</value>
+    <value>오른쪽 1~9</value>
   </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>명령</value>
@@ -780,21 +777,21 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>저장 안 됨</value>
   </data>
   <data name="ShortcutShowAll" xml:space="preserve">
-    <value>모든 종이 표시</value>
+    <value>모두 표시</value>
   </data>
   <data name="ShortcutHideAll" xml:space="preserve">
-    <value>모든 종이 숨기기</value>
+    <value>모두 숨기기</value>
   </data>
   <data name="ShortcutToggleVisibility" xml:space="preserve">
-    <value>종이 표시 전환</value>
+    <value>표시 전환</value>
   </data>
   <data name="ShortcutNewTodo" xml:space="preserve">
-    <value>할 일 종이 만들기</value>
+    <value>할 일 만들기</value>
   </data>
   <data name="ShortcutNewNote" xml:space="preserve">
-    <value>메모 종이 만들기</value>
+    <value>메모 만들기</value>
   </data>
   <data name="ShortcutExit" xml:space="preserve">
-    <value>PaperTodo 종료</value>
+    <value>종료</value>
   </data>
 </root>

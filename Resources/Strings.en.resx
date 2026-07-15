@@ -671,9 +671,6 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="TipOverallFontScale" xml:space="preserve">
     <value>Scale text throughout the app in 5% steps from 80% to 120%. Per-note percentage zoom is applied on top.</value>
   </data>
-  <data name="SettingsTextSizeCorrection" xml:space="preserve">
-    <value>Size correction</value>
-  </data>
   <data name="SettingsTextBold" xml:space="preserve">
     <value>Bold</value>
   </data>
@@ -681,25 +678,25 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>Note body</value>
   </data>
   <data name="TipNoteBodyTextStyle" xml:space="preserve">
-    <value>Apply a small, medium, or large correction on top of the overall font size and optionally bold note text. Per-note percentage zoom remains an additional scale.</value>
+    <value>Apply a small, medium, or large size on top of the overall font size and optionally bold note text. Per-note percentage zoom remains an additional scale.</value>
   </data>
   <data name="SettingsTodoBodyText" xml:space="preserve">
     <value>Todo body</value>
   </data>
   <data name="TipTodoBodyTextStyle" xml:space="preserve">
-    <value>Adjust todo body text and its row layout with three size corrections, and optionally bold the body text.</value>
+    <value>Adjust todo body text and its row layout with small, medium, or large size, and optionally bold the body text.</value>
   </data>
   <data name="SettingsTitleText" xml:space="preserve">
     <value>Title text</value>
   </data>
   <data name="TipTitleTextStyle" xml:space="preserve">
-    <value>Adjust paper title text with small, medium, or large size correction and bold styling.</value>
+    <value>Adjust paper title text with small, medium, or large size and bold styling.</value>
   </data>
   <data name="SettingsCapsuleText" xml:space="preserve">
     <value>Capsule text</value>
   </data>
   <data name="TipCapsuleTextStyle" xml:space="preserve">
-    <value>Apply one size correction and bold setting consistently to normal, edge, drag, and master capsules.</value>
+    <value>Apply one size and bold setting consistently to normal, edge, drag, and master capsules.</value>
   </data>
   <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
     <value>Edge capsule title measure limit</value>
@@ -720,22 +717,22 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>Disabled</value>
   </data>
   <data name="ShortcutGroupGeneral" xml:space="preserve">
-    <value>General actions</value>
+    <value>General</value>
   </data>
   <data name="ShortcutGroupEdgeSequences" xml:space="preserve">
-    <value>Edge capsule sequences</value>
+    <value>Edge capsules</value>
   </data>
   <data name="ShortcutEdgeEnableTip" xml:space="preserve">
-    <value>Register or unregister this side’s full 1–9 sequence immediately.</value>
+    <value>Register or unregister this side’s full 1–9 shortcuts immediately.</value>
   </data>
   <data name="ShortcutEdgeKeyTip" xml:space="preserve">
-    <value>Press exactly two modifiers plus any digit 1–9. Digits stay fixed; the modifiers apply to this side’s whole 1–9 sequence.</value>
+    <value>Press exactly two modifiers plus any digit 1–9. Digits stay fixed; the modifiers apply to this side’s whole 1–9 set.</value>
   </data>
   <data name="ShortcutEdgeLeftSequence" xml:space="preserve">
-    <value>Left-preferred sequence</value>
+    <value>Left 1–9</value>
   </data>
   <data name="ShortcutEdgeRightSequence" xml:space="preserve">
-    <value>Right-preferred sequence</value>
+    <value>Right 1–9</value>
   </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>Command</value>
@@ -780,21 +777,21 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>Not saved</value>
   </data>
   <data name="ShortcutShowAll" xml:space="preserve">
-    <value>Show all papers</value>
+    <value>Show all</value>
   </data>
   <data name="ShortcutHideAll" xml:space="preserve">
-    <value>Hide all papers</value>
+    <value>Hide all</value>
   </data>
   <data name="ShortcutToggleVisibility" xml:space="preserve">
-    <value>Toggle paper visibility</value>
+    <value>Toggle visibility</value>
   </data>
   <data name="ShortcutNewTodo" xml:space="preserve">
-    <value>New todo paper</value>
+    <value>New todo</value>
   </data>
   <data name="ShortcutNewNote" xml:space="preserve">
-    <value>New note paper</value>
+    <value>New note</value>
   </data>
   <data name="ShortcutExit" xml:space="preserve">
-    <value>Exit PaperTodo</value>
+    <value>Exit</value>
   </data>
 </root>

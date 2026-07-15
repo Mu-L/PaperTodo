@@ -684,9 +684,6 @@
   <data name="TipOverallFontScale" xml:space="preserve">
     <value>按 5% 调整应用内文字的整体缩放（80%–120%）；单个笔记的百分比缩放会在此基础上继续叠加。</value>
   </data>
-  <data name="SettingsTextSizeCorrection" xml:space="preserve">
-    <value>字号补正</value>
-  </data>
   <data name="SettingsTextBold" xml:space="preserve">
     <value>加粗</value>
   </data>
@@ -694,25 +691,25 @@
     <value>笔记正文</value>
   </data>
   <data name="TipNoteBodyTextStyle" xml:space="preserve">
-    <value>在整体字体大小上应用小、中、大三档补正并可加粗；当前单个笔记的百分比缩放仍作为额外缩放。</value>
+    <value>在整体字体大小上应用小、中、大三档字号，并可加粗；单个笔记的百分比缩放会继续叠加。</value>
   </data>
   <data name="SettingsTodoBodyText" xml:space="preserve">
     <value>待办正文</value>
   </data>
   <data name="TipTodoBodyTextStyle" xml:space="preserve">
-    <value>调整待办正文及对应行的三档字号补正，并可切换正文加粗。</value>
+    <value>调整待办正文及对应行的小、中、大字号，并可切换正文加粗。</value>
   </data>
   <data name="SettingsTitleText" xml:space="preserve">
     <value>标题文字</value>
   </data>
   <data name="TipTitleTextStyle" xml:space="preserve">
-    <value>调整纸片顶栏标题的小、中、大三档字号补正与加粗。</value>
+    <value>调整纸片顶栏标题的小、中、大字号与加粗。</value>
   </data>
   <data name="SettingsCapsuleText" xml:space="preserve">
     <value>胶囊文字</value>
   </data>
   <data name="TipCapsuleTextStyle" xml:space="preserve">
-    <value>统一调整普通胶囊、贴边胶囊、拖动胶囊和主胶囊文字的三档字号补正与加粗。</value>
+    <value>统一调整普通胶囊、贴边胶囊、拖动胶囊和主胶囊文字的小、中、大字号与加粗。</value>
   </data>
   <data name="SettingsDeepCapsuleTitleMeasureLimit" xml:space="preserve">
     <value>边缘胶囊标题测量字符数</value>
@@ -733,22 +730,22 @@
     <value>未启用</value>
   </data>
   <data name="ShortcutGroupGeneral" xml:space="preserve">
-    <value>常用操作</value>
+    <value>常用</value>
   </data>
   <data name="ShortcutGroupEdgeSequences" xml:space="preserve">
-    <value>边缘胶囊序列</value>
+    <value>边缘胶囊</value>
   </data>
   <data name="ShortcutEdgeEnableTip" xml:space="preserve">
-    <value>切换后立即注册或注销本侧 1–9 整组序列。</value>
+    <value>切换后立即注册或注销本侧 1–9 整组快捷键。</value>
   </data>
   <data name="ShortcutEdgeKeyTip" xml:space="preserve">
     <value>请按两枚修饰键加任意数字 1–9；数字固定，修饰键用于本侧整组 1–9。</value>
   </data>
   <data name="ShortcutEdgeLeftSequence" xml:space="preserve">
-    <value>左侧优先序列</value>
+    <value>左侧 1–9</value>
   </data>
   <data name="ShortcutEdgeRightSequence" xml:space="preserve">
-    <value>右侧优先序列</value>
+    <value>右侧 1–9</value>
   </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>命令</value>
@@ -793,21 +790,21 @@
     <value>待保存</value>
   </data>
   <data name="ShortcutShowAll" xml:space="preserve">
-    <value>显示全部纸片</value>
+    <value>显示全部</value>
   </data>
   <data name="ShortcutHideAll" xml:space="preserve">
-    <value>隐藏全部纸片</value>
+    <value>隐藏全部</value>
   </data>
   <data name="ShortcutToggleVisibility" xml:space="preserve">
-    <value>切换纸片显隐</value>
+    <value>切换显隐</value>
   </data>
   <data name="ShortcutNewTodo" xml:space="preserve">
-    <value>新建待办纸</value>
+    <value>新建待办</value>
   </data>
   <data name="ShortcutNewNote" xml:space="preserve">
-    <value>新建笔记纸</value>
+    <value>新建笔记</value>
   </data>
   <data name="ShortcutExit" xml:space="preserve">
-    <value>退出 PaperTodo</value>
+    <value>退出</value>
   </data>
 </root>
