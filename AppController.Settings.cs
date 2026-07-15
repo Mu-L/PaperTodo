@@ -109,6 +109,32 @@ public sealed partial class AppController
         return CreateSegmentSelector(segments, UiFontPresets.Normalize(State.UiFontPreset), SetUiFontPreset);
     }
 
+    private void SetTextRenderingProfile(string profile)
+    {
+        var normalized = TextRenderingProfiles.Normalize(profile);
+        if (State.TextRenderingProfile == normalized)
+        {
+            return;
+        }
+
+        State.TextRenderingProfile = normalized;
+        ApplyTypographySettingsChange();
+    }
+
+    private UIElement CreateTextRenderingProfileSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (TextRenderingProfiles.System, Strings.Get("TextRenderingSystem")),
+            (TextRenderingProfiles.EnhancedGrayscale, Strings.Get("TextRenderingEnhancedGrayscale"))
+        };
+
+        return CreateSegmentSelector(
+            segments,
+            TextRenderingProfiles.Normalize(State.TextRenderingProfile),
+            SetTextRenderingProfile);
+    }
+
     private void SetOverallFontScale(double scale)
     {
         var normalized = OverallFontScales.Normalize(scale);
@@ -183,7 +209,11 @@ public sealed partial class AppController
 
     private void ApplyTypographySettingsChange()
     {
-        AppTypography.Configure(State.UiFontPreset, State.Zoom, State.CustomFontEnhancedBold);
+        AppTypography.Configure(
+            State.UiFontPreset,
+            State.Zoom,
+            State.CustomFontEnhancedBold,
+            State.TextRenderingProfile);
         NoteTypography.Configure(State.NoteTextSize, State.NoteTextBold);
         SaveNow();
         RefreshTypography();
@@ -758,6 +788,7 @@ public sealed partial class AppController
         window.FontFamily = AppTypography.UiFontFamily;
         window.FontSize = AppTypography.Scale(12);
         window.Language = AppTypography.Language;
+        AppTypography.ApplyTextRendering(window);
         window.Content = content;
         window.Width = width;
         window.Height = fittedHeight;
@@ -1003,6 +1034,8 @@ public sealed partial class AppController
         leftColumn.Children.Add(CreateColorSchemeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsUiFont")), "TipUiFont"));
         leftColumn.Children.Add(CreateUiFontPresetSegmentSelector());
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTextRenderingProfile")), "TipTextRenderingProfile"));
+        leftColumn.Children.Add(CreateTextRenderingProfileSegmentSelector());
         var customBoldToggle = SettingsToggle(
             Strings.Get("SettingsCustomFontEnhancedBold"),
             State.CustomFontEnhancedBold,

@@ -345,6 +345,15 @@
   <data name="UiFontDengXian" xml:space="preserve">
     <value>DengXian</value>
   </data>
+  <data name="SettingsTextRenderingProfile" xml:space="preserve">
+    <value>Text edge style</value>
+  </data>
+  <data name="TextRenderingSystem" xml:space="preserve">
+    <value>System smooth</value>
+  </data>
+  <data name="TextRenderingEnhancedGrayscale" xml:space="preserve">
+    <value>Unified grayscale</value>
+  </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>Paper</value>
   </data>
@@ -505,6 +514,10 @@
     <value>Language default chooses suitable system fonts for UI and note text separately.
 Choosing YaHei or DengXian unifies the UI, tray, capsules, todos, and note text under that font.
 If papertodo.ttf or papertodo.otf exists in the app folder, that custom font takes priority.</value>
+  </data>
+  <data name="TipTextRenderingProfile" xml:space="preserve">
+    <value>System smooth lets Windows and each font choose the rendering style, and restores the pre-change rendering path for edge capsules.
+Unified grayscale uses grayscale antialiasing throughout. Notes and edge capsules using DengXian, MiSans, or another custom face receive softer two-axis smoothing.</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>Enhanced custom bold</value>

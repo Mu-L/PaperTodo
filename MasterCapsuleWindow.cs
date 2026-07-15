@@ -137,7 +137,7 @@ public sealed class MasterCapsuleWindow : Window
         Language = AppTypography.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
-        AppTypography.ApplyTextRendering(this);
+        AppTypography.ApplyEdgeCapsuleTextRendering(this);
         // Don't steal foreground when first shown — activating would force every other
         // paper window to repaint, which reads as a whole-app flash.
         ShowActivated = false;
@@ -210,6 +210,7 @@ public sealed class MasterCapsuleWindow : Window
             Margin = new Thickness(MasterGlyphGap, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
+        AppTypography.ApplyEdgeCapsuleTextRendering(_label);
         stack.Children.Add(_label);
         content.Children.Add(stack);
 
@@ -316,11 +317,13 @@ public sealed class MasterCapsuleWindow : Window
         FontFamily = AppTypography.UiFontFamily;
         FontSize = AppTypography.Scale(12);
         Language = AppTypography.Language;
+        AppTypography.ApplyEdgeCapsuleTextRendering(this);
         _glyph.FontFamily = AppTypography.SymbolFontFamily;
         _glyph.FontSize = MasterGlyphFontSize;
         _label.FontFamily = MasterLabelFontFamily;
         _label.FontSize = MasterLabelFontSize;
         _label.FontWeight = MasterLabelFontWeight;
+        AppTypography.ApplyEdgeCapsuleTextRendering(_label);
         MoveToTarget(animate: false);
     }
 

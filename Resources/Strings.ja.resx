@@ -345,6 +345,15 @@
   <data name="UiFontDengXian" xml:space="preserve">
     <value>DengXian</value>
   </data>
+  <data name="SettingsTextRenderingProfile" xml:space="preserve">
+    <value>文字の輪郭</value>
+  </data>
+  <data name="TextRenderingSystem" xml:space="preserve">
+    <value>システム平滑</value>
+  </data>
+  <data name="TextRenderingEnhancedGrayscale" xml:space="preserve">
+    <value>統一グレースケール</value>
+  </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>紙</value>
   </data>
@@ -508,6 +517,10 @@
     <value>言語既定では、UI とノート本文にそれぞれ適したシステムフォントを使います。
 YaHei または DengXian を選ぶと、UI、トレイ、カプセル、ToDo、ノート本文の主文字をそのフォントに統一します。
 アプリフォルダーに papertodo.ttf または papertodo.otf がある場合は、そのカスタムフォントを優先します。</value>
+  </data>
+  <data name="TipTextRenderingProfile" xml:space="preserve">
+    <value>システム平滑では Windows とフォント側の選択に任せ、エッジカプセルを新しい描画方式の導入前と同じ経路で表示します。
+統一グレースケールでは全画面をグレースケール表示に統一します。ノートと DengXian、MiSans などを使うエッジカプセルには、より柔らかな縦横方向の平滑化を適用します。</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>カスタムフォントの太字強化</value>

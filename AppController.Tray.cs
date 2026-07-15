@@ -423,6 +423,7 @@ public sealed partial class AppController
         _trayMenu.FontFamily = AppTypography.UiFontFamily;
         _trayMenu.FontSize = AppTypography.Scale(13);
         _trayMenu.Language = AppTypography.Language;
+        AppTypography.ApplyTextRendering(_trayMenu);
         _trayMenu.MaxHeight = TrayMenuMaxHeight();
 
         _trayMenu.Items.Clear();

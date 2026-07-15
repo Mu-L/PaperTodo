@@ -6,6 +6,13 @@ using System.Windows.Media;
 
 namespace PaperTodo;
 
+internal enum EdgeCapsuleTextRenderingStyle
+{
+    Legacy,
+    Grayscale,
+    SymmetricGrayscale
+}
+
 public static class AppTypography
 {
     private const string SymbolFallback = "Segoe UI Symbol, Segoe UI Emoji";
@@ -18,6 +25,7 @@ public static class AppTypography
     private static CustomFontFace? _customFontFace;
     private static CustomFontFace? _customBoldFontFace;
     private static bool _customFontEnhancedBold;
+    private static string _textRenderingProfile = TextRenderingProfiles.System;
     private static double _scale = 1.0;
 
     public static XmlLanguage Language { get; } = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
@@ -30,9 +38,32 @@ public static class AppTypography
 
     public static FontFamily SymbolFontFamily { get; } = new(SymbolFallback);
 
-    public static TextFormattingMode TextFormattingMode => TextFormattingMode.Display;
-    public static TextRenderingMode TextRenderingMode => TextRenderingMode.Grayscale;
+    public static bool UsesEnhancedGrayscale =>
+        _textRenderingProfile == TextRenderingProfiles.EnhancedGrayscale;
+
+    public static TextFormattingMode TextFormattingMode =>
+        UsesEnhancedGrayscale ? TextFormattingMode.Display : TextFormattingMode.Ideal;
+    public static TextRenderingMode TextRenderingMode =>
+        UsesEnhancedGrayscale ? TextRenderingMode.Grayscale : TextRenderingMode.Auto;
     public static TextHintingMode TextHintingMode => TextHintingMode.Auto;
+
+    internal static EdgeCapsuleTextRenderingStyle CurrentEdgeCapsuleTextRenderingStyle
+    {
+        get
+        {
+            if (!UsesEnhancedGrayscale)
+            {
+                return EdgeCapsuleTextRenderingStyle.Legacy;
+            }
+
+            // DengXian and user-supplied faces such as MiSans can converge on the same hard-edged
+            // result under Display grayscale at capsule sizes. Give those faces symmetric
+            // grayscale while keeping the already-distinct YaHei/default path unchanged.
+            return _preset == UiFontPresets.DengXian || _customFontFace != null
+                ? EdgeCapsuleTextRenderingStyle.SymmetricGrayscale
+                : EdgeCapsuleTextRenderingStyle.Grayscale;
+        }
+    }
 
     public static bool HasCustomFont => _customFontFace != null;
 
@@ -61,11 +92,16 @@ public static class AppTypography
             : Math.Ceiling(normalSize * _scale);
     }
 
-    public static void Configure(string? preset, double scale = 1.0, bool customFontEnhancedBold = false)
+    public static void Configure(
+        string? preset,
+        double scale = 1.0,
+        bool customFontEnhancedBold = false,
+        string? textRenderingProfile = null)
     {
         _preset = UiFontPresets.Normalize(preset);
         _scale = OverallFontScales.Normalize(scale);
         _customFontEnhancedBold = customFontEnhancedBold;
+        _textRenderingProfile = TextRenderingProfiles.Normalize(textRenderingProfile);
         _customFontFace = TryLoadCustomFontFaceFromCandidates(CustomRegularFontCandidates());
         _customBoldFontFace = TryLoadCustomFontFaceFromCandidates(CustomBoldFontCandidates());
     }
@@ -109,9 +145,43 @@ public static class AppTypography
 
     public static void ApplyTextRendering(DependencyObject target)
     {
+        if (!UsesEnhancedGrayscale)
+        {
+            ClearTextRendering(target);
+            return;
+        }
+
         TextOptions.SetTextFormattingMode(target, TextFormattingMode);
         TextOptions.SetTextRenderingMode(target, TextRenderingMode);
         TextOptions.SetTextHintingMode(target, TextHintingMode);
+        target.ClearValue(RenderOptions.ClearTypeHintProperty);
+    }
+
+    internal static void ApplyEdgeCapsuleTextRendering(DependencyObject target)
+    {
+        switch (CurrentEdgeCapsuleTextRenderingStyle)
+        {
+            case EdgeCapsuleTextRenderingStyle.Legacy:
+                ClearTextRendering(target);
+                break;
+            case EdgeCapsuleTextRenderingStyle.SymmetricGrayscale:
+                TextOptions.SetTextFormattingMode(target, TextFormattingMode.Ideal);
+                TextOptions.SetTextRenderingMode(target, TextRenderingMode.Grayscale);
+                TextOptions.SetTextHintingMode(target, TextHintingMode.Animated);
+                target.ClearValue(RenderOptions.ClearTypeHintProperty);
+                break;
+            default:
+                ApplyTextRendering(target);
+                break;
+        }
+    }
+
+    private static void ClearTextRendering(DependencyObject target)
+    {
+        target.ClearValue(TextOptions.TextFormattingModeProperty);
+        target.ClearValue(TextOptions.TextRenderingModeProperty);
+        target.ClearValue(TextOptions.TextHintingModeProperty);
+        target.ClearValue(RenderOptions.ClearTypeHintProperty);
     }
 
     private static FontFamily ResolveUiFontFamily()

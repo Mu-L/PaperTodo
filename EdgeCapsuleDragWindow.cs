@@ -61,7 +61,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
         Language = options.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
-        AppTypography.ApplyTextRendering(this);
+        AppTypography.ApplyEdgeCapsuleTextRendering(this);
         Topmost = options.Topmost;
         Opacity = 0;
         Debug.Assert(
@@ -245,6 +245,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
+        AppTypography.ApplyEdgeCapsuleTextRendering(label);
         Grid.SetColumn(label, 1);
         content.Children.Add(label);
 

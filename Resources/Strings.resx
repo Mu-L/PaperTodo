@@ -355,6 +355,15 @@
   <data name="UiFontDengXian" xml:space="preserve">
     <value>等线</value>
   </data>
+  <data name="SettingsTextRenderingProfile" xml:space="preserve">
+    <value>文字边缘风格</value>
+  </data>
+  <data name="TextRenderingSystem" xml:space="preserve">
+    <value>系统平滑</value>
+  </data>
+  <data name="TextRenderingEnhancedGrayscale" xml:space="preserve">
+    <value>统一灰阶</value>
+  </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>暖纸</value>
   </data>
@@ -521,6 +530,10 @@
     <value>语言默认会为界面和笔记正文分别选择合适的系统字体。
 手动选择雅黑或等线后，界面、托盘、胶囊、待办和笔记正文会统一使用所选字体。
 程序目录下存在 papertodo.ttf 或 papertodo.otf 时，会优先使用该自定义字体。</value>
+  </data>
+  <data name="TipTextRenderingProfile" xml:space="preserve">
+    <value>系统平滑会交给 Windows 和字体自行选择，并让边缘胶囊回到新渲染合并前的显示方式。
+统一灰阶会让所有界面使用灰阶抗锯齿；笔记以及使用等线、MiSans 等字体的边缘胶囊会采用更柔和的双向平滑。</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>自定义字体增强加粗</value>

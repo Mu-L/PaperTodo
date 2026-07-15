@@ -191,6 +191,17 @@ public static class UiFontPresets
     }
 }
 
+public static class TextRenderingProfiles
+{
+    public const string System = "system";
+    public const string EnhancedGrayscale = "enhancedGrayscale";
+
+    public static string Normalize(string? profile)
+    {
+        return profile is EnhancedGrayscale ? EnhancedGrayscale : System;
+    }
+}
+
 public readonly record struct TodoVisualMetrics(
     double TextFontSize,
     double TextVerticalPadding,
@@ -213,6 +224,7 @@ public sealed class AppState
     public bool AutoClearCompletedTodos { get; set; }
     public bool AutoCompressLargeImages { get; set; } = true;
     public string UiFontPreset { get; set; } = UiFontPresets.Default;
+    public string TextRenderingProfile { get; set; } = TextRenderingProfiles.System;
     /// <summary>
     /// When a custom papertodo font is present, bold styles load papertodo_bold / PaperTodo_Bold instead of synthetic SemiBold.
     /// </summary>

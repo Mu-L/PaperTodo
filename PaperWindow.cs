@@ -1314,6 +1314,7 @@ public sealed partial class PaperWindow : Window
         FontFamily = AppTypography.UiFontFamily;
         FontSize = AppTypography.Scale(12);
         Language = AppTypography.Language;
+        AppTypography.ApplyTextRendering(this);
 
         if (_titleText != null)
         {
@@ -2868,6 +2869,7 @@ public sealed partial class PaperWindow : Window
                 menu.FontFamily = AppTypography.UiFontFamily;
                 menu.FontSize = AppTypography.Scale(13);
                 menu.Language = AppTypography.Language;
+                AppTypography.ApplyTextRendering(menu);
                 foreach (var header in menu.Items.OfType<MenuItem>().Where(item => !item.IsEnabled))
                 {
                     header.FontSize = AppTypography.Scale(12);
