@@ -727,7 +727,7 @@
     <value>启用</value>
   </data>
   <data name="ShortcutEnableTip" xml:space="preserve">
-    <value>切换后立即注册或注销此全局快捷键，无需保存。</value>
+    <value>切换后立即注册或注销此全局快捷键。</value>
   </data>
   <data name="ShortcutStatusDisabled" xml:space="preserve">
     <value>未启用</value>
@@ -735,20 +735,20 @@
   <data name="ShortcutGroupGeneral" xml:space="preserve">
     <value>常用操作</value>
   </data>
-  <data name="ShortcutGroupLeftPreferred" xml:space="preserve">
-    <value>左侧优先序列（修饰键共享，数字固定）</value>
+  <data name="ShortcutGroupEdgeSequences" xml:space="preserve">
+    <value>边缘胶囊序列</value>
   </data>
-  <data name="ShortcutGroupRightPreferred" xml:space="preserve">
-    <value>右侧优先序列（修饰键共享，数字固定）</value>
+  <data name="ShortcutEdgeEnableTip" xml:space="preserve">
+    <value>切换后立即注册或注销本侧 1–9 整组序列。</value>
   </data>
   <data name="ShortcutEdgeKeyTip" xml:space="preserve">
-    <value>数字固定不可更改；请按两枚修饰键和当前数字。修改会同步到本侧 1–9。</value>
+    <value>请按两枚修饰键加任意数字 1–9；数字固定，修饰键用于本侧整组 1–9。</value>
   </data>
-  <data name="ShortcutEdgeLeftSequenceFormat" xml:space="preserve">
-    <value>左侧优先序列 {0}</value>
+  <data name="ShortcutEdgeLeftSequence" xml:space="preserve">
+    <value>左侧优先序列</value>
   </data>
-  <data name="ShortcutEdgeRightSequenceFormat" xml:space="preserve">
-    <value>右侧优先序列 {0}</value>
+  <data name="ShortcutEdgeRightSequence" xml:space="preserve">
+    <value>右侧优先序列</value>
   </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>命令</value>
@@ -774,9 +774,6 @@
   <data name="ShortcutRestoreAll" xml:space="preserve">
     <value>全部恢复默认</value>
   </data>
-  <data name="ShortcutSave" xml:space="preserve">
-    <value>保存快捷键</value>
-  </data>
   <data name="ShortcutStatusUnassigned" xml:space="preserve">
     <value>未设置</value>
   </data>
@@ -795,9 +792,6 @@
   <data name="ShortcutStatusPendingSave" xml:space="preserve">
     <value>待保存</value>
   </data>
-  <data name="ShortcutStatusPendingBehavior" xml:space="preserve">
-    <value>等待序列规则</value>
-  </data>
   <data name="ShortcutShowAll" xml:space="preserve">
     <value>显示全部纸片</value>
   </data>
@@ -815,32 +809,5 @@
   </data>
   <data name="ShortcutExit" xml:space="preserve">
     <value>退出 PaperTodo</value>
-  </data>
-  <data name="ShortcutEdgeSequence1" xml:space="preserve">
-    <value>边缘序列 1</value>
-  </data>
-  <data name="ShortcutEdgeSequence2" xml:space="preserve">
-    <value>边缘序列 2</value>
-  </data>
-  <data name="ShortcutEdgeSequence3" xml:space="preserve">
-    <value>边缘序列 3</value>
-  </data>
-  <data name="ShortcutEdgeSequence4" xml:space="preserve">
-    <value>边缘序列 4</value>
-  </data>
-  <data name="ShortcutEdgeSequence5" xml:space="preserve">
-    <value>边缘序列 5</value>
-  </data>
-  <data name="ShortcutEdgeSequence6" xml:space="preserve">
-    <value>边缘序列 6</value>
-  </data>
-  <data name="ShortcutEdgeSequence7" xml:space="preserve">
-    <value>边缘序列 7</value>
-  </data>
-  <data name="ShortcutEdgeSequence8" xml:space="preserve">
-    <value>边缘序列 8</value>
-  </data>
-  <data name="ShortcutEdgeSequence9" xml:space="preserve">
-    <value>边缘序列 9</value>
   </data>
 </root>

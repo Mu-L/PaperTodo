@@ -714,7 +714,7 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
     <value>On</value>
   </data>
   <data name="ShortcutEnableTip" xml:space="preserve">
-    <value>Register or unregister this global shortcut immediately; no save is required.</value>
+    <value>Register or unregister this global shortcut immediately.</value>
   </data>
   <data name="ShortcutStatusDisabled" xml:space="preserve">
     <value>Disabled</value>
@@ -722,20 +722,20 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="ShortcutGroupGeneral" xml:space="preserve">
     <value>General actions</value>
   </data>
-  <data name="ShortcutGroupLeftPreferred" xml:space="preserve">
-    <value>Left-preferred sequence (shared modifiers, fixed digits)</value>
+  <data name="ShortcutGroupEdgeSequences" xml:space="preserve">
+    <value>Edge capsule sequences</value>
   </data>
-  <data name="ShortcutGroupRightPreferred" xml:space="preserve">
-    <value>Right-preferred sequence (shared modifiers, fixed digits)</value>
+  <data name="ShortcutEdgeEnableTip" xml:space="preserve">
+    <value>Register or unregister this side’s full 1–9 sequence immediately.</value>
   </data>
   <data name="ShortcutEdgeKeyTip" xml:space="preserve">
-    <value>The digit is fixed. Press exactly two modifiers plus the shown digit; the modifiers apply to all 1–9 shortcuts on this side.</value>
+    <value>Press exactly two modifiers plus any digit 1–9. Digits stay fixed; the modifiers apply to this side’s whole 1–9 sequence.</value>
   </data>
-  <data name="ShortcutEdgeLeftSequenceFormat" xml:space="preserve">
-    <value>Left-preferred sequence {0}</value>
+  <data name="ShortcutEdgeLeftSequence" xml:space="preserve">
+    <value>Left-preferred sequence</value>
   </data>
-  <data name="ShortcutEdgeRightSequenceFormat" xml:space="preserve">
-    <value>Right-preferred sequence {0}</value>
+  <data name="ShortcutEdgeRightSequence" xml:space="preserve">
+    <value>Right-preferred sequence</value>
   </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>Command</value>
@@ -761,9 +761,6 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="ShortcutRestoreAll" xml:space="preserve">
     <value>Restore all defaults</value>
   </data>
-  <data name="ShortcutSave" xml:space="preserve">
-    <value>Save shortcuts</value>
-  </data>
   <data name="ShortcutStatusUnassigned" xml:space="preserve">
     <value>Unassigned</value>
   </data>
@@ -782,9 +779,6 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   <data name="ShortcutStatusPendingSave" xml:space="preserve">
     <value>Not saved</value>
   </data>
-  <data name="ShortcutStatusPendingBehavior" xml:space="preserve">
-    <value>Awaiting sequence rule</value>
-  </data>
   <data name="ShortcutShowAll" xml:space="preserve">
     <value>Show all papers</value>
   </data>
@@ -802,32 +796,5 @@ If papertodo.ttf or papertodo.otf exists in the app folder, that custom font tak
   </data>
   <data name="ShortcutExit" xml:space="preserve">
     <value>Exit PaperTodo</value>
-  </data>
-  <data name="ShortcutEdgeSequence1" xml:space="preserve">
-    <value>Edge sequence 1</value>
-  </data>
-  <data name="ShortcutEdgeSequence2" xml:space="preserve">
-    <value>Edge sequence 2</value>
-  </data>
-  <data name="ShortcutEdgeSequence3" xml:space="preserve">
-    <value>Edge sequence 3</value>
-  </data>
-  <data name="ShortcutEdgeSequence4" xml:space="preserve">
-    <value>Edge sequence 4</value>
-  </data>
-  <data name="ShortcutEdgeSequence5" xml:space="preserve">
-    <value>Edge sequence 5</value>
-  </data>
-  <data name="ShortcutEdgeSequence6" xml:space="preserve">
-    <value>Edge sequence 6</value>
-  </data>
-  <data name="ShortcutEdgeSequence7" xml:space="preserve">
-    <value>Edge sequence 7</value>
-  </data>
-  <data name="ShortcutEdgeSequence8" xml:space="preserve">
-    <value>Edge sequence 8</value>
-  </data>
-  <data name="ShortcutEdgeSequence9" xml:space="preserve">
-    <value>Edge sequence 9</value>
   </data>
 </root>

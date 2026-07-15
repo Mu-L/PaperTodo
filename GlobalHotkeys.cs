@@ -96,14 +96,57 @@ internal static class GlobalShortcutCatalog
     {
         source ??= new Dictionary<string, bool>();
         var normalized = new Dictionary<string, bool>(StringComparer.Ordinal);
-        foreach (var definition in Definitions)
+        foreach (var definition in Definitions.Where(item => item.Group == GlobalShortcutGroup.General))
         {
             normalized[definition.Id] = source.TryGetValue(definition.Id, out var enabled)
                 ? enabled
                 : definition.DefaultEnabled;
         }
 
+        // Left/right edge sequences are one user-facing switch each; keep 1–9 in lockstep.
+        foreach (var group in new[] { GlobalShortcutGroup.EdgeLeft, GlobalShortcutGroup.EdgeRight })
+        {
+            var groupDefinitions = DefinitionsInGroup(group);
+            var groupEnabled = false;
+            var hasConfigured = false;
+            foreach (var definition in groupDefinitions)
+            {
+                if (!source.TryGetValue(definition.Id, out var enabled))
+                {
+                    continue;
+                }
+
+                hasConfigured = true;
+                groupEnabled |= enabled;
+            }
+
+            if (!hasConfigured)
+            {
+                groupEnabled = groupDefinitions[0].DefaultEnabled;
+            }
+
+            foreach (var definition in groupDefinitions)
+            {
+                normalized[definition.Id] = groupEnabled;
+            }
+        }
+
         return normalized;
+    }
+
+    public static IReadOnlyList<GlobalShortcutDefinition> DefinitionsInGroup(GlobalShortcutGroup group)
+    {
+        return Definitions.Where(item => item.Group == group).ToArray();
+    }
+
+    public static GlobalShortcutDefinition EdgeSequenceUiDefinition(GlobalShortcutGroup group)
+    {
+        if (group is not (GlobalShortcutGroup.EdgeLeft or GlobalShortcutGroup.EdgeRight))
+        {
+            throw new ArgumentOutOfRangeException(nameof(group));
+        }
+
+        return DefinitionsInGroup(group)[0];
     }
 
     public static IReadOnlyCollection<string> ExecutableIds { get; } =
@@ -127,7 +170,7 @@ internal static class GlobalShortcutCatalog
         {
             definitions.Add(new GlobalShortcutDefinition(
                 $"edge.left.{ordinal}",
-                "ShortcutEdgeLeftSequenceFormat",
+                "ShortcutEdgeLeftSequence",
                 $"Ctrl+Shift+{ordinal}",
                 GlobalShortcutGroup.EdgeLeft,
                 PreferredCapsuleSide: DeepCapsuleSides.Left,
@@ -138,7 +181,7 @@ internal static class GlobalShortcutCatalog
         {
             definitions.Add(new GlobalShortcutDefinition(
                 $"edge.right.{ordinal}",
-                "ShortcutEdgeRightSequenceFormat",
+                "ShortcutEdgeRightSequence",
                 $"Ctrl+Alt+{ordinal}",
                 GlobalShortcutGroup.EdgeRight,
                 PreferredCapsuleSide: DeepCapsuleSides.Right,
@@ -184,6 +227,23 @@ internal readonly record struct ShortcutGesture(Key Key, ModifierKeys Modifiers)
     {
         return ordinal is >= 1 and <= 9 &&
             (key == Key.D0 + ordinal || key == Key.NumPad0 + ordinal);
+    }
+
+    public static bool IsAnyEdgeOrdinalKey(Key key)
+    {
+        return key is (>= Key.D1 and <= Key.D9) or (>= Key.NumPad1 and <= Key.NumPad9);
+    }
+
+    public string ToEdgeSequenceDisplayString()
+    {
+        if (Key == Key.None || !HasExactlyTwoModifiers(Modifiers))
+        {
+            return "";
+        }
+
+        var parts = ModifierParts();
+        parts.Add("1–9");
+        return string.Join('+', parts);
     }
 
     public static bool TryParse(string? text, out ShortcutGesture gesture)

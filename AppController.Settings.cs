@@ -632,7 +632,8 @@ public sealed partial class AppController
         {
             Title = Strings.Get("TraySettings"),
             Width = SettingsWindowWidth(),
-            SizeToContent = SizeToContent.Height,
+            Height = SettingsWindowHeight(),
+            SizeToContent = SizeToContent.Manual,
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
             AllowsTransparency = true,
@@ -692,6 +693,9 @@ public sealed partial class AppController
 
         InvalidateSystemThemeCacheIfNeeded();
         _settingsWindow.Title = Strings.Get("TraySettings");
+        _settingsWindow.Width = SettingsWindowWidth();
+        _settingsWindow.Height = SettingsWindowHeight();
+        _settingsWindow.SizeToContent = SizeToContent.Manual;
         _settingsWindow.Content = BuildSettingsWindowContent(_settingsWindow);
         _settingsWindow.FontFamily = AppTypography.UiFontFamily;
         _settingsWindow.FontSize = AppTypography.Scale(12);
@@ -830,6 +834,8 @@ public sealed partial class AppController
         leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
+        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode"), topMargin: 8), "TipMarkdownRender"));
+        leftColumn.Children.Add(CreateMarkdownRenderSegmentSelector());
 
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
         rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages), "TipAutoCompressLargeImages"));
@@ -894,7 +900,7 @@ public sealed partial class AppController
         var scrollViewer = new ScrollViewer
         {
             Content = columns,
-            MaxHeight = SettingsOptionsMaxHeight(),
+            Height = SettingsOptionsMaxHeight(),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false,
@@ -938,8 +944,6 @@ public sealed partial class AppController
         leftColumn.Children.Add(CreateUiFontPresetSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsOverallFontScale")), "TipOverallFontScale"));
         leftColumn.Children.Add(CreateOverallFontScaleStepper());
-        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode")), "TipMarkdownRender"));
-        leftColumn.Children.Add(CreateMarkdownRenderSegmentSelector());
 
         void AddTextStyleEditor(
             StackPanel column,
@@ -1013,7 +1017,7 @@ public sealed partial class AppController
         return new ScrollViewer
         {
             Content = columns,
-            MaxHeight = SettingsOptionsMaxHeight(),
+            Height = SettingsOptionsMaxHeight(),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false,
@@ -1128,7 +1132,8 @@ public sealed partial class AppController
             BorderBrush = TrayBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
-            MaxHeight = SettingsWindowMaxHeight(),
+            Width = SettingsWindowWidth(),
+            Height = SettingsWindowHeight(),
             Padding = new Thickness(14, 12, 14, 14),
             Child = root
         };
@@ -1199,6 +1204,12 @@ public sealed partial class AppController
         return Math.Max(260, SystemParameters.WorkArea.Height - 48);
     }
 
+    private static double SettingsWindowHeight()
+    {
+        // Fixed height across General / Visual / Shortcuts so page switches do not resize the window.
+        return Math.Clamp(AppTypography.Scale(560), 420, SettingsWindowMaxHeight());
+    }
+
     private static double SettingsOptionsMaxHeight()
     {
         const double verticalPadding = 26;
@@ -1207,7 +1218,7 @@ public sealed partial class AppController
         const double footerHeight = 24;
         return Math.Max(
             180,
-            SettingsWindowMaxHeight() - verticalPadding - titleRowHeight - pageSelectorHeight - footerHeight);
+            SettingsWindowHeight() - verticalPadding - titleRowHeight - pageSelectorHeight - footerHeight);
     }
 
     private static TextBlock SettingsSectionLabel(string text)
