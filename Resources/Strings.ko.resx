@@ -820,6 +820,13 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="ShortcutEdgeDigitsFixedTip" xml:space="preserve">
     <value>숫자는 1~9로 고정되며, 수정 키만 바꿀 수 있습니다.</value>
   </data>
+  <data name="SettingsOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>큐 바로 가기를 마우스 위치에 열기</value>
+  </data>
+  <data name="TipOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>켜면 가장자리 큐 바로 가기로 종이를 마우스 위치에 펼칩니다.
+끄면 붙인 가장자리 또는 기억한 위치에서 엽니다.</value>
+  </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>명령</value>
   </data>

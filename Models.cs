@@ -282,6 +282,9 @@ public sealed class AppState
     public int DeepCapsuleTitleMeasureCharacterLimit { get; set; }
     public Dictionary<string, string> GlobalHotkeys { get; set; } = new();
     public Dictionary<string, bool> GlobalHotkeyEnabled { get; set; } = new();
+    // When true, edge-queue shortcuts expand the paper centered under the current mouse pointer
+    // instead of the docked edge / remembered expanded geometry.
+    public bool OpenEdgeCapsuleShortcutAtCursor { get; set; } = true;
     public double DeepCapsuleStartTopMargin { get; set; } = EdgeCapsuleLayout.StartTopMargin;
 
     // Per-queue vertical start margin, keyed by "monitorDevice|side". A missing key falls back to

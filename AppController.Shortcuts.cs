@@ -356,6 +356,7 @@ public sealed partial class AppController
                 _shortcutEnabledDraft![definition.Id] = definition.DefaultEnabled;
             }
 
+            State.OpenEdgeCapsuleShortcutAtCursor = true;
             _shortcutRecordingCommandId = null;
             ApplyShortcutDraft();
         };
@@ -392,9 +393,38 @@ public sealed partial class AppController
                 edgeQueueTipLabelWidth));
         }
 
+        // Tip glued to the label (not star-stretched to the far right of the page).
+        var openAtCursorToggle = SettingsToggle(
+            Strings.Get("SettingsOpenEdgeCapsuleShortcutAtCursor"),
+            State.OpenEdgeCapsuleShortcutAtCursor,
+            ToggleOpenEdgeCapsuleShortcutAtCursor);
+        openAtCursorToggle.Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = Strings.Get("SettingsOpenEdgeCapsuleShortcutAtCursor"),
+                    Foreground = TrayTextBrush,
+                    FontSize = AppTypography.Scale(13),
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                CreateSettingsHintGlyph("TipOpenEdgeCapsuleShortcutAtCursor", new Thickness(4, 0, 0, 0))
+            }
+        };
+        rows.Children.Add(openAtCursorToggle);
+
         root.Children.Add(rows);
 
         return root;
+    }
+
+    private void ToggleOpenEdgeCapsuleShortcutAtCursor()
+    {
+        State.OpenEdgeCapsuleShortcutAtCursor = !State.OpenEdgeCapsuleShortcutAtCursor;
+        MarkDirty();
     }
 
     private void FocusShortcutRecorder()

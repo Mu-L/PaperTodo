@@ -820,6 +820,13 @@ Default modifiers: Ctrl+Alt.</value>
   <data name="ShortcutEdgeDigitsFixedTip" xml:space="preserve">
     <value>Digits are fixed to 1–9; only the modifiers can change.</value>
   </data>
+  <data name="SettingsOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>Open queue shortcuts at mouse</value>
+  </data>
+  <data name="TipOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>When on, edge-queue shortcuts expand the paper under the mouse pointer.
+When off, open at the docked edge or remembered position.</value>
+  </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>Command</value>
   </data>

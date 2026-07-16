@@ -84,7 +84,69 @@ public sealed partial class PaperWindow
 
     internal void ActivateFromEdgeShortcut()
     {
-        ActivateFromDeepCapsuleSlot();
+        CloseDeepCapsuleSlotContextMenu();
+        if (TryRunScriptCapsule())
+        {
+            return;
+        }
+
+        if (_paper.IsCollapsed)
+        {
+            if (TryGetEdgeShortcutCursorOrigin(out var placement))
+            {
+                ShowMainWindowForDeepCapsuleActivation(placement);
+                SetCollapsedStateCore(
+                    collapsed: false,
+                    animate: true,
+                    saveGeometry: true,
+                    alignExpandedToDockedEdge: false,
+                    activateOnExpand: true,
+                    programmaticOrigin: placement);
+            }
+            else
+            {
+                ShowMainWindowForDeepCapsuleActivation();
+                SetCollapsedState(false, alignExpandedToDockedEdge: true, activateOnExpand: true);
+            }
+            return;
+        }
+
+        // Collapse-on-click must run before any cursor placement: writing paper.X/Y here would
+        // clobber the expanded geometry even though this invocation only folds the paper.
+        if (_controller.State.CollapseExpandedDeepCapsuleOnClick &&
+            (HoldsDeepCapsuleSlotWhileExpanded || HasExpandedDeepCapsuleSlotReservation))
+        {
+            SetCollapsedState(true, alignExpandedToDockedEdge: true);
+            return;
+        }
+
+        if (TryGetEdgeShortcutCursorOrigin(out var movePlacement))
+        {
+            MoveWindowWithoutGeometrySave(() => MoveMainWindowToProgrammaticExpansionOrigin(movePlacement));
+            _controller.UpdateGeometry(_paper, this);
+            _controller.BringPaperToFront(_paper);
+            return;
+        }
+
+        EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);
+        _controller.BringPaperToFront(_paper);
+    }
+
+    private bool TryGetEdgeShortcutCursorOrigin(out ProgrammaticPaperExpansionOrigin origin)
+    {
+        origin = default;
+        if (!_controller.State.OpenEdgeCapsuleShortcutAtCursor ||
+            !_controller.TryCreateCursorPaperPlacement(
+                Math.Max(_paper.Width, PaperLayoutDefaults.MinWidth),
+                Math.Max(_paper.Height, PaperLayoutDefaults.MinHeight),
+                out var cursorLeft,
+                out var cursorTop))
+        {
+            return false;
+        }
+
+        origin = new ProgrammaticPaperExpansionOrigin(cursorLeft, cursorTop);
+        return true;
     }
 
     private void ActivateFromDeepCapsuleSlot()

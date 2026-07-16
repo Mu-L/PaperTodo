@@ -251,6 +251,7 @@ public sealed partial class AppController : IDisposable
         }
         else if (cursorMonitor is { } cursorTarget)
         {
+            // Provisional; refined to cursor-centered placement after size is known.
             newX = cursorTarget.WorkArea.Left + 40;
             newY = cursorTarget.WorkArea.Top + 40;
         }
@@ -281,7 +282,16 @@ public sealed partial class AppController : IDisposable
                 paper.Type == PaperTypes.Note ? PaperLayoutDefaults.NoteDefaultHeight : PaperLayoutDefaults.TodoDefaultHeight,
                 PaperLayoutDefaults.MinHeight,
                 Math.Max(PaperLayoutDefaults.MinHeight, targetMonitor.WorkArea.Height - 80));
-            PlacePaperInWorkArea(paper, targetMonitor.WorkArea, State.Papers.Count);
+            if (sourcePaper == null &&
+                TryCreateCursorPaperPlacement(paper.Width, paper.Height, out var cursorLeft, out var cursorTop))
+            {
+                paper.X = cursorLeft;
+                paper.Y = cursorTop;
+            }
+            else
+            {
+                PlacePaperInWorkArea(paper, targetMonitor.WorkArea, State.Papers.Count);
+            }
         }
         else
         {
@@ -2830,6 +2840,41 @@ public sealed partial class AppController : IDisposable
 
         paper.X = Math.Round(Math.Clamp(area.Left + margin + offset, minX, maxX));
         paper.Y = Math.Round(Math.Clamp(area.Top + margin + offset, minY, maxY));
+    }
+
+    // Center a paper on the current mouse pointer (global screen DIP), clamped into that
+    // monitor's work area. Used by shortcut/tray create and optional edge-queue open-at-cursor.
+    public bool TryCreateCursorPaperPlacement(double width, double height, out double left, out double top)
+    {
+        left = 0;
+        top = 0;
+        if (!WindowNative.TryGetCursorScreenPosition(out var cursorDevice) ||
+            WindowWorkAreaHelper.MonitorAtDeviceScreenPoint(cursorDevice) is not { } monitor)
+        {
+            return false;
+        }
+
+        var dip = WindowWorkAreaHelper.DeviceScreenPointToDip(cursorDevice);
+        const double margin = 8;
+        var area = monitor.WorkArea;
+        if (area.Width <= 0 || area.Height <= 0)
+        {
+            return false;
+        }
+
+        var w = Math.Max(width, PaperLayoutDefaults.MinWidth);
+        var h = Math.Max(height, PaperLayoutDefaults.MinHeight);
+        w = Math.Min(w, Math.Max(PaperLayoutDefaults.MinWidth, area.Width - (margin * 2)));
+        h = Math.Min(h, Math.Max(PaperLayoutDefaults.MinHeight, area.Height - (margin * 2)));
+
+        var minX = area.Left + margin;
+        var maxX = Math.Max(minX, area.Right - w - margin);
+        var minY = area.Top + margin;
+        var maxY = Math.Max(minY, area.Bottom - h - margin);
+
+        left = Math.Round(Math.Clamp(dip.X - (w / 2.0), minX, maxX));
+        top = Math.Round(Math.Clamp(dip.Y - (h / 2.0), minY, maxY));
+        return true;
     }
 
     private void NudgeNewPaperAwayFromExistingPapers(PaperData paper, Rect area)

@@ -820,6 +820,13 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="ShortcutEdgeDigitsFixedTip" xml:space="preserve">
     <value>数字は 1～9 固定。変更できるのは修飾キーだけです。</value>
   </data>
+  <data name="SettingsOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>キューのショートカットをマウス位置で開く</value>
+  </data>
+  <data name="TipOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>オンにすると、サイドキューのショートカットで紙をマウス位置に展開します。
+オフのときは貼り付け辺または記憶した位置で開きます。</value>
+  </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>コマンド</value>
   </data>

@@ -833,6 +833,13 @@
   <data name="ShortcutEdgeDigitsFixedTip" xml:space="preserve">
     <value>数字固定 1–9，只能改前面的修饰键。</value>
   </data>
+  <data name="SettingsOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>快捷键打开到鼠标位置</value>
+  </data>
+  <data name="TipOpenEdgeCapsuleShortcutAtCursor" xml:space="preserve">
+    <value>开启后，队列快捷键展开纸片时放到当前鼠标位置。
+关闭时仍按贴边或记住的展开位置打开。</value>
+  </data>
   <data name="ShortcutCommandHeader" xml:space="preserve">
     <value>命令</value>
   </data>
