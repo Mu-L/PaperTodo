@@ -10,7 +10,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsulePresenter
 {
-    private const int MaximumApplyRetryFrames = 3;
+    private const int MaximumApplyRetryFrames = 5;
     private const EdgeCapsuleDirty PresentationWorkMask =
         EdgeCapsuleDirty.Presentation |
         EdgeCapsuleDirty.Measure |
@@ -460,6 +460,8 @@ internal sealed class EdgeCapsulePresenter
                 {
                     return;
                 }
+                // This only reports that Presenter work drained. Cross-HWND callers still verify
+                // the native host with ConfirmPresentationSettled before releasing their cover.
                 CompletePresentationSettle(success: true);
             }),
             DispatcherPriority.ContextIdle);

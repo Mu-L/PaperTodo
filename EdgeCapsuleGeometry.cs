@@ -35,6 +35,19 @@ internal readonly record struct EdgeCapsuleGeometryResult(
 
 internal readonly record struct EdgeCapsuleVerticalEdges(int Top, int Bottom);
 
+internal readonly record struct EdgeCapsuleFloatingHandoffGeometry(
+    DeviceScreenRect HostStartBounds,
+    DeviceScreenRect HostTargetBounds,
+    DeviceScreenRect SurfaceStartBounds,
+    DeviceScreenRect SurfaceTargetBounds)
+{
+    public bool IsUsable =>
+        !HostStartBounds.IsEmpty &&
+        !HostTargetBounds.IsEmpty &&
+        !SurfaceStartBounds.IsEmpty &&
+        !SurfaceTargetBounds.IsEmpty;
+}
+
 /// <summary>
 /// The only physical-pixel geometry calculator for docked edge capsules. It has no WPF visual,
 /// window or model dependency: the same input always returns the same rectangle.
@@ -142,9 +155,9 @@ internal static class EdgeCapsuleGeometry
     }
 
     /// <summary>
-    /// Final floating-HWND rectangle whose pill body matches the docked tag. Its symmetric
-    /// wall-side chrome margin finishes just outside the work area, while the interior edge stays
-    /// aligned with the docked surface for a gap-free visual hand-off.
+    /// Docking anchor whose wall-side chrome margin finishes just outside the work area, while its
+    /// interior edge matches the docked surface. This may be narrower than a FloatingFree window;
+    /// use <see cref="FloatingHandoffGeometry"/> to keep native capacity separate from that surface.
     /// </summary>
     public static DeviceScreenRect FloatingHandoffBoundsForDockedBounds(
         DeviceScreenRect dockedBounds,
@@ -172,17 +185,63 @@ internal static class EdgeCapsuleGeometry
                 dockedBounds.Bottom);
     }
 
+    /// <summary>
+    /// Builds a fixed-capacity native flight and a separate visible-surface flight. The HWND keeps
+    /// the larger endpoint capacity while the FloatingFree visual can reflow to the exact docking
+    /// anchor inside it, so shrinking the pill never clips it at the native window boundary.
+    /// </summary>
+    public static EdgeCapsuleFloatingHandoffGeometry FloatingHandoffGeometry(
+        DeviceScreenRect startSurfaceBounds,
+        DeviceScreenRect dockingAnchorBounds,
+        EdgeCapsuleEdge edge)
+    {
+        if (startSurfaceBounds.IsEmpty || dockingAnchorBounds.IsEmpty)
+        {
+            return default;
+        }
+
+        var hostWidth = Math.Max(startSurfaceBounds.Width, dockingAnchorBounds.Width);
+        var hostHeight = Math.Max(startSurfaceBounds.Height, dockingAnchorBounds.Height);
+        var hostStartLeft = edge == EdgeCapsuleEdge.Left
+            ? startSurfaceBounds.Left
+            : startSurfaceBounds.Right - hostWidth;
+        var hostTargetLeft = edge == EdgeCapsuleEdge.Left
+            ? dockingAnchorBounds.Left
+            : dockingAnchorBounds.Right - hostWidth;
+        var hostStartTop = startSurfaceBounds.Top - RoundDevice(
+            (hostHeight - startSurfaceBounds.Height) / 2.0);
+        var hostTargetTop = dockingAnchorBounds.Top - RoundDevice(
+            (hostHeight - dockingAnchorBounds.Height) / 2.0);
+        return new EdgeCapsuleFloatingHandoffGeometry(
+            new DeviceScreenRect(
+                hostStartLeft,
+                hostStartTop,
+                hostStartLeft + hostWidth,
+                hostStartTop + hostHeight),
+            new DeviceScreenRect(
+                hostTargetLeft,
+                hostTargetTop,
+                hostTargetLeft + hostWidth,
+                hostTargetTop + hostHeight),
+            startSurfaceBounds,
+            dockingAnchorBounds);
+    }
+
     public static DeviceScreenRect InterpolateDeviceBounds(
         DeviceScreenRect start,
         DeviceScreenRect target,
         double progress)
     {
         progress = Math.Clamp(progress, 0, 1);
+        var left = LerpDevice(start.Left, target.Left, progress);
+        var top = LerpDevice(start.Top, target.Top, progress);
+        var width = LerpDevice(start.Width, target.Width, progress);
+        var height = LerpDevice(start.Height, target.Height, progress);
         return new DeviceScreenRect(
-            LerpDevice(start.Left, target.Left, progress),
-            LerpDevice(start.Top, target.Top, progress),
-            LerpDevice(start.Right, target.Right, progress),
-            LerpDevice(start.Bottom, target.Bottom, progress));
+            left,
+            top,
+            left + width,
+            top + height);
     }
 
     public static EdgeCapsuleVerticalEdges CalculateVerticalEdges(

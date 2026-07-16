@@ -59,6 +59,13 @@ public sealed partial class PaperWindow
         if (msg is WmDpiChanged or WmDisplayChange or WmSettingChange)
         {
             WindowWorkAreaHelper.InvalidateMonitorGeometryCache();
+            if (IsDeepCapsuleDockingReveal)
+            {
+                // Reveal is the only atomic cross-HWND boundary. Keep the already-confirmed pair
+                // unchanged for these few frames; the controller replays fresh metrics on commit.
+                _controller.DeferDisplayMetricsRefreshUntilDeepCapsuleDragEnds();
+                return IntPtr.Zero;
+            }
             // DPI hand-off, display removal and work-area changes can all rewrite a visible HWND
             // after its logical frame was committed. Invalidate both native and measured state so
             // an unchanged target is still replayed after WPF finishes processing this message.

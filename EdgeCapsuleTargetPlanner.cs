@@ -25,7 +25,12 @@ internal static class EdgeCapsuleTargetPlanner
         var retracting = model.State.Slot is
             EdgeCapsuleSlotState.RetractingCollapsed or
             EdgeCapsuleSlotState.RetractingExpanded;
-        var floating = model.State.Gesture is
+        var ownsFloatingHost = model.State.Gesture is
+            EdgeCapsuleGestureState.FloatingTransfer or
+            EdgeCapsuleGestureState.FloatingReordering or
+            EdgeCapsuleGestureState.DockingHandoff or
+            EdgeCapsuleGestureState.DockingReveal;
+        var dockedSuppressed = model.State.Gesture is
             EdgeCapsuleGestureState.FloatingTransfer or
             EdgeCapsuleGestureState.FloatingReordering or
             EdgeCapsuleGestureState.DockingHandoff;
@@ -52,8 +57,8 @@ internal static class EdgeCapsuleTargetPlanner
             hostBodyWidth,
             layout.MaximumCloseWidthDip,
             layout.HeightDip));
-        var surface = SurfaceFor(model, retracted, retracting, floating);
-        var hitTest = !retracted && !floating;
+        var surface = SurfaceFor(model, retracted, retracting, dockedSuppressed);
+        var hitTest = !retracted && !ownsFloatingHost;
         var interactiveBounds = hitTest ? geometry.InteractiveBounds : default;
         var docked = new EdgeCapsuleTargetPresentation(
             true,
@@ -68,11 +73,11 @@ internal static class EdgeCapsuleTargetPlanner
             geometry.DpiScaleY,
             layout.MaximumCloseWidthDip,
             retracted ? 0 : 1,
-            floating ? 0 : 1,
-            !retracted && !floating && model.State.Visual == EdgeCapsuleVisualState.Active,
+            dockedSuppressed ? 0 : 1,
+            !retracted && !dockedSuppressed && model.State.Visual == EdgeCapsuleVisualState.Active,
             hitTest);
 
-        var floatingShape = floating
+        var floatingShape = ownsFloatingHost
             ? CreateFloatingShape(layout, model.State.Visual == EdgeCapsuleVisualState.Active)
             : EdgeCapsuleFloatingShape.Hidden;
         return new EdgeCapsulePresentationPlan(docked, floatingShape);
@@ -82,9 +87,9 @@ internal static class EdgeCapsuleTargetPlanner
         EdgeCapsuleModel model,
         bool retracted,
         bool retracting,
-        bool floating)
+        bool dockedSuppressed)
     {
-        if (floating)
+        if (dockedSuppressed)
         {
             return EdgeCapsuleSurfaceKind.DockedSuppressed;
         }

@@ -27,7 +27,10 @@ internal enum EdgeCapsuleGestureState
     FloatingReordering,
     // Pointer input has ended and the destination queue is committed. The floating HWND still
     // covers the suppressed docked host while it animates into the authoritative target frame.
-    DockingHandoff
+    DockingHandoff,
+    // Both HWNDs now cover the same capsule. The permanent host is confirmed beneath the floating
+    // cover; that cover then fades out while input stays disabled until commit.
+    DockingReveal
 }
 
 internal enum EdgeCapsuleOpenOrigin
@@ -153,6 +156,7 @@ internal abstract record EdgeCapsuleIntent
     internal sealed record BeginFloatingTransfer(DeviceScreenPoint Point) : EdgeCapsuleIntent;
     internal sealed record BeginFloatingReorder : EdgeCapsuleIntent;
     internal sealed record BeginDockingHandoff : EdgeCapsuleIntent;
+    internal sealed record BeginDockingReveal : EdgeCapsuleIntent;
     internal sealed record FinishPointer : EdgeCapsuleIntent;
     internal sealed record MarkOpenedFromEdge : EdgeCapsuleIntent;
     internal sealed record ClearOpenOrigin : EdgeCapsuleIntent;
@@ -226,6 +230,9 @@ internal abstract record EdgeCapsuleIntent
 
     public static EdgeCapsuleIntent DockingHandoffStarted() =>
         new BeginDockingHandoff();
+
+    public static EdgeCapsuleIntent DockingRevealStarted() =>
+        new BeginDockingReveal();
 
     public static EdgeCapsuleIntent PointerInteractionFinished() =>
         new FinishPointer();

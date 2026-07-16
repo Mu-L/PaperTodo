@@ -30,6 +30,7 @@ internal static class EdgeCapsuleReducer
                 BeginFloatingTransfer(model, transfer.Point),
             EdgeCapsuleIntent.BeginFloatingReorder => BeginFloatingReorder(model),
             EdgeCapsuleIntent.BeginDockingHandoff => BeginDockingHandoff(model),
+            EdgeCapsuleIntent.BeginDockingReveal => BeginDockingReveal(model),
             EdgeCapsuleIntent.FinishPointer => FinishPointer(model),
             EdgeCapsuleIntent.MarkOpenedFromEdge => Accept(model, model with
             {
@@ -370,6 +371,20 @@ internal static class EdgeCapsuleReducer
         });
     }
 
+    private static EdgeCapsuleDispatchResult BeginDockingReveal(EdgeCapsuleModel model)
+    {
+        if (model.State.Gesture != EdgeCapsuleGestureState.DockingHandoff ||
+            model.DragSession != null ||
+            model.State.Slot == EdgeCapsuleSlotState.None)
+        {
+            return Reject(model, "Docking reveal requires an attached hand-off without pointer input.");
+        }
+        return Accept(model, model with
+        {
+            State = model.State with { Gesture = EdgeCapsuleGestureState.DockingReveal }
+        });
+    }
+
     private static EdgeCapsuleDispatchResult FinishPointer(EdgeCapsuleModel model) =>
         Accept(model, model with
         {
@@ -414,7 +429,8 @@ internal static class EdgeCapsuleReducer
                 EdgeCapsuleGestureState.DockedReordering or
                 EdgeCapsuleGestureState.FloatingTransfer or
                 EdgeCapsuleGestureState.FloatingReordering or
-                EdgeCapsuleGestureState.DockingHandoff) || attached);
+                EdgeCapsuleGestureState.DockingHandoff or
+                EdgeCapsuleGestureState.DockingReveal) || attached);
     }
 
     private static EdgeCapsuleDispatchResult Accept(

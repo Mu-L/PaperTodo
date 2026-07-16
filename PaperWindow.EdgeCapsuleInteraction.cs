@@ -208,6 +208,7 @@ public sealed partial class PaperWindow
             FlushEdgeCapsulePresentation(
                 EdgeCapsuleTransitionReason.FloatingTransfer,
                 EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
+            _controller.CompleteDeepCapsuleReorderDrag();
             _controller.ScheduleDisplayMetricsRefresh();
             return;
         }
@@ -222,7 +223,9 @@ public sealed partial class PaperWindow
     private void AwaitDeepCapsuleDockedPresentation(
         EdgeCapsuleDragWindow floatingHost,
         Action<bool> completed,
-        bool allowImmediateReplay = true)
+        bool allowImmediateReplay = true,
+        bool flushImmediately = true,
+        EdgeCapsuleDirty dirty = EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure)
     {
         if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
             !HasDeepCapsuleSlotPlacement ||
@@ -254,15 +257,21 @@ public sealed partial class PaperWindow
                 AwaitDeepCapsuleDockedPresentation(
                     floatingHost,
                     completed,
-                    allowImmediateReplay: false);
+                    allowImmediateReplay: false,
+                    flushImmediately: true,
+                    dirty: dirty);
                 return;
             }
 
             completed(settled);
         });
+        if (!flushImmediately)
+        {
+            return;
+        }
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.FloatingTransfer,
-            EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
+            dirty);
     }
 
     private void CompleteDeepCapsuleFloatingDragDrop()
@@ -288,20 +297,27 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            if (settled)
-            {
-                // ContextIdle has let WPF submit the revealed docked surface. Do not destroy the
-                // floating cover until DWM has presented that update, otherwise two independent
-                // layered HWNDs can expose the desktop for one or two refresh frames.
-                WindowNative.FlushDesktopComposition();
-            }
-            CloseDeepCapsuleFloatingDragHost();
             if (!settled)
             {
-                // Confirmation makes an unsettled host transparent before the cover is removed;
-                // the debounced topology pass then restores it from a fresh monitor snapshot.
-                _controller.ScheduleDisplayMetricsRefresh();
+                // Confirmation hides a rejected docked host. Keep the real floating cover alive
+                // and return to the same hand-off pipeline instead of exposing an empty frame.
+                floatingHost.RestoreDockingCover();
+                if (BeginEdgeCapsuleDockingHandoff())
+                {
+                    BeginDeepCapsuleFloatingDockingHandoff();
+                }
+                else
+                {
+                    _controller.ScheduleDisplayMetricsRefresh();
+                }
+                return;
             }
+
+            // ContextIdle has let WPF submit the revealed docked surface. Do not destroy the
+            // floating cover until DWM has presented that update, otherwise two independent
+            // layered HWNDs can expose the desktop for one or two refresh frames.
+            WindowNative.FlushDesktopComposition();
+            CloseDeepCapsuleFloatingDragHost();
         });
     }
 
@@ -309,7 +325,7 @@ public sealed partial class PaperWindow
     {
         var floatingHost = _deepCapsuleFloatingDragHost;
         if (floatingHost == null ||
-            !IsDeepCapsuleDockingHandoff ||
+            !IsDeepCapsuleDockingFlight ||
             !HasDeepCapsuleSlotPlacement ||
             _edgeCapsuleHost == null)
         {
@@ -323,33 +339,37 @@ public sealed partial class PaperWindow
         AwaitDeepCapsuleDockedPresentation(floatingHost, settled =>
         {
             if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
-                !IsDeepCapsuleDockingHandoff)
+                !IsDeepCapsuleDockingFlight)
             {
                 return;
             }
 
+            var targetEdge = default(EdgeCapsuleEdge);
             var targetBounds = settled
-                ? CurrentDeepCapsuleFloatingHandoffTargetBounds()
+                ? CurrentDeepCapsuleFloatingHandoffTargetBounds(out targetEdge)
                 : default;
-            if (targetBounds.IsEmpty)
+            if (!settled || targetBounds.IsEmpty)
             {
-                FinishEdgeCapsulePointerInteraction();
-                CompleteDeepCapsuleFloatingDragDrop();
+                RecoverDeepCapsuleFloatingDockingHandoff(floatingHost);
                 return;
             }
 
             AnimateDeepCapsuleFloatingDockingHandoff(
                 floatingHost,
                 targetBounds,
-                allowRetarget: true);
+                targetEdge);
         });
     }
 
-    private DeviceScreenRect CurrentDeepCapsuleFloatingHandoffTargetBounds()
+    private DeviceScreenRect CurrentDeepCapsuleFloatingHandoffTargetBounds(
+        out EdgeCapsuleEdge edge)
     {
         var frame = _edgeCapsule.AppliedPresentation;
+        edge = frame.Edge;
         return frame.Visible &&
-            frame.Surface == EdgeCapsuleSurfaceKind.DockedSuppressed &&
+            frame.Surface is not (
+                EdgeCapsuleSurfaceKind.Hidden or
+                EdgeCapsuleSurfaceKind.FloatingFree) &&
             !frame.Bounds.IsEmpty
                 ? EdgeCapsuleGeometry.FloatingHandoffBoundsForDockedBounds(
                     frame.Bounds,
@@ -362,15 +382,18 @@ public sealed partial class PaperWindow
     private void AnimateDeepCapsuleFloatingDockingHandoff(
         EdgeCapsuleDragWindow floatingHost,
         DeviceScreenRect targetBounds,
-        bool allowRetarget)
+        EdgeCapsuleEdge targetEdge)
     {
         floatingHost.AnimateDockingHandoff(
             targetBounds,
-            DeepCapsuleDockingHandoffMilliseconds,
+            targetEdge,
+            _controller.State.EnableAnimations
+                ? DeepCapsuleDockingHandoffMilliseconds
+                : 1,
             floatingSettled =>
             {
                 if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
-                    !IsDeepCapsuleDockingHandoff)
+                    !IsDeepCapsuleDockingFlight)
                 {
                     return;
                 }
@@ -380,33 +403,221 @@ public sealed partial class PaperWindow
                 AwaitDeepCapsuleDockedPresentation(floatingHost, dockedSettled =>
                 {
                     if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
-                        !IsDeepCapsuleDockingHandoff)
+                        !IsDeepCapsuleDockingFlight)
                     {
                         return;
                     }
 
+                    var latestTargetEdge = targetEdge;
                     var latestTargetBounds = dockedSettled
-                        ? CurrentDeepCapsuleFloatingHandoffTargetBounds()
+                        ? CurrentDeepCapsuleFloatingHandoffTargetBounds(out latestTargetEdge)
                         : default;
-                    if (allowRetarget &&
-                        !latestTargetBounds.IsEmpty &&
-                        (!floatingSettled || latestTargetBounds != targetBounds))
+                    if (!dockedSettled || latestTargetBounds.IsEmpty)
                     {
+                        RecoverDeepCapsuleFloatingDockingHandoff(floatingHost);
+                        return;
+                    }
+                    if (latestTargetBounds != targetBounds ||
+                        latestTargetEdge != targetEdge)
+                    {
+                        // A topology/measure update during the flight becomes a new authoritative
+                        // target. Re-run from the actual visible endpoint until one target remains
+                        // stable; this is not limited to a single stale retarget.
                         AnimateDeepCapsuleFloatingDockingHandoff(
                             floatingHost,
                             latestTargetBounds,
-                            allowRetarget: false);
+                            latestTargetEdge);
+                        return;
+                    }
+                    if (!floatingSettled)
+                    {
+                        RecoverDeepCapsuleFloatingDockingHandoff(floatingHost);
                         return;
                     }
 
-                    // Reveal the permanent host only after the floating pill reaches its exact
-                    // current cover rectangle. If one retry still races topology, the existing
-                    // settle/Confirm path owns the reliable synchronous fallback.
-                    FinishEdgeCapsulePointerInteraction();
-                    CompleteDeepCapsuleFloatingDragDrop();
-                    _controller.RefreshFloatingSurfaceZOrder();
+                    BeginDeepCapsuleDockingReveal(
+                        floatingHost,
+                        latestTargetBounds,
+                        latestTargetEdge);
                 });
             });
+    }
+
+    private void BeginDeepCapsuleDockingReveal(
+        EdgeCapsuleDragWindow floatingHost,
+        DeviceScreenRect coverBounds,
+        EdgeCapsuleEdge coverEdge)
+    {
+        if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+            !IsDeepCapsuleDockingFlight ||
+            !BeginEdgeCapsuleDockingReveal())
+        {
+            RecoverDeepCapsuleFloatingDockingHandoff(floatingHost);
+            return;
+        }
+
+        // Build and fully confirm the permanent surface underneath the opaque floating cover.
+        // Only then is the cover faded, so there is never a frame in which both HWNDs are absent.
+        AwaitDeepCapsuleDockedPresentation(
+            floatingHost,
+            dockedSettled =>
+            {
+                if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+                    !IsDeepCapsuleDockingReveal)
+                {
+                    return;
+                }
+                if (!dockedSettled)
+                {
+                    RollBackDeepCapsuleDockingReveal(floatingHost);
+                    return;
+                }
+                var currentCoverBounds = CurrentDeepCapsuleFloatingHandoffTargetBounds(
+                    out var currentCoverEdge);
+                if (currentCoverBounds != coverBounds || currentCoverEdge != coverEdge)
+                {
+                    RollBackDeepCapsuleDockingReveal(floatingHost);
+                    return;
+                }
+
+                floatingHost.AnimateDockingReveal(
+                    _controller.State.EnableAnimations
+                        ? DeepCapsuleDockingRevealMilliseconds
+                        : 1,
+                    floatingFaded => CompleteDeepCapsuleDockingReveal(
+                        floatingHost,
+                        floatingFaded,
+                        coverBounds,
+                        coverEdge));
+            },
+            allowImmediateReplay: false,
+            dirty: EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
+    }
+
+    private void CompleteDeepCapsuleDockingReveal(
+        EdgeCapsuleDragWindow floatingHost,
+        bool floatingFaded,
+        DeviceScreenRect coverBounds,
+        EdgeCapsuleEdge coverEdge)
+    {
+        if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+            !IsDeepCapsuleDockingReveal)
+        {
+            return;
+        }
+        if (!floatingFaded)
+        {
+            RollBackDeepCapsuleDockingReveal(floatingHost);
+            return;
+        }
+        var currentCoverBounds = CurrentDeepCapsuleFloatingHandoffTargetBounds(
+            out var currentCoverEdge);
+        if (currentCoverBounds != coverBounds || currentCoverEdge != coverEdge)
+        {
+            RollBackDeepCapsuleDockingReveal(floatingHost);
+            return;
+        }
+
+        // Reveal already confirmed all visible geometry. The final state change only enables input,
+        // so it can be committed synchronously while the transparent cover is still available.
+        if (!FinishEdgeCapsuleDockingHandoff())
+        {
+            RollBackDeepCapsuleDockingReveal(floatingHost);
+            return;
+        }
+        FlushEdgeCapsulePresentation(EdgeCapsuleTransitionReason.FloatingTransfer);
+        var applied = _edgeCapsule.AppliedPresentation;
+        if (!applied.IsHitTestVisible ||
+            _edgeCapsuleHost?.ConfirmPresentationSettled(applied) != true)
+        {
+            RollBackDeepCapsuleDockingReveal(floatingHost);
+            return;
+        }
+
+        WindowNative.FlushDesktopComposition();
+        CloseDeepCapsuleFloatingDragHost();
+        _controller.CompleteDeepCapsuleReorderDrag();
+        _controller.RefreshFloatingSurfaceZOrder();
+    }
+
+    private void RollBackDeepCapsuleDockingReveal(EdgeCapsuleDragWindow floatingHost)
+    {
+        if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost))
+        {
+            return;
+        }
+
+        floatingHost.RestoreDockingCover();
+        if (IsDeepCapsuleDockingReveal)
+        {
+            FinishEdgeCapsulePointerInteraction();
+        }
+        if (!IsDeepCapsuleDockingFlight && !BeginEdgeCapsuleDockingHandoff())
+        {
+            CompleteDeepCapsuleFloatingDragDrop();
+            return;
+        }
+
+        // Leaving Reveal releases any display/arrange batch deferred across the ownership switch.
+        // Its fresh target is then consumed by the normal stable-target hand-off path.
+        _controller.CompleteDeepCapsuleReorderDrag();
+        BeginDeepCapsuleFloatingDockingHandoff();
+    }
+
+    private void RecoverDeepCapsuleFloatingDockingHandoff(
+        EdgeCapsuleDragWindow floatingHost,
+        bool scheduleDisplayRefresh = true)
+    {
+        if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+            !IsDeepCapsuleDockingFlight ||
+            !HasDeepCapsuleSlotPlacement ||
+            _edgeCapsuleHost == null)
+        {
+            FinishEdgeCapsulePointerInteraction();
+            CloseDeepCapsuleFloatingDragHost();
+            return;
+        }
+
+        floatingHost.RestoreDockingCover();
+        AwaitDeepCapsuleDockedPresentation(
+            floatingHost,
+            settled =>
+            {
+                if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+                    !IsDeepCapsuleDockingFlight)
+                {
+                    return;
+                }
+                if (!settled)
+                {
+                    // Keep one passive observer armed after the explicit refresh. A later external
+                    // display batch can resume the transaction without a permanent retry timer.
+                    RecoverDeepCapsuleFloatingDockingHandoff(
+                        floatingHost,
+                        scheduleDisplayRefresh: false);
+                    return;
+                }
+
+                var targetBounds = CurrentDeepCapsuleFloatingHandoffTargetBounds(
+                    out var targetEdge);
+                if (targetBounds.IsEmpty)
+                {
+                    RecoverDeepCapsuleFloatingDockingHandoff(
+                        floatingHost,
+                        scheduleDisplayRefresh: false);
+                    return;
+                }
+                AnimateDeepCapsuleFloatingDockingHandoff(
+                    floatingHost,
+                    targetBounds,
+                    targetEdge);
+            },
+            allowImmediateReplay: true,
+            flushImmediately: false);
+        if (scheduleDisplayRefresh)
+        {
+            _controller.ScheduleDisplayMetricsRefresh();
+        }
     }
 
     private void StartDeepCapsuleReorderDrag(DeviceScreenPoint currentScreenPos)
@@ -709,6 +920,7 @@ public sealed partial class PaperWindow
     private void CancelDeepCapsuleReorderDrag(bool restoreLayout = false)
     {
         var wasReordering = IsDeepCapsuleReordering;
+        var wasDockingReveal = IsDeepCapsuleDockingReveal;
         if (!wasReordering &&
             !IsDeepCapsuleSlotPendingClick &&
             _deepCapsuleFloatingDragHost == null)
@@ -730,7 +942,7 @@ public sealed partial class PaperWindow
         {
             FinishEdgeCapsulePointerInteraction();
             _edgeCapsuleHost?.ReleaseContentPointer();
-            if (wasReordering)
+            if (wasReordering || wasDockingReveal)
             {
                 _controller.CompleteDeepCapsuleReorderDrag();
                 _controller.RefreshFloatingSurfaceZOrder();

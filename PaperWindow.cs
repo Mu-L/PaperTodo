@@ -186,6 +186,7 @@ public sealed partial class PaperWindow : Window
     private const double DeepCapsuleCrossQueueDragScaleFrom = 0.97;
     private const int DeepCapsuleCrossQueueDragMorphMilliseconds = 90;
     private const int DeepCapsuleDockingHandoffMilliseconds = 160;
+    private const int DeepCapsuleDockingRevealMilliseconds = 80;
     // 圆角阶梯：所有元素只从这四档取值，避免散落的随手圆角。
     // 小元素（勾选框）/ 控件（按钮、徽标、行）/ 块（菜单、面板）/ 外壳（纸片、顶栏）。
     private const double RadiusSmall = 4;
@@ -209,7 +210,10 @@ public sealed partial class PaperWindow : Window
         EdgeCapsuleSlotState.RetractedExpanded or
         EdgeCapsuleSlotState.RetractingExpanded;
     public bool OccupiesDeepCapsuleSlot => _paper.IsVisible && HasDeepCapsuleSlotPlacement;
-    public bool IsDeepCapsuleReorderDragInProgress => IsDeepCapsuleReordering;
+    // The short reveal is the commit boundary of the same cross-HWND drag transaction. Keep
+    // queue/display rearrangement deferred until the verified docked surface owns presentation.
+    public bool IsDeepCapsuleReorderDragInProgress =>
+        IsDeepCapsuleReordering || IsDeepCapsuleDockingReveal;
     public bool SuppressGeometrySave => _suppressGeometrySave;
     // Ordinary collapsed capsules are the main PaperWindow and should still save X/Y.
     // Deep capsules use the slot-host window for docked geometry, so the hidden/parked
@@ -689,7 +693,7 @@ public sealed partial class PaperWindow : Window
 
         if (msg is WmDpiChanged or WmDisplayChange or WmSettingChange)
         {
-            if (IsDeepCapsuleReordering)
+            if (IsDeepCapsuleReordering || IsDeepCapsuleDockingReveal)
             {
                 _controller.DeferDisplayMetricsRefreshUntilDeepCapsuleDragEnds();
             }
@@ -1759,9 +1763,9 @@ public sealed partial class PaperWindow : Window
             FontSize = TitleFontSize,
             MinHeight = TitleLineHeight + 1,
             FontWeight = TitleFontWeight,
+            // UTF-16 unit guard at the hard full-width cap (20). Commit still clamps to the
+            // user setting (2–20) via PaperTitles.CleanCustomTitle so IME is not rewritten mid-edit.
             MaxLength = PaperTitles.MaxTitleLength,
-            // MaxLength is only a coarse UTF-16 guard; the real title limit is applied on commit
-            // so IME composition is never interrupted by rewriting TextBox.Text mid-edit.
             Padding = new Thickness(0),
             VerticalContentAlignment = VerticalAlignment.Center,
             FocusVisualStyle = null

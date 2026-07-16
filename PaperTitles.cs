@@ -4,13 +4,14 @@ namespace PaperTodo;
 
 public static class PaperTitles
 {
-    // Hard storage cap. Titles are never stored longer than this regardless of the user setting.
-    public const int MaxTitleLength = 40;
+    // Hard storage / edit cap in Unicode text elements (≈ full-width characters for CJK).
+    // Titles are never stored longer than this regardless of the user setting.
+    public const int MaxTitleLength = 20;
 
-    // User-configurable display/edit cap (Settings → 胶囊标题最大字数).
+    // User-configurable display/edit cap (Settings → 标题最大长度), within MaxTitleLength.
     public const int DefaultMaxTitleLength = 6;
     public const int MinConfigurableTitleLength = 2;
-    public const int MaxConfigurableTitleLength = 20;
+    public const int MaxConfigurableTitleLength = MaxTitleLength;
 
     public static int NormalizeMaxTitleLength(int value)
     {

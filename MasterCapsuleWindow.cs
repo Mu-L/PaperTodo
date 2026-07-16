@@ -604,7 +604,7 @@ public sealed class MasterCapsuleWindow : Window
         BeginAnimation(AnimatedTopProperty, topAnim, HandoffBehavior.SnapshotAndReplace);
     }
 
-    private void ScheduleMasterSettle(int moveGeneration)
+    private void ScheduleMasterSettle(int moveGeneration, int pass = 0)
     {
         // Windows can move an HWND again while completing WM_DPICHANGED/display removal. Resolve
         // the queue once more after WPF's layout work, guarded by the existing move generation.
@@ -629,6 +629,12 @@ public sealed class MasterCapsuleWindow : Window
                     targetTop,
                     MasterDockedWidth(geometry.DpiScaleY),
                     geometry);
+                if (pass == 0)
+                {
+                    // Display removal can deliver a second WPF/native rewrite after the first idle
+                    // turn. One guarded follow-up keeps slot 0 on the same settle depth as its queue.
+                    ScheduleMasterSettle(moveGeneration, pass: 1);
+                }
             }),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
     }

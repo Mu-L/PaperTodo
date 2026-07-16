@@ -25,7 +25,12 @@ public sealed partial class PaperWindow
     private bool IsDeepCapsuleSlotPendingClick => EdgeCapsuleGesture == EdgeCapsuleGestureState.PendingClick;
     private bool IsDeepCapsuleDockedReordering => EdgeCapsuleGesture == EdgeCapsuleGestureState.DockedReordering;
     private bool IsDeepCapsuleFloatingReordering => EdgeCapsuleGesture == EdgeCapsuleGestureState.FloatingReordering;
-    private bool IsDeepCapsuleDockingHandoff => EdgeCapsuleGesture == EdgeCapsuleGestureState.DockingHandoff;
+    private bool IsDeepCapsuleDockingHandoff => EdgeCapsuleGesture is
+        EdgeCapsuleGestureState.DockingHandoff or
+        EdgeCapsuleGestureState.DockingReveal;
+    private bool IsDeepCapsuleDockingFlight =>
+        EdgeCapsuleGesture == EdgeCapsuleGestureState.DockingHandoff;
+    private bool IsDeepCapsuleDockingReveal => EdgeCapsuleGesture == EdgeCapsuleGestureState.DockingReveal;
     private bool IsDeepCapsuleReordering => EdgeCapsuleGesture is
         EdgeCapsuleGestureState.DockedReordering or
         EdgeCapsuleGestureState.FloatingTransfer or
@@ -129,10 +134,20 @@ public sealed partial class PaperWindow
     private bool BeginEdgeCapsuleDockingHandoff() =>
         DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.DockingHandoffStarted());
 
+    private bool BeginEdgeCapsuleDockingReveal() =>
+        DispatchEdgeCapsuleIntent(
+            EdgeCapsuleIntent.DockingRevealStarted(),
+            EdgeCapsuleDirty.None);
+
     private bool FinishEdgeCapsulePointerInteraction() =>
         DispatchEdgeCapsuleIntent(
             EdgeCapsuleIntent.PointerInteractionFinished(),
             EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Pointer);
+
+    private bool FinishEdgeCapsuleDockingHandoff() =>
+        DispatchEdgeCapsuleIntent(
+            EdgeCapsuleIntent.PointerInteractionFinished(),
+            EdgeCapsuleDirty.None);
 
     private bool MarkEdgeCapsuleOpenedFromEdge() =>
         DispatchEdgeCapsuleIntent(
