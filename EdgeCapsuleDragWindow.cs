@@ -43,6 +43,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
     private readonly ScaleTransform _entranceScale = new(1, 1);
     private readonly double _widthDip;
     private readonly double _heightDip;
+    private readonly Grid _root;
     private DeviceScreenPoint _lastPointer;
     private int _dpiSettleGeneration;
     private bool _closingByOwner;
@@ -69,7 +70,8 @@ internal sealed class EdgeCapsuleDragWindow : Window
             "EdgeCapsuleDragWindow only renders the FloatingFree shape.");
         _widthDip = options.Shape.WindowWidthDip;
         _heightDip = options.Shape.WindowHeightDip;
-        Content = BuildContent(options);
+        _root = BuildContent(options);
+        Content = _root;
 
         SourceInitialized += (_, _) =>
         {
@@ -97,6 +99,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
             _entranceScale.ScaleY = 1;
             MoveCenteredAt(pointer);
             Show();
+            RefreshNativeMetricsLayout();
             MoveCenteredAt(pointer);
             Opacity = 1;
             return;
@@ -106,6 +109,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
         _entranceScale.ScaleY = scaleFrom;
         MoveCenteredAt(pointer);
         Show();
+        RefreshNativeMetricsLayout();
         MoveCenteredAt(pointer);
         Opacity = 1;
         var animation = new DoubleAnimation
@@ -131,9 +135,16 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var height = Math.Max(1, (int)Math.Round(_heightDip * geometry.DpiScaleY, MidpointRounding.AwayFromZero));
         var left = (int)Math.Round(pointer.X - width / 2.0, MidpointRounding.AwayFromZero);
         var top = (int)Math.Round(pointer.Y - height / 2.0, MidpointRounding.AwayFromZero);
-        WindowNative.TrySetWindowDeviceBounds(
-            this,
-            new DeviceScreenRect(left, top, left + width, top + height));
+        var bounds = new DeviceScreenRect(left, top, left + width, top + height);
+        if (!WindowNative.TrySetWindowDeviceBounds(this, bounds))
+        {
+            return;
+        }
+        if (!WindowNative.TryGetWindowDeviceBounds(this, out var actualBounds) ||
+            actualBounds != bounds)
+        {
+            WindowNative.TrySetWindowDeviceBounds(this, bounds);
+        }
     }
 
     private IntPtr OnWindowMessage(
@@ -152,13 +163,44 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 {
                     if (!_isClosed && generation == _dpiSettleGeneration)
                     {
-                        MoveCenteredAt(_lastPointer);
+                        SettleDpiPresentation(generation, scheduleVerification: true);
                     }
                 }),
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         return IntPtr.Zero;
+    }
+
+    private void SettleDpiPresentation(int generation, bool scheduleVerification)
+    {
+        if (_isClosed || generation != _dpiSettleGeneration)
+        {
+            return;
+        }
+
+        MoveCenteredAt(_lastPointer);
+        RefreshNativeMetricsLayout();
+        MoveCenteredAt(_lastPointer);
+        if (!scheduleVerification || generation != _dpiSettleGeneration)
+        {
+            return;
+        }
+
+        // One later pass observes the client area after WPF's first render at the destination DPI.
+        // It is topology-only work, never part of ordinary pointer-move frames.
+        Dispatcher.BeginInvoke(
+            (Action)(() => SettleDpiPresentation(generation, scheduleVerification: false)),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    private void RefreshNativeMetricsLayout()
+    {
+        _root.InvalidateMeasure();
+        _root.InvalidateArrange();
+        InvalidateMeasure();
+        InvalidateArrange();
+        UpdateLayout();
     }
 
     public void CloseFromOwner()

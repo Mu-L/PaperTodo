@@ -182,6 +182,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
         var nativeMetricsVersion = _nativeMetricsVersion;
         var nativeMetricsChanged = _appliedNativeMetricsVersion != nativeMetricsVersion;
         var firstShow = !window.IsVisible;
+        var refreshNativeLayout = firstShow || nativeMetricsChanged || !previousFrame.Visible;
         var edgeChanged = firstShow ||
             !previousFrame.Visible ||
             previousFrame.Edge != frame.Edge;
@@ -194,18 +195,26 @@ internal sealed class EdgeCapsuleHost : IDisposable
         var segmentLayoutChanged = visualSurfaceChanged ||
             previousFrame.BodyWindowWidthDevice != frame.BodyWindowWidthDevice ||
             Math.Abs(previousFrame.MaximumCloseWidthDip - frame.MaximumCloseWidthDip) > 0.001;
+        var nativeHandoff = previousFrame.Visible && (
+            previousFrame.Edge != frame.Edge ||
+            previousFrame.WallDeviceX != frame.WallDeviceX ||
+            Math.Abs(previousFrame.DpiScaleX - frame.DpiScaleX) > 0.001 ||
+            Math.Abs(previousFrame.DpiScaleY - frame.DpiScaleY) > 0.001);
         var nativeBoundsChanged = firstShow ||
             !previousFrame.Visible ||
             previousFrame.HostBounds != frame.HostBounds ||
             !WindowNative.TryGetWindowDeviceBounds(window, out var actualHostBounds) ||
             actualHostBounds != frame.HostBounds;
 
-        if (firstShow)
+        if (firstShow || nativeHandoff)
         {
+            // A monitor/edge/DPI transfer must never display the destination layout on the source
+            // wall. Reveal it only after the native move and immediate metrics checks both succeed.
             window.Opacity = 0;
         }
         if (nativeBoundsChanged && !WindowNative.TrySetWindowDeviceBounds(window, frame.HostBounds))
         {
+            ResetForFreshApply();
             return false;
         }
 
@@ -246,14 +255,35 @@ internal sealed class EdgeCapsuleHost : IDisposable
             window.Show();
             if (!WindowNative.TrySetWindowDeviceBounds(window, frame.HostBounds))
             {
-                // Show succeeded but the post-Show placement did not. Hide immediately so the
-                // half-committed edge layout never stays on a wrong HWND; the next apply treats
-                // this as a fresh firstShow and retries the full path.
-                window.Hide();
-                window.Opacity = 0;
-                _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
+                // Show succeeded but the post-Show placement did not. Make the surface transparent
+                // immediately so the half-committed edge layout never remains visible; the next
+                // apply treats its frame as fresh and retries the full path.
+                ResetForFreshApply();
                 return false;
             }
+        }
+
+        if (refreshNativeLayout)
+        {
+            // Width/Height can retain the same DIP values while the HWND changes DPI. Explicitly
+            // invalidate the WPF tree so the real surface is arranged against the new client area;
+            // otherwise the unused fixed-host capacity can appear as a gap at the screen wall.
+            RefreshNativeMetricsLayout();
+        }
+        if (!WindowNative.TryGetWindowDeviceBounds(window, out var settledHostBounds) ||
+            settledHostBounds != frame.HostBounds)
+        {
+            // Windows/WPF may supersede SetWindowPos during WM_DPICHANGED or display removal. Never
+            // leave an edge-flipped visual tree visible on the old monitor; retry from a hidden host.
+            ResetForFreshApply();
+            return false;
+        }
+        if (_nativeMetricsVersion != nativeMetricsVersion)
+        {
+            // SetWindowPos can synchronously enter WM_DPICHANGED. Replay the frame with the new
+            // generation instead of marking the old DPI layout as committed.
+            ResetForFreshApply();
+            return false;
         }
 
         var contentOpacity = Math.Clamp(frame.ContentOpacity, 0, 1);
@@ -281,6 +311,23 @@ internal sealed class EdgeCapsuleHost : IDisposable
         return true;
     }
 
+    public bool ConfirmPresentationSettled(EdgeCapsulePresentationFrame frame)
+    {
+        var settled = !_disposed &&
+            frame.Visible &&
+            Window.IsVisible &&
+            _appliedFrame == frame &&
+            _appliedNativeMetricsVersion == _nativeMetricsVersion &&
+            MatchesNativePresentationLayout(frame);
+        if (!settled && !_disposed)
+        {
+            // The floating cover is about to be released. Never expose an HWND whose outer bounds
+            // or WPF client layout was rewritten after Apply; the debounced display pass restores it.
+            ResetForFreshApply();
+        }
+        return settled;
+    }
+
     public void InvalidateNativeMetrics()
     {
         if (_disposed)
@@ -292,6 +339,60 @@ internal sealed class EdgeCapsuleHost : IDisposable
         {
             _nativeMetricsVersion++;
         }
+    }
+
+    private void RefreshNativeMetricsLayout()
+    {
+        VisualSurface.InvalidateMeasure();
+        VisualSurface.InvalidateArrange();
+        Root.InvalidateMeasure();
+        Root.InvalidateArrange();
+        Root.UpdateLayout();
+    }
+
+    private bool MatchesNativePresentationLayout(EdgeCapsulePresentationFrame frame)
+    {
+        if (_disposed ||
+            !Window.IsVisible ||
+            !WindowNative.TryGetWindowDeviceBounds(Window, out var actualBounds) ||
+            actualBounds != frame.HostBounds)
+        {
+            return false;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(Window);
+        if (Math.Abs(dpi.DpiScaleX - frame.DpiScaleX) > 0.001 ||
+            Math.Abs(dpi.DpiScaleY - frame.DpiScaleY) > 0.001)
+        {
+            return false;
+        }
+        if (!double.IsFinite(VisualSurface.ActualWidth) ||
+            !double.IsFinite(VisualSurface.ActualHeight) ||
+            VisualSurface.ActualWidth <= 0 ||
+            VisualSurface.ActualHeight <= 0)
+        {
+            return false;
+        }
+
+        var surfaceWidth = (int)Math.Round(
+            VisualSurface.ActualWidth * dpi.DpiScaleX,
+            MidpointRounding.AwayFromZero);
+        var surfaceHeight = (int)Math.Round(
+            VisualSurface.ActualHeight * dpi.DpiScaleY,
+            MidpointRounding.AwayFromZero);
+        return Math.Abs(surfaceWidth - frame.Bounds.Width) <= 1 &&
+            Math.Abs(surfaceHeight - frame.Bounds.Height) <= 1;
+    }
+
+    private void ResetForFreshApply()
+    {
+        // Keep an already-visible HWND alive so a floating drag does not lose the mouse capture
+        // owned by its content element. Opacity 0 plus a hidden applied frame makes the full fixed
+        // host click-through while the Presenter retries it as a fresh visual transaction.
+        Window.Opacity = 0;
+        Root.Opacity = 1;
+        Root.IsHitTestVisible = false;
+        _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
     }
 
     private bool ContainsScreenPoint(DeviceScreenPoint point)

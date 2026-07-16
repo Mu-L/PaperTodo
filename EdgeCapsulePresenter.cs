@@ -10,6 +10,14 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsulePresenter
 {
+    private const int MaximumApplyRetryFrames = 3;
+    private const EdgeCapsuleDirty PresentationWorkMask =
+        EdgeCapsuleDirty.Presentation |
+        EdgeCapsuleDirty.Measure |
+        EdgeCapsuleDirty.Frame |
+        EdgeCapsuleDirty.ApplyRetry |
+        EdgeCapsuleDirty.DisplayMetrics;
+
     private readonly record struct PresentationResult(
         bool Applied,
         bool NeedsNextFrame);
@@ -26,6 +34,8 @@ internal sealed class EdgeCapsulePresenter
     private DeviceScreenPoint? _framePointerOverride;
     private int _forceApplyVersion;
     private int _appliedForceApplyVersion;
+    private int _applyRetryAttempts;
+    private Action<bool>? _presentationSettleCallback;
     private EdgeCapsuleMotion _pendingMotion =
         EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
 
@@ -92,10 +102,21 @@ internal sealed class EdgeCapsulePresenter
 
     public void ForceApplyCurrentPresentation()
     {
+        _applyRetryAttempts = 0;
         unchecked
         {
             _forceApplyVersion++;
         }
+    }
+
+    public void NotifyWhenPresentationSettled(Action<bool> callback)
+    {
+        _presentationSettleCallback = callback;
+    }
+
+    public void ClearPresentationSettleNotification()
+    {
+        _presentationSettleCallback = null;
     }
 
     public EdgeCapsuleDirty Reconcile(
@@ -128,18 +149,30 @@ internal sealed class EdgeCapsulePresenter
 
         if ((dirty & EdgeCapsuleDirty.Measure) != 0)
         {
+            var displayMetrics = (dirty & EdgeCapsuleDirty.DisplayMetrics) != 0;
             if (State.Gesture is
                 EdgeCapsuleGestureState.DockedReordering or
                 EdgeCapsuleGestureState.FloatingTransfer or
                 EdgeCapsuleGestureState.FloatingReordering)
             {
                 remaining |= EdgeCapsuleDirty.Measure;
+                if (displayMetrics)
+                {
+                    // Unlike a title-only measure, display geometry cannot be force-replayed from
+                    // the previous drag snapshot. Keep this batch intact for gesture completion.
+                    Transition = null;
+                    remaining |= EdgeCapsuleDirty.Presentation |
+                        EdgeCapsuleDirty.DisplayMetrics;
+                    return remaining;
+                }
             }
             else
             {
                 _layoutSnapshot = captureLayout();
                 RequestPresentation(EdgeCapsuleMotion.Preserve(
-                    EdgeCapsuleTransitionReason.Measure));
+                    displayMetrics
+                        ? EdgeCapsuleTransitionReason.DisplayMetrics
+                        : EdgeCapsuleTransitionReason.Measure));
                 dirty |= EdgeCapsuleDirty.Presentation;
             }
         }
@@ -154,7 +187,7 @@ internal sealed class EdgeCapsulePresenter
         var result = ReconcilePresentation(layout, apply, now);
         if (!result.Applied)
         {
-            remaining |= EdgeCapsuleDirty.Presentation;
+            remaining |= EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.ApplyRetry;
             return remaining;
         }
         if (result.NeedsNextFrame)
@@ -172,7 +205,7 @@ internal sealed class EdgeCapsulePresenter
             var retarget = ReconcilePresentation(layout, apply, now);
             if (!retarget.Applied)
             {
-                remaining |= EdgeCapsuleDirty.Presentation;
+                remaining |= EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.ApplyRetry;
             }
             if (retarget.NeedsNextFrame)
             {
@@ -196,6 +229,10 @@ internal sealed class EdgeCapsulePresenter
             Transition.HasValue;
         if (targetChanged || motionMustRebase)
         {
+            if (targetChanged)
+            {
+                _applyRetryAttempts = 0;
+            }
             Transition = EdgeCapsuleTransitionPolicy.Create(
                 AppliedPresentation,
                 plan.Docked,
@@ -216,6 +253,7 @@ internal sealed class EdgeCapsulePresenter
         {
             AppliedPresentation = sample.Frame;
             _appliedForceApplyVersion = forceApplyVersion;
+            _applyRetryAttempts = 0;
         }
 
         if (!applied)
@@ -275,6 +313,8 @@ internal sealed class EdgeCapsulePresenter
         _dirty = EdgeCapsuleDirty.None;
         _reconcileScheduled = false;
         _reconcileGeneration++;
+        _presentationSettleCallback = null;
+        _applyRetryAttempts = 0;
         StopFrameScheduler();
     }
 
@@ -358,8 +398,18 @@ internal sealed class EdgeCapsulePresenter
         _dirty = EdgeCapsuleDirty.None;
         var remaining = _reconcile(dirty);
         var needsFrame = (remaining & EdgeCapsuleDirty.Frame) != 0;
+        var needsApplyRetry = (remaining & EdgeCapsuleDirty.ApplyRetry) != 0;
         _dirty |= remaining & ~EdgeCapsuleDirty.Frame;
-        if (needsFrame)
+        if (needsApplyRetry && _applyRetryAttempts >= MaximumApplyRetryFrames)
+        {
+            // Keep Presentation dirty for a later external display invalidation, but stop the
+            // bounded per-frame retry so a permanently invalid HWND cannot spin the UI thread.
+            _dirty &= ~EdgeCapsuleDirty.ApplyRetry;
+            Transition = null;
+            needsFrame = false;
+        }
+
+        if (needsFrame || (needsApplyRetry && _applyRetryAttempts < MaximumApplyRetryFrames))
         {
             StartFrameScheduler();
         }
@@ -367,6 +417,52 @@ internal sealed class EdgeCapsulePresenter
         {
             StopFrameScheduler();
         }
+
+        if (!Transition.HasValue)
+        {
+            if (needsApplyRetry && _applyRetryAttempts >= MaximumApplyRetryFrames)
+            {
+                CompletePresentationSettle(success: false);
+            }
+            else if (_presentationSettleCallback != null &&
+                !needsApplyRetry &&
+                (_dirty & PresentationWorkMask) == EdgeCapsuleDirty.None)
+            {
+                SchedulePresentationSettleCompletion();
+            }
+        }
+    }
+
+    private void CompletePresentationSettle(bool success)
+    {
+        var callback = _presentationSettleCallback;
+        _presentationSettleCallback = null;
+        callback?.Invoke(success);
+    }
+
+    private void SchedulePresentationSettleCompletion()
+    {
+        var callback = _presentationSettleCallback;
+        var dispatcher = _dispatcher;
+        if (callback == null || dispatcher == null)
+        {
+            return;
+        }
+
+        // Let WPF finish the destination monitor's Render/Loaded work before the floating cover is
+        // released. Intervening dirty work blocks this candidate and the next pass reschedules it.
+        dispatcher.BeginInvoke(
+            new Action(() =>
+            {
+                if (!ReferenceEquals(callback, _presentationSettleCallback) ||
+                    Transition.HasValue ||
+                    (_dirty & PresentationWorkMask) != EdgeCapsuleDirty.None)
+                {
+                    return;
+                }
+                CompletePresentationSettle(success: true);
+            }),
+            DispatcherPriority.ContextIdle);
     }
 
     private void StartFrameScheduler()
@@ -403,10 +499,11 @@ internal sealed class EdgeCapsulePresenter
         EdgeCapsuleFrameScheduler scheduler,
         DeviceScreenPoint? pointer)
     {
+        var applyRetryPending = (_dirty & EdgeCapsuleDirty.ApplyRetry) != 0;
         if (!UsesSharedFrameScheduler(scheduler) ||
             _dispatcher == null ||
             _reconcile == null ||
-            !Transition.HasValue)
+            (!Transition.HasValue && !applyRetryPending))
         {
             StopFrameScheduler();
             return false;
@@ -414,7 +511,14 @@ internal sealed class EdgeCapsulePresenter
 
         // Merge queued work into this render tick and invalidate its stale dispatcher callback.
         // Flush, deferred invalidation and animation still execute the same RunReconcile path.
-        _dirty |= EdgeCapsuleDirty.Frame;
+        if (Transition.HasValue)
+        {
+            _dirty |= EdgeCapsuleDirty.Frame;
+        }
+        if (applyRetryPending)
+        {
+            _applyRetryAttempts++;
+        }
         _reconcileGeneration++;
         _reconcileScheduled = false;
         _hasFramePointerOverride = true;
@@ -428,6 +532,7 @@ internal sealed class EdgeCapsulePresenter
             _framePointerOverride = null;
             _hasFramePointerOverride = false;
         }
-        return UsesSharedFrameScheduler(scheduler) && Transition.HasValue;
+        return UsesSharedFrameScheduler(scheduler) &&
+            (Transition.HasValue || (_dirty & EdgeCapsuleDirty.ApplyRetry) != 0);
     }
 }

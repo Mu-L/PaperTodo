@@ -24,37 +24,18 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        // Use the normal queue target rather than the currently applied frame. The applied frame
-        // may be hovered, moving, or retracted into the master; those transient states must not
-        // make ordinary capsules overlap or inherit a temporary horizontal width.
-        var slotEdges = EdgeCapsuleGeometry.CalculateVerticalEdges(
+        // Use the queue target rather than a hovered/retracted applied frame, and keep the
+        // mixed-DPI wall conversion in the shared physical geometry calculator.
+        var targetBounds = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
             layout.Monitor,
+            layout.Edge,
             layout.NormalTopDip,
-            layout.HeightDip);
-
-        // Size and clamp in the target monitor's physical coordinate space. Subtracting a WPF
-        // width directly from a global/system-DPI wall coordinate is wrong on mixed-DPI screens.
-        var targetWidthDevice = Math.Max(1, (int)Math.Round(
-            DesiredCapsuleWindowWidth * Math.Max(1, layout.Monitor.DpiScaleX),
-            MidpointRounding.AwayFromZero));
-        var targetHeightDevice = Math.Max(1, (int)Math.Round(
-            PaperLayoutDefaults.CapsuleHeight * Math.Max(1, layout.Monitor.DpiScaleY),
-            MidpointRounding.AwayFromZero));
-        var targetLeftDevice = layout.Edge == EdgeCapsuleEdge.Left
-            ? layout.Monitor.WorkArea.Left
-            : Math.Max(
-                layout.Monitor.WorkArea.Left,
-                layout.Monitor.WorkArea.Right - targetWidthDevice);
-        var maxTopDevice = Math.Max(
-            layout.Monitor.WorkArea.Top,
-            layout.Monitor.WorkArea.Bottom - targetHeightDevice);
-        var targetTopDevice = Math.Clamp(
-            slotEdges.Top,
-            layout.Monitor.WorkArea.Top,
-            maxTopDevice);
+            DesiredCapsuleWindowWidth,
+            0,
+            PaperLayoutDefaults.CapsuleHeight)).Bounds;
         var targetOrigin = WindowWorkAreaHelper.DeviceScreenPointToDip(new DeviceScreenPoint(
-            targetLeftDevice,
-            targetTopDevice));
+            targetBounds.Left,
+            targetBounds.Top));
 
         handoff = new DeepCapsuleModeHandoff(targetOrigin.X, targetOrigin.Y);
         return true;

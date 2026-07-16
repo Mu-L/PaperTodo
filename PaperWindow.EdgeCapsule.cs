@@ -59,18 +59,10 @@ public sealed partial class PaperWindow
         if (msg is WmDpiChanged or WmDisplayChange or WmSettingChange)
         {
             WindowWorkAreaHelper.InvalidateMonitorGeometryCache();
-            if (msg == WmDpiChanged)
-            {
-                // WPF may rewrite the HWND after this hook returns. Mark native metrics dirty and
-                // force re-apply; the Presenter runs the actual correction on its Loaded-priority
-                // reconcile (after WPF finishes the DPI hand-off).
-                _edgeCapsuleHost?.InvalidateNativeMetrics();
-                _edgeCapsule.ForceApplyCurrentPresentation();
-            }
-            _edgeCapsule.RequestPresentation(EdgeCapsuleMotion.Preserve(
-                EdgeCapsuleTransitionReason.DisplayMetrics));
-            InvalidateEdgeCapsule(
-                EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
+            // DPI hand-off, display removal and work-area changes can all rewrite a visible HWND
+            // after its logical frame was committed. Invalidate both native and measured state so
+            // an unchanged target is still replayed after WPF finishes processing this message.
+            InvalidateEdgeCapsuleDisplayMetrics();
             if (IsDeepCapsuleReordering)
             {
                 _controller.DeferDisplayMetricsRefreshUntilDeepCapsuleDragEnds();
@@ -140,6 +132,23 @@ public sealed partial class PaperWindow
         _edgeCapsule.RequestPresentation(EdgeCapsuleMotion.Snap(reason));
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.Flush(dirty, dispatcher, ReconcileEdgeCapsule);
+    }
+
+    internal void InvalidateEdgeCapsuleDisplayMetrics()
+    {
+        if (_edgeCapsuleHost == null && !HasDeepCapsuleSlotPlacement)
+        {
+            return;
+        }
+
+        _edgeCapsuleHost?.InvalidateNativeMetrics();
+        _edgeCapsule.ForceApplyCurrentPresentation();
+        _edgeCapsule.RequestPresentation(EdgeCapsuleMotion.Preserve(
+            EdgeCapsuleTransitionReason.DisplayMetrics));
+        InvalidateEdgeCapsule(
+            EdgeCapsuleDirty.Presentation |
+            EdgeCapsuleDirty.Measure |
+            EdgeCapsuleDirty.DisplayMetrics);
     }
 
     private EdgeCapsuleLayoutSnapshot CaptureEdgeCapsuleLayoutSnapshot()

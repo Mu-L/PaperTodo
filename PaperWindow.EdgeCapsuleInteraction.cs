@@ -179,6 +179,7 @@ public sealed partial class PaperWindow
 
     private void CloseDeepCapsuleFloatingDragHost()
     {
+        _edgeCapsule.ClearPresentationSettleNotification();
         var host = _deepCapsuleFloatingDragHost;
         _deepCapsuleFloatingDragHost = null;
         if (host != null)
@@ -198,6 +199,7 @@ public sealed partial class PaperWindow
 
         host.UnexpectedlyClosed -= OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
         _deepCapsuleFloatingDragHost = null;
+        _edgeCapsule.ClearPresentationSettleNotification();
         if (!IsDeepCapsuleFloatingReordering)
         {
             return;
@@ -206,7 +208,7 @@ public sealed partial class PaperWindow
         CancelDeepCapsuleReorderDrag(restoreLayout: true);
     }
 
-    private void CompleteDeepCapsuleFloatingDragDrop()
+    private void CompleteDeepCapsuleFloatingDragDrop(bool allowImmediateReplay = true)
     {
         if (_deepCapsuleFloatingDragHost == null)
         {
@@ -219,13 +221,45 @@ public sealed partial class PaperWindow
             return;
         }
 
-        // The gesture has ended and the controller has now applied the destination queue. Refresh
-        // the monitor/edge snapshot synchronously while the floating HWND still covers the hand-off,
-        // then destroy it only after the permanent docked host has reached the destination.
+        // The gesture has ended and the controller has now applied the destination queue. Keep the
+        // floating HWND as a cover until Host.Apply has both accepted and verified the permanent
+        // docked HWND after WPF's later layout priorities. A transient DPI/display hand-off retries
+        // on the shared frame scheduler before the cover can be removed.
+        var floatingHost = _deepCapsuleFloatingDragHost;
+        _edgeCapsule.NotifyWhenPresentationSettled(pipelineSettled =>
+        {
+            if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost))
+            {
+                return;
+            }
+
+            // Pipeline-settled only means the Presenter has no queued work. The native host still
+            // needs a later layout check after WPF has processed the destination monitor's DPI.
+            var settled = pipelineSettled &&
+                _edgeCapsuleHost?.ConfirmPresentationSettled(
+                    _edgeCapsule.AppliedPresentation) == true;
+            if (!settled && allowImmediateReplay)
+            {
+                // Confirm has hidden the rejected host. Bring the Presenter's applied frame back
+                // to the same state, then replay once through the existing dirty/reconcile path
+                // while the floating HWND continues to cover the hand-off.
+                _edgeCapsule.ResetPresentation();
+                InvalidateEdgeCapsuleDisplayMetrics();
+                CompleteDeepCapsuleFloatingDragDrop(allowImmediateReplay: false);
+                return;
+            }
+
+            CloseDeepCapsuleFloatingDragHost();
+            if (!settled)
+            {
+                // Confirmation makes an unsettled host transparent before the cover is removed;
+                // the debounced topology pass then restores it from a fresh monitor snapshot.
+                _controller.ScheduleDisplayMetricsRefresh();
+            }
+        });
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.FloatingTransfer,
             EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
-        CloseDeepCapsuleFloatingDragHost();
     }
 
     private void StartDeepCapsuleReorderDrag(DeviceScreenPoint currentScreenPos)

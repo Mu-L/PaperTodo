@@ -548,15 +548,16 @@ public sealed class MasterCapsuleWindow : Window
             return;
         }
 
+        var moveGeneration = ++_moveGeneration;
         if (!WindowWorkAreaHelper.TryGetMonitorGeometryForDevice(
                 _queueMonitorDeviceName,
                 this,
                 out var geometry))
         {
+            ScheduleMasterSettle(moveGeneration);
             return;
         }
 
-        var moveGeneration = ++_moveGeneration;
         animate = animate && _controller.State.EnableAnimations;
         var localArea = geometry.LocalWorkAreaDip;
         var requestedWidth = MasterDockedWidth(geometry.DpiScaleY);
@@ -573,6 +574,7 @@ public sealed class MasterCapsuleWindow : Window
             _animatedMonitorGeometry = null;
             BeginAnimation(AnimatedTopProperty, null);
             ApplyMasterDeviceBounds(targetTop, requestedWidth, geometry);
+            ScheduleMasterSettle(moveGeneration);
             return;
         }
 
@@ -597,8 +599,38 @@ public sealed class MasterCapsuleWindow : Window
             _animatedMonitorGeometry = null;
             BeginAnimation(AnimatedTopProperty, null);
             ApplyMasterDeviceBounds(targetTop, requestedWidth, geometry);
+            ScheduleMasterSettle(moveGeneration);
         };
         BeginAnimation(AnimatedTopProperty, topAnim, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void ScheduleMasterSettle(int moveGeneration)
+    {
+        // Windows can move an HWND again while completing WM_DPICHANGED/display removal. Resolve
+        // the queue once more after WPF's layout work, guarded by the existing move generation.
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_isClosingForReal || moveGeneration != _moveGeneration ||
+                    !WindowWorkAreaHelper.TryGetMonitorGeometryForDevice(
+                        _queueMonitorDeviceName,
+                        this,
+                        out var geometry))
+                {
+                    return;
+                }
+
+                var targetTop = EdgeCapsuleLayout.TopForIndex(
+                    0,
+                    QueueStartTopMargin,
+                    geometry.LocalWorkAreaDip,
+                    QueueSlotCount);
+                ApplyMasterDeviceBounds(
+                    targetTop,
+                    MasterDockedWidth(geometry.DpiScaleY),
+                    geometry);
+            }),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void ApplyMasterDeviceBounds(double topDip)

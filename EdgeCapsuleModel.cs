@@ -54,7 +54,13 @@ internal enum EdgeCapsuleDirty
     Presentation = 1 << 0,
     Measure = 1 << 1,
     Pointer = 1 << 2,
-    Frame = 1 << 3
+    Frame = 1 << 3,
+    // Apply can fail transiently while Windows is completing a per-monitor DPI or display-topology
+    // hand-off. This flag is internal scheduler work, distinct from Measure deferred by a drag.
+    ApplyRetry = 1 << 4,
+    // Unlike a title-only Measure, display geometry cannot be replayed from the previous drag
+    // snapshot. Keep the whole display batch deferred until the gesture ends.
+    DisplayMetrics = 1 << 5
 }
 
 internal readonly record struct EdgeCapsuleState(

@@ -1225,6 +1225,10 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
+        // Scheduling invalidates immediately, but an early per-window reconcile can repopulate the
+        // cache before Windows finishes a topology change. Invalidate again at execution time and
+        // capture one fresh monitor snapshot for every queue in this settle pass.
+        WindowWorkAreaHelper.InvalidateMonitorGeometryCache();
         RefreshTopmostForForegroundWindow();
         if (HasDeepCapsuleReorderDragInProgress())
         {
@@ -1233,6 +1237,11 @@ public sealed partial class AppController : IDisposable
         else
         {
             _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
+            _ = WindowWorkAreaHelper.ConnectedMonitorGeometries();
+            foreach (var window in _windows.Values)
+            {
+                window.InvalidateEdgeCapsuleDisplayMetrics();
+            }
             ArrangeDeepCapsules(animate: false);
         }
         foreach (var window in _windows.Values)
