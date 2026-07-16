@@ -344,7 +344,7 @@ public sealed partial class AppController
         actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var resetAll = SettingsTextButton(Strings.Get("ShortcutRestoreAll"));
+        var resetAll = SettingsTextButton(Strings.Get("SettingsRestorePageDefaults"));
         resetAll.MinWidth = 108;
         resetAll.Padding = new Thickness(18, 0, 18, 0);
         resetAll.Click += (_, _) =>
@@ -374,6 +374,12 @@ public sealed partial class AppController
             rows.Children.Add(BuildShortcutRow(definition));
         }
 
+        // Align the edge group title with "常用" (left edge of the page), tip glued to text.
+        // Left/right queue command tips share a min width so their ⓘ stay level with each other.
+        var edgeQueueTipLabelWidth = MeasureShortcutTipLabelMinWidth(
+            (Strings.Get("ShortcutEdgeLeftSequence"), AppTypography.Scale(12.5), FontWeights.Normal),
+            (Strings.Get("ShortcutEdgeRightSequence"), AppTypography.Scale(12.5), FontWeights.Normal));
+
         // One user-facing setting per side; digits 1–9 stay fixed behind the scenes.
         rows.Children.Add(BuildShortcutInlineHintLabel(
             Strings.Get("ShortcutGroupEdgeSequences"),
@@ -381,7 +387,9 @@ public sealed partial class AppController
             isGroupHeader: true));
         foreach (var group in new[] { GlobalShortcutGroup.EdgeLeft, GlobalShortcutGroup.EdgeRight })
         {
-            rows.Children.Add(BuildShortcutRow(GlobalShortcutCatalog.EdgeSequenceUiDefinition(group)));
+            rows.Children.Add(BuildShortcutRow(
+                GlobalShortcutCatalog.EdgeSequenceUiDefinition(group),
+                edgeQueueTipLabelWidth));
         }
 
         root.Children.Add(rows);
@@ -432,7 +440,9 @@ public sealed partial class AppController
         };
     }
 
-    private UIElement BuildShortcutRow(GlobalShortcutDefinition definition)
+    private UIElement BuildShortcutRow(
+        GlobalShortcutDefinition definition,
+        double edgeTipLabelMinWidth = 0)
     {
         var grid = ShortcutRowGrid();
         grid.MinHeight = 34;
@@ -463,7 +473,8 @@ public sealed partial class AppController
                 definition.Group == GlobalShortcutGroup.EdgeLeft
                     ? "ShortcutEdgeLeftTip"
                     : "ShortcutEdgeRightTip",
-                isGroupHeader: false);
+                isGroupHeader: false,
+                edgeTipLabelMinWidth);
             Grid.SetColumn(labelWithTip, 1);
             grid.Children.Add(labelWithTip);
         }
@@ -509,17 +520,45 @@ public sealed partial class AppController
             Grid.SetColumn(keyButton, 0);
             keyCell.Children.Add(keyButton);
 
-            var digits = new TextBlock
+            // Quiet "+" join, then a read-only chip for fixed digits (not the same control as the
+            // editable modifier button, so 1–9 does not look pressable).
+            var fixedTail = new StackPanel
             {
-                Text = Strings.Get("ShortcutEdgeDigitsFixed"),
-                Foreground = TrayWeakTextBrush,
-                FontSize = AppTypography.Scale(12),
+                Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0, 0, 0),
+                Margin = new Thickness(5, 0, 0, 0),
                 ToolTip = Strings.Get("ShortcutEdgeDigitsFixedTip")
             };
-            Grid.SetColumn(digits, 1);
-            keyCell.Children.Add(digits);
+            fixedTail.Children.Add(new TextBlock
+            {
+                Text = "+",
+                Foreground = TrayWeakTextBrush,
+                Opacity = 0.45,
+                FontSize = AppTypography.Scale(11),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 3, 0),
+                IsHitTestVisible = false
+            });
+            fixedTail.Children.Add(new Border
+            {
+                Background = TrayHoverBrush,
+                BorderBrush = TrayBorderBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Opacity = 0.92,
+                IsHitTestVisible = false,
+                Child = new TextBlock
+                {
+                    Text = Strings.Get("ShortcutEdgeDigitsFixed"),
+                    Foreground = TrayWeakTextBrush,
+                    FontSize = AppTypography.Scale(11.5),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                }
+            });
+            Grid.SetColumn(fixedTail, 1);
+            keyCell.Children.Add(fixedTail);
 
             Grid.SetColumn(keyCell, 2);
             grid.Children.Add(keyCell);
@@ -585,14 +624,20 @@ public sealed partial class AppController
     }
 
     /// <summary>
-    /// Label + ⓘ glued to the text (shortcut page only; other settings keep tip on the far right).
+    /// Label + ⓘ glued to the text. Pass a shared <paramref name="labelMinWidth"/> so peer
+    /// tips (left/right queues) line up while still sitting just after the text.
     /// </summary>
-    private UIElement BuildShortcutInlineHintLabel(string text, string tipKey, bool isGroupHeader)
+    private UIElement BuildShortcutInlineHintLabel(
+        string text,
+        string tipKey,
+        bool isGroupHeader,
+        double labelMinWidth = 0)
     {
         var row = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
+            // Match BuildShortcutGroupLabel so "快速启动侧边胶囊" lines up with "常用".
             Margin = isGroupHeader ? new Thickness(0, 9, 0, 2) : new Thickness(0)
         };
 
@@ -603,10 +648,34 @@ public sealed partial class AppController
             FontSize = AppTypography.Scale(isGroupHeader ? 11.5 : 12.5),
             FontWeight = isGroupHeader ? FontWeights.SemiBold : FontWeights.Normal,
             VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MinWidth = labelMinWidth > 0 ? labelMinWidth : 0
         });
         row.Children.Add(CreateSettingsHintGlyph(tipKey, new Thickness(4, 0, 0, 0)));
         return row;
+    }
+
+    private double MeasureShortcutTipLabelMinWidth(
+        params (string Text, double FontSize, FontWeight Weight)[] labels)
+    {
+        var pixelsPerDip = _settingsWindow != null
+            ? VisualTreeHelper.GetDpi(_settingsWindow).PixelsPerDip
+            : 1.0;
+        var maxWidth = 0.0;
+        foreach (var (text, fontSize, weight) in labels)
+        {
+            var formatted = new FormattedText(
+                text,
+                CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                new Typeface(AppTypography.UiFontFamily, FontStyles.Normal, weight, FontStretches.Normal),
+                fontSize,
+                TrayTextBrush,
+                pixelsPerDip);
+            maxWidth = Math.Max(maxWidth, formatted.WidthIncludingTrailingWhitespace);
+        }
+
+        return Math.Ceiling(maxWidth);
     }
 
     private static Grid ShortcutRowGrid()

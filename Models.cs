@@ -205,14 +205,15 @@ public static class UiFontPresets
 
 public static class TextRenderingProfiles
 {
-    // Preserve the stored values introduced with the two-profile setting. Existing users keep
-    // their selection while the profiles now have clearer product semantics.
-    public const string Legacy = "system";
-    public const string Experimental = "enhancedGrayscale";
+    // Keep the two existing stored values so updating does not change the selected rendering.
+    // "enhancedGrayscale" is now presented as the softer profile; Sharp is the new option.
+    public const string Standard = "system";
+    public const string Soft = "enhancedGrayscale";
+    public const string Sharp = "sharpGrayscale";
 
     public static string Normalize(string? profile)
     {
-        return profile is Experimental ? Experimental : Legacy;
+        return profile is Soft or Sharp ? profile : Standard;
     }
 }
 
@@ -239,7 +240,8 @@ public sealed class AppState
     public bool AutoClearCompletedTodos { get; set; }
     public bool AutoCompressLargeImages { get; set; } = true;
     public string UiFontPreset { get; set; } = UiFontPresets.Default;
-    public string TextRenderingProfile { get; set; } = TextRenderingProfiles.Legacy;
+    public string TextRenderingProfile { get; set; } = TextRenderingProfiles.Standard;
+    public bool AdvancedSettingsMode { get; set; }
     /// <summary>
     /// When a custom papertodo font is present, bold styles load papertodo_bold / PaperTodo_Bold instead of synthetic SemiBold.
     /// </summary>
@@ -259,7 +261,7 @@ public sealed class AppState
     public bool ShowTopBarNewNoteButton { get; set; } = true;
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
     public bool HidePapersFromTaskbar { get; set; } = true;
-    public bool HidePapersFromWindowSwitcher { get; set; }
+    public bool HidePapersFromWindowSwitcher { get; set; } = true;
     public bool EnableTodoNoteLinks { get; set; } = true;
     public bool ShowLinkedNoteName { get; set; }
     public bool AllowLongLinkedNoteTitles { get; set; }

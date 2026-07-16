@@ -358,11 +358,14 @@
   <data name="SettingsTextRenderingProfile" xml:space="preserve">
     <value>文字渲染</value>
   </data>
-  <data name="TextRenderingLegacy" xml:space="preserve">
-    <value>旧版</value>
+  <data name="TextRenderingStandard" xml:space="preserve">
+    <value>标准</value>
   </data>
-  <data name="TextRenderingExperimental" xml:space="preserve">
-    <value>实验平滑</value>
+  <data name="TextRenderingSoft" xml:space="preserve">
+    <value>柔和</value>
+  </data>
+  <data name="TextRenderingSharp" xml:space="preserve">
+    <value>锐利</value>
   </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>暖纸</value>
@@ -508,6 +511,15 @@
   <data name="SettingsBehavior" xml:space="preserve">
     <value>基础行为</value>
   </data>
+  <data name="SettingsAdvancedMode" xml:space="preserve">
+    <value>高级模式</value>
+  </data>
+  <data name="SettingsRestorePageDefaults" xml:space="preserve">
+    <value>恢复默认</value>
+  </data>
+  <data name="TipAdvancedSettingsMode" xml:space="preserve">
+    <value>显示任务栏/窗口切换隐藏、脚本胶囊、全屏避让、标题长度、图片标记等低频设置。关闭后只隐藏这些项，不会回退或停用已经选择的选项。</value>
+  </data>
   <data name="SettingsCapsule" xml:space="preserve">
     <value>胶囊</value>
   </data>
@@ -532,8 +544,9 @@
 程序目录下存在 papertodo.ttf 或 papertodo.otf 时，会优先使用该自定义字体。</value>
   </data>
   <data name="TipTextRenderingProfile" xml:space="preserve">
-    <value>旧版完全沿用灰阶渲染改动前的显示方式。
-实验平滑不区分字体和界面，统一使用更柔和的双向灰阶平滑；排版方式仍与旧版一致，实际观感可能随显示器而不同。</value>
+    <value>标准沿用 Windows/WPF 默认文字渲染，兼容性最好。
+柔和使用布局稳定的双向灰阶平滑，部分显示比例下可能偏软。
+锐利使用像素对齐更强的灰阶渲染，轮廓更清楚，但个别字体的字宽可能轻微变化。</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>自定义字体增强加粗</value>

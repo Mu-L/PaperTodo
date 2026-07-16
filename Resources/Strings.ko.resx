@@ -348,11 +348,14 @@
   <data name="SettingsTextRenderingProfile" xml:space="preserve">
     <value>텍스트 렌더링</value>
   </data>
-  <data name="TextRenderingLegacy" xml:space="preserve">
-    <value>기존 방식</value>
+  <data name="TextRenderingStandard" xml:space="preserve">
+    <value>표준</value>
   </data>
-  <data name="TextRenderingExperimental" xml:space="preserve">
-    <value>실험적</value>
+  <data name="TextRenderingSoft" xml:space="preserve">
+    <value>부드럽게</value>
+  </data>
+  <data name="TextRenderingSharp" xml:space="preserve">
+    <value>선명하게</value>
   </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>종이</value>
@@ -495,6 +498,15 @@
   <data name="SettingsBehavior" xml:space="preserve">
     <value>기본 동작</value>
   </data>
+  <data name="SettingsAdvancedMode" xml:space="preserve">
+    <value>고급 모드</value>
+  </data>
+  <data name="SettingsRestorePageDefaults" xml:space="preserve">
+    <value>기본값 복원</value>
+  </data>
+  <data name="TipAdvancedSettingsMode" xml:space="preserve">
+    <value>작업 표시줄/창 전환 숨기기, 스크립트 캡슐, 전체 화면 회피, 제목 길이, 이미지 마크업 등 사용 빈도가 낮은 설정을 표시합니다. 꺼도 항목만 숨겨지며 이미 선택한 옵션은 초기화되거나 비활성화되지 않습니다.</value>
+  </data>
   <data name="SettingsCapsule" xml:space="preserve">
     <value>캡슐</value>
   </data>
@@ -519,8 +531,9 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
 앱 폴더에 papertodo.ttf 또는 papertodo.otf가 있으면 해당 사용자 지정 글꼴을 우선 사용합니다.</value>
   </data>
   <data name="TipTextRenderingProfile" xml:space="preserve">
-    <value>기존 방식은 회색조 렌더링 변경 전의 표시 경로를 완전히 복원합니다.
-실험적 방식은 글꼴이나 화면을 구분하지 않고 모든 텍스트에 동일한 부드러운 양방향 회색조 평활화를 적용합니다. 글자 배치는 기존 방식과 같으며, 실제 모양은 디스플레이에 따라 달라질 수 있습니다.</value>
+    <value>표준은 Windows/WPF 기본 텍스트 렌더링을 따라 호환성을 우선합니다.
+부드럽게는 레이아웃을 유지하는 양방향 회색조 평활화를 사용하며 일부 화면 배율에서는 다소 부드럽게 보일 수 있습니다.
+선명하게는 픽셀 정렬을 강화해 윤곽을 또렷하게 하지만 일부 글꼴의 글자 폭이 약간 달라질 수 있습니다.</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>사용자 글꼴 굵게 강화</value>
@@ -559,7 +572,7 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>종이 상단 바에 새 메모 버튼을 표시합니다.</value>
   </data>
   <data name="TipExternalOpenButton" xml:space="preserve">
-    <value>상단 바에 외부 열기 버튼을 표시하고, 현재 메모를 임시 파일로 써서 기본 앱에 넘깁니다.</value>
+    <value>상단 바에 외부 열기 버튼을 표시하고, 현재 노트를 임시 파일로 쓴 뒤 시스템 기본 앱으로 엽니다.</value>
   </data>
   <data name="TipExternalExtension" xml:space="preserve">
     <value>외부 앱에 넘길 때 사용할 파일 형식을 선택합니다. 예: .md, .txt.</value>
@@ -778,7 +791,7 @@ YaHei 또는 DengXian을 선택하면 UI, 트레이, 캡슐, 할 일, 노트 본
     <value>오른쪽 가장자리 큐 1~9번을 우선 찾고, 반대쪽·인접 모니터 순으로 검색합니다. 기본 수정 키는 Ctrl+Alt입니다.</value>
   </data>
   <data name="ShortcutEdgeDigitsFixed" xml:space="preserve">
-    <value>1~9</value>
+    <value>1–9</value>
   </data>
   <data name="ShortcutEdgeDigitsFixedTip" xml:space="preserve">
     <value>숫자는 1~9로 고정되어 바꿀 수 없으며, 수정 키만 변경할 수 있습니다.</value>

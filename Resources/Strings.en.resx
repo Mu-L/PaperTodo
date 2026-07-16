@@ -348,11 +348,14 @@
   <data name="SettingsTextRenderingProfile" xml:space="preserve">
     <value>Text rendering</value>
   </data>
-  <data name="TextRenderingLegacy" xml:space="preserve">
-    <value>Legacy</value>
+  <data name="TextRenderingStandard" xml:space="preserve">
+    <value>Standard</value>
   </data>
-  <data name="TextRenderingExperimental" xml:space="preserve">
-    <value>Experimental</value>
+  <data name="TextRenderingSoft" xml:space="preserve">
+    <value>Soft</value>
+  </data>
+  <data name="TextRenderingSharp" xml:space="preserve">
+    <value>Sharp</value>
   </data>
   <data name="ColorSchemeWarm" xml:space="preserve">
     <value>Paper</value>
@@ -516,8 +519,9 @@ Choosing YaHei or DengXian unifies the UI, tray, capsules, todos, and note text 
 If papertodo.ttf or papertodo.otf exists in the app folder, that custom font takes priority.</value>
   </data>
   <data name="TipTextRenderingProfile" xml:space="preserve">
-    <value>Legacy fully restores the rendering path used before the grayscale-rendering change.
-Experimental applies the same softer two-axis grayscale smoothing to every font and text surface, with no font-specific rules. It keeps the legacy layout mode; appearance can vary by display.</value>
+    <value>Standard follows the Windows/WPF default text path for the best compatibility.
+Soft uses layout-stable two-axis grayscale smoothing and can look slightly soft at some display scales.
+Sharp uses more strongly pixel-aligned grayscale rendering for clearer outlines, but a few fonts may change width slightly.</value>
   </data>
   <data name="SettingsCustomFontEnhancedBold" xml:space="preserve">
     <value>Enhanced custom bold</value>
@@ -680,6 +684,15 @@ Experimental applies the same softer two-axis grayscale smoothing to every font 
   </data>
   <data name="SettingsBehavior" xml:space="preserve">
     <value>Behavior</value>
+  </data>
+  <data name="SettingsAdvancedMode" xml:space="preserve">
+    <value>Advanced</value>
+  </data>
+  <data name="SettingsRestorePageDefaults" xml:space="preserve">
+    <value>Restore defaults</value>
+  </data>
+  <data name="TipAdvancedSettingsMode" xml:space="preserve">
+    <value>Show less common settings such as taskbar/window-switcher hiding, script capsules, fullscreen avoidance, title limits, and image markup. Turning this off only hides those controls; it does not reset or disable any selected options.</value>
   </data>
   <data name="SettingsVisual" xml:space="preserve">
     <value>Visual</value>

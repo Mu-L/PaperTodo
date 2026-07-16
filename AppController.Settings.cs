@@ -125,14 +125,25 @@ public sealed partial class AppController
     {
         var segments = new[]
         {
-            (TextRenderingProfiles.Legacy, Strings.Get("TextRenderingLegacy")),
-            (TextRenderingProfiles.Experimental, Strings.Get("TextRenderingExperimental"))
+            (TextRenderingProfiles.Standard, Strings.Get("TextRenderingStandard")),
+            (TextRenderingProfiles.Soft, Strings.Get("TextRenderingSoft")),
+            (TextRenderingProfiles.Sharp, Strings.Get("TextRenderingSharp"))
         };
 
         return CreateSegmentSelector(
             segments,
             TextRenderingProfiles.Normalize(State.TextRenderingProfile),
             SetTextRenderingProfile);
+    }
+
+    private void ToggleAdvancedSettingsMode()
+    {
+        // Compact mode only hides less common controls; stored values stay in effect.
+        State.AdvancedSettingsMode = !State.AdvancedSettingsMode;
+        _shortcutRecordingCommandId = null;
+        ClearShortcutApplyFailure();
+        SaveNow();
+        RefreshSettingsWindowContent();
     }
 
     private void SetOverallFontScale(double scale)
@@ -873,6 +884,7 @@ public sealed partial class AppController
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ChangedButton == MouseButton.Left)
@@ -906,6 +918,17 @@ public sealed partial class AppController
         Grid.SetColumn(pageSelector, 1);
         titleRow.Children.Add(pageSelector);
 
+        var advancedModeToggle = SettingsToggle(
+            Strings.Get("SettingsAdvancedMode"),
+            State.AdvancedSettingsMode,
+            ToggleAdvancedSettingsMode);
+        advancedModeToggle.FontSize = AppTypography.Scale(11.5);
+        advancedModeToggle.Margin = new Thickness(8, 0, 8, 0);
+        advancedModeToggle.VerticalAlignment = VerticalAlignment.Center;
+        advancedModeToggle.ToolTip = BuildSettingsHintTooltip(Strings.Get("TipAdvancedSettingsMode"));
+        Grid.SetColumn(advancedModeToggle, 2);
+        titleRow.Children.Add(advancedModeToggle);
+
         var closeButton = new Button
         {
             Content = "×",
@@ -922,7 +945,7 @@ public sealed partial class AppController
             Style = BuildSettingsCloseButtonStyle()
         };
         closeButton.Click += (_, _) => window.Close();
-        Grid.SetColumn(closeButton, 2);
+        Grid.SetColumn(closeButton, 3);
         titleRow.Children.Add(closeButton);
 
         DockPanel.SetDock(titleRow, Dock.Top);
@@ -939,6 +962,22 @@ public sealed partial class AppController
             root.Children.Add(WrapSettingsPageContent(BuildVisualSettingsPage(), enableScroll));
             return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
         }
+
+        root.Children.Add(WrapSettingsPageContent(BuildGeneralSettingsPage(), enableScroll));
+        return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
+    }
+
+    private UIElement BuildGeneralSettingsPage()
+    {
+        _settingsExternalMarkdownTextBox = null;
+        _settingsHidePapersFromTaskbarCheckBox = null;
+        _settingsHidePapersFromWindowSwitcherCheckBox = null;
+        _settingsCapsuleModeCheckBox = null;
+        _settingsDeepCapsuleModeCheckBox = null;
+        _settingsDeepCapsuleExpandedSlotCheckBox = null;
+        _settingsRememberDeepCapsuleExpandedPositionCheckBox = null;
+        _settingsCollapseExpandedDeepCapsuleOnClickCheckBox = null;
+        _settingsCapsuleCollapseAllCheckBox = null;
 
         var columns = new Grid
         {
@@ -957,17 +996,23 @@ public sealed partial class AppController
             Margin = new Thickness(14, 0, 0, 0)
         };
 
+        var advanced = State.AdvancedSettingsMode;
+
         // Left: everyday desktop / window behavior. Right: paper features, capsule first.
         leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
-        _settingsHidePapersFromTaskbarCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromTaskbar"), State.HidePapersFromTaskbar, ToggleHidePapersFromTaskbar);
-        _settingsHidePapersFromWindowSwitcherCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromWindowSwitcher"), State.HidePapersFromWindowSwitcher, ToggleHidePapersFromWindowSwitcher);
-        leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromTaskbarCheckBox, "TipHidePapersFromTaskbar"));
-        leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
-        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode"), topMargin: 8), "TipFullscreenTopmostMode"));
-        leftColumn.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
+        if (advanced)
+        {
+            _settingsHidePapersFromTaskbarCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromTaskbar"), State.HidePapersFromTaskbar, ToggleHidePapersFromTaskbar);
+            _settingsHidePapersFromWindowSwitcherCheckBox = SettingsToggle(Strings.Get("SettingsHidePapersFromWindowSwitcher"), State.HidePapersFromWindowSwitcher, ToggleHidePapersFromWindowSwitcher);
+            leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromTaskbarCheckBox, "TipHidePapersFromTaskbar"));
+            leftColumn.Children.Add(WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"));
+            leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode"), topMargin: 8), "TipFullscreenTopmostMode"));
+            leftColumn.Children.Add(CreateFullscreenTopmostModeSegmentSelector());
+        }
+
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode"), topMargin: 8), "TipMarkdownRender"));
         leftColumn.Children.Add(CreateMarkdownRenderSegmentSelector());
 
@@ -980,11 +1025,14 @@ public sealed partial class AppController
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsExternalMarkdownExtension")), "TipExternalExtension"));
         leftColumn.Children.Add(CreateExternalMarkdownExtensionEditor());
 
-        // Keep script options on the shorter left column so they stay visible without scrolling.
-        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsScriptCapsule")));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPersistentPowerShellProcess"), State.UsePersistentPowerShellProcess, TogglePersistentPowerShellProcess), "TipPersistentPowerShellProcess"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPreferPowerShell7"), State.PreferPowerShell7, TogglePreferPowerShell7), "TipPreferPowerShell7"));
-        leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHideScriptRunWindow"), State.HideScriptRunWindow, ToggleHideScriptRunWindow), "TipHideScriptRunWindow"));
+        if (advanced)
+        {
+            // Keep script options on the shorter left column so they stay visible without scrolling.
+            leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsScriptCapsule")));
+            leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPersistentPowerShellProcess"), State.UsePersistentPowerShellProcess, TogglePersistentPowerShellProcess), "TipPersistentPowerShellProcess"));
+            leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsPreferPowerShell7"), State.PreferPowerShell7, TogglePreferPowerShell7), "TipPreferPowerShell7"));
+            leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsHideScriptRunWindow"), State.HideScriptRunWindow, ToggleHideScriptRunWindow), "TipHideScriptRunWindow"));
+        }
 
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsCapsule")));
         _settingsCapsuleModeCheckBox = SettingsToggle(Strings.Get("TrayCapsuleMode"), State.UseCapsuleMode, ToggleCapsuleMode);
@@ -997,16 +1045,24 @@ public sealed partial class AppController
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleModeCheckBox, "TipDeepCapsuleMode"));
         rightColumn.Children.Add(WrapWithHint(_settingsDeepCapsuleExpandedSlotCheckBox, "TipShowDeepCapsuleWhileExpanded"));
         rightColumn.Children.Add(WrapWithHint(_settingsRememberDeepCapsuleExpandedPositionCheckBox, "TipRememberDeepCapsuleExpandedPosition"));
-        rightColumn.Children.Add(WrapWithHint(_settingsCollapseExpandedDeepCapsuleOnClickCheckBox, "TipCollapseExpandedDeepCapsuleOnClick"));
+        // Master-capsule control sits one slot above "collapse expanded on click".
         rightColumn.Children.Add(WrapWithHint(_settingsCapsuleCollapseAllCheckBox, "TipCapsuleCollapseAll"));
+        rightColumn.Children.Add(WrapWithHint(_settingsCollapseExpandedDeepCapsuleOnClickCheckBox, "TipCollapseExpandedDeepCapsuleOnClick"));
         RefreshSettingsCapsuleToggleStates();
-        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
-        rightColumn.Children.Add(CreateMaxTitleLengthStepper());
-        rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"), topMargin: 8), "TipDeepCapsuleTitleMeasureLimit"));
-        rightColumn.Children.Add(CreateDeepCapsuleTitleMeasureLimitStepper());
+        if (advanced)
+        {
+            rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8), "TipMaxTitleLength"));
+            rightColumn.Children.Add(CreateMaxTitleLengthStepper());
+            rightColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"), topMargin: 8), "TipDeepCapsuleTitleMeasureLimit"));
+            rightColumn.Children.Add(CreateDeepCapsuleTitleMeasureLimitStepper());
+        }
 
         rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages), "TipAutoCompressLargeImages"));
+        if (advanced)
+        {
+            rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages), "TipAutoCompressLargeImages"));
+        }
+
         rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoClearCompletedTodos"), State.AutoClearCompletedTodos, ToggleAutoClearCompletedTodos), "TipAutoClearCompletedTodos"));
         rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
         var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
@@ -1021,7 +1077,6 @@ public sealed partial class AppController
         var runLinkedScriptCapsulesToggle = SettingsToggle(Strings.Get("SettingsRunLinkedScriptCapsulesOnClick"), State.RunLinkedScriptCapsulesOnClick, ToggleRunLinkedScriptCapsulesOnClick);
         runLinkedScriptCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
         rightColumn.Children.Add(WrapWithHint(runLinkedScriptCapsulesToggle, "TipRunLinkedScriptCapsulesOnClick"));
-
         var separator = new Border
         {
             Width = 1,
@@ -1037,9 +1092,7 @@ public sealed partial class AppController
         columns.Children.Add(separator);
         columns.Children.Add(rightColumn);
 
-        root.Children.Add(WrapSettingsPageContent(columns, enableScroll));
-
-        return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
+        return WithSettingsPageRestoreFooter(columns, RestoreGeneralSettingsPageDefaults);
     }
 
     private UIElement BuildVisualSettingsPage()
@@ -1083,10 +1136,13 @@ public sealed partial class AppController
         leftColumn.Children.Add(WrapWithHint(customBoldToggle, "TipCustomFontEnhancedBold"));
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsOverallFontScale")), "TipOverallFontScale"));
         leftColumn.Children.Add(CreateOverallFontScaleStepper());
-        leftColumn.Children.Add(WrapWithHint(
-            SettingsFieldLabel(Strings.Get("SettingsImageReferenceText"), topMargin: 8),
-            "TipImageReferenceText"));
-        leftColumn.Children.Add(CreateImageReferenceTextModeSelector());
+        if (State.AdvancedSettingsMode)
+        {
+            leftColumn.Children.Add(WrapWithHint(
+                SettingsFieldLabel(Strings.Get("SettingsImageReferenceText"), topMargin: 8),
+                "TipImageReferenceText"));
+            leftColumn.Children.Add(CreateImageReferenceTextModeSelector());
+        }
 
         void AddTextStyleEditor(
             StackPanel column,
@@ -1163,7 +1219,132 @@ public sealed partial class AppController
         columns.Children.Add(separator);
         columns.Children.Add(rightColumn);
 
-        return columns;
+        return WithSettingsPageRestoreFooter(columns, RestoreVisualSettingsPageDefaults);
+    }
+
+    private UIElement WithSettingsPageRestoreFooter(UIElement content, Action restorePageDefaults)
+    {
+        var root = new DockPanel
+        {
+            LastChildFill = true
+        };
+
+        var actions = new Grid
+        {
+            Margin = new Thickness(0, 14, 2, 4)
+        };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var restore = SettingsTextButton(Strings.Get("SettingsRestorePageDefaults"));
+        restore.MinWidth = 108;
+        restore.Padding = new Thickness(18, 0, 18, 0);
+        restore.Click += (_, _) => restorePageDefaults();
+        Grid.SetColumn(restore, 1);
+        actions.Children.Add(restore);
+
+        DockPanel.SetDock(actions, Dock.Bottom);
+        root.Children.Add(actions);
+        root.Children.Add(content);
+        return root;
+    }
+
+    private void RestoreGeneralSettingsPageDefaults()
+    {
+        // Only fields on the Behavior page; does not touch visual typography or hotkeys.
+        State.Theme = "system";
+        State.HidePapersFromTaskbar = true;
+        State.HidePapersFromWindowSwitcher = true;
+        State.EnableToolTips = true;
+        State.EnableAnimations = true;
+        State.FullscreenTopmostMode = FullscreenTopmostModes.Avoid;
+        State.MarkdownRenderMode = MarkdownRenderModes.Enhanced;
+        State.ShowTopBarNewTodoButton = true;
+        State.ShowTopBarNewNoteButton = true;
+        State.ShowTopBarExternalOpenButton = true;
+        State.ExternalMarkdownExtension = ExternalMarkdownFileExtensions.Default;
+        State.UsePersistentPowerShellProcess = false;
+        State.PreferPowerShell7 = true;
+        State.HideScriptRunWindow = true;
+        State.UseCapsuleMode = true;
+        State.UseDeepCapsuleMode = true;
+        State.ShowDeepCapsuleWhileExpanded = true;
+        State.RememberDeepCapsuleExpandedPosition = true;
+        State.UseCapsuleCollapseAll = true;
+        State.CollapseExpandedDeepCapsuleOnClick = false;
+        State.MaxTitleLength = PaperTitles.DefaultMaxTitleLength;
+        State.DeepCapsuleTitleMeasureCharacterLimit = 0;
+        State.AutoCompressLargeImages = true;
+        State.AutoClearCompletedTodos = false;
+        State.EnableTodoNoteLinks = true;
+        State.ShowLinkedNoteName = false;
+        State.AllowLongLinkedNoteTitles = false;
+        State.HideLinkedNotesFromCapsules = false;
+        State.RunLinkedScriptCapsulesOnClick = false;
+        NormalizePaperSystemVisibilitySettings();
+        _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
+
+        if (!State.UsePersistentPowerShellProcess)
+        {
+            PaperWindow.StopPersistentScriptProcesses();
+        }
+
+        SaveNow();
+        RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
+        RefreshTopBarNewPaperButtonsSetting();
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateMarkdownRenderMode();
+            window.UpdateExternalMarkdownExtension();
+        }
+
+        // Capsule toggles / visibility can change stack presence.
+        ApplyCapsuleModeSettingsAfterRestore();
+        RefreshThemeSurfaces();
+    }
+
+    private void RestoreVisualSettingsPageDefaults()
+    {
+        State.ColorScheme = ColorSchemes.Warm;
+        State.UiFontPreset = UiFontPresets.Default;
+        State.TextRenderingProfile = TextRenderingProfiles.Standard;
+        State.CustomFontEnhancedBold = false;
+        State.Zoom = 1.0;
+        State.ImageReferenceTextMode = ImageReferenceTextModes.Always;
+        State.NoteTextSize = VisualTextSizes.Medium;
+        State.NoteTextBold = false;
+        State.TodoVisualSize = TodoVisualSizes.Medium;
+        State.TodoTextBold = false;
+        State.TitleTextSize = VisualTextSizes.Medium;
+        State.TitleTextBold = true;
+        State.CapsuleTextSize = VisualTextSizes.Medium;
+        State.CapsuleTextBold = false;
+
+        AppTypography.Configure(
+            State.UiFontPreset,
+            State.Zoom,
+            State.CustomFontEnhancedBold,
+            State.TextRenderingProfile);
+        NoteTypography.Configure(State.NoteTextSize, State.NoteTextBold);
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateImageReferenceTextMode();
+        }
+
+        SaveNow();
+        ApplyTypographySettingsChange();
+        RefreshThemeSurfaces();
+    }
+
+    private void ApplyCapsuleModeSettingsAfterRestore()
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateCapsuleMode();
+            window.UpdateDeepCapsuleMode();
+        }
+
+        ArrangeDeepCapsules(animate: false);
     }
 
     private UIElement CreateSettingsPageSelector()
@@ -1433,14 +1614,16 @@ public sealed partial class AppController
         }
     }
 
-    private static double SettingsWindowWidth()
+    private double SettingsWindowWidth()
     {
         return SettingsContentWidth() + 32;
     }
 
-    private static double SettingsContentWidth()
+    private double SettingsContentWidth()
     {
-        return Math.Clamp(SystemParameters.WorkArea.Width - 96, 560, 680);
+        var availableWidth = WindowWorkAreaHelper.WorkAreaFor(_settingsWindow).Width - 96;
+        // Slightly under the previous 540–640 frame for a denser settings window.
+        return Math.Clamp(availableWidth, 520, 620);
     }
 
     private double SettingsWindowMaxHeight()

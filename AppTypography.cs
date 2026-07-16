@@ -18,7 +18,7 @@ public static class AppTypography
     private static CustomFontFace? _customFontFace;
     private static CustomFontFace? _customBoldFontFace;
     private static bool _customFontEnhancedBold;
-    private static string _textRenderingProfile = TextRenderingProfiles.Legacy;
+    private static string _textRenderingProfile = TextRenderingProfiles.Standard;
     private static double _scale = 1.0;
 
     public static XmlLanguage Language { get; } = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
@@ -31,16 +31,21 @@ public static class AppTypography
 
     public static FontFamily SymbolFontFamily { get; } = new(SymbolFallback);
 
-    public static bool UsesExperimentalTextRendering =>
-        _textRenderingProfile == TextRenderingProfiles.Experimental;
+    public static bool UsesCustomTextRendering =>
+        _textRenderingProfile != TextRenderingProfiles.Standard;
 
-    // Keep glyph layout on WPF's original Ideal path in both profiles. The experimental profile
-    // changes only edge rasterization, so measured widths stay aligned with the legacy profile.
-    public static TextFormattingMode TextFormattingMode => TextFormattingMode.Ideal;
+    // Standard follows WPF defaults. Soft keeps the current layout-stable smoothing path, while
+    // Sharp uses the pixel-aligned Display path that was used by the earlier rendering experiment.
+    public static TextFormattingMode TextFormattingMode =>
+        _textRenderingProfile == TextRenderingProfiles.Sharp
+            ? TextFormattingMode.Display
+            : TextFormattingMode.Ideal;
     public static TextRenderingMode TextRenderingMode =>
-        UsesExperimentalTextRendering ? TextRenderingMode.Grayscale : TextRenderingMode.Auto;
+        UsesCustomTextRendering ? TextRenderingMode.Grayscale : TextRenderingMode.Auto;
     public static TextHintingMode TextHintingMode =>
-        UsesExperimentalTextRendering ? TextHintingMode.Animated : TextHintingMode.Auto;
+        _textRenderingProfile == TextRenderingProfiles.Soft
+            ? TextHintingMode.Animated
+            : TextHintingMode.Auto;
 
     public static bool HasCustomFont => _customFontFace != null;
 
@@ -122,7 +127,7 @@ public static class AppTypography
 
     public static void ApplyTextRendering(DependencyObject target)
     {
-        if (!UsesExperimentalTextRendering)
+        if (!UsesCustomTextRendering)
         {
             ClearTextRendering(target);
             return;
