@@ -161,6 +161,23 @@ internal sealed class EdgeCapsuleDragWindow : Window
         }
     }
 
+    public bool TryBeginNativeDragFromMessageAnchor()
+    {
+        if (_isClosed ||
+            _dockingPresentationActive ||
+            !WindowNative.TryGetLastMessageScreenPosition(out var messageAnchor) ||
+            !WindowNative.TryCenterSystemAwareWindowAtScreenPoint(
+                this,
+                _widthDip,
+                _heightDip,
+                messageAnchor))
+        {
+            return false;
+        }
+
+        return WindowNative.TryBeginWindowCaptionDrag(this, messageAnchor);
+    }
+
     public void AnimateDockingHandoff(
         DeviceScreenRect dockingAnchorBounds,
         EdgeCapsuleEdge targetEdge,
@@ -408,10 +425,38 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 actualHostBounds,
                 animation.Geometry.HostTargetBounds,
                 tolerance: 2) &&
-            double.IsFinite(_surface.Width) &&
-            Math.Abs(_surface.Width - animation.SurfaceTargetWidthDip) <= 0.01;
+            MatchesDockingSurfaceLayout(animation.SurfaceTargetWidthDip);
         _dockingHandoffAnimation = null;
         animation.Completed(settled);
+    }
+
+    private bool MatchesDockingSurfaceLayout(double targetWidthDip)
+    {
+        if (!double.IsFinite(targetWidthDip) ||
+            targetWidthDip <= 0 ||
+            !double.IsFinite(_surface.ActualWidth) ||
+            !double.IsFinite(_surface.ActualHeight) ||
+            _surface.ActualWidth <= 0 ||
+            _surface.ActualHeight <= 0)
+        {
+            return false;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(_surface);
+        var actualWidth = (int)Math.Round(
+            _surface.ActualWidth * dpi.DpiScaleX,
+            MidpointRounding.AwayFromZero);
+        var actualHeight = (int)Math.Round(
+            _surface.ActualHeight * dpi.DpiScaleY,
+            MidpointRounding.AwayFromZero);
+        var targetWidth = (int)Math.Round(
+            targetWidthDip * dpi.DpiScaleX,
+            MidpointRounding.AwayFromZero);
+        var targetHeight = (int)Math.Round(
+            _heightDip * dpi.DpiScaleY,
+            MidpointRounding.AwayFromZero);
+        return Math.Abs(actualWidth - targetWidth) <= 1 &&
+            Math.Abs(actualHeight - targetHeight) <= 1;
     }
 
     private void CancelDockingHandoffAnimation()

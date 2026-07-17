@@ -17,6 +17,7 @@ internal static class WindowNative
     private const int WsExAppWindow = 0x00040000;
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 0x0002;
+    private const int VkLButton = 0x01;
     private static readonly IntPtr DpiAwarenessContextSystemAware = new(-2);
     private static readonly IntPtr HwndTop = IntPtr.Zero;
     private static readonly IntPtr HwndTopmost = new(-1);
@@ -259,6 +260,18 @@ internal static class WindowNative
         return false;
     }
 
+    public static bool TryGetLastMessageScreenPosition(out DeviceScreenPoint point)
+    {
+        var packed = GetMessagePos();
+        point = new DeviceScreenPoint(
+            unchecked((short)(packed & 0xffff)),
+            unchecked((short)((packed >> 16) & 0xffff)));
+        return true;
+    }
+
+    public static bool IsLeftMouseButtonPhysicallyPressed() =>
+        (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+
     // The detached drag capsule deliberately uses the stable System Aware behavior of the
     // pre-PMv2 implementation. Only its HWND is created in this temporary context; the process,
     // docked hosts and every later caller remain PerMonitorV2.
@@ -341,10 +354,43 @@ internal static class WindowNative
     public static bool TryCenterSystemAwareWindowAtCursor(
         Window window,
         double widthDip,
-        double heightDip)
+        double heightDip) =>
+        TryCenterSystemAwareWindowAtCursor(
+            window,
+            widthDip,
+            heightDip,
+            out _);
+
+    public static bool TryCenterSystemAwareWindowAtCursor(
+        Window window,
+        double widthDip,
+        double heightDip,
+        out DeviceScreenPoint cursorPosition)
+    {
+        if (!TryGetCursorScreenPosition(out cursorPosition))
+        {
+            return false;
+        }
+
+        return TryCenterSystemAwareWindowAtScreenPoint(
+            window,
+            widthDip,
+            heightDip,
+            cursorPosition);
+    }
+
+    public static bool TryCenterSystemAwareWindowAtScreenPoint(
+        Window window,
+        double widthDip,
+        double heightDip,
+        DeviceScreenPoint screenPosition)
     {
         var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero || widthDip <= 0 || heightDip <= 0)
+        if (handle == IntPtr.Zero ||
+            widthDip <= 0 ||
+            heightDip <= 0 ||
+            !double.IsFinite(screenPosition.X) ||
+            !double.IsFinite(screenPosition.Y))
         {
             return false;
         }
@@ -359,15 +405,10 @@ internal static class WindowNative
         {
             var dpi = GetDpiForWindow(handle);
             var scale = dpi > 0 ? dpi / 96.0 : 1.0;
-            if (!GetCursorPos(out var cursor))
-            {
-                return false;
-            }
-
             var width = Math.Max(1, (int)Math.Round(widthDip * scale, MidpointRounding.AwayFromZero));
             var height = Math.Max(1, (int)Math.Round(heightDip * scale, MidpointRounding.AwayFromZero));
-            var left = (int)Math.Round(cursor.X - width / 2.0, MidpointRounding.AwayFromZero);
-            var top = (int)Math.Round(cursor.Y - height / 2.0, MidpointRounding.AwayFromZero);
+            var left = (int)Math.Round(screenPosition.X - width / 2.0, MidpointRounding.AwayFromZero);
+            var top = (int)Math.Round(screenPosition.Y - height / 2.0, MidpointRounding.AwayFromZero);
             return SetWindowPos(
                 handle,
                 IntPtr.Zero,
@@ -449,6 +490,14 @@ internal static class WindowNative
 
     public static bool TryBeginWindowCaptionDrag(Window window)
     {
+        return TryGetCursorScreenPosition(out var cursorPosition) &&
+            TryBeginWindowCaptionDrag(window, cursorPosition);
+    }
+
+    public static bool TryBeginWindowCaptionDrag(
+        Window window,
+        DeviceScreenPoint cursorPosition)
+    {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero)
         {
@@ -456,8 +505,21 @@ internal static class WindowNative
         }
 
         _ = ReleaseCapture();
-        _ = SendMessage(handle, WmNcLButtonDown, new IntPtr(HtCaption), IntPtr.Zero);
+        var packedPosition = PackScreenPoint(cursorPosition);
+        _ = SendMessage(
+            handle,
+            WmNcLButtonDown,
+            new IntPtr(HtCaption),
+            packedPosition);
         return true;
+    }
+
+    private static IntPtr PackScreenPoint(DeviceScreenPoint point)
+    {
+        var x = (int)Math.Round(point.X, MidpointRounding.AwayFromZero);
+        var y = (int)Math.Round(point.Y, MidpointRounding.AwayFromZero);
+        var packed = unchecked((int)((uint)(ushort)x | ((uint)(ushort)y << 16)));
+        return new IntPtr(packed);
     }
 
     // Restore a natively maximized or snapped window at the Win32 level (SW_RESTORE) so the hwnd
@@ -516,6 +578,12 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out CursorPoint lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetMessagePos();
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);

@@ -875,6 +875,31 @@ public sealed partial class PaperWindow
                 System.Windows.Threading.DispatcherPriority.Render);
             WindowNative.FlushDesktopComposition();
 
+            if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+                !IsDeepCapsuleFloatingReordering)
+            {
+                return;
+            }
+
+            if (!WindowNative.IsLeftMouseButtonPhysicallyPressed())
+            {
+                var releasedPosition = currentScreenPos;
+                if (WindowNative.TryGetCursorScreenPosition(out var liveReleasedPosition))
+                {
+                    releasedPosition = liveReleasedPosition;
+                }
+                if (!UpdateEdgeCapsuleDragPointer(releasedPosition))
+                {
+                    CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                    return;
+                }
+
+                EndDeepCapsuleReorderDrag(commit: true);
+                edgeHost.ReleaseContentPointer();
+                ClearCapsuleInteractionKeyboardFocus();
+                return;
+            }
+
             // From here through button release, Windows is the sole drag owner. The reducer stays
             // in FloatingReordering only so queue/layout work remains deferred until we sample the
             // final native cursor position.
@@ -884,7 +909,7 @@ public sealed partial class PaperWindow
             {
                 return;
             }
-            if (!WindowNative.TryBeginWindowCaptionDrag(floatingHost))
+            if (!floatingHost.TryBeginNativeDragFromMessageAnchor())
             {
                 CancelDeepCapsuleReorderDrag(restoreLayout: true);
                 return;
