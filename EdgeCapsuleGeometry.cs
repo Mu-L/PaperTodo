@@ -38,15 +38,11 @@ internal readonly record struct EdgeCapsuleVerticalEdges(int Top, int Bottom);
 internal readonly record struct EdgeCapsuleFloatingHandoffGeometry(
     DeviceScreenRect HostStartBounds,
     DeviceScreenRect HostTargetBounds,
-    DeviceScreenRect SurfaceStartBounds,
-    DeviceScreenRect SurfaceTargetBounds,
     double SurfaceTargetWidthDip)
 {
     public bool IsUsable =>
         !HostStartBounds.IsEmpty &&
         !HostTargetBounds.IsEmpty &&
-        !SurfaceStartBounds.IsEmpty &&
-        !SurfaceTargetBounds.IsEmpty &&
         double.IsFinite(SurfaceTargetWidthDip) &&
         SurfaceTargetWidthDip > 0;
 }
@@ -195,7 +191,6 @@ internal static class EdgeCapsuleGeometry
     /// </summary>
     public static EdgeCapsuleFloatingHandoffGeometry FloatingHandoffGeometry(
         DeviceScreenRect startHostBounds,
-        DeviceScreenRect startSurfaceBounds,
         DeviceScreenRect dockingAnchorBounds,
         EdgeCapsuleEdge edge,
         double floatingWindowWidthDip,
@@ -204,7 +199,6 @@ internal static class EdgeCapsuleGeometry
         double targetDpiScaleY)
     {
         if (startHostBounds.IsEmpty ||
-            startSurfaceBounds.IsEmpty ||
             dockingAnchorBounds.IsEmpty ||
             !double.IsFinite(floatingWindowWidthDip) ||
             !double.IsFinite(floatingWindowHeightDip) ||
@@ -232,33 +226,7 @@ internal static class EdgeCapsuleGeometry
                 hostTargetTop,
                 hostTargetLeft + hostWidth,
                 hostTargetTop + hostHeight),
-            startSurfaceBounds,
-            dockingAnchorBounds,
             Math.Clamp(dockingAnchorBounds.Width / scaleX, 1, floatingWindowWidthDip));
-    }
-
-    public static DeviceScreenRect SurfaceBoundsWithinFixedHost(
-        DeviceScreenRect hostBounds,
-        EdgeCapsuleEdge edge,
-        double surfaceWidthDip,
-        double dpiScaleX)
-    {
-        if (hostBounds.IsEmpty ||
-            !double.IsFinite(surfaceWidthDip) ||
-            surfaceWidthDip <= 0)
-        {
-            return default;
-        }
-
-        var width = Math.Max(1, RoundDevice(surfaceWidthDip * Math.Max(1, dpiScaleX)));
-        var left = edge == EdgeCapsuleEdge.Left
-            ? hostBounds.Left
-            : hostBounds.Right - width;
-        return new DeviceScreenRect(
-            left,
-            hostBounds.Top,
-            left + width,
-            hostBounds.Bottom);
     }
 
     public static DeviceScreenPoint InterpolateDevicePosition(
