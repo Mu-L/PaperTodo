@@ -39,13 +39,16 @@ internal readonly record struct EdgeCapsuleFloatingHandoffGeometry(
     DeviceScreenRect HostStartBounds,
     DeviceScreenRect HostTargetBounds,
     DeviceScreenRect SurfaceStartBounds,
-    DeviceScreenRect SurfaceTargetBounds)
+    DeviceScreenRect SurfaceTargetBounds,
+    double SurfaceTargetWidthDip)
 {
     public bool IsUsable =>
         !HostStartBounds.IsEmpty &&
         !HostTargetBounds.IsEmpty &&
         !SurfaceStartBounds.IsEmpty &&
-        !SurfaceTargetBounds.IsEmpty;
+        !SurfaceTargetBounds.IsEmpty &&
+        double.IsFinite(SurfaceTargetWidthDip) &&
+        SurfaceTargetWidthDip > 0;
 }
 
 /// <summary>
@@ -186,62 +189,87 @@ internal static class EdgeCapsuleGeometry
     }
 
     /// <summary>
-    /// Builds a fixed-capacity native flight and a separate visible-surface flight. The HWND keeps
-    /// the larger endpoint capacity while the FloatingFree visual can reflow to the exact docking
-    /// anchor inside it, so shrinking the pill never clips it at the native window boundary.
+    /// Builds the endpoint positions for a fixed-logical-size floating HWND. Windows owns the
+    /// physical size of that System Aware HWND on each monitor; the handoff only moves the HWND
+    /// while the visible child narrows toward the docking anchor.
     /// </summary>
     public static EdgeCapsuleFloatingHandoffGeometry FloatingHandoffGeometry(
+        DeviceScreenRect startHostBounds,
         DeviceScreenRect startSurfaceBounds,
         DeviceScreenRect dockingAnchorBounds,
-        EdgeCapsuleEdge edge)
+        EdgeCapsuleEdge edge,
+        double floatingWindowWidthDip,
+        double floatingWindowHeightDip,
+        double targetDpiScaleX,
+        double targetDpiScaleY)
     {
-        if (startSurfaceBounds.IsEmpty || dockingAnchorBounds.IsEmpty)
+        if (startHostBounds.IsEmpty ||
+            startSurfaceBounds.IsEmpty ||
+            dockingAnchorBounds.IsEmpty ||
+            !double.IsFinite(floatingWindowWidthDip) ||
+            !double.IsFinite(floatingWindowHeightDip) ||
+            floatingWindowWidthDip <= 0 ||
+            floatingWindowHeightDip <= 0)
         {
             return default;
         }
 
-        var hostWidth = Math.Max(startSurfaceBounds.Width, dockingAnchorBounds.Width);
-        var hostHeight = Math.Max(startSurfaceBounds.Height, dockingAnchorBounds.Height);
-        var hostStartLeft = edge == EdgeCapsuleEdge.Left
-            ? startSurfaceBounds.Left
-            : startSurfaceBounds.Right - hostWidth;
+        var scaleX = Math.Max(1, targetDpiScaleX);
+        var scaleY = Math.Max(1, targetDpiScaleY);
+        var targetHostWidthDevice = Math.Max(1, RoundDevice(floatingWindowWidthDip * scaleX));
+        var targetHostHeightDevice = Math.Max(1, RoundDevice(floatingWindowHeightDip * scaleY));
+        var hostWidth = Math.Max(targetHostWidthDevice, dockingAnchorBounds.Width);
+        var hostHeight = Math.Max(targetHostHeightDevice, dockingAnchorBounds.Height);
         var hostTargetLeft = edge == EdgeCapsuleEdge.Left
             ? dockingAnchorBounds.Left
             : dockingAnchorBounds.Right - hostWidth;
-        var hostStartTop = startSurfaceBounds.Top - RoundDevice(
-            (hostHeight - startSurfaceBounds.Height) / 2.0);
         var hostTargetTop = dockingAnchorBounds.Top - RoundDevice(
             (hostHeight - dockingAnchorBounds.Height) / 2.0);
         return new EdgeCapsuleFloatingHandoffGeometry(
-            new DeviceScreenRect(
-                hostStartLeft,
-                hostStartTop,
-                hostStartLeft + hostWidth,
-                hostStartTop + hostHeight),
+            startHostBounds,
             new DeviceScreenRect(
                 hostTargetLeft,
                 hostTargetTop,
                 hostTargetLeft + hostWidth,
                 hostTargetTop + hostHeight),
             startSurfaceBounds,
-            dockingAnchorBounds);
+            dockingAnchorBounds,
+            Math.Clamp(dockingAnchorBounds.Width / scaleX, 1, floatingWindowWidthDip));
     }
 
-    public static DeviceScreenRect InterpolateDeviceBounds(
+    public static DeviceScreenRect SurfaceBoundsWithinFixedHost(
+        DeviceScreenRect hostBounds,
+        EdgeCapsuleEdge edge,
+        double surfaceWidthDip,
+        double dpiScaleX)
+    {
+        if (hostBounds.IsEmpty ||
+            !double.IsFinite(surfaceWidthDip) ||
+            surfaceWidthDip <= 0)
+        {
+            return default;
+        }
+
+        var width = Math.Max(1, RoundDevice(surfaceWidthDip * Math.Max(1, dpiScaleX)));
+        var left = edge == EdgeCapsuleEdge.Left
+            ? hostBounds.Left
+            : hostBounds.Right - width;
+        return new DeviceScreenRect(
+            left,
+            hostBounds.Top,
+            left + width,
+            hostBounds.Bottom);
+    }
+
+    public static DeviceScreenPoint InterpolateDevicePosition(
         DeviceScreenRect start,
         DeviceScreenRect target,
         double progress)
     {
         progress = Math.Clamp(progress, 0, 1);
-        var left = LerpDevice(start.Left, target.Left, progress);
-        var top = LerpDevice(start.Top, target.Top, progress);
-        var width = LerpDevice(start.Width, target.Width, progress);
-        var height = LerpDevice(start.Height, target.Height, progress);
-        return new DeviceScreenRect(
-            left,
-            top,
-            left + width,
-            top + height);
+        return new DeviceScreenPoint(
+            LerpDevice(start.Left, target.Left, progress),
+            LerpDevice(start.Top, target.Top, progress));
     }
 
     public static bool DeviceBoundsMatch(

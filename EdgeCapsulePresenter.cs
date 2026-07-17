@@ -70,17 +70,19 @@ internal sealed class EdgeCapsulePresenter
     {
         switch (State.Gesture)
         {
-            case EdgeCapsuleGestureState.FloatingTransfer:
-                return leftButtonPressed
-                    ? EdgeCapsuleCaptureAction.IgnoreExpectedTransfer
-                    : EdgeCapsuleCaptureAction.CancelDrag;
             case EdgeCapsuleGestureState.PendingClick:
                 Dispatch(EdgeCapsuleIntent.PointerInteractionFinished());
                 return EdgeCapsuleCaptureAction.None;
             case EdgeCapsuleGestureState.DockedReordering:
-            case EdgeCapsuleGestureState.FloatingReordering:
                 return leftButtonPressed
                     ? EdgeCapsuleCaptureAction.Recapture
+                    : EdgeCapsuleCaptureAction.CancelDrag;
+            case EdgeCapsuleGestureState.FloatingTransfer:
+            case EdgeCapsuleGestureState.FloatingReordering:
+                // Releasing docked WPF capture is expected once the native floating HWND owns the
+                // move loop. Recapturing here would restore two competing drag owners.
+                return leftButtonPressed
+                    ? EdgeCapsuleCaptureAction.IgnoreExpectedTransfer
                     : EdgeCapsuleCaptureAction.CancelDrag;
             default:
                 return EdgeCapsuleCaptureAction.None;

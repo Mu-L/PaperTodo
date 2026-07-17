@@ -17,6 +17,7 @@ internal static class WindowNative
     private const int WsExAppWindow = 0x00040000;
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 0x0002;
+    private static readonly IntPtr DpiAwarenessContextSystemAware = new(-2);
     private static readonly IntPtr HwndTop = IntPtr.Zero;
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
@@ -258,6 +259,41 @@ internal static class WindowNative
         return false;
     }
 
+    // The detached drag capsule deliberately uses the stable System Aware behavior of the
+    // pre-PMv2 implementation. Only its HWND is created in this temporary context; the process,
+    // docked hosts and every later caller remain PerMonitorV2.
+    public static IntPtr CreateSystemAwareTopLevelWindowHandle(Window window)
+    {
+        var helper = new WindowInteropHelper(window);
+        if (helper.Handle != IntPtr.Zero)
+        {
+            throw new InvalidOperationException(
+                "The system-aware window handle must be created before first use.");
+        }
+
+        var previousContext = SetThreadDpiAwarenessContext(DpiAwarenessContextSystemAware);
+        if (previousContext == IntPtr.Zero)
+        {
+            throw new InvalidOperationException(
+                "Windows could not enter the system-aware DPI context.");
+        }
+
+        try
+        {
+            var handle = helper.EnsureHandle();
+            if (handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    "Windows could not create the floating capsule window.");
+            }
+            return handle;
+        }
+        finally
+        {
+            _ = SetThreadDpiAwarenessContext(previousContext);
+        }
+    }
+
     // Commit position and size as one native operation. Edge surfaces use physical screen pixels
     // as their source of truth; assigning WPF Left/Top/Width separately creates observable
     // intermediate HWND rectangles and was the direct cause of one-frame edge clipping.
@@ -278,6 +314,73 @@ internal static class WindowNative
             bounds.Width,
             bounds.Height,
             SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    // A System Aware floating HWND owns its fixed logical size for its entire lifetime. Handoff
+    // frames may move it, but must not submit a competing native size.
+    public static bool TryMoveWindowDevicePosition(Window window, DeviceScreenPoint position)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        return handle != IntPtr.Zero && SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            (int)Math.Round(position.X, MidpointRounding.AwayFromZero),
+            (int)Math.Round(position.Y, MidpointRounding.AwayFromZero),
+            0,
+            0,
+            SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    // Centers the System Aware floating window on the live cursor from inside its own coordinate
+    // space. WPF's property write converts through the uniform system scale, but the virtual
+    // desktop mapping is monitor-anchored, so a pull-out whose cursor already sits on another
+    // monitor materializes the pill at the wrong physical spot and size until release. Writing
+    // one rectangle in the window's own space lets Windows resolve the exact physical result for
+    // the cursor's monitor. The size written is the window's fixed logical size expressed in its
+    // own units, so this does not introduce a second native size owner.
+    public static bool TryCenterSystemAwareWindowAtCursor(
+        Window window,
+        double widthDip,
+        double heightDip)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || widthDip <= 0 || heightDip <= 0)
+        {
+            return false;
+        }
+
+        var previousContext = SetThreadDpiAwarenessContext(DpiAwarenessContextSystemAware);
+        if (previousContext == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            var dpi = GetDpiForWindow(handle);
+            var scale = dpi > 0 ? dpi / 96.0 : 1.0;
+            if (!GetCursorPos(out var cursor))
+            {
+                return false;
+            }
+
+            var width = Math.Max(1, (int)Math.Round(widthDip * scale, MidpointRounding.AwayFromZero));
+            var height = Math.Max(1, (int)Math.Round(heightDip * scale, MidpointRounding.AwayFromZero));
+            var left = (int)Math.Round(cursor.X - width / 2.0, MidpointRounding.AwayFromZero);
+            var top = (int)Math.Round(cursor.Y - height / 2.0, MidpointRounding.AwayFromZero);
+            return SetWindowPos(
+                handle,
+                IntPtr.Zero,
+                left,
+                top,
+                width,
+                height,
+                SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+        }
+        finally
+        {
+            _ = SetThreadDpiAwarenessContext(previousContext);
+        }
     }
 
     public static bool TryGetWindowDeviceBounds(Window window, out DeviceScreenRect bounds)
@@ -413,6 +516,12 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out CursorPoint lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);

@@ -7,7 +7,7 @@ public sealed partial class PaperWindow
 {
     // Passed through the callback chain rather than stored on PaperWindow, so cancellation or a
     // later drag cannot inherit an exhausted budget from an earlier floating HWND.
-    private const int MaximumDeepCapsuleDockingHandoffRestarts = 3;
+    private const int MaximumDeepCapsuleDockingHandoffRestarts = 1;
 
     private void OnEdgeCapsulePointerPressed(DeviceScreenPoint screenPosition) =>
         BeginEdgeCapsulePointerInteraction(screenPosition);
@@ -170,16 +170,6 @@ public sealed partial class PaperWindow
             }
             throw;
         }
-    }
-
-    private void MoveDeepCapsuleFloatingDragHost(DeviceScreenPoint pointer)
-    {
-        if (_deepCapsuleFloatingDragHost == null)
-        {
-            return;
-        }
-
-        _deepCapsuleFloatingDragHost.MoveCenteredAt(pointer);
     }
 
     private void CloseDeepCapsuleFloatingDragHost()
@@ -469,9 +459,10 @@ public sealed partial class PaperWindow
                     }
                     if (!floatingSettled)
                     {
-                        RecoverDeepCapsuleFloatingDockingHandoff(
-                            floatingHost,
-                            handoffRestartsRemaining);
+                        // Replaying the same stable target cannot repair a floating HWND endpoint.
+                        // Finish through the bounded no-animation path instead of flying again.
+                        CompleteDeepCapsuleFloatingDockingHandoffWithoutAnimation(
+                            floatingHost);
                         return;
                     }
 
@@ -803,7 +794,6 @@ public sealed partial class PaperWindow
         if (IsDeepCapsuleFloatingReordering)
         {
             UpdateEdgeCapsuleDragPointer(currentScreenPos);
-            MoveDeepCapsuleFloatingDragHost(currentScreenPos);
             return;
         }
 
@@ -874,32 +864,46 @@ public sealed partial class PaperWindow
             WindowNative.BringToFrontNoActivate(floatingHost);
             RefreshDeepCapsuleSlotTopmost();
             Mouse.OverrideCursor = Cursors.SizeAll;
-            // Show() of the floating top-level window steals capture from the docked content.
-            // Re-capture so subsequent move/up keep driving the floating host.
-            if (Mouse.LeftButton == MouseButtonState.Pressed &&
-                !edgeHost.IsContentPointerCaptured)
+            // From here through button release, Windows is the sole drag owner. The reducer stays
+            // in FloatingReordering only so queue/layout work remains deferred until we sample the
+            // final native cursor position.
+            edgeHost.ReleaseContentPointer();
+            if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+                !IsDeepCapsuleFloatingReordering)
             {
-                edgeHost.CaptureContentPointer();
+                return;
             }
+            if (!WindowNative.TryBeginWindowCaptionDrag(floatingHost))
+            {
+                CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                return;
+            }
+            if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
+                !IsDeepCapsuleFloatingReordering)
+            {
+                return;
+            }
+
+            var dropPosition = currentScreenPos;
+            if (!WindowNative.TryGetCursorScreenPosition(out dropPosition) &&
+                WindowNative.TryGetWindowDeviceBounds(floatingHost, out var bounds) &&
+                !bounds.IsEmpty)
+            {
+                dropPosition = new DeviceScreenPoint(
+                    bounds.Left + bounds.Width / 2.0,
+                    bounds.Top + bounds.Height / 2.0);
+            }
+            if (!UpdateEdgeCapsuleDragPointer(dropPosition))
+            {
+                CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                return;
+            }
+            EndDeepCapsuleReorderDrag(commit: true);
+            ClearCapsuleInteractionKeyboardFocus();
         }
         catch
         {
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
-        }
-        finally
-        {
-            if (IsDeepCapsuleFloatingReordering)
-            {
-                if (Mouse.LeftButton != MouseButtonState.Pressed)
-                {
-                    CancelDeepCapsuleReorderDrag(restoreLayout: true);
-                    ClearCapsuleInteractionKeyboardFocus();
-                }
-                else if (!edgeHost.IsContentPointerCaptured)
-                {
-                    edgeHost.CaptureContentPointer();
-                }
-            }
         }
     }
 

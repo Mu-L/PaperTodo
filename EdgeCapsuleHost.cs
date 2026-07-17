@@ -681,16 +681,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
         }
     }
 
-    public bool IsContentPointerCaptured => !_disposed && ContentArea.IsMouseCaptured;
     public bool IsTopmost => !_disposed && Window.Topmost;
-
-    public void CaptureContentPointer()
-    {
-        if (!_disposed)
-        {
-            ContentArea.CaptureMouse();
-        }
-    }
 
     public void ReleaseContentPointer()
     {

@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -49,22 +47,22 @@ internal sealed class EdgeCapsuleDragWindow : Window
         DockingHandoffAnimationPhase Phase,
         EdgeCapsuleFloatingHandoffGeometry Geometry,
         EdgeCapsuleEdge Edge,
+        double SurfaceStartWidthDip,
+        double SurfaceTargetWidthDip,
         double StartOpacity,
         long StartedAtTimestamp,
         long DurationTimestampTicks,
         Action<bool> Completed);
 
-    private const int WmDpiChanged = 0x02E0;
     private readonly ScaleTransform _entranceScale = new(1, 1);
     private readonly double _widthDip;
     private readonly double _heightDip;
     private readonly Grid _root;
     private readonly Grid _surface;
     private readonly Border _outline;
-    private DeviceScreenRect _dragTargetDeviceBounds;
-    private DeviceScreenRect _surfaceDeviceBounds;
     private DockingHandoffAnimation? _dockingHandoffAnimation;
-    private int _dpiSettleGeneration;
+    private double _currentSurfaceWidthDip;
+    private EdgeCapsuleEdge _currentDockingEdge;
     private bool _dockingPresentationActive;
     private bool _closingByOwner;
     private bool _isClosed;
@@ -92,17 +90,13 @@ internal sealed class EdgeCapsuleDragWindow : Window
             "EdgeCapsuleDragWindow only renders the FloatingFree shape.");
         _widthDip = options.Shape.WindowWidthDip;
         _heightDip = options.Shape.WindowHeightDip;
+        Width = _widthDip;
+        Height = _heightDip;
+        _currentSurfaceWidthDip = _widthDip;
         (_root, _surface, _outline) = BuildContent(options);
         Content = _root;
 
-        SourceInitialized += (_, _) =>
-        {
-            WindowNative.ApplyNoActivateStyle(this);
-            if (PresentationSource.FromVisual(this) is HwndSource source)
-            {
-                source.AddHook(OnWindowMessage);
-            }
-        };
+        SourceInitialized += (_, _) => WindowNative.ApplyNoActivateStyle(this);
     }
 
     public event EventHandler? UnexpectedlyClosed;
@@ -113,26 +107,28 @@ internal sealed class EdgeCapsuleDragWindow : Window
         double scaleFrom,
         int durationMilliseconds)
     {
+        // Create only this detached HWND as System Aware, then let the Windows caption move loop
+        // own cross-monitor drag position and bitmap scaling just as it did before PMv2.
+        PlaceCenteredAtForShow(pointer);
+        WindowNative.CreateSystemAwareTopLevelWindowHandle(this);
         _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         if (!animate)
         {
             _entranceScale.ScaleX = 1;
             _entranceScale.ScaleY = 1;
-            MoveCenteredAt(pointer);
             Show();
             RefreshNativeMetricsLayout();
-            MoveCenteredAt(pointer);
+            PlaceCenteredAtCursorForDrag(pointer);
             Opacity = 1;
             return;
         }
 
         _entranceScale.ScaleX = scaleFrom;
         _entranceScale.ScaleY = scaleFrom;
-        MoveCenteredAt(pointer);
         Show();
         RefreshNativeMetricsLayout();
-        MoveCenteredAt(pointer);
+        PlaceCenteredAtCursorForDrag(pointer);
         Opacity = 1;
         var animation = new DoubleAnimation
         {
@@ -145,42 +141,23 @@ internal sealed class EdgeCapsuleDragWindow : Window
         _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, animation, HandoffBehavior.SnapshotAndReplace);
     }
 
-    public void MoveCenteredAt(DeviceScreenPoint pointer)
+    private void PlaceCenteredAtForShow(DeviceScreenPoint pointer)
     {
-        if (_dockingPresentationActive)
-        {
-            return;
-        }
-
-        if (!WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(pointer, this, out var geometry))
-        {
-            return;
-        }
-
-        var width = Math.Max(1, (int)Math.Round(_widthDip * geometry.DpiScaleX, MidpointRounding.AwayFromZero));
-        var height = Math.Max(1, (int)Math.Round(_heightDip * geometry.DpiScaleY, MidpointRounding.AwayFromZero));
-        var left = (int)Math.Round(pointer.X - width / 2.0, MidpointRounding.AwayFromZero);
-        var top = (int)Math.Round(pointer.Y - height / 2.0, MidpointRounding.AwayFromZero);
-        _dragTargetDeviceBounds = new DeviceScreenRect(left, top, left + width, top + height);
-        ApplyDragTargetDeviceBounds();
+        var pointerDip = WindowWorkAreaHelper.DeviceScreenPointToDip(pointer);
+        Left = pointerDip.X - _widthDip / 2.0;
+        Top = pointerDip.Y - _heightDip / 2.0;
     }
 
-    private void ApplyDragTargetDeviceBounds()
+    // A pull-out can begin with the cursor already on another monitor. The WPF property write
+    // above converts through the uniform system scale, which the monitor-anchored virtual desktop
+    // mapping does not honor on mixed-DPI zones, so re-place the shown window once from inside
+    // its own System Aware space; Windows then resolves the exact physical rectangle for the
+    // cursor's monitor before the native move loop takes ownership.
+    private void PlaceCenteredAtCursorForDrag(DeviceScreenPoint fallbackPointer)
     {
-        var bounds = _dragTargetDeviceBounds;
-        if (_isClosed || _dockingPresentationActive || bounds.IsEmpty ||
-            !WindowNative.TrySetWindowDeviceBounds(this, bounds))
+        if (!WindowNative.TryCenterSystemAwareWindowAtCursor(this, _widthDip, _heightDip))
         {
-            return;
-        }
-
-        if (WindowNative.TryGetWindowDeviceBounds(this, out var actualBounds))
-        {
-            _surfaceDeviceBounds = actualBounds;
-        }
-        else
-        {
-            _surfaceDeviceBounds = bounds;
+            PlaceCenteredAtForShow(fallbackPointer);
         }
     }
 
@@ -190,6 +167,12 @@ internal sealed class EdgeCapsuleDragWindow : Window
         int durationMilliseconds,
         Action<bool> completed)
     {
+        if (_dockingPresentationActive && targetEdge != _currentDockingEdge)
+        {
+            CancelDockingHandoffAnimation();
+            completed(false);
+            return;
+        }
         CancelDockingHandoffAnimation();
         if (_isClosed || dockingAnchorBounds.IsEmpty)
         {
@@ -205,42 +188,62 @@ internal sealed class EdgeCapsuleDragWindow : Window
         _entranceScale.ScaleY = 1;
         _surface.Opacity = 1;
         _outline.Opacity = 1;
-        if (!TryGetCurrentSurfaceDeviceBounds(out var startSurfaceBounds))
+        if (!WindowNative.TryGetWindowDeviceBounds(this, out var startHostBounds) ||
+            startHostBounds.IsEmpty ||
+            !TryGetCurrentSurfaceDeviceBounds(startHostBounds, out var startSurfaceBounds))
+        {
+            completed(false);
+            return;
+        }
+
+        var targetCenter = new DeviceScreenPoint(
+            dockingAnchorBounds.Left + dockingAnchorBounds.Width / 2.0,
+            dockingAnchorBounds.Top + dockingAnchorBounds.Height / 2.0);
+        if (!WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                targetCenter,
+                out var targetMonitor))
         {
             completed(false);
             return;
         }
 
         var geometry = EdgeCapsuleGeometry.FloatingHandoffGeometry(
+            startHostBounds,
             startSurfaceBounds,
             dockingAnchorBounds,
-            targetEdge);
+            targetEdge,
+            _widthDip,
+            _heightDip,
+            targetMonitor.DpiScaleX,
+            targetMonitor.DpiScaleY);
         if (!geometry.IsUsable)
         {
             completed(false);
             return;
         }
 
+        var startSurfaceWidthDip = Math.Clamp(_currentSurfaceWidthDip, 1, _widthDip);
+        var targetSurfaceWidthDip = geometry.SurfaceTargetWidthDip;
         _dockingPresentationActive = true;
+        _currentDockingEdge = targetEdge;
 
-        // Expand only transparent native capacity at this phase boundary. The visible pill keeps
-        // its exact current bounds inside that host and can subsequently reflow every frame without
-        // ever being clipped by SetWindowPos.
+        // The WPF Window keeps its fixed logical Width/Height. Each frame moves only the HWND and
+        // changes only the child width, so there is no second native size owner to fight WPF.
         if (!ApplyDockingFrame(
-                geometry.HostStartBounds,
-                geometry.SurfaceStartBounds,
-                targetEdge,
-                refreshLayout: true))
+                new DeviceScreenPoint(startHostBounds.Left, startHostBounds.Top),
+                startSurfaceWidthDip,
+                targetEdge))
         {
             completed(false);
             return;
         }
 
-        _dpiSettleGeneration++;
         _dockingHandoffAnimation = new DockingHandoffAnimation(
             DockingHandoffAnimationPhase.Flight,
             geometry,
             targetEdge,
+            startSurfaceWidthDip,
+            targetSurfaceWidthDip,
             1,
             Stopwatch.GetTimestamp(),
             AnimationDurationTicks(durationMilliseconds),
@@ -273,6 +276,8 @@ internal sealed class EdgeCapsuleDragWindow : Window
             DockingHandoffAnimationPhase.Reveal,
             default,
             default,
+            0,
+            0,
             startOpacity,
             Stopwatch.GetTimestamp(),
             AnimationDurationTicks(durationMilliseconds),
@@ -312,19 +317,16 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var progress = 1.0 - Math.Pow(1.0 - rawProgress, 3.0);
         if (animation.Phase == DockingHandoffAnimationPhase.Flight)
         {
-            var hostBounds = EdgeCapsuleGeometry.InterpolateDeviceBounds(
+            var hostPosition = EdgeCapsuleGeometry.InterpolateDevicePosition(
                 animation.Geometry.HostStartBounds,
                 animation.Geometry.HostTargetBounds,
                 progress);
-            var surfaceBounds = EdgeCapsuleGeometry.InterpolateDeviceBounds(
-                animation.Geometry.SurfaceStartBounds,
-                animation.Geometry.SurfaceTargetBounds,
-                progress);
+            var surfaceWidthDip = animation.SurfaceStartWidthDip +
+                (animation.SurfaceTargetWidthDip - animation.SurfaceStartWidthDip) * progress;
             if (!ApplyDockingFrame(
-                    hostBounds,
-                    surfaceBounds,
-                    animation.Edge,
-                    refreshLayout: false))
+                    hostPosition,
+                    surfaceWidthDip,
+                    animation.Edge))
             {
                 CompleteDockingHandoffAnimation(reachedTarget: false);
                 return;
@@ -372,18 +374,19 @@ internal sealed class EdgeCapsuleDragWindow : Window
         }
 
         if (!ApplyDockingFrame(
-                animation.Geometry.HostTargetBounds,
-                animation.Geometry.SurfaceTargetBounds,
-                animation.Edge,
-                refreshLayout: false))
+                new DeviceScreenPoint(
+                    animation.Geometry.HostTargetBounds.Left,
+                    animation.Geometry.HostTargetBounds.Top),
+                animation.SurfaceTargetWidthDip,
+                animation.Edge))
         {
             _dockingHandoffAnimation = null;
             animation.Completed(false);
             return;
         }
 
-        // WM_DPICHANGED can be followed by a later WPF layout rewrite. Keep the hand-off active
-        // until that work has drained, then verify both transparent host and visible surface.
+        // Let WPF render the child-width endpoint, then verify the single native position/size
+        // result. No replay is needed: a failed endpoint takes the existing terminal snap path.
         Dispatcher.BeginInvoke(
             (Action)(() => CompleteDockingHandoffEndpointSettle(animation)),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
@@ -396,24 +399,19 @@ internal sealed class EdgeCapsuleDragWindow : Window
             return;
         }
 
-        DeviceScreenRect actualHostBounds = default;
-        DeviceScreenRect actualSurfaceBounds = default;
         var settled = ApplyDockingFrame(
-                animation.Geometry.HostTargetBounds,
-                animation.Geometry.SurfaceTargetBounds,
-                animation.Edge,
-                refreshLayout: true) &&
-            WindowNative.TryGetWindowDeviceBounds(this, out actualHostBounds) &&
-            actualHostBounds == animation.Geometry.HostTargetBounds &&
-            TryGetVisualSurfaceDeviceBounds(out actualSurfaceBounds) &&
+                new DeviceScreenPoint(
+                    animation.Geometry.HostTargetBounds.Left,
+                    animation.Geometry.HostTargetBounds.Top),
+                animation.SurfaceTargetWidthDip,
+                animation.Edge) &&
+            WindowNative.TryGetWindowDeviceBounds(this, out var actualHostBounds) &&
             EdgeCapsuleGeometry.DeviceBoundsMatch(
-                actualSurfaceBounds,
-                animation.Geometry.SurfaceTargetBounds,
-                tolerance: 1);
-        if (settled)
-        {
-            _surfaceDeviceBounds = actualSurfaceBounds;
-        }
+                actualHostBounds,
+                animation.Geometry.HostTargetBounds,
+                tolerance: 2) &&
+            double.IsFinite(_surface.Width) &&
+            Math.Abs(_surface.Width - animation.SurfaceTargetWidthDip) <= 0.01;
         _dockingHandoffAnimation = null;
         animation.Completed(settled);
     }
@@ -432,12 +430,15 @@ internal sealed class EdgeCapsuleDragWindow : Window
     }
 
     private bool ApplyDockingFrame(
-        DeviceScreenRect hostBounds,
-        DeviceScreenRect surfaceBounds,
-        EdgeCapsuleEdge edge,
-        bool refreshLayout)
+        DeviceScreenPoint hostPosition,
+        double surfaceWidthDip,
+        EdgeCapsuleEdge edge)
     {
-        if (_isClosed || hostBounds.IsEmpty || surfaceBounds.IsEmpty)
+        if (_isClosed ||
+            !double.IsFinite(hostPosition.X) ||
+            !double.IsFinite(hostPosition.Y) ||
+            !double.IsFinite(surfaceWidthDip) ||
+            surfaceWidthDip <= 0)
         {
             return false;
         }
@@ -446,68 +447,43 @@ internal sealed class EdgeCapsuleDragWindow : Window
             ? HorizontalAlignment.Left
             : HorizontalAlignment.Right;
         _surface.VerticalAlignment = VerticalAlignment.Center;
-        if (!WindowNative.TrySetWindowDeviceBounds(this, hostBounds))
+        _surface.Width = Math.Clamp(surfaceWidthDip, 1, _widthDip);
+        _surface.Height = _heightDip;
+        _currentSurfaceWidthDip = _surface.Width;
+        _currentDockingEdge = edge;
+
+        // Position is committed last. Width/Height remain owned by the fixed WPF Window and are
+        // never included in this native operation.
+        return WindowNative.TryMoveWindowDevicePosition(this, hostPosition);
+    }
+
+    private bool TryGetCurrentSurfaceDeviceBounds(
+        DeviceScreenRect hostBounds,
+        out DeviceScreenRect bounds)
+    {
+        if (!_dockingPresentationActive)
         {
+            bounds = hostBounds;
+            return true;
+        }
+
+        var center = new DeviceScreenPoint(
+            hostBounds.Left + hostBounds.Width / 2.0,
+            hostBounds.Top + hostBounds.Height / 2.0);
+        if (!WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                center,
+                out var monitor))
+        {
+            bounds = default;
             return false;
         }
 
-        // SetWindowPos can synchronously change this HWND's per-monitor DPI. Size the child after
-        // that hand-off, in the destination scale, so the requested physical surface does not grow
-        // or shrink for one render tick merely because WPF changed coordinate spaces.
-        var dpi = VisualTreeHelper.GetDpi(this);
-        _surface.Width = surfaceBounds.Width / Math.Max(1, dpi.DpiScaleX);
-        _surface.Height = surfaceBounds.Height / Math.Max(1, dpi.DpiScaleY);
-        if (refreshLayout)
-        {
-            RefreshNativeMetricsLayout();
-            if (!WindowNative.TrySetWindowDeviceBounds(this, hostBounds))
-            {
-                return false;
-            }
-        }
-
-        _surfaceDeviceBounds = surfaceBounds;
-        return true;
-    }
-
-    private bool TryGetCurrentSurfaceDeviceBounds(out DeviceScreenRect bounds)
-    {
-        if (TryGetVisualSurfaceDeviceBounds(out bounds))
-        {
-            return true;
-        }
-        if (!_surfaceDeviceBounds.IsEmpty)
-        {
-            bounds = _surfaceDeviceBounds;
-            return true;
-        }
-        return WindowNative.TryGetWindowDeviceBounds(this, out bounds) && !bounds.IsEmpty;
-    }
-
-    private bool TryGetVisualSurfaceDeviceBounds(out DeviceScreenRect bounds)
-    {
-        bounds = default;
-        if (_isClosed || PresentationSource.FromVisual(_surface) == null ||
-            !double.IsFinite(_surface.ActualWidth) ||
-            !double.IsFinite(_surface.ActualHeight) ||
-            _surface.ActualWidth <= 0 ||
-            _surface.ActualHeight <= 0)
-        {
-            return false;
-        }
-
-        var origin = _surface.PointToScreen(new Point(0, 0));
-        var dpi = VisualTreeHelper.GetDpi(_surface);
-        var left = (int)Math.Round(origin.X, MidpointRounding.AwayFromZero);
-        var top = (int)Math.Round(origin.Y, MidpointRounding.AwayFromZero);
-        var width = Math.Max(1, (int)Math.Round(
-            _surface.ActualWidth * Math.Max(1, dpi.DpiScaleX),
-            MidpointRounding.AwayFromZero));
-        var height = Math.Max(1, (int)Math.Round(
-            _surface.ActualHeight * Math.Max(1, dpi.DpiScaleY),
-            MidpointRounding.AwayFromZero));
-        bounds = new DeviceScreenRect(left, top, left + width, top + height);
-        return true;
+        bounds = EdgeCapsuleGeometry.SurfaceBoundsWithinFixedHost(
+            hostBounds,
+            _currentDockingEdge,
+            _currentSurfaceWidthDip,
+            monitor.DpiScaleX);
+        return !bounds.IsEmpty;
     }
 
     private static long AnimationDurationTicks(int durationMilliseconds) =>
@@ -515,75 +491,6 @@ internal sealed class EdgeCapsuleDragWindow : Window
             1,
             (long)Math.Round(
                 Stopwatch.Frequency * Math.Max(1, durationMilliseconds) / 1000.0));
-
-    private IntPtr OnWindowMessage(
-        IntPtr hwnd,
-        int msg,
-        IntPtr wParam,
-        IntPtr lParam,
-        ref bool handled)
-    {
-        if (msg == WmDpiChanged)
-        {
-            WindowWorkAreaHelper.InvalidateMonitorGeometryCache();
-            var generation = ++_dpiSettleGeneration;
-            if (_dockingPresentationActive)
-            {
-                // Once pointer ownership ends, every hand-off/reveal target is expressed in physical
-                // pixels. Never run the old drag recenter path between the two animation phases.
-                return IntPtr.Zero;
-            }
-            Dispatcher.BeginInvoke(
-                (Action)(() =>
-                {
-                    if (!_isClosed && generation == _dpiSettleGeneration)
-                    {
-                        SettleDpiPresentation(generation);
-                    }
-                }),
-                System.Windows.Threading.DispatcherPriority.Loaded);
-        }
-
-        return IntPtr.Zero;
-    }
-
-    private void SettleDpiPresentation(int generation)
-    {
-        if (_isClosed || _dockingPresentationActive || generation != _dpiSettleGeneration)
-        {
-            return;
-        }
-
-        // Pointer motion is the sole owner of drag geometry. DPI settle may refresh WPF's client
-        // layout, but it only reapplies the latest physical target instead of calculating another
-        // monitor-sized rectangle from delayed work.
-        RefreshNativeMetricsLayout();
-        ApplyDragTargetDeviceBounds();
-
-        // WPF can rewrite the HWND once more after its first destination-DPI render. The later pass
-        // is read-only when settled and performs at most one bounded replay of the same target.
-        Dispatcher.BeginInvoke(
-            (Action)(() => VerifyDragTargetDeviceBounds(generation)),
-            System.Windows.Threading.DispatcherPriority.ContextIdle);
-    }
-
-    private void VerifyDragTargetDeviceBounds(int generation)
-    {
-        if (_isClosed || _dockingPresentationActive || generation != _dpiSettleGeneration ||
-            _dragTargetDeviceBounds.IsEmpty)
-        {
-            return;
-        }
-
-        if (WindowNative.TryGetWindowDeviceBounds(this, out var actualBounds) &&
-            actualBounds == _dragTargetDeviceBounds)
-        {
-            _surfaceDeviceBounds = actualBounds;
-            return;
-        }
-
-        ApplyDragTargetDeviceBounds();
-    }
 
     private void RefreshNativeMetricsLayout()
     {
@@ -612,7 +519,6 @@ internal sealed class EdgeCapsuleDragWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _isClosed = true;
-        _dpiSettleGeneration++;
         base.OnClosed(e);
         if (!_closingByOwner)
         {
