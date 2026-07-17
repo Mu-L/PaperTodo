@@ -919,6 +919,12 @@ public sealed partial class PaperWindow
             {
                 return;
             }
+            if (WindowNative.IsLeftMouseButtonPhysicallyPressed())
+            {
+                CancelDeepCapsuleReorderDrag(restoreLayout: true);
+                ClearCapsuleInteractionKeyboardFocus();
+                return;
+            }
 
             var dropPosition = currentScreenPos;
             if (!WindowNative.TryGetCursorScreenPosition(out dropPosition) &&
