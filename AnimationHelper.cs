@@ -56,53 +56,42 @@ public static class AnimationHelper
     // 淡入
     public static void FadeIn(UIElement element, double duration = 200, EventHandler? onComplete = null)
     {
-        var anim = new DoubleAnimation(element.Opacity, 1, TimeSpan.FromMilliseconds(duration))
-        {
-            EasingFunction = QuickEase
-        };
-        if (onComplete != null) anim.Completed += onComplete;
-        element.BeginAnimation(UIElement.OpacityProperty, anim);
+        FadeTo(element, 1, duration, QuickEase, onComplete);
     }
 
     // 淡出
     public static void FadeOut(UIElement element, double duration = 150, EventHandler? onComplete = null)
     {
-        var anim = new DoubleAnimation(element.Opacity, 0, TimeSpan.FromMilliseconds(duration))
-        {
-            EasingFunction = QuickEase
-        };
-        if (onComplete != null) anim.Completed += onComplete;
-        element.BeginAnimation(UIElement.OpacityProperty, anim);
+        FadeTo(element, 0, duration, QuickEase, onComplete);
+    }
+
+    // 淡化到指定透明度；最终值写回基础属性，避免动画结束后继续覆盖交互状态。
+    public static void FadeTo(
+        UIElement element,
+        double opacity,
+        double duration = 200,
+        IEasingFunction? easing = null,
+        EventHandler? onComplete = null)
+    {
+        AnimateDouble(element, UIElement.OpacityProperty, opacity, duration, easing ?? QuickEase, onComplete);
     }
 
     // 缩放到指定比例
     public static void ScaleTo(UIElement element, double scale, double duration = 200, IEasingFunction? easing = null)
     {
         var transform = GetScaleTransform(element);
-        var anim = new DoubleAnimation(scale, TimeSpan.FromMilliseconds(duration))
-        {
-            EasingFunction = easing ?? SmoothEase
-        };
-        transform.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
-        transform.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+        var ease = easing ?? SmoothEase;
+        AnimateDouble(transform, ScaleTransform.ScaleXProperty, scale, duration, ease);
+        AnimateDouble(transform, ScaleTransform.ScaleYProperty, scale, duration, ease);
     }
 
     // 平移到指定位置
     public static void TranslateTo(UIElement element, double x, double y, double duration = 200, IEasingFunction? easing = null, EventHandler? onComplete = null)
     {
         var transform = GetTranslateTransform(element);
-        var animX = new DoubleAnimation(x, TimeSpan.FromMilliseconds(duration))
-        {
-            EasingFunction = easing ?? SmoothEase
-        };
-        var animY = new DoubleAnimation(y, TimeSpan.FromMilliseconds(duration))
-        {
-            EasingFunction = easing ?? SmoothEase
-        };
-        if (onComplete != null) animY.Completed += onComplete;
-
-        transform.BeginAnimation(TranslateTransform.XProperty, animX);
-        transform.BeginAnimation(TranslateTransform.YProperty, animY);
+        var ease = easing ?? SmoothEase;
+        AnimateDouble(transform, TranslateTransform.XProperty, x, duration, ease);
+        AnimateDouble(transform, TranslateTransform.YProperty, y, duration, ease, onComplete);
     }
 
     // 颜色过渡
@@ -143,16 +132,44 @@ public static class AnimationHelper
     public static void QuickBounce(UIElement element, double scale = 1.03, double duration = 100)
     {
         var transform = GetScaleTransform(element);
-        var anim = new DoubleAnimation
+        BounceDouble(transform, ScaleTransform.ScaleXProperty, scale, duration);
+        BounceDouble(transform, ScaleTransform.ScaleYProperty, scale, duration);
+    }
+
+    private static void AnimateDouble(
+        DependencyObject target,
+        DependencyProperty property,
+        double value,
+        double duration,
+        IEasingFunction easing,
+        EventHandler? onComplete = null)
+    {
+        var from = (double)target.GetValue(property);
+        var animatable = (IAnimatable)target;
+        animatable.BeginAnimation(property, null);
+        target.SetCurrentValue(property, value);
+
+        var animation = new DoubleAnimation(from, value, TimeSpan.FromMilliseconds(duration))
         {
-            From = 1.0,
-            To = scale,
-            Duration = TimeSpan.FromMilliseconds(duration),
-            AutoReverse = true,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
         };
-        transform.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
-        transform.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+        if (onComplete != null) animation.Completed += onComplete;
+        animatable.BeginAnimation(property, animation);
+    }
+
+    private static void BounceDouble(Animatable target, DependencyProperty property, double scale, double duration)
+    {
+        var baseValue = (double)target.GetAnimationBaseValue(property);
+        target.BeginAnimation(property, null);
+
+        var animation = new DoubleAnimation(baseValue, scale, TimeSpan.FromMilliseconds(duration))
+        {
+            AutoReverse = true,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+            FillBehavior = FillBehavior.Stop
+        };
+        target.BeginAnimation(property, animation);
     }
 
     // 闪烁高亮（用于撤销提示）

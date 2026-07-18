@@ -241,12 +241,18 @@ public sealed partial class PaperWindow : Window
 
     private sealed class TodoDragState
     {
-        public TodoDragState(string itemId, Border sourceRow, FrameworkElement handle, Point startPoint)
+        public TodoDragState(
+            string itemId,
+            Border sourceRow,
+            FrameworkElement handle,
+            Point startPoint,
+            Point mouseOffsetInRow)
         {
             ItemId = itemId;
             SourceRow = sourceRow;
             Handle = handle;
             StartPoint = startPoint;
+            MouseOffsetInRow = mouseOffsetInRow;
         }
 
         public string ItemId { get; }
@@ -259,7 +265,8 @@ public sealed partial class PaperWindow : Window
         public bool DropAtEnd { get; set; }
 
         public Border? Ghost { get; set; }
-        public Point MouseOffsetInRow { get; set; }
+        public Point MouseOffsetInRow { get; }
+        public double RestingOpacity { get; set; } = 1.0;
     }
 
     private sealed class NoteLinkDragState

@@ -96,6 +96,8 @@ public sealed partial class AppController : IDisposable
     {
         Current = this;
         State = _store.Load();
+        Theme.Invalidate();
+        RefreshApplicationThemeResources();
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         _imageStore.Load();
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();

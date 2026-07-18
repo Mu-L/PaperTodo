@@ -118,6 +118,8 @@ public static class Theme
     public static Brush LinkBrush => Solid(Current.Link);
     public static Brush CheckBoxBorderBrush => Solid(Current.CheckBox);
     public static Brush DangerBrush => Solid(Current.Danger);
+    public static Brush ScrollThumbBrush => WeakTextBrush;
+    public static Brush ScrollThumbHoverBrush => ActiveBrush;
 
     public static Brush HoverBrush => Tint((byte)(IsDark ? 48 : 32));
     public static Brush CapsuleFocusBorderBrush => Solid(Mix(Current.Active, Current.Text, IsDark ? 0.38 : 0.08));

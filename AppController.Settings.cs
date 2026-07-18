@@ -54,6 +54,7 @@ public sealed partial class AppController
     private void RefreshThemeSurfaces()
     {
         Theme.Invalidate();
+        RefreshApplicationThemeResources();
         foreach (var window in _windows.Values)
         {
             window.UpdateTheme();
@@ -69,7 +70,20 @@ public sealed partial class AppController
         if (State.Theme == "system")
         {
             Theme.Invalidate();
+            RefreshApplicationThemeResources();
         }
+    }
+
+    private static void RefreshApplicationThemeResources()
+    {
+        var resources = Application.Current?.Resources;
+        if (resources == null)
+        {
+            return;
+        }
+
+        resources["PaperScrollThumbBrush"] = Theme.ScrollThumbBrush;
+        resources["PaperScrollThumbHoverBrush"] = Theme.ScrollThumbHoverBrush;
     }
 
     private UIElement CreateColorSchemeSegmentSelector()

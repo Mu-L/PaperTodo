@@ -7,7 +7,7 @@
         <SolidColorBrush x:Key="PaperScrollThumbHoverBrush" Color="#96784F" />
         <SolidColorBrush x:Key="PaperScrollTrackBrush" Color="#00FFFFFF" />
 
-        <Style x:Key="PaperScrollThumbStyle" TargetType="{x:Type Thumb}">
+        <Style x:Key="PaperVerticalScrollThumbStyle" TargetType="{x:Type Thumb}">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
             <Setter Property="Template">
@@ -18,15 +18,43 @@
                                 Margin="0,4,0,4"
                                 HorizontalAlignment="Right"
                                 CornerRadius="2.5"
-                                Background="{StaticResource PaperScrollThumbBrush}"
+                                Background="{DynamicResource PaperScrollThumbBrush}"
                                 Opacity="0.34" />
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource PaperScrollThumbHoverBrush}" />
                                 <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.54" />
                             </Trigger>
                             <Trigger Property="IsDragging" Value="True">
-                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.64" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PaperHorizontalScrollThumbStyle" TargetType="{x:Type Thumb}">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="ThumbBorder"
+                                Height="5"
+                                Margin="4,0,4,0"
+                                VerticalAlignment="Center"
+                                CornerRadius="2.5"
+                                Background="{DynamicResource PaperScrollThumbBrush}"
+                                Opacity="0.34" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource PaperScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.54" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource PaperScrollThumbHoverBrush}" />
                                 <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.64" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -42,25 +70,36 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ScrollBar}">
-                        <Grid Width="{TemplateBinding Width}"
-                              Background="{TemplateBinding Background}">
+                        <Grid Background="{TemplateBinding Background}">
                             <Track x:Name="PART_Track"
+                                   Orientation="{TemplateBinding Orientation}"
                                    IsDirectionReversed="True">
                                 <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                    <RepeatButton x:Name="DecreaseButton"
+                                                  Command="{x:Static ScrollBar.PageUpCommand}"
                                                   Opacity="0"
                                                   Focusable="False" />
                                 </Track.DecreaseRepeatButton>
                                 <Track.Thumb>
-                                    <Thumb Style="{StaticResource PaperScrollThumbStyle}" />
+                                    <Thumb x:Name="PART_Thumb"
+                                           Style="{StaticResource PaperVerticalScrollThumbStyle}" />
                                 </Track.Thumb>
                                 <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                    <RepeatButton x:Name="IncreaseButton"
+                                                  Command="{x:Static ScrollBar.PageDownCommand}"
                                                   Opacity="0"
                                                   Focusable="False" />
                                 </Track.IncreaseRepeatButton>
                             </Track>
                         </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                                <Setter TargetName="DecreaseButton" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}" />
+                                <Setter TargetName="IncreaseButton" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}" />
+                                <Setter TargetName="PART_Thumb" Property="Style" Value="{StaticResource PaperHorizontalScrollThumbStyle}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>

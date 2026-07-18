@@ -456,11 +456,7 @@ public sealed partial class PaperWindow
             // 完成动画：只淡化，不缩小
             if (_controller.State.EnableAnimations)
             {
-                var fadeAnim = new System.Windows.Media.Animation.DoubleAnimation(1.0, 0.75, TimeSpan.FromMilliseconds(200))
-                {
-                    EasingFunction = AnimationHelper.QuickEase
-                };
-                row.BeginAnimation(OpacityProperty, fadeAnim);
+                AnimationHelper.FadeTo(row, 0.75, 200, AnimationHelper.QuickEase);
             }
         };
 
@@ -475,8 +471,12 @@ public sealed partial class PaperWindow
             // 取消完成动画
             if (_controller.State.EnableAnimations)
             {
-                var fadeAnim = new System.Windows.Media.Animation.DoubleAnimation(row.Opacity, 1.0, TimeSpan.FromMilliseconds(150));
-                row.BeginAnimation(OpacityProperty, fadeAnim);
+                AnimationHelper.FadeTo(row, 1.0, 150);
+            }
+            else
+            {
+                row.BeginAnimation(OpacityProperty, null);
+                row.Opacity = 1.0;
             }
         };
 
@@ -748,7 +748,12 @@ public sealed partial class PaperWindow
 
         handle.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            _todoDrag = new TodoDragState(item.Id, row, handle, e.GetPosition(this));
+            _todoDrag = new TodoDragState(
+                item.Id,
+                row,
+                handle,
+                e.GetPosition(this),
+                e.GetPosition(row));
             CaptureMouse();
             e.Handled = true;
         };
@@ -915,6 +920,11 @@ public sealed partial class PaperWindow
                     timer.Stop();
                     var row = (Border)timer.Tag;
                     if (animationGeneration != _todoRowsGeneration || !_todoRows.Contains(row))
+                    {
+                        return;
+                    }
+
+                    if (_todoDrag?.IsDragging == true && ReferenceEquals(_todoDrag.SourceRow, row))
                     {
                         return;
                     }
@@ -1351,13 +1361,19 @@ public sealed partial class PaperWindow
 
         _todoDrag.IsDragging = true;
 
-        var rowOrigin = _todoDrag.SourceRow.TranslatePoint(new Point(0, 0), this);
-        _todoDrag.MouseOffsetInRow = new Point(
-            Math.Max(0, _todoDrag.StartPoint.X - rowOrigin.X),
-            Math.Max(0, _todoDrag.StartPoint.Y - rowOrigin.Y));
+        var sourceRow = _todoDrag.SourceRow;
+        _todoDrag.RestingOpacity = (double)sourceRow.GetAnimationBaseValue(OpacityProperty);
+        sourceRow.BeginAnimation(OpacityProperty, null);
+        sourceRow.Opacity = _todoDrag.RestingOpacity;
 
-        _todoDrag.SourceRow.Opacity = 0.25;
-        _todoDrag.SourceRow.Background = HoverBrush;
+        var translate = AnimationHelper.GetTranslateTransform(sourceRow);
+        translate.BeginAnimation(TranslateTransform.XProperty, null);
+        translate.BeginAnimation(TranslateTransform.YProperty, null);
+        translate.X = 0;
+        translate.Y = 0;
+
+        sourceRow.Opacity = 0.25;
+        sourceRow.Background = HoverBrush;
         _todoDrag.Handle.Opacity = 0.9;
         Mouse.OverrideCursor = Cursors.SizeAll;
 
@@ -1636,7 +1652,8 @@ public sealed partial class PaperWindow
 
         CloseTodoDragGhost(state);
 
-        state.SourceRow.Opacity = 1.0;
+        state.SourceRow.BeginAnimation(OpacityProperty, null);
+        state.SourceRow.Opacity = state.RestingOpacity;
         state.SourceRow.Background = Brushes.Transparent;
         state.Handle.Opacity = 1.0;
 
