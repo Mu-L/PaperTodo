@@ -881,7 +881,7 @@ public sealed partial class PaperWindow
                 if (transitionGeneration != _collapseTransitionGeneration ||
                     _paper.IsCollapsed ||
                     !IsVisible ||
-                    _controller.SuppressTopmostForFullscreenForeground)
+                    _controller.FullscreenAvoidanceWindowFor(this) != IntPtr.Zero)
                 {
                     return;
                 }

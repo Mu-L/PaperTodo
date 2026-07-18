@@ -95,6 +95,55 @@ internal static class WindowWorkAreaHelper
         }
     }
 
+    public static bool TryGetMonitorDeviceName(Window? window, out string deviceName)
+    {
+        deviceName = "";
+        if (window == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return TryGetMonitorDeviceName(new WindowInteropHelper(window).Handle, out deviceName);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool TryGetMonitorDeviceName(IntPtr windowHandle, out string deviceName)
+    {
+        deviceName = "";
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            var monitor = MonitorFromWindow(windowHandle, MonitorDefaultToNearest);
+            if (monitor == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var info = new MonitorInfoEx { Size = Marshal.SizeOf<MonitorInfoEx>() };
+            if (!GetMonitorInfoEx(monitor, ref info))
+            {
+                return false;
+            }
+
+            deviceName = info.DeviceNameString;
+            return !string.IsNullOrEmpty(deviceName);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // The DIP work-area of the monitor whose device name matches, or null if no such monitor
     // is currently connected. Used to resolve the deep-capsule stack's persisted anchor.
     public static Rect? WorkAreaForDevice(string deviceName)

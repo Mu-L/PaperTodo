@@ -145,8 +145,10 @@ public sealed partial class PaperWindow
             Topmost = _edgeCapsuleHost?.IsTopmost == true
         });
         host.UnexpectedlyClosed += OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
+        host.LocationChanged += OnDeepCapsuleFloatingDragHostLocationChanged;
 
         _deepCapsuleFloatingDragHost = host;
+        _deepCapsuleFloatingFullscreenAvoidanceWindow = IntPtr.Zero;
         try
         {
             host.ShowWithEntrance(
@@ -154,12 +156,15 @@ public sealed partial class PaperWindow
                 _controller.State.EnableAnimations,
                 DeepCapsuleCrossQueueDragScaleFrom,
                 DeepCapsuleCrossQueueDragMorphMilliseconds);
+            RefreshDeepCapsuleSlotTopmost();
             return host;
         }
         catch
         {
             _deepCapsuleFloatingDragHost = null;
+            _deepCapsuleFloatingFullscreenAvoidanceWindow = IntPtr.Zero;
             host.UnexpectedlyClosed -= OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
+            host.LocationChanged -= OnDeepCapsuleFloatingDragHostLocationChanged;
             try
             {
                 host.CloseFromOwner();
@@ -180,8 +185,23 @@ public sealed partial class PaperWindow
         if (host != null)
         {
             host.UnexpectedlyClosed -= OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
+            host.LocationChanged -= OnDeepCapsuleFloatingDragHostLocationChanged;
+            _deepCapsuleFloatingFullscreenAvoidanceWindow = IntPtr.Zero;
             host.CloseFromOwner();
         }
+    }
+
+    private void OnDeepCapsuleFloatingDragHostLocationChanged(object? sender, EventArgs e)
+    {
+        if (sender is not EdgeCapsuleDragWindow host ||
+            !ReferenceEquals(host, _deepCapsuleFloatingDragHost) ||
+            _deepCapsuleFloatingFullscreenAvoidanceWindow ==
+                _controller.FullscreenAvoidanceWindowFor(host))
+        {
+            return;
+        }
+
+        RefreshDeepCapsuleSlotTopmost();
     }
 
     private void OnDeepCapsuleFloatingDragHostUnexpectedlyClosed(object? sender, EventArgs e)
@@ -193,7 +213,9 @@ public sealed partial class PaperWindow
         }
 
         host.UnexpectedlyClosed -= OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
+        host.LocationChanged -= OnDeepCapsuleFloatingDragHostLocationChanged;
         _deepCapsuleFloatingDragHost = null;
+        _deepCapsuleFloatingFullscreenAvoidanceWindow = IntPtr.Zero;
         _edgeCapsule.ClearPresentationSettleNotification();
         if (IsDeepCapsuleDockingHandoff)
         {

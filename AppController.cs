@@ -63,8 +63,8 @@ public sealed partial class AppController : IDisposable
     private long _saveVersion;
     private long _stateRevision;
     private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
-    private bool _suppressTopmostForFullscreenForeground;
     private IntPtr _fullscreenAvoidanceWindow;
+    private string _fullscreenAvoidanceMonitorDeviceName = "";
     private DateTimeOffset _lastFullscreenGlobalScanAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastFullscreenDebugLogAt = DateTimeOffset.MinValue;
     private bool? _lastFullscreenDebugSuppressState;
@@ -86,11 +86,56 @@ public sealed partial class AppController : IDisposable
 
     public AppState State { get; private set; }
     public NoteImageStore ImageStore => _imageStore;
-    public bool SuppressTopmostForFullscreenForeground => _suppressTopmostForFullscreenForeground;
     public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOwners.Count > 0;
-    public IntPtr FullscreenAvoidanceWindow => _fullscreenAvoidanceWindow;
     private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
     private bool IsExiting => _lifecycleState != AppLifecycleState.Running;
+
+    internal IntPtr FullscreenAvoidanceWindowFor(Window? window)
+    {
+        if (_fullscreenAvoidanceWindow == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        return WindowWorkAreaHelper.TryGetMonitorDeviceName(window, out var monitorDeviceName)
+            ? FullscreenAvoidanceWindowForMonitor(monitorDeviceName)
+            : _fullscreenAvoidanceWindow;
+    }
+
+    internal IntPtr FullscreenAvoidanceWindowForQueue(string? queueMonitorDeviceName)
+    {
+        if (_fullscreenAvoidanceWindow == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        return WindowWorkAreaHelper.TryGetMonitorGeometryForDevice(queueMonitorDeviceName, out var geometry)
+            ? FullscreenAvoidanceWindowForMonitor(geometry.DeviceName)
+            : _fullscreenAvoidanceWindow;
+    }
+
+    private IntPtr FullscreenAvoidanceWindowForMonitor(string? monitorDeviceName)
+    {
+        if (_fullscreenAvoidanceWindow == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        // If either monitor cannot be resolved, retain the previous safe behavior and yield
+        // globally. Normal connected-monitor paths always compare concrete device names.
+        if (string.IsNullOrEmpty(_fullscreenAvoidanceMonitorDeviceName) ||
+            string.IsNullOrEmpty(monitorDeviceName))
+        {
+            return _fullscreenAvoidanceWindow;
+        }
+
+        return string.Equals(
+                monitorDeviceName,
+                _fullscreenAvoidanceMonitorDeviceName,
+                StringComparison.OrdinalIgnoreCase)
+            ? _fullscreenAvoidanceWindow
+            : IntPtr.Zero;
+    }
 
     public AppController()
     {
@@ -1041,7 +1086,7 @@ public sealed partial class AppController : IDisposable
             window.HideMainWindowForDeepCapsuleMode();
         }
 
-        if (activate && !_suppressTopmostForFullscreenForeground && window.IsVisible)
+        if (activate && FullscreenAvoidanceWindowFor(window) == IntPtr.Zero && window.IsVisible)
         {
             window.Activate();
         }
@@ -1060,7 +1105,8 @@ public sealed partial class AppController : IDisposable
     private static void ForceWindowToFront(PaperWindow window)
     {
         RestoreWindowIfMinimized(window);
-        if (Current.ShouldAvoidFullscreenTopmost && FullscreenForegroundWindowDetector.IsForegroundFullscreen())
+        Current.RefreshTopmostForForegroundWindow(forceGlobalScan: true);
+        if (Current.FullscreenAvoidanceWindowFor(window) != IntPtr.Zero)
         {
             return;
         }
@@ -1125,14 +1171,15 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    private void RefreshTopmostForForegroundWindow()
+    private void RefreshTopmostForForegroundWindow(bool forceGlobalScan = false)
     {
-        var shouldSuppress = false;
         var avoidanceWindow = IntPtr.Zero;
+        var avoidanceMonitorDeviceName = "";
         if (ShouldAvoidFullscreenTopmost)
         {
             var now = DateTimeOffset.UtcNow;
-            var allowGlobalScan = now - _lastFullscreenGlobalScanAt >= TimeSpan.FromSeconds(1);
+            var allowGlobalScan = forceGlobalScan ||
+                now - _lastFullscreenGlobalScanAt >= TimeSpan.FromSeconds(1);
             if (allowGlobalScan)
             {
                 _lastFullscreenGlobalScanAt = now;
@@ -1140,29 +1187,35 @@ public sealed partial class AppController : IDisposable
 
             if (FullscreenForegroundWindowDetector.TryGetFullscreenWindow(out var fullscreenWindow, allowGlobalScan))
             {
-                shouldSuppress = true;
                 avoidanceWindow = fullscreenWindow;
+                WindowWorkAreaHelper.TryGetMonitorDeviceName(
+                    fullscreenWindow,
+                    out avoidanceMonitorDeviceName);
             }
         }
 
         var avoidanceWindowChanged = avoidanceWindow != _fullscreenAvoidanceWindow;
-        if (shouldSuppress == _suppressTopmostForFullscreenForeground && !avoidanceWindowChanged)
+        var avoidanceMonitorChanged = !string.Equals(
+            avoidanceMonitorDeviceName,
+            _fullscreenAvoidanceMonitorDeviceName,
+            StringComparison.OrdinalIgnoreCase);
+        if (!avoidanceWindowChanged && !avoidanceMonitorChanged)
         {
-            if (!shouldSuppress)
+            if (avoidanceWindow == IntPtr.Zero)
             {
                 RefreshFloatingSurfaceZOrder();
             }
 
             if (ShouldAvoidFullscreenTopmost)
             {
-                WriteFullscreenDebugSnapshot(shouldSuppress);
+                WriteFullscreenDebugSnapshot(avoidanceWindow != IntPtr.Zero);
             }
 
             return;
         }
 
-        _suppressTopmostForFullscreenForeground = shouldSuppress;
         _fullscreenAvoidanceWindow = avoidanceWindow;
+        _fullscreenAvoidanceMonitorDeviceName = avoidanceMonitorDeviceName;
         foreach (var window in _windows.Values)
         {
             window.RefreshEffectiveTopmost();
@@ -1171,7 +1224,7 @@ public sealed partial class AppController : IDisposable
 
         if (ShouldAvoidFullscreenTopmost)
         {
-            WriteFullscreenDebugSnapshot(shouldSuppress);
+            WriteFullscreenDebugSnapshot(avoidanceWindow != IntPtr.Zero);
         }
     }
 
@@ -1395,11 +1448,6 @@ public sealed partial class AppController : IDisposable
 
     public void RefreshFloatingSurfaceZOrder()
     {
-        if (_suppressTopmostForFullscreenForeground)
-        {
-            return;
-        }
-
         foreach (var window in _windows.Values)
         {
             window.RefreshDeepCapsuleSlotTopmost();

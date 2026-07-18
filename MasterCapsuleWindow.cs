@@ -334,12 +334,14 @@ public sealed class MasterCapsuleWindow : Window
 
     public void RefreshEffectiveTopmost()
     {
-        var topmost = !_controller.SuppressTopmostForFullscreenForeground &&
+        var avoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
+            _queueMonitorDeviceName);
+        var topmost = avoidanceWindow == IntPtr.Zero &&
             !_controller.SuppressDeepCapsuleTopmostForContextMenu;
         Topmost = topmost;
         if (IsVisible)
         {
-            WindowNative.ApplyTopmostZOrder(this, topmost, _controller.FullscreenAvoidanceWindow);
+            WindowNative.ApplyTopmostZOrder(this, topmost, avoidanceWindow);
         }
     }
 

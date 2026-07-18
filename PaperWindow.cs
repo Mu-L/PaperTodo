@@ -96,6 +96,8 @@ public sealed partial class PaperWindow : Window
     // Cross-edge dragging owns a separate top-level window. The docked slot host never changes
     // into a floating pill, so its edge columns/corners cannot leak across a drag transition.
     private EdgeCapsuleDragWindow? _deepCapsuleFloatingDragHost;
+    private IntPtr _mainWindowFullscreenAvoidanceWindow;
+    private IntPtr _deepCapsuleFloatingFullscreenAvoidanceWindow;
     private ContextMenu? _deepCapsuleSlotContextMenu;
     private ContextMenu? _pendingDeepCapsuleContextMenuClose;
     private long _deepCapsuleContextMenuOpenVersion;
@@ -281,6 +283,7 @@ public sealed partial class PaperWindow : Window
         public DeviceScreenPoint StartScreenPoint { get; }
         public bool IsDragging { get; set; }
         public Window? Ghost { get; set; }
+        public IntPtr FullscreenAvoidanceWindow { get; set; }
         // Show() of the top-level ghost can steal capture and re-enter LostMouseCapture → End.
         public bool SuppressCaptureLossEnd { get; set; }
     }
@@ -560,8 +563,8 @@ public sealed partial class PaperWindow : Window
                 (Action)ApplyDeferredStartupSystemVisibility,
                 System.Windows.Threading.DispatcherPriority.Normal);
         };
-        LocationChanged += (_, _) => SaveGeometryIfAllowed();
-        SizeChanged += (_, _) => SaveGeometryIfAllowed();
+        LocationChanged += (_, _) => HandleWindowGeometryChanged();
+        SizeChanged += (_, _) => HandleWindowGeometryChanged();
         StateChanged += (_, _) => RefreshSnappedPresentation(forceApply: true);
         PreviewMouseMove += OnWindowPreviewMouseMove;
         PreviewMouseWheel += OnWindowPreviewMouseWheel;
@@ -576,6 +579,8 @@ public sealed partial class PaperWindow : Window
             {
                 source.AddHook(OnWindowMessage);
             }
+
+            RefreshEffectiveTopmost();
         };
         Activated += (_, _) => _controller.RefreshFloatingSurfaceZOrder();
         Deactivated += (_, _) => AbortAllInteractions(InteractionAbortReason.Deactivated);
@@ -595,6 +600,15 @@ public sealed partial class PaperWindow : Window
                     }
                 }
             };
+        }
+    }
+
+    private void HandleWindowGeometryChanged()
+    {
+        SaveGeometryIfAllowed();
+        if (_mainWindowFullscreenAvoidanceWindow != _controller.FullscreenAvoidanceWindowFor(this))
+        {
+            RefreshEffectiveTopmost();
         }
     }
 
@@ -2121,7 +2135,7 @@ public sealed partial class PaperWindow : Window
         return window;
     }
 
-    private static void MoveNoteLinkDragGhost(NoteLinkDragState state, Point screenPoint)
+    private void MoveNoteLinkDragGhost(NoteLinkDragState state, Point screenPoint)
     {
         // Capture a local reference: EndNoteLinkMouseGesture may null state.Ghost mid-call if a
         // nested capture-loss teardown runs while we are positioning the window.
@@ -2165,10 +2179,34 @@ public sealed partial class PaperWindow : Window
         {
             ghost.Left = mousePoint.X - (width / 2);
             ghost.Top = mousePoint.Y - (height / 2);
+            RefreshNoteLinkDragGhostTopmost(state);
         }
         catch
         {
             // Ghost may have been closed by a nested gesture teardown.
+        }
+    }
+
+    private void RefreshNoteLinkDragGhostTopmost(NoteLinkDragState state)
+    {
+        var ghost = state.Ghost;
+        if (ghost == null)
+        {
+            return;
+        }
+
+        var avoidanceWindow = _controller.FullscreenAvoidanceWindowFor(ghost);
+        if (state.FullscreenAvoidanceWindow == avoidanceWindow)
+        {
+            return;
+        }
+
+        state.FullscreenAvoidanceWindow = avoidanceWindow;
+        var topmost = avoidanceWindow == IntPtr.Zero;
+        ghost.Topmost = topmost;
+        if (ghost.IsVisible)
+        {
+            WindowNative.ApplyTopmostZOrder(ghost, topmost, avoidanceWindow);
         }
     }
 
@@ -2312,42 +2350,55 @@ public sealed partial class PaperWindow : Window
     internal void RefreshEffectiveTopmost()
     {
         var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
-        var effectiveTopmost = shouldBeTopmost && !_controller.SuppressTopmostForFullscreenForeground;
+        var avoidanceWindow = _controller.FullscreenAvoidanceWindowFor(this);
+        _mainWindowFullscreenAvoidanceWindow = avoidanceWindow;
+        var effectiveTopmost = shouldBeTopmost && avoidanceWindow == IntPtr.Zero;
         Topmost = effectiveTopmost;
         if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
         {
-            WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, _controller.FullscreenAvoidanceWindow);
+            WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, avoidanceWindow);
         }
 
         RefreshDeepCapsuleSlotTopmost();
-        if (_noteLinkDrag?.Ghost is { } noteLinkGhost)
+        if (_noteLinkDrag is { Ghost: { } noteLinkGhost } noteLinkDrag)
         {
-            var ghostTopmost = !_controller.SuppressTopmostForFullscreenForeground;
+            var ghostAvoidanceWindow = _controller.FullscreenAvoidanceWindowFor(noteLinkGhost);
+            noteLinkDrag.FullscreenAvoidanceWindow = ghostAvoidanceWindow;
+            var ghostTopmost = ghostAvoidanceWindow == IntPtr.Zero;
             noteLinkGhost.Topmost = ghostTopmost;
             if (noteLinkGhost.IsVisible)
             {
                 WindowNative.ApplyTopmostZOrder(
                     noteLinkGhost,
                     ghostTopmost,
-                    _controller.FullscreenAvoidanceWindow);
+                    ghostAvoidanceWindow);
             }
         }
     }
 
     internal void RefreshDeepCapsuleSlotTopmost()
     {
+        var queueAvoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
+            _paper.CapsuleMonitorDeviceName);
         var slotShouldBeTopmost = !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
-            !_controller.SuppressTopmostForFullscreenForeground;
+            queueAvoidanceWindow == IntPtr.Zero;
         _edgeCapsuleHost?.SetTopmost(
             slotShouldBeTopmost,
-            _controller.FullscreenAvoidanceWindow);
+            queueAvoidanceWindow);
 
-        if (_deepCapsuleFloatingDragHost != null)
+        if (_deepCapsuleFloatingDragHost is { } floatingHost)
         {
-            _deepCapsuleFloatingDragHost.Topmost = slotShouldBeTopmost;
-            if (_deepCapsuleFloatingDragHost.IsVisible)
+            var floatingAvoidanceWindow = _controller.FullscreenAvoidanceWindowFor(floatingHost);
+            _deepCapsuleFloatingFullscreenAvoidanceWindow = floatingAvoidanceWindow;
+            var floatingShouldBeTopmost = !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
+                floatingAvoidanceWindow == IntPtr.Zero;
+            floatingHost.Topmost = floatingShouldBeTopmost;
+            if (floatingHost.IsVisible)
             {
-                WindowNative.ApplyTopmostZOrder(_deepCapsuleFloatingDragHost, slotShouldBeTopmost, _controller.FullscreenAvoidanceWindow);
+                WindowNative.ApplyTopmostZOrder(
+                    floatingHost,
+                    floatingShouldBeTopmost,
+                    floatingAvoidanceWindow);
             }
         }
     }
