@@ -49,12 +49,10 @@ internal readonly record struct EdgeCapsuleNativeDragOutcome(
 // one-sided tag or any of its edge-specific columns, margins, corners, or width animation state.
 internal sealed class EdgeCapsuleDragWindow : Window
 {
-    private const int WmCancelMode = 0x001F;
-    private const int WmKeyDown = 0x0100;
-    private const int WmCaptureChanged = 0x0215;
+    private const int WmHotKey = 0x0312;
     private const int WmEnterSizeMove = 0x0231;
     private const int WmExitSizeMove = 0x0232;
-    private const int VkEscape = 0x1B;
+    private const int NativeDragEscapeHotKeyId = 0x4543;
 
     private enum DockingHandoffAnimationPhase
     {
@@ -87,7 +85,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
     private bool _nativeDragAttemptActive;
     private bool _nativeDragEntered;
     private bool _nativeDragExited;
-    private bool _nativeDragCancelled;
+    private bool _nativeDragEscapePressed;
     private bool _isClosed;
 
     public EdgeCapsuleDragWindow(EdgeCapsuleDragWindowOptions options)
@@ -209,12 +207,17 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 default);
         }
 
+        using var inputMonitor = WindowNative.WatchCurrentThreadCaptionDragInput();
         _nativeDragAttemptActive = true;
         _nativeDragEntered = false;
         _nativeDragExited = false;
-        _nativeDragCancelled = false;
+        _nativeDragEscapePressed = false;
+        var escapeHotKeyRegistered = false;
         try
         {
+            escapeHotKeyRegistered = WindowNative.TryRegisterCaptionDragEscapeHotKey(
+                this,
+                NativeDragEscapeHotKeyId);
             if (!WindowNative.TryBeginWindowCaptionDrag(this, cursorAnchor) ||
                 !_nativeDragEntered)
             {
@@ -222,7 +225,10 @@ internal sealed class EdgeCapsuleDragWindow : Window
                     EdgeCapsuleNativeDragResult.NotStarted,
                     default);
             }
-            if (!_nativeDragExited || _nativeDragCancelled)
+            if (!_nativeDragExited ||
+                _nativeDragEscapePressed ||
+                (inputMonitor.CanObserveLeftButtonRelease &&
+                    !inputMonitor.LeftButtonReleased))
             {
                 return new EdgeCapsuleNativeDragOutcome(
                     EdgeCapsuleNativeDragResult.Aborted,
@@ -237,10 +243,12 @@ internal sealed class EdgeCapsuleDragWindow : Window
                     default);
             }
 
-            // Escape restores a native move to its starting rectangle while leaving the cursor at
-            // the cancelled destination. Treat that as an abort. A legitimate zero-distance drop
-            // keeps the cursor inside the capsule and remains a completed drag.
-            if (EdgeCapsuleGeometry.DeviceBoundsMatch(finalBounds, startBounds, tolerance: 2) &&
+            // If the thread hook was unavailable, retain the geometric fallback for native Escape:
+            // Windows restores the start rectangle but leaves the cursor at the cancelled target.
+            // When the hook is active, its mouse-up observation already distinguishes a real
+            // zero-distance release from cancellation without guessing from geometry.
+            if (!inputMonitor.CanObserveLeftButtonRelease &&
+                EdgeCapsuleGeometry.DeviceBoundsMatch(finalBounds, startBounds, tolerance: 2) &&
                 !ContainsDevicePoint(finalBounds, finalCursor, tolerance: 2))
             {
                 return new EdgeCapsuleNativeDragOutcome(
@@ -255,6 +263,12 @@ internal sealed class EdgeCapsuleDragWindow : Window
         finally
         {
             _nativeDragAttemptActive = false;
+            if (escapeHotKeyRegistered)
+            {
+                WindowNative.UnregisterCaptionDragEscapeHotKey(
+                    this,
+                    NativeDragEscapeHotKeyId);
+            }
         }
     }
 
@@ -270,23 +284,19 @@ internal sealed class EdgeCapsuleDragWindow : Window
             return IntPtr.Zero;
         }
 
-        if (msg == WmEnterSizeMove)
+        if (msg == WmHotKey && wParam.ToInt32() == NativeDragEscapeHotKeyId)
+        {
+            _nativeDragEscapePressed = true;
+            _ = WindowNative.TryCancelWindowCaptionDrag(hwnd);
+            handled = true;
+        }
+        else if (msg == WmEnterSizeMove)
         {
             _nativeDragEntered = true;
         }
         else if (_nativeDragEntered && msg == WmExitSizeMove)
         {
             _nativeDragExited = true;
-        }
-        else if (_nativeDragEntered &&
-            !_nativeDragExited &&
-            (msg == WmCancelMode ||
-                (msg == WmCaptureChanged &&
-                    lParam != IntPtr.Zero &&
-                    lParam != hwnd) ||
-                (msg == WmKeyDown && wParam.ToInt32() == VkEscape)))
-        {
-            _nativeDragCancelled = true;
         }
 
         return IntPtr.Zero;
