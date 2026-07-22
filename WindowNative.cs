@@ -348,36 +348,33 @@ internal static class WindowNative
             heightDip,
             out _);
 
-    public static bool TryCenterSystemAwareWindowAtCursor(
+    // Keep the cursor anchor private to this class: GetCursorPos is intentionally sampled while
+    // the thread is System Aware, so these coordinates must never escape as a DeviceScreenPoint
+    // or be reused for monitor selection / the final drop position in the PMv2 application.
+    public static bool TryBeginSystemAwareWindowCaptionDragFromCursor(
         Window window,
         double widthDip,
-        double heightDip,
-        out DeviceScreenPoint cursorPosition)
+        double heightDip)
     {
-        if (!TryGetCursorScreenPosition(out cursorPosition))
-        {
-            return false;
-        }
-
-        return TryCenterSystemAwareWindowAtScreenPoint(
-            window,
-            widthDip,
-            heightDip,
-            cursorPosition);
+        return TryCenterSystemAwareWindowAtCursor(
+                window,
+                widthDip,
+                heightDip,
+                out var cursorAnchor) &&
+            TryBeginWindowCaptionDrag(window, cursorAnchor);
     }
 
-    public static bool TryCenterSystemAwareWindowAtScreenPoint(
+    private static bool TryCenterSystemAwareWindowAtCursor(
         Window window,
         double widthDip,
         double heightDip,
-        DeviceScreenPoint screenPosition)
+        out CursorPoint cursorPosition)
     {
+        cursorPosition = default;
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero ||
             widthDip <= 0 ||
-            heightDip <= 0 ||
-            !double.IsFinite(screenPosition.X) ||
-            !double.IsFinite(screenPosition.Y))
+            heightDip <= 0)
         {
             return false;
         }
@@ -392,10 +389,15 @@ internal static class WindowNative
         {
             var dpi = GetDpiForWindow(handle);
             var scale = dpi > 0 ? dpi / 96.0 : 1.0;
+            if (!GetCursorPos(out cursorPosition))
+            {
+                return false;
+            }
+
             var width = Math.Max(1, (int)Math.Round(widthDip * scale, MidpointRounding.AwayFromZero));
             var height = Math.Max(1, (int)Math.Round(heightDip * scale, MidpointRounding.AwayFromZero));
-            var left = (int)Math.Round(screenPosition.X - width / 2.0, MidpointRounding.AwayFromZero);
-            var top = (int)Math.Round(screenPosition.Y - height / 2.0, MidpointRounding.AwayFromZero);
+            var left = (int)Math.Round(cursorPosition.X - width / 2.0, MidpointRounding.AwayFromZero);
+            var top = (int)Math.Round(cursorPosition.Y - height / 2.0, MidpointRounding.AwayFromZero);
             return SetWindowPos(
                 handle,
                 IntPtr.Zero,
@@ -485,6 +487,21 @@ internal static class WindowNative
         Window window,
         DeviceScreenPoint cursorPosition)
     {
+        var x = (int)Math.Round(cursorPosition.X, MidpointRounding.AwayFromZero);
+        var y = (int)Math.Round(cursorPosition.Y, MidpointRounding.AwayFromZero);
+        return TryBeginWindowCaptionDrag(window, x, y);
+    }
+
+    private static bool TryBeginWindowCaptionDrag(
+        Window window,
+        CursorPoint cursorPosition) =>
+        TryBeginWindowCaptionDrag(window, cursorPosition.X, cursorPosition.Y);
+
+    private static bool TryBeginWindowCaptionDrag(
+        Window window,
+        int cursorX,
+        int cursorY)
+    {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero)
         {
@@ -492,7 +509,7 @@ internal static class WindowNative
         }
 
         _ = ReleaseCapture();
-        var packedPosition = PackScreenPoint(cursorPosition);
+        var packedPosition = PackScreenPoint(cursorX, cursorY);
         _ = SendMessage(
             handle,
             WmNcLButtonDown,
@@ -501,10 +518,8 @@ internal static class WindowNative
         return true;
     }
 
-    private static IntPtr PackScreenPoint(DeviceScreenPoint point)
+    private static IntPtr PackScreenPoint(int x, int y)
     {
-        var x = (int)Math.Round(point.X, MidpointRounding.AwayFromZero);
-        var y = (int)Math.Round(point.Y, MidpointRounding.AwayFromZero);
         var packed = unchecked((int)((uint)(ushort)x | ((uint)(ushort)y << 16)));
         return new IntPtr(packed);
     }

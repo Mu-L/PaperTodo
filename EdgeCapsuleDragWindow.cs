@@ -177,12 +177,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
     {
         if (_isClosed ||
             _dockingPresentationActive ||
-            _nativeDragAttemptActive ||
-            !WindowNative.TryCenterSystemAwareWindowAtCursor(
-                this,
-                _widthDip,
-                _heightDip,
-                out var cursorAnchor))
+            _nativeDragAttemptActive)
         {
             return new EdgeCapsuleNativeDragOutcome(
                 EdgeCapsuleNativeDragResult.NotStarted,
@@ -197,9 +192,16 @@ internal sealed class EdgeCapsuleDragWindow : Window
             // system move-loop Escape restore as Abort. When the loop ends for any reason, land at
             // the live cursor so sorting / cross-queue still commits.
             //
+            // WindowNative captures and consumes the native anchor entirely inside the floating
+            // HWND's System-Aware coordinate space. The completed drop is sampled separately
+            // below in the application's PMv2 device space.
+            //
             // SendMessage blocks in DefWindowProc's move loop. Do not require ENTERSIZEMOVE /
             // EXITSIZEMOVE — those are not reliable on layered NOACTIVATE HWNDs.
-            if (!WindowNative.TryBeginWindowCaptionDrag(this, cursorAnchor))
+            if (!WindowNative.TryBeginSystemAwareWindowCaptionDragFromCursor(
+                    this,
+                    _widthDip,
+                    _heightDip))
             {
                 return new EdgeCapsuleNativeDragOutcome(
                     EdgeCapsuleNativeDragResult.NotStarted,
