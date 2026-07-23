@@ -613,12 +613,19 @@ public sealed class NoteImageStore : IDisposable
         }
     }
 
-    internal void PrepareReusableImageNumbers()
+    /// <summary>
+    /// Builds the free-id pool for this session. Pass the same protected set used for startup GC.
+    /// When <paramref name="protectedImageIds"/> is null (protection scan failed or skipped),
+    /// reuse is disabled so dangling markdown ids cannot be reassigned.
+    /// </summary>
+    internal void PrepareReusableImageNumbers(IReadOnlySet<string>? protectedImageIds)
     {
         lock (_gate)
         {
             _reusableImageNumberRanges.Clear();
-            if (_writeDisabled || _nextImageNumber <= 1)
+            if (_writeDisabled ||
+                _nextImageNumber <= 1 ||
+                protectedImageIds == null)
             {
                 return;
             }
@@ -628,7 +635,7 @@ public sealed class NoteImageStore : IDisposable
             _retiredImageIds.Clear();
 
             var occupiedNumbers = new SortedSet<int>();
-            foreach (var imageId in _images.Keys.Concat(_corruptedImageIds))
+            void OccupyImageId(string imageId)
             {
                 if (int.TryParse(imageId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) &&
                     number > 0 &&
@@ -636,6 +643,23 @@ public sealed class NoteImageStore : IDisposable
                 {
                     occupiedNumbers.Add(number);
                 }
+            }
+
+            // Live and corrupted store keys, plus every id still referenced by current state,
+            // backup, or recovery snapshots — including holes where the blob is already missing.
+            foreach (var imageId in _images.Keys)
+            {
+                OccupyImageId(imageId);
+            }
+
+            foreach (var imageId in _corruptedImageIds)
+            {
+                OccupyImageId(imageId);
+            }
+
+            foreach (var imageId in protectedImageIds)
+            {
+                OccupyImageId(imageId);
             }
 
             var rangeStart = 1;

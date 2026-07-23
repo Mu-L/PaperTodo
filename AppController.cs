@@ -146,8 +146,10 @@ public sealed partial class AppController : IDisposable
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         _imageStore.Load();
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();
-        TryCollectUnprotectedImages();
-        _imageStore.PrepareReusableImageNumbers();
+        var protectedImageIdsForReuse = TryCollectUnprotectedImages();
+        // Only rebuild free numbers when the same protection scan that gates GC succeeded.
+        // A failed scan leaves reuse disabled so missing-but-referenced ids are never reissued.
+        _imageStore.PrepareReusableImageNumbers(protectedImageIdsForReuse);
         NormalizePaperSystemVisibilitySettings();
         AppTypography.Configure(
             State.UiFontPreset,
@@ -2551,20 +2553,27 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    private void TryCollectUnprotectedImages()
+    /// <summary>
+    /// Runs startup GC when protection ids can be collected. Returns that set for free-id reuse,
+    /// or null when collection is skipped/failed so reuse must stay off.
+    /// </summary>
+    private IReadOnlySet<string>? TryCollectUnprotectedImages()
     {
         try
         {
             if (!_store.TryCollectProtectedImageIds(State, out var protectedImageIds))
             {
-                return;
+                return null;
             }
 
             _imageStore.CollectUnprotectedImages(protectedImageIds);
+            return protectedImageIds;
         }
         catch
         {
-            // Collection is optional and destructive; any uncertainty keeps the image bytes.
+            // Collection is optional and destructive; any uncertainty keeps the image bytes
+            // and disables free-id reuse for this startup.
+            return null;
         }
     }
 
