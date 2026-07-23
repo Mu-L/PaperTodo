@@ -357,7 +357,7 @@ public sealed partial class AppController
         return style;
     }
 
-    private ContextMenu CreateTrayMenu()
+    internal ContextMenu CreateTrayMenu(bool activateOnOpen = true, bool registerForLiveRefresh = false)
     {
         var menu = new ContextMenu
         {
@@ -374,8 +374,42 @@ public sealed partial class AppController
         };
         AppTypography.ApplyTextRendering(menu);
         UpdateTrayMenuResources(menu);
-        menu.Opened += (_, _) => ActivateTrayContextMenu(menu);
+        if (activateOnOpen)
+        {
+            menu.Opened += (_, _) => ActivateTrayContextMenu(menu);
+        }
+
+        if (registerForLiveRefresh)
+        {
+            RegisterLiveTrayMenu(menu);
+        }
+
         return menu;
+    }
+
+    private void RegisterLiveTrayMenu(ContextMenu menu)
+    {
+        PruneLiveTrayMenus();
+        for (var i = 0; i < _liveTrayMenus.Count; i++)
+        {
+            if (_liveTrayMenus[i].TryGetTarget(out var existing) && ReferenceEquals(existing, menu))
+            {
+                return;
+            }
+        }
+
+        _liveTrayMenus.Add(new WeakReference<ContextMenu>(menu));
+    }
+
+    private void PruneLiveTrayMenus()
+    {
+        for (var i = _liveTrayMenus.Count - 1; i >= 0; i--)
+        {
+            if (!_liveTrayMenus[i].TryGetTarget(out _))
+            {
+                _liveTrayMenus.RemoveAt(i);
+            }
+        }
     }
 
     private static void ActivateTrayContextMenu(ContextMenu menu)
@@ -420,36 +454,41 @@ public sealed partial class AppController
             return;
         }
 
+        RebuildTrayMenu(_trayMenu);
+    }
+
+    internal void RebuildTrayMenu(ContextMenu menu)
+    {
         InvalidateSystemThemeCacheIfNeeded();
-        UpdateTrayMenuResources(_trayMenu);
+        UpdateTrayMenuResources(menu);
 
-        _trayMenu.Background = TrayPaperBrush;
-        _trayMenu.BorderBrush = TrayBorderBrush;
-        _trayMenu.Foreground = TrayTextBrush;
-        _trayMenu.FontFamily = AppTypography.UiFontFamily;
-        _trayMenu.FontSize = AppTypography.Scale(13);
-        _trayMenu.Language = AppTypography.Language;
-        AppTypography.ApplyTextRendering(_trayMenu);
-        _trayMenu.MaxHeight = TrayMenuMaxHeight();
+        menu.Background = TrayPaperBrush;
+        menu.BorderBrush = TrayBorderBrush;
+        menu.Foreground = TrayTextBrush;
+        menu.FontFamily = AppTypography.UiFontFamily;
+        menu.FontSize = AppTypography.Scale(13);
+        menu.Language = AppTypography.Language;
+        AppTypography.ApplyTextRendering(menu);
+        menu.MaxHeight = TrayMenuMaxHeight();
 
-        _trayMenu.Items.Clear();
+        menu.Items.Clear();
 
-        _trayMenu.Items.Add(TrayTitleBar());
-        _trayMenu.Items.Add(TraySeparator());
+        menu.Items.Add(TrayTitleBar(menu));
+        menu.Items.Add(TraySeparator());
 
-        _trayMenu.Items.Add(TrayPaperToolbar());
+        menu.Items.Add(TrayPaperToolbar(menu));
 
         if (State.Papers.Count > 0)
         {
             for (var index = 0; index < State.Papers.Count; index++)
             {
                 var paper = State.Papers[index];
-                _trayMenu.Items.Add(TrayPaperItem(paper));
+                menu.Items.Add(TrayPaperItem(menu, paper));
             }
         }
 
-        _trayMenu.Items.Add(TraySeparator());
-        _trayMenu.Items.Add(TrayItem(Strings.Get("TrayExit"), Exit));
+        menu.Items.Add(TraySeparator());
+        menu.Items.Add(TrayItem(menu, Strings.Get("TrayExit"), Exit));
     }
 
 
@@ -462,11 +501,24 @@ public sealed partial class AppController
 
         if (_trayMenu != null && _trayMenu.IsOpen)
         {
-            RebuildTrayMenu();
+            RebuildTrayMenu(_trayMenu);
+        }
+
+        PruneLiveTrayMenus();
+        for (var i = 0; i < _liveTrayMenus.Count; i++)
+        {
+            if (!_liveTrayMenus[i].TryGetTarget(out var menu) ||
+                !menu.IsOpen ||
+                ReferenceEquals(menu, _trayMenu))
+            {
+                continue;
+            }
+
+            RebuildTrayMenu(menu);
         }
     }
 
-    private MenuItem TrayItem(string text, Action action)
+    private MenuItem TrayItem(ContextMenu menu, string text, Action action)
     {
         var item = new MenuItem
         {
@@ -476,21 +528,18 @@ public sealed partial class AppController
 
         item.Click += (_, _) =>
         {
-            InvokeTrayAction(action);
+            InvokeTrayAction(menu, action);
         };
         return item;
     }
 
-    private void InvokeTrayAction(Action action)
+    private static void InvokeTrayAction(ContextMenu menu, Action action)
     {
-        if (_trayMenu != null)
-        {
-            _trayMenu.IsOpen = false;
-        }
+        menu.IsOpen = false;
         _ = Application.Current.Dispatcher.InvokeAsync(action, DispatcherPriority.Background);
     }
 
-    private MenuItem TrayTitleBar()
+    private MenuItem TrayTitleBar(ContextMenu menu)
     {
         var item = new MenuItem
         {
@@ -518,6 +567,7 @@ public sealed partial class AppController
 
         var settingsTip = Strings.Get("TraySettings");
         var settingsButton = TrayToolbarAction(
+            menu,
             CreateTraySettingsIcon(),
             settingsTip,
             ShowSettingsWindow);
@@ -533,14 +583,14 @@ public sealed partial class AppController
         {
             if (e.OriginalSource == item && (e.Key is Key.Enter or Key.Space))
             {
-                InvokeTrayAction(ShowSettingsWindow);
+                InvokeTrayAction(menu, ShowSettingsWindow);
                 e.Handled = true;
             }
         };
         return item;
     }
 
-    private MenuItem TrayPaperToolbar()
+    private MenuItem TrayPaperToolbar(ContextMenu menu)
     {
         var paperCount = State.Papers.Count;
         var shownCount = State.Papers.Count(IsPaperShown);
@@ -566,6 +616,7 @@ public sealed partial class AppController
         var visibilityTip = Strings.Get(anyShown ? "TrayHideAll" : "TrayShowAll");
         Action visibilityAction = anyShown ? HideAllPapers : ShowAllPapers;
         var visibilityButton = TrayToolbarAction(
+            menu,
             CreateTrayVisibilityIcon(anyShown, allShown),
             visibilityTip,
             visibilityAction,
@@ -582,10 +633,12 @@ public sealed partial class AppController
         };
 
         var newTodoButton = TrayToolbarAction(
+            menu,
             CreateTrayAddIcon("✓"),
             Strings.Get("TrayNewTodo"),
             () => CreatePaper(PaperTypes.Todo, show: true));
         var newNoteButton = TrayToolbarAction(
+            menu,
             CreateTrayAddIcon("✎"),
             Strings.Get("TrayNewNote"),
             () => CreatePaper(PaperTypes.Note, show: true));
@@ -605,7 +658,7 @@ public sealed partial class AppController
         {
             if (paperCount > 0 && e.OriginalSource == item && (e.Key is Key.Enter or Key.Space))
             {
-                InvokeTrayAction(visibilityAction);
+                InvokeTrayAction(menu, visibilityAction);
                 e.Handled = true;
             }
         };
@@ -613,6 +666,7 @@ public sealed partial class AppController
     }
 
     private Border TrayToolbarAction(
+        ContextMenu menu,
         FrameworkElement icon,
         string toolTip,
         Action action,
@@ -650,7 +704,7 @@ public sealed partial class AppController
 
         void InvokeAction()
         {
-            InvokeTrayAction(action);
+            InvokeTrayAction(menu, action);
         }
 
         area.MouseEnter += (_, _) =>
@@ -801,7 +855,7 @@ public sealed partial class AppController
         return icon;
     }
 
-    private MenuItem TrayPaperItem(PaperData paper)
+    private MenuItem TrayPaperItem(ContextMenu menu, PaperData paper)
     {
         var item = new MenuItem
         {
@@ -1098,6 +1152,10 @@ public sealed partial class AppController
             EndActionGesture(confirmArea);
             if (confirmMode && releasedInside)
             {
+                if (!ReferenceEquals(menu, _trayMenu))
+                {
+                    menu.IsOpen = false;
+                }
                 _ = Application.Current.Dispatcher.InvokeAsync(() => DeletePaper(paper), DispatcherPriority.Background);
             }
             e.Handled = true;
@@ -1119,10 +1177,7 @@ public sealed partial class AppController
                 return;
             }
 
-            if (_trayMenu != null)
-            {
-                _trayMenu.IsOpen = false;
-            }
+            menu.IsOpen = false;
             _ = Application.Current.Dispatcher.InvokeAsync(() => TogglePaperVisibility(paper), DispatcherPriority.Background);
             e.Handled = true;
         };

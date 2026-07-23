@@ -44,6 +44,7 @@ public sealed class MasterCapsuleWindow : Window
     private const double MasterInteriorBorderThickness = 1;
 
     private readonly AppController _controller;
+    private readonly DeepCapsuleContextMenuSession _contextMenuSession;
     private double MasterGlyphFontSize => AppTypography.Scale(12);
     private double MasterLabelFontSize => VisualTextSizes.FontSize(12, _controller.State.CapsuleTextSize);
     private FontFamily MasterLabelFontFamily =>
@@ -95,6 +96,11 @@ public sealed class MasterCapsuleWindow : Window
         _controller = controller;
         _queueEdge = queueEdge;
         _queueMonitorDeviceName = queueMonitorDeviceName ?? "";
+        _contextMenuSession = new DeepCapsuleContextMenuSession(
+            controller,
+            $"master:{Guid.NewGuid():N}",
+            Dispatcher,
+            IsPointInsideMasterOwnerSurface);
         ConfigureWindow();
         BuildContent();
         UpdateToolTipSetting();
@@ -215,6 +221,13 @@ public sealed class MasterCapsuleWindow : Window
         content.Children.Add(stack);
 
         _pill.Child = content;
+        // Same chrome as the tray menu, but skip tray-style Activate (NOACTIVATE host) and
+        // let DeepCapsuleContextMenuSession own promote / guards / stale-focus cleanup.
+        var contextMenu = _controller.CreateTrayMenu(activateOnOpen: false, registerForLiveRefresh: true);
+        _pill.ContextMenu = contextMenu;
+        _pill.ContextMenuOpening += (_, _) => _controller.RebuildTrayMenu(contextMenu);
+        contextMenu.Opened += (_, _) => _contextMenuSession.HandleOpened(contextMenu);
+        contextMenu.Closed += (_, _) => _contextMenuSession.HandleClosed(contextMenu);
         host.Children.Add(_pill);
         Content = host;
 
@@ -747,11 +760,15 @@ public sealed class MasterCapsuleWindow : Window
 
         _isClosingForReal = true;
         FinishMasterGesture(commit: false, clearFocus: false);
+        _contextMenuSession.Dispose();
         ++_moveGeneration;
         _animatedMonitorGeometry = null;
         BeginAnimation(AnimatedTopProperty, null);
         Close();
     }
+
+    private bool IsPointInsideMasterOwnerSurface(System.Windows.Point screenPoint) =>
+        DeepCapsuleContextMenuSession.IsPointInsideElement(_pill, screenPoint);
 
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {

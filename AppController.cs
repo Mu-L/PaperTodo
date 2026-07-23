@@ -45,6 +45,7 @@ public sealed partial class AppController : IDisposable
 
     private TaskbarIcon? _trayIcon;
     private ContextMenu? _trayMenu;
+    private readonly List<WeakReference<ContextMenu>> _liveTrayMenus = new();
     private Window? _settingsWindow;
     private TextBox? _settingsExternalMarkdownTextBox;
     private CheckBox? _settingsHidePapersFromTaskbarCheckBox;

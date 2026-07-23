@@ -35,48 +35,13 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private const uint EventSystemForeground = 0x0003;
-    private const uint WineventOutOfContext = 0x0000;
-    private const int WhMouseLl = 14;
     private const int WmKeyDown = 0x0100;
-    private const int WmLButtonDown = 0x0201;
-    private const int WmRButtonDown = 0x0204;
-    private const int WmMButtonDown = 0x0207;
-    private const int WmXButtonDown = 0x020B;
     private const int WmSettingChange = 0x001A;
     private const int WmDisplayChange = 0x007E;
     private const int WmDpiChanged = 0x02E0;
     private const int WmWindowPosChanged = 0x0047;
     private const int WmGetMinMaxInfo = 0x0024;
     private const int VkEscape = 0x1B;
-
-    private delegate void WinEventDelegate(
-        IntPtr hWinEventHook,
-        uint eventType,
-        IntPtr hwnd,
-        int idObject,
-        int idChild,
-        uint dwEventThread,
-        uint dwmsEventTime);
-
-    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly struct NativePoint
-    {
-        public readonly int X;
-        public readonly int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly struct MouseHookStruct
-    {
-        public readonly NativePoint Point;
-        public readonly uint MouseData;
-        public readonly uint Flags;
-        public readonly uint Time;
-        public readonly IntPtr ExtraInfo;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativeWindowRect
@@ -103,34 +68,6 @@ public sealed partial class PaperWindow
         public MutablePoint MinTrackSize;
         public MutablePoint MaxTrackSize;
     }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr SetWinEventHook(
-        uint eventMin,
-        uint eventMax,
-        IntPtr hmodWinEventProc,
-        WinEventDelegate lpfnWinEventProc,
-        uint idProcess,
-        uint idThread,
-        uint dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr GetModuleHandle(string? lpModuleName);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

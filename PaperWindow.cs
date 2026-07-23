@@ -98,15 +98,7 @@ public sealed partial class PaperWindow : Window
     private EdgeCapsuleDragWindow? _deepCapsuleFloatingDragHost;
     private IntPtr _mainWindowFullscreenAvoidanceWindow;
     private IntPtr _deepCapsuleFloatingFullscreenAvoidanceWindow;
-    private ContextMenu? _deepCapsuleSlotContextMenu;
-    private ContextMenu? _pendingDeepCapsuleContextMenuClose;
-    private long _deepCapsuleContextMenuOpenVersion;
-    private long _pendingDeepCapsuleContextMenuCloseVersion;
-    private bool _deepCapsuleContextMenuCloseScheduled;
-    private IntPtr _deepCapsuleForegroundHook;
-    private IntPtr _deepCapsuleMouseHook;
-    private WinEventDelegate? _deepCapsuleForegroundHookProc;
-    private LowLevelMouseProc? _deepCapsuleMouseHookProc;
+    private DeepCapsuleContextMenuSession _deepCapsuleContextMenuSession = null!;
     private Border? _capsuleCloseArea;
     private TextBlock? _capsuleIconText;
     private TextBlock? _capsuleCloseGlyph;
@@ -547,6 +539,12 @@ public sealed partial class PaperWindow : Window
     {
         _paper = paper;
         _controller = controller;
+        _deepCapsuleContextMenuSession = new DeepCapsuleContextMenuSession(
+            controller,
+            paper.Id,
+            Dispatcher,
+            IsPointInsideDeepCapsuleOwnerSurface,
+            OnDeepCapsuleContextMenuOpenChanged);
         InitializePaperPresentationState();
 
         ConfigureWindow();
