@@ -690,7 +690,7 @@ public sealed class NoteImageStore : IDisposable
         }
 
         return Path.GetExtension(path).ToLowerInvariant() is
-            ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".tif" or ".tiff";
+            ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".tif" or ".tiff" or ".webp";
     }
 
     private static void ThrowIfUnsupportedImageFiles(IReadOnlyList<string> paths)
@@ -1117,12 +1117,22 @@ public sealed class NoteImageStore : IDisposable
         {
             return "image/tiff";
         }
+        // RIFF....WEBP
+        if (bytes.Length >= 12 &&
+            bytes.StartsWith("RIFF"u8) &&
+            bytes[8] == (byte)'W' &&
+            bytes[9] == (byte)'E' &&
+            bytes[10] == (byte)'B' &&
+            bytes[11] == (byte)'P')
+        {
+            return "image/webp";
+        }
 
         return null;
     }
 
     private static string NormalizeMime(string mime)
-        => mime is "image/jpeg" or "image/png" or "image/gif" or "image/bmp" or "image/tiff"
+        => mime is "image/jpeg" or "image/png" or "image/gif" or "image/bmp" or "image/tiff" or "image/webp"
             ? mime
             : "image/png";
 
@@ -1133,6 +1143,7 @@ public sealed class NoteImageStore : IDisposable
             "image/gif" => ".gif",
             "image/bmp" => ".bmp",
             "image/tiff" => ".tif",
+            "image/webp" => ".webp",
             _ => ".png"
         };
 

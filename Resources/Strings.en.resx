@@ -169,7 +169,7 @@
     <value>Image corrupted</value>
   </data>
   <data name="ImageFileDialogFilter" xml:space="preserve">
-    <value>Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|All files|*.*</value>
+    <value>Image files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|All files|*.*</value>
   </data>
   <data name="ImageImportFailureTitle" xml:space="preserve">
     <value>Image insert failed</value>

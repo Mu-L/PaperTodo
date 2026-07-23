@@ -169,7 +169,7 @@
     <value>画像が破損しています</value>
   </data>
   <data name="ImageFileDialogFilter" xml:space="preserve">
-    <value>画像ファイル|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|すべてのファイル|*.*</value>
+    <value>画像ファイル|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|すべてのファイル|*.*</value>
   </data>
   <data name="ImageImportFailureTitle" xml:space="preserve">
     <value>画像の挿入に失敗</value>

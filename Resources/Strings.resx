@@ -182,7 +182,7 @@
     <value>图片已损坏</value>
   </data>
   <data name="ImageFileDialogFilter" xml:space="preserve">
-    <value>图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|所有文件|*.*</value>
+    <value>图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|所有文件|*.*</value>
   </data>
   <data name="ImageImportFailureTitle" xml:space="preserve">
     <value>图片插入失败</value>
