@@ -224,7 +224,17 @@ public partial class App : Application
             return;
         }
 
-        var isDesktopRuntimeLoadFailure = IsSharedDotNetRuntimeLoadFailure(ex);
+        // Classification must never prevent crash log / recovery from running.
+        var isDesktopRuntimeLoadFailure = false;
+        try
+        {
+            isDesktopRuntimeLoadFailure = IsSharedDotNetRuntimeLoadFailure(ex);
+        }
+        catch
+        {
+            // Fall back to the generic crash path.
+        }
+
         WriteCrashLog(ex);
 
         var recoverySaved = false;
@@ -283,33 +293,41 @@ public partial class App : Application
 
     private static bool IsSharedDotNetRuntimeLoadFailure(Exception? ex)
     {
-        var pending = new Stack<Exception?>();
-        pending.Push(ex);
-
-        while (pending.Count > 0)
+        try
         {
-            var current = pending.Pop();
-            while (current != null)
+            var pending = new Stack<Exception?>();
+            pending.Push(ex);
+
+            while (pending.Count > 0)
             {
-                if (current is ReflectionTypeLoadException reflectionLoad)
+                var current = pending.Pop();
+                while (current != null)
                 {
-                    foreach (var loader in reflectionLoad.LoaderExceptions)
+                    if (current is ReflectionTypeLoadException reflectionLoad)
                     {
-                        pending.Push(loader);
+                        foreach (var loader in reflectionLoad.LoaderExceptions)
+                        {
+                            pending.Push(loader);
+                        }
                     }
-                }
 
-                if (current is FileNotFoundException fileNotFound &&
-                    IsSharedDesktopRuntimeAssembly(fileNotFound.FileName))
-                {
-                    return true;
-                }
+                    if (current is FileNotFoundException fileNotFound &&
+                        IsSharedDesktopRuntimeAssembly(fileNotFound.FileName))
+                    {
+                        return true;
+                    }
 
-                current = current.InnerException;
+                    current = current.InnerException;
+                }
             }
-        }
 
-        return false;
+            return false;
+        }
+        catch
+        {
+            // Crash classification is best-effort; never rethrow into the handler.
+            return false;
+        }
     }
 
     private static bool IsSharedDesktopRuntimeAssembly(string? assemblyDisplayName)
@@ -319,12 +337,14 @@ public partial class App : Application
             return false;
         }
 
+        // AssemblyName accepts display names, but path-like FileNotFoundException.FileName
+        // values throw FileLoadException (not only ArgumentException).
         string? simpleName;
         try
         {
             simpleName = new AssemblyName(assemblyDisplayName).Name;
         }
-        catch (ArgumentException)
+        catch (Exception)
         {
             return false;
         }
