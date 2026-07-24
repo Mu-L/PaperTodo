@@ -16,16 +16,13 @@
     <value>시작에 실패했습니다: 데이터 파일을 불러올 수 없습니다. 파일이 사용 중이거나 손상되었을 수 있습니다.&#x0A;기존 데이터가 덮어써지지 않도록 앱 시작을 중지했습니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>3.0</value>
+    <value>3.0.1</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 시작 실패</value>
   </data>
   <data name="AppUnhandledExceptionMessage" xml:space="preserve">
-    <value>처리되지 않은 오류가 발생했습니다. 현재 데이터는 data.crash_recovery.json에 저장되었습니다.&#x0A;&#x0A;앱을 다시 시작해 주세요. 문제가 계속되면 이 파일로 복원을 시도할 수 있습니다.&#x0A;&#x0A;오류: {0}</value>
-  </data>
-  <data name="AppUnhandledExceptionRecoveryFailedMessage" xml:space="preserve">
-    <value>처리되지 않은 오류가 발생했으며 이번 복구 파일 data.crash_recovery.json을 만들지 못했습니다.&#x0A;&#x0A;앱을 다시 시작하고 앱 폴더의 쓰기 권한과 남은 공간을 확인해 주세요.&#x0A;&#x0A;오류: {0}</value>
+    <value>처리되지 않은 오류가 발생했습니다. 크래시 로그를 PaperTodo.crash.log에 기록했습니다.&#x0A;&#x0A;앱을 다시 시작해 주세요. 최근 변경은 자동 저장과 data.backup.json에 의존합니다.&#x0A;&#x0A;오류: {0}</value>
   </data>
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 비정상 종료</value>
@@ -34,16 +31,9 @@
     <value>PaperTodo - .NET 런타임 구성 요소 로드 실패</value>
   </data>
   <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
-    <value>.NET 런타임 구성 요소를 로드할 수 없어 앱을 완전히 종료합니다. 현재 데이터는 data.crash_recovery.json에 저장되었습니다.
+    <value>.NET 런타임 구성 요소를 로드할 수 없어 앱을 완전히 종료합니다. 크래시 로그를 PaperTodo.crash.log에 기록했습니다.
 
 PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 시작하거나 .NET Desktop Runtime을 복구/다시 설치하세요.
-
-오류: {0}</value>
-  </data>
-  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
-    <value>.NET 런타임 구성 요소를 로드할 수 없어 앱을 완전히 종료하며, 이번 복구 파일 data.crash_recovery.json을 만들지 못했습니다.
-
-PaperTodo를 수동으로 다시 열고 앱 폴더의 쓰기 권한과 남은 공간을 확인하세요. 문제가 반복되면 PC를 다시 시작하거나 .NET Desktop Runtime을 복구/다시 설치하세요.
 
 오류: {0}</value>
   </data>

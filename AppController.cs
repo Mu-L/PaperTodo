@@ -40,8 +40,10 @@ public sealed partial class AppController : IDisposable
     private readonly NoteImageStore _imageStore = new();
     private readonly Dictionary<string, PaperWindow> _windows = new();
     private readonly DispatcherTimer _saveTimer;
+    private readonly DispatcherTimer _forceSaveTimer;
     private readonly DispatcherTimer _topmostRefreshTimer;
     private readonly DispatcherTimer _displayMetricsRefreshTimer;
+    private bool _hasPendingDirty;
 
     private TaskbarIcon? _trayIcon;
     private ContextMenu? _trayMenu;
@@ -160,13 +162,24 @@ public sealed partial class AppController : IDisposable
         NoteTypography.Configure(State.NoteTextSize, State.NoteTextBold);
         ToolTipPreferences.Register(() => State.EnableToolTips);
 
+        // Idle debounce: save ~1s after the last change.
+        // Force cap: while edits keep resetting the idle timer, still flush at least every 10s.
         _saveTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(450)
+            Interval = TimeSpan.FromMilliseconds(1000)
         };
         _saveTimer.Tick += (_, _) =>
         {
             _saveTimer.Stop();
+            SaveNow();
+        };
+        _forceSaveTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(10)
+        };
+        _forceSaveTimer.Tick += (_, _) =>
+        {
+            _forceSaveTimer.Stop();
             SaveNow();
         };
 
@@ -2467,6 +2480,13 @@ public sealed partial class AppController : IDisposable
         }
 
         Interlocked.Increment(ref _stateRevision);
+        if (!_hasPendingDirty)
+        {
+            _hasPendingDirty = true;
+            _forceSaveTimer.Stop();
+            _forceSaveTimer.Start();
+        }
+
         _saveTimer.Stop();
         _saveTimer.Start();
     }
@@ -2481,6 +2501,8 @@ public sealed partial class AppController : IDisposable
         try
         {
             _saveTimer.Stop();
+            _forceSaveTimer.Stop();
+            _hasPendingDirty = false;
             CommitPendingNoteContentsForSave();
             var version = Interlocked.Increment(ref _saveVersion);
             var stateRevision = Interlocked.Read(ref _stateRevision);
@@ -2532,7 +2554,7 @@ public sealed partial class AppController : IDisposable
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            // A background crash handler must never wait on a blocked or shutting-down UI thread.
+            // Note commit touches WPF controls; only run on the UI thread.
             return;
         }
 
@@ -3098,6 +3120,7 @@ public sealed partial class AppController : IDisposable
 
         _lifecycleState = AppLifecycleState.Exiting;
         _saveTimer.Stop();
+        _forceSaveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
 
@@ -3193,6 +3216,7 @@ public sealed partial class AppController : IDisposable
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _saveTimer.Stop();
+        _forceSaveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
         ClearNoteLinkDropTarget();

@@ -224,7 +224,7 @@ public partial class App : Application
             return;
         }
 
-        // Classification must never prevent crash log / recovery from running.
+        // Classification must never prevent the crash log from being written.
         var isDesktopRuntimeLoadFailure = false;
         try
         {
@@ -235,44 +235,15 @@ public partial class App : Application
             // Fall back to the generic crash path.
         }
 
+        // Do not serialize in-memory state here: auto-save + data.backup.json already cover
+        // normal durability, and crash-time memory may already be inconsistent.
         WriteCrashLog(ex);
-
-        var recoverySaved = false;
-        try
-        {
-            var controller = AppController.Current;
-            if (controller != null && controller.State != null)
-            {
-                try
-                {
-                    controller.CommitPendingNoteContentsForSave();
-                }
-                catch
-                {
-                    // Recovery should still preserve the last committed model if a live editor is broken.
-                }
-
-                var store = new StateStore();
-                var recoveryPath = Path.Combine(AppContext.BaseDirectory, "data.crash_recovery.json");
-                var json = store.SerializeState(controller.State);
-                File.WriteAllText(recoveryPath, json);
-                recoverySaved = true;
-            }
-        }
-        catch
-        {
-            // Ignore exception when attempting recovery backup during crash
-        }
 
         try
         {
             var messageKey = isDesktopRuntimeLoadFailure
-                ? recoverySaved
-                    ? "AppDesktopRuntimeLoadFailureMessage"
-                    : "AppDesktopRuntimeLoadFailureRecoveryFailedMessage"
-                : recoverySaved
-                    ? "AppUnhandledExceptionMessage"
-                    : "AppUnhandledExceptionRecoveryFailedMessage";
+                ? "AppDesktopRuntimeLoadFailureMessage"
+                : "AppUnhandledExceptionMessage";
             var titleKey = isDesktopRuntimeLoadFailure
                 ? "AppDesktopRuntimeLoadFailureTitle"
                 : "AppUnhandledExceptionTitle";

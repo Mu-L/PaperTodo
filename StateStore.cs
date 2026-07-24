@@ -117,7 +117,6 @@ public sealed class StateStore
                 directory = AppContext.BaseDirectory;
             }
 
-            AddIfExists(paths, Path.Combine(directory, "data.crash_recovery.json"));
             foreach (var path in Directory.EnumerateFiles(directory, "data.failed_load.*.json"))
             {
                 paths.Add(path);

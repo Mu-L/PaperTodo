@@ -16,16 +16,13 @@
     <value>起動に失敗しました: データファイルを読み込めません。ファイルが使用中、または破損している可能性があります。&#x0A;既存データの上書きを避けるため、アプリは起動を停止しました。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>3.0</value>
+    <value>3.0.1</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 起動失敗</value>
   </data>
   <data name="AppUnhandledExceptionMessage" xml:space="preserve">
-    <value>未処理のエラーが発生しました。現在のデータは data.crash_recovery.json に保存されています。&#x0A;&#x0A;アプリを再起動してください。問題が続く場合は、このファイルからの復元を試せます。&#x0A;&#x0A;エラー: {0}</value>
-  </data>
-  <data name="AppUnhandledExceptionRecoveryFailedMessage" xml:space="preserve">
-    <value>未処理のエラーが発生し、今回の復元ファイル data.crash_recovery.json を作成できませんでした。&#x0A;&#x0A;アプリを再起動し、アプリのフォルダーへの書き込み権限と空き容量を確認してください。&#x0A;&#x0A;エラー: {0}</value>
+    <value>未処理のエラーが発生しました。クラッシュログを PaperTodo.crash.log に書き込みました。&#x0A;&#x0A;アプリを再起動してください。直近の変更は自動保存と data.backup.json に依存します。&#x0A;&#x0A;エラー: {0}</value>
   </data>
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 異常終了</value>
@@ -34,16 +31,9 @@
     <value>PaperTodo - .NET 実行環境コンポーネントの読み込み失敗</value>
   </data>
   <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
-    <value>.NET 実行環境コンポーネントを読み込めなかったため、アプリを完全に終了します。現在のデータは data.crash_recovery.json に保存されました。
+    <value>.NET 実行環境コンポーネントを読み込めなかったため、アプリを完全に終了します。クラッシュログを PaperTodo.crash.log に書き込みました。
 
 PaperTodo を手動でもう一度開いてください。問題が繰り返される場合は、PC を再起動するか、.NET Desktop Runtime を修復 / 再インストールしてください。
-
-エラー: {0}</value>
-  </data>
-  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
-    <value>.NET 実行環境コンポーネントを読み込めなかったため、アプリを完全に終了します。また、今回の復元ファイル data.crash_recovery.json を作成できませんでした。
-
-PaperTodo を手動でもう一度開き、アプリのフォルダーへの書き込み権限と空き容量を確認してください。問題が繰り返される場合は、PC を再起動するか、.NET Desktop Runtime を修復 / 再インストールしてください。
 
 エラー: {0}</value>
   </data>

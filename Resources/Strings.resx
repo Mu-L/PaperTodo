@@ -19,22 +19,15 @@
 错误信息：{0}</value>
   </data>
   <data name="ResourceTextVersion" xml:space="preserve">
-    <value>3.0</value>
+    <value>3.0.1</value>
   </data>
   <data name="AppStartupFailureTitle" xml:space="preserve">
     <value>PaperTodo - 启动失败</value>
   </data>
   <data name="AppUnhandledExceptionMessage" xml:space="preserve">
-    <value>程序发生未处理错误，当前数据已保存到 data.crash_recovery.json。
+    <value>程序发生未处理错误，已写入崩溃日志 PaperTodo.crash.log。
 
-请重启程序；如果问题持续，可使用该文件尝试恢复。
-
-错误信息：{0}</value>
-  </data>
-  <data name="AppUnhandledExceptionRecoveryFailedMessage" xml:space="preserve">
-    <value>程序发生未处理错误，并且无法创建本次恢复文件 data.crash_recovery.json。
-
-请重启程序，并检查程序目录的写入权限和剩余空间。
+请重启程序。近期改动依赖自动保存与 data.backup.json。
 
 错误信息：{0}</value>
   </data>
@@ -45,16 +38,9 @@
     <value>PaperTodo - .NET 运行环境组件加载失败</value>
   </data>
   <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
-    <value>.NET 运行环境组件加载失败，程序将完全退出。当前数据已保存到 data.crash_recovery.json。
+    <value>.NET 运行环境组件加载失败，程序将完全退出。已写入崩溃日志 PaperTodo.crash.log。
 
 请手动重新打开 PaperTodo。若反复出现，请重启电脑，或修复 / 重装 .NET Desktop Runtime。
-
-错误信息：{0}</value>
-  </data>
-  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
-    <value>.NET 运行环境组件加载失败，程序将完全退出，并且无法创建本次恢复文件 data.crash_recovery.json。
-
-请手动重新打开 PaperTodo，并检查程序目录的写入权限和剩余空间。若反复出现，请重启电脑，或修复 / 重装 .NET Desktop Runtime。
 
 错误信息：{0}</value>
   </data>
