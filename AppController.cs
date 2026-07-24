@@ -2498,6 +2498,7 @@ public sealed partial class AppController : IDisposable
 
     private bool TrySaveNow(bool sync)
     {
+        long? attemptedVersion = null;
         try
         {
             _saveTimer.Stop();
@@ -2505,6 +2506,7 @@ public sealed partial class AppController : IDisposable
             _hasPendingDirty = false;
             CommitPendingNoteContentsForSave();
             var version = Interlocked.Increment(ref _saveVersion);
+            attemptedVersion = version;
             var stateRevision = Interlocked.Read(ref _stateRevision);
             var json = _store.SerializeState(State);
             if (sync)
@@ -2534,7 +2536,7 @@ public sealed partial class AppController : IDisposable
                     {
                         Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
                         {
-                            HandleSaveFailure(ex);
+                            HandleSaveFailure(ex, version);
                         }));
                     }
                 });
@@ -2544,7 +2546,7 @@ public sealed partial class AppController : IDisposable
         }
         catch (Exception ex)
         {
-            HandleSaveFailure(ex);
+            HandleSaveFailure(ex, attemptedVersion);
             return false;
         }
     }
@@ -2637,12 +2639,16 @@ public sealed partial class AppController : IDisposable
         return style;
     }
 
-    private void HandleSaveFailure(Exception ex)
+    private void HandleSaveFailure(Exception ex, long? failedVersion = null)
     {
         if (IsExiting)
         {
             return;
         }
+
+        // If nothing newer has superseded this attempt, keep trying after the force interval
+        // so a transient write failure does not drop the dirty state permanently.
+        ArmSaveRetryIfNeeded(failedVersion);
 
         if (!_hasShownSaveFailure && !_ignoreSaveFailures)
         {
@@ -2702,6 +2708,33 @@ public sealed partial class AppController : IDisposable
                 dlg.Content = border;
                 dlg.ShowDialog();
             });
+        }
+    }
+
+    private void ArmSaveRetryIfNeeded(long? failedVersion)
+    {
+        if (IsExiting)
+        {
+            return;
+        }
+
+        if (failedVersion is long version &&
+            version != Interlocked.Read(ref _saveVersion))
+        {
+            return;
+        }
+
+        if (!_hasPendingDirty)
+        {
+            _hasPendingDirty = true;
+            _forceSaveTimer.Stop();
+            _forceSaveTimer.Start();
+            return;
+        }
+
+        if (!_forceSaveTimer.IsEnabled)
+        {
+            _forceSaveTimer.Start();
         }
     }
 
