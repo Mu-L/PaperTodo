@@ -41,6 +41,23 @@
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 异常退出</value>
   </data>
+  <data name="AppDesktopRuntimeLoadFailureTitle" xml:space="preserve">
+    <value>PaperTodo - .NET 运行环境组件加载失败</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
+    <value>.NET 运行环境组件加载失败，程序将完全退出。当前数据已保存到 data.crash_recovery.json。
+
+请手动重新打开 PaperTodo。若反复出现，请重启电脑，或修复 / 重装 .NET Desktop Runtime。
+
+错误信息：{0}</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
+    <value>.NET 运行环境组件加载失败，程序将完全退出，并且无法创建本次恢复文件 data.crash_recovery.json。
+
+请手动重新打开 PaperTodo，并检查程序目录的写入权限和剩余空间。若反复出现，请重启电脑，或修复 / 重装 .NET Desktop Runtime。
+
+错误信息：{0}</value>
+  </data>
   <data name="AppendAreaToolTip" xml:space="preserve">
     <value>点击添加内容；拖到这里删除</value>
   </data>

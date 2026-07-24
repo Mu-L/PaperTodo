@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Declare AvalonEdit's WinForms cursor dependency explicitly. Framework-dependent publishes
+         still load it from the installed Microsoft.WindowsDesktop.App shared framework. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF keeps DPI policy in app.manifest (PerMonitorV2); ignore WinForms-only WFO0003. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Version>3.0.1</Version>
     <AssemblyVersion>3.0.1.0</AssemblyVersion>
@@ -35,6 +40,11 @@
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
+  </ItemGroup>
+  <!-- WinForms pulls System.Drawing into global usings; keep WPF type names unambiguous. -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
   </ItemGroup>
   <Target Name="EnsurePaperTodoLmdbLibrary" BeforeTargets="PrepareForBuild">
     <Error

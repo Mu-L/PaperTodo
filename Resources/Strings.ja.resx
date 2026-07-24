@@ -30,6 +30,23 @@
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 異常終了</value>
   </data>
+  <data name="AppDesktopRuntimeLoadFailureTitle" xml:space="preserve">
+    <value>PaperTodo - .NET 実行環境コンポーネントの読み込み失敗</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
+    <value>.NET 実行環境コンポーネントを読み込めなかったため、アプリを完全に終了します。現在のデータは data.crash_recovery.json に保存されました。
+
+PaperTodo を手動でもう一度開いてください。問題が繰り返される場合は、PC を再起動するか、.NET Desktop Runtime を修復 / 再インストールしてください。
+
+エラー: {0}</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
+    <value>.NET 実行環境コンポーネントを読み込めなかったため、アプリを完全に終了します。また、今回の復元ファイル data.crash_recovery.json を作成できませんでした。
+
+PaperTodo を手動でもう一度開き、アプリのフォルダーへの書き込み権限と空き容量を確認してください。問題が繰り返される場合は、PC を再起動するか、.NET Desktop Runtime を修復 / 再インストールしてください。
+
+エラー: {0}</value>
+  </data>
   <data name="AppendAreaToolTip" xml:space="preserve">
     <value>クリックして内容を追加、ドラッグして削除</value>
   </data>

@@ -30,6 +30,23 @@
   <data name="AppUnhandledExceptionTitle" xml:space="preserve">
     <value>PaperTodo - 비정상 종료</value>
   </data>
+  <data name="AppDesktopRuntimeLoadFailureTitle" xml:space="preserve">
+    <value>PaperTodo - .NET 런타임 구성 요소 로드 실패</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureMessage" xml:space="preserve">
+    <value>.NET 런타임 구성 요소를 로드할 수 없어 앱을 완전히 종료합니다. 현재 데이터는 data.crash_recovery.json에 저장되었습니다.
+
+PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 시작하거나 .NET Desktop Runtime을 복구/다시 설치하세요.
+
+오류: {0}</value>
+  </data>
+  <data name="AppDesktopRuntimeLoadFailureRecoveryFailedMessage" xml:space="preserve">
+    <value>.NET 런타임 구성 요소를 로드할 수 없어 앱을 완전히 종료하며, 이번 복구 파일 data.crash_recovery.json을 만들지 못했습니다.
+
+PaperTodo를 수동으로 다시 열고 앱 폴더의 쓰기 권한과 남은 공간을 확인하세요. 문제가 반복되면 PC를 다시 시작하거나 .NET Desktop Runtime을 복구/다시 설치하세요.
+
+오류: {0}</value>
+  </data>
   <data name="AppendAreaToolTip" xml:space="preserve">
     <value>클릭해 내용을 추가하고, 여기로 끌어 삭제</value>
   </data>

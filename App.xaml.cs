@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
+using System.Threading;
 using System.Windows;
 using Application = System.Windows.Application;
 
@@ -10,11 +12,30 @@ namespace PaperTodo;
 public partial class App : Application
 {
     private const long MaxCrashLogBytes = 100 * 1024;
+    private static readonly HashSet<string> SharedDesktopRuntimeAssemblies = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "System.Windows.Forms",
+        "System.Drawing",
+        "System.Drawing.Common",
+        "PresentationFramework",
+        "PresentationCore",
+        "WindowsBase",
+        "WindowsFormsIntegration",
+        "System.Xaml",
+        "UIAutomationTypes",
+        "UIAutomationProvider",
+        "UIAutomationClient",
+        "ReachFramework",
+        "DirectWriteForwarder",
+        "System.Windows.Controls.Ribbon",
+        "Microsoft.VisualBasic.Forms"
+    };
     private readonly object _singleInstanceCommandGate = new();
     private readonly Queue<IReadOnlyList<string>> _pendingSingleInstanceCommands = new();
     private AppController? _controller;
     private bool _singleInstanceCommandsReady;
     private SingleInstanceHelper? _singleInstance;
+    private int _handlingGlobalException;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -198,6 +219,12 @@ public partial class App : Application
 
     private void HandleGlobalException(Exception ex)
     {
+        if (Interlocked.Exchange(ref _handlingGlobalException, 1) != 0)
+        {
+            return;
+        }
+
+        var isDesktopRuntimeLoadFailure = IsSharedDotNetRuntimeLoadFailure(ex);
         WriteCrashLog(ex);
 
         var recoverySaved = false;
@@ -229,13 +256,20 @@ public partial class App : Application
 
         try
         {
+            var messageKey = isDesktopRuntimeLoadFailure
+                ? recoverySaved
+                    ? "AppDesktopRuntimeLoadFailureMessage"
+                    : "AppDesktopRuntimeLoadFailureRecoveryFailedMessage"
+                : recoverySaved
+                    ? "AppUnhandledExceptionMessage"
+                    : "AppUnhandledExceptionRecoveryFailedMessage";
+            var titleKey = isDesktopRuntimeLoadFailure
+                ? "AppDesktopRuntimeLoadFailureTitle"
+                : "AppUnhandledExceptionTitle";
+
             MessageBox.Show(
-                Strings.Format(
-                    recoverySaved
-                        ? "AppUnhandledExceptionMessage"
-                        : "AppUnhandledExceptionRecoveryFailedMessage",
-                    ex.Message),
-                Strings.Get("AppUnhandledExceptionTitle"),
+                Strings.Format(messageKey, ex.Message),
+                Strings.Get(titleKey),
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
@@ -245,6 +279,57 @@ public partial class App : Application
         }
 
         Environment.Exit(-1);
+    }
+
+    private static bool IsSharedDotNetRuntimeLoadFailure(Exception? ex)
+    {
+        var pending = new Stack<Exception?>();
+        pending.Push(ex);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            while (current != null)
+            {
+                if (current is ReflectionTypeLoadException reflectionLoad)
+                {
+                    foreach (var loader in reflectionLoad.LoaderExceptions)
+                    {
+                        pending.Push(loader);
+                    }
+                }
+
+                if (current is FileNotFoundException fileNotFound &&
+                    IsSharedDesktopRuntimeAssembly(fileNotFound.FileName))
+                {
+                    return true;
+                }
+
+                current = current.InnerException;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSharedDesktopRuntimeAssembly(string? assemblyDisplayName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyDisplayName))
+        {
+            return false;
+        }
+
+        string? simpleName;
+        try
+        {
+            simpleName = new AssemblyName(assemblyDisplayName).Name;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        return simpleName != null && SharedDesktopRuntimeAssemblies.Contains(simpleName);
     }
 
     private static void WriteCrashLog(Exception ex)
