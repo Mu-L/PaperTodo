@@ -9,7 +9,6 @@ namespace PaperTodo;
 public static class AppTypography
 {
     private const string SymbolFallback = "Segoe UI Symbol, Segoe UI Emoji";
-    private const string DefaultContentFontFamilyName = "Microsoft YaHei UI, Segoe UI, Microsoft YaHei, Segoe UI Symbol, Segoe UI Emoji";
     private const string DefaultCodeFontFamilyName = "Cascadia Mono, Consolas, Microsoft YaHei UI, Segoe UI Symbol, Segoe UI Emoji";
 
     private sealed record CustomFontFace(FontFamily Family, FontWeight Weight);
@@ -89,7 +88,8 @@ public static class AppTypography
     }
 
     /// <summary>
-    /// Family for UI or content text. When enhanced bold is active, bold runs use papertodo_bold.
+    /// Family for UI chrome or body text. content=true: notes / todos; content=false: titles, capsules, settings chrome.
+    /// When enhanced bold is active, bold runs use papertodo_bold.
     /// </summary>
     public static FontFamily FontFamilyFor(bool content, bool bold)
     {
@@ -100,6 +100,11 @@ public static class AppTypography
 
         return content ? ContentFontFamily : UiFontFamily;
     }
+
+    /// <summary>
+    /// Paper title face — same as other chrome (capsule labels, etc.).
+    /// </summary>
+    public static FontFamily FontFamilyForTitle(bool bold) => FontFamilyFor(content: false, bold: bold);
 
     /// <summary>
     /// Weight for bold runs. Preserve the face's designed weight so WPF selects the real bold
@@ -147,27 +152,37 @@ public static class AppTypography
         target.ClearValue(RenderOptions.ClearTypeHintProperty);
     }
 
+    // YaHei / DengXian: selected face leads all scripts; Segoe is missing-glyph only.
+    private const string YaHeiFontFamilyName =
+        "Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, Segoe UI, " + SymbolFallback;
+    private const string DengXianFontFamilyName =
+        "DengXian, Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, Segoe UI, " + SymbolFallback;
+    // System default chrome (titles, capsules, settings): YaHei UI first.
+    private const string DefaultChromeFontFamilyName =
+        "Microsoft YaHei UI, Microsoft YaHei, Segoe UI, " + SymbolFallback;
+
     private static FontFamily ResolveUiFontFamily()
     {
         return _preset switch
         {
-            UiFontPresets.YaHei => new FontFamily($"Segoe UI, Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, {SymbolFallback}"),
-            UiFontPresets.DengXian => new FontFamily($"Segoe UI, DengXian, Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, {SymbolFallback}"),
-            _ => DefaultUiFontFamily()
+            UiFontPresets.YaHei => new FontFamily(YaHeiFontFamilyName),
+            UiFontPresets.DengXian => new FontFamily(DengXianFontFamilyName),
+            _ => new FontFamily(DefaultChromeFontFamilyName)
         };
     }
 
+    // Notes and todo items only: under system default keep Segoe-first regional body chains.
     private static FontFamily ResolveContentFontFamily()
     {
         return _preset switch
         {
-            UiFontPresets.YaHei => new FontFamily($"Segoe UI, Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, {SymbolFallback}"),
-            UiFontPresets.DengXian => new FontFamily($"Segoe UI, DengXian, Microsoft YaHei UI, Microsoft YaHei, Microsoft JhengHei UI, Microsoft JhengHei, Yu Gothic UI, Malgun Gothic, Meiryo, {SymbolFallback}"),
-            _ => new FontFamily(DefaultContentFontFamilyName)
+            UiFontPresets.YaHei => new FontFamily(YaHeiFontFamilyName),
+            UiFontPresets.DengXian => new FontFamily(DengXianFontFamilyName),
+            _ => DefaultBodyFontFamily()
         };
     }
 
-    private static FontFamily DefaultUiFontFamily()
+    private static FontFamily DefaultBodyFontFamily()
     {
         var cultureName = CultureInfo.CurrentUICulture.Name;
         var language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;

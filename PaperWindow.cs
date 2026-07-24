@@ -167,7 +167,7 @@ public sealed partial class PaperWindow : Window
         AppTypography.FontWeightFor(_controller.State.CapsuleTextBold);
     private double TitleFontSize => VisualTextSizes.FontSize(12, _controller.State.TitleTextSize);
     private FontFamily TitleFontFamily =>
-        AppTypography.FontFamilyFor(content: false, bold: _controller.State.TitleTextBold);
+        AppTypography.FontFamilyForTitle(_controller.State.TitleTextBold);
     private FontWeight TitleFontWeight =>
         AppTypography.FontWeightFor(_controller.State.TitleTextBold);
     private double TitleLineHeight => Math.Ceiling(TitleFontSize + 2);
