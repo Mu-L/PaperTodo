@@ -254,9 +254,9 @@ public sealed partial class AppController : IDisposable
 
         var rescuedPapers = EnsurePapersOnScreen();
 
-        // Closing a paper only hides it for the current session; a fresh app start
-        // restores every non-deleted paper so a paper never feels "lost".
-        var papersToRestore = State.Papers.ToList();
+        // Respect persisted IsVisible: hide closes the paper surface, delete removes it.
+        // Tray/show-all (and second-instance show) still restore everything intentionally.
+        var papersToRestore = State.Papers.Where(paper => paper.IsVisible).ToList();
         var activationPaper = papersToRestore.LastOrDefault(paper =>
             !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
         _suppressDirty = true;
