@@ -68,8 +68,8 @@ jobs:
           }
 
           "version=$version" >> $env:GITHUB_OUTPUT
-          "self_contained_exe=PaperTodo-v$version-win-x64-self-contained-compressed.exe" >> $env:GITHUB_OUTPUT
-          "framework_dependent_exe=PaperTodo-v$version-win-x64-no-runtime-uncompressed.exe" >> $env:GITHUB_OUTPUT
+          "self_contained_exe=PaperTodo-v$version-win-x64-self-contained.exe" >> $env:GITHUB_OUTPUT
+          "framework_dependent_exe=PaperTodo-v$version-win-x64-no-runtime.exe" >> $env:GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore .\PaperTodo.csproj
@@ -80,8 +80,8 @@ jobs:
           FRAMEWORK_DEPENDENT_EXE: ${{ steps.meta.outputs.framework_dependent_exe }}
         run: |
           $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
-          $selfContainedOut = Join-Path $env:RUNNER_TEMP "publish-self-contained-compressed"
-          $frameworkDependentOut = Join-Path $env:RUNNER_TEMP "publish-no-runtime-uncompressed"
+          $selfContainedOut = Join-Path $env:RUNNER_TEMP "publish-self-contained"
+          $frameworkDependentOut = Join-Path $env:RUNNER_TEMP "publish-no-runtime"
 
           Remove-Item -LiteralPath $releaseDir, $selfContainedOut, $frameworkDependentOut -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $releaseDir, $selfContainedOut, $frameworkDependentOut | Out-Null
@@ -115,22 +115,6 @@ jobs:
             /p:DebugSymbols=false
 
           Copy-Item -LiteralPath (Join-Path $frameworkDependentOut "PaperTodo.exe") -Destination (Join-Path $releaseDir $env:FRAMEWORK_DEPENDENT_EXE)
-
-      - name: Write SHA256 checksums
-        run: |
-          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
-          $exeFiles = Get-ChildItem -LiteralPath $releaseDir -Filter "*.exe" -File | Sort-Object Name
-          if ($exeFiles.Count -ne 2) {
-            throw "Expected exactly 2 release executables, found $($exeFiles.Count)."
-          }
-
-          $lines = foreach ($file in $exeFiles) {
-            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($file.Name)"
-          }
-
-          Set-Content -LiteralPath (Join-Path $releaseDir "SHA256SUMS.txt") -Value $lines -Encoding utf8
-          Get-ChildItem -LiteralPath $releaseDir -File | Sort-Object Name | Format-Table Name, Length
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -172,7 +156,6 @@ jobs:
             release/${{ steps.meta.outputs.framework_dependent_exe }}
             release/${{ steps.meta.outputs.framework_dependent_exe }}.sig
             release/${{ steps.meta.outputs.framework_dependent_exe }}.crt
-            release/SHA256SUMS.txt
 
       - name: Resolve release tag
         id: release
@@ -267,8 +250,7 @@ jobs:
             (Join-Path $releaseDir "$selfContained.crt"),
             (Join-Path $releaseDir $frameworkDependent),
             (Join-Path $releaseDir "$frameworkDependent.sig"),
-            (Join-Path $releaseDir "$frameworkDependent.crt"),
-            (Join-Path $releaseDir "SHA256SUMS.txt")
+            (Join-Path $releaseDir "$frameworkDependent.crt")
           )
           $notes = Join-Path $releaseDir "RELEASE_NOTES.md"
           $isPrerelease = ("${{ inputs.prerelease }}" -eq "true") -or ($tag -match '(?i)(alpha|beta|preview|rc)')
@@ -278,8 +260,7 @@ jobs:
             "$selfContained.crt",
             $frameworkDependent,
             "$frameworkDependent.sig",
-            "$frameworkDependent.crt",
-            "SHA256SUMS.txt"
+            "$frameworkDependent.crt"
           )
 
           gh release view $tag *> $null

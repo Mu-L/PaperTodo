@@ -244,10 +244,10 @@ You may also place custom fonts: `papertodo.ttf` / `papertodo.otf` (optional bol
 
 GitHub Actions builds two Windows x64 single-file executables as Release assets:
 
-- **`...-self-contained-compressed.exe`** — Self-contained with the .NET Runtime, compressed.
-- **`...-no-runtime-uncompressed.exe`** — Framework-dependent, uncompressed.
+- **`...-self-contained.exe`** — Self-contained with the .NET Runtime.
+- **`...-no-runtime.exe`** — No bundled runtime (requires a local .NET Desktop Runtime).
 
-Each build includes `SHA256SUMS.txt` and Sigstore signatures (`.sig` / `.crt`).
+Each build includes Sigstore signatures (`.sig` / `.crt`). Use the asset hashes shown on the GitHub Release page for checksums.
 
 Release notes are taken from the matching section in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -259,7 +259,7 @@ Release notes are taken from the matching section in [`CHANGELOG.md`](CHANGELOG.
 dotnet build -c Release
 ```
 
-Local packaging only builds the no-runtime single file; cloud Releases publish both self-contained compressed and no-runtime builds.
+Local packaging only builds the no-runtime single file; cloud Releases publish both self-contained and no-runtime builds.
 
 - **Windows / .NET 10 / WPF** — Runtime and UI framework.
 - **CMake / Visual Studio C++ toolchain** — Builds the native LMDB library shipped with PaperTodo.

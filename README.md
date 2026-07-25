@@ -247,10 +247,10 @@ PaperTodo/
 
 GitHub Actions 构建两个 Windows x64 单文件 exe，直接作为 Release 资产发布：
 
-- **`...-self-contained-compressed.exe`** — 自包含 .NET Runtime，压缩单文件。
-- **`...-no-runtime-uncompressed.exe`** — 框架依赖 no-runtime 单文件，无压缩。
+- **`...-self-contained.exe`** — 自包含 .NET Runtime。
+- **`...-no-runtime.exe`** — 不带运行库（需本机已安装 .NET Desktop Runtime）。
 
-每个产物附带 `SHA256SUMS.txt` 与 Sigstore 签名（`.sig` / `.crt`）。
+每个产物附带 Sigstore 签名（`.sig` / `.crt`）。校验可用 GitHub Release 页面上的资产哈希。
 
 Release 发行说明从 [`CHANGELOG.md`](CHANGELOG.md) 自动提取对应 tag 的版本小节。
 
@@ -262,7 +262,7 @@ Release 发行说明从 [`CHANGELOG.md`](CHANGELOG.md) 自动提取对应 tag �
 dotnet build -c Release
 ```
 
-本地打包只生成 no-runtime 单文件；云端 Release 才同时发布自包含压缩版和 no-runtime 版。
+本地打包只生成 no-runtime 单文件；云端 Release 同时发布自包含版和 no-runtime 版。
 
 - **Windows / .NET 10 / WPF** — 运行环境与 UI 框架。
 - **CMake / Visual Studio C++ 工具链** — 构建随程序打包的原生 LMDB 图片存储库。
