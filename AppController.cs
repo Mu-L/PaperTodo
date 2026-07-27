@@ -1014,6 +1014,7 @@ public sealed partial class AppController : IDisposable
         Rect? snapTileBounds = null;
 
         var window = GetOrCreatePaperWindow(paper);
+        window.PrepareForShow();
         window.CancelPendingVisibilityTransitions();
         var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
         if (!showAsDeepCapsuleOnly)
@@ -1517,6 +1518,7 @@ public sealed partial class AppController : IDisposable
                     }
 
                     window.HideWithoutGeometrySave();
+                    window.ReleaseHiddenNoteImages();
                 };
                 window.BeginAnimation(Window.OpacityProperty, fadeOut);
             }
@@ -1525,6 +1527,7 @@ public sealed partial class AppController : IDisposable
                 window.BeginAnimation(Window.OpacityProperty, null);
                 window.Opacity = 1;
                 window.HideWithoutGeometrySave();
+                window.ReleaseHiddenNoteImages();
             }
         }
 
@@ -1587,6 +1590,7 @@ public sealed partial class AppController : IDisposable
             // capsule shows its own slot-host window that a reservation-only clear leaves on screen.
             window.DetachFromDeepCapsuleStack();
             window.HideWithoutGeometrySave();
+            window.ReleaseHiddenNoteImages();
         }
 
         // Linked-note buttons cache whether their note currently has an expanded surface. Keep

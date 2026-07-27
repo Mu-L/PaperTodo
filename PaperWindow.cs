@@ -563,7 +563,23 @@ public sealed partial class PaperWindow : Window
         };
         LocationChanged += (_, _) => HandleWindowGeometryChanged();
         SizeChanged += (_, _) => HandleWindowGeometryChanged();
-        StateChanged += (_, _) => RefreshSnappedPresentation(forceApply: true);
+        StateChanged += (_, _) =>
+        {
+            RefreshSnappedPresentation(forceApply: true);
+            if (_paper.Type != PaperTypes.Note)
+            {
+                return;
+            }
+
+            if (WindowState == WindowState.Minimized)
+            {
+                ReleaseHiddenNoteImages();
+            }
+            else if (IsVisible)
+            {
+                PrepareForShow();
+            }
+        };
         PreviewMouseMove += OnWindowPreviewMouseMove;
         PreviewMouseWheel += OnWindowPreviewMouseWheel;
         PreviewMouseLeftButtonUp += OnWindowPreviewMouseLeftButtonUp;

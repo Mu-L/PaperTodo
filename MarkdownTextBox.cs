@@ -16,7 +16,7 @@ using TextWrapping = System.Windows.TextWrapping;
 
 namespace PaperTodo;
 
-public sealed class MarkdownTextBox : TextEditor
+public sealed partial class MarkdownTextBox : TextEditor
 {
     private const int MaxSafePasteLength = 30000;
     private const int MaxSafePasteLineLength = 6000;
@@ -100,13 +100,7 @@ public sealed class MarkdownTextBox : TextEditor
         DataObject.AddPastingHandler(this, OnPaste);
         Document.Changing += OnDocumentChanging;
         Document.Changed += OnDocumentChanged;
-        SizeChanged += (_, _) =>
-        {
-            if (_hadInternalImageReferences)
-            {
-                QueuePostPasteRefresh();
-            }
-        };
+        SizeChanged += (_, _) => HandleImageViewportSizeChanged();
         RefreshVisualStyle();
     }
 
@@ -2379,7 +2373,10 @@ public sealed class MarkdownTextBox : TextEditor
         public string Url { get; }
     }
 
-    private bool ShouldRenderImages => _imageStore != null && RenderOptions.RenderBlocks;
+    private bool ShouldRenderImages =>
+        _imageStore != null &&
+        !_imageRenderingSuspended &&
+        RenderOptions.RenderBlocks;
     private bool ShouldHideImageReferenceText =>
         ShouldRenderImages && (_imageReferenceTextMode switch
         {
@@ -2420,7 +2417,12 @@ public sealed class MarkdownTextBox : TextEditor
     {
         var targetWidth = ImageTargetWidth();
         var displayWidth = ResolveImageDisplayWidth(reference.DisplayOptions, asset, targetWidth);
-        var bitmap = asset == null ? null : _imageStore?.GetBitmapSource(asset.Id, Math.Min(targetWidth, displayWidth));
+        var bitmap = asset == null
+            ? null
+            : _imageStore?.GetBitmapSource(
+                asset.Id,
+                Math.Min(targetWidth, displayWidth),
+                allowDecodeUpgrade: !_isImageResizePreview);
         var isCorrupted = _imageStore?.IsImageCorrupted(reference.ImageId) == true;
         var document = Document!;
         var referenceAnchor = document.CreateAnchor(referenceLine.Offset);

@@ -76,6 +76,18 @@ public sealed partial class PaperWindow
         _presentationState = collapsed
             ? PaperPresentationState.Collapsed
             : PaperPresentationState.Expanded;
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            if (collapsed)
+            {
+                ReleaseHiddenNoteImages();
+            }
+            else
+            {
+                PrepareForShow();
+            }
+        }
     }
 
     private void CancelPendingTitleEditIntent()
@@ -113,6 +125,33 @@ public sealed partial class PaperWindow
         CommitPendingEditsForSave();
         SettlePaperFormPresentation();
         AbortAllInteractions(InteractionAbortReason.Hiding);
+    }
+
+    internal void PrepareForShow()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        if (_paper.IsCollapsed)
+        {
+            ReleaseHiddenNoteImages();
+            return;
+        }
+
+        _noteBox?.SetImageRenderingSuspended(false);
+    }
+
+    internal void ReleaseHiddenNoteImages()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        _noteBox?.SetImageRenderingSuspended(true);
+        _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
     }
 
     internal void PrepareForCapsulePresentationModeChange()
@@ -171,6 +210,7 @@ public sealed partial class PaperWindow
     {
         WindowNative.ReleaseWindowSwitcherOwner(ref _windowSwitcherHiddenOwner);
         _windowSwitcherHiddenOwnerApplied = false;
+        ReleaseHiddenNoteImages();
         _windowLifecycle = PaperWindowLifecycleState.Closed;
         _presentationState = PaperPresentationState.Closed;
         CancelPendingTitleEditIntent();

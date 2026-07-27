@@ -101,7 +101,10 @@ public sealed class NoteImageStore : IDisposable
         }
     }
 
-    public BitmapSource? GetBitmapSource(string imageId, double targetDisplayWidth = 0)
+    public BitmapSource? GetBitmapSource(
+        string imageId,
+        double targetDisplayWidth = 0,
+        bool allowDecodeUpgrade = true)
     {
         NoteImageAsset asset;
         lock (_gate)
@@ -114,12 +117,17 @@ public sealed class NoteImageStore : IDisposable
         }
 
         var decodeWidth = DecodePixelWidth(asset, targetDisplayWidth);
-        var cacheKey = $"{imageId}|{decodeWidth}";
+        var requiredPixelWidth = decodeWidth > 0 ? decodeWidth : asset.Width;
+        BitmapSource? fallback = null;
         lock (_gate)
         {
-            if (_bitmapCache.TryGetValue(cacheKey, out var cached))
+            if (_bitmapCache.TryGetValue(imageId, out var cached))
             {
-                return cached;
+                fallback = cached;
+                if (!allowDecodeUpgrade || cached.PixelWidth >= requiredPixelWidth)
+                {
+                    return cached;
+                }
             }
         }
 
@@ -128,7 +136,7 @@ public sealed class NoteImageStore : IDisposable
         {
             if (!TryReadImageBytesLocked(asset, out bytes))
             {
-                return null;
+                return fallback;
             }
         }
 
@@ -149,8 +157,13 @@ public sealed class NoteImageStore : IDisposable
 
             lock (_gate)
             {
-                _bitmapCache[cacheKey] = bitmap;
-                TrimBitmapCache();
+                if (_bitmapCache.TryGetValue(imageId, out var current) &&
+                    (!allowDecodeUpgrade || current.PixelWidth >= requiredPixelWidth))
+                {
+                    return current;
+                }
+
+                _bitmapCache[imageId] = bitmap;
             }
 
             return bitmap;
@@ -159,7 +172,26 @@ public sealed class NoteImageStore : IDisposable
         {
             // The blob has already passed length and SHA-256 verification. A WIC/codec or memory
             // failure is not evidence that the stored data is corrupt, so leave it retryable.
-            return null;
+            return fallback;
+        }
+    }
+
+    public void ReleaseNoteBitmapCache(string noteId)
+    {
+        if (string.IsNullOrWhiteSpace(noteId))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            foreach (var imageId in _images.Values
+                         .Where(asset => string.Equals(asset.NoteId, noteId, StringComparison.Ordinal))
+                         .Select(asset => asset.Id)
+                         .ToList())
+            {
+                _bitmapCache.Remove(imageId);
+            }
         }
     }
 
@@ -1397,25 +1429,7 @@ public sealed class NoteImageStore : IDisposable
     }
 
     private void RemoveCachedBitmapsFor(string imageId)
-    {
-        foreach (var key in _bitmapCache.Keys.Where(key => key.StartsWith(imageId + "|", StringComparison.Ordinal)).ToList())
-        {
-            _bitmapCache.Remove(key);
-        }
-    }
-
-    private void TrimBitmapCache()
-    {
-        if (_bitmapCache.Count <= 96)
-        {
-            return;
-        }
-
-        foreach (var key in _bitmapCache.Keys.Take(_bitmapCache.Count - 96).ToList())
-        {
-            _bitmapCache.Remove(key);
-        }
-    }
+        => _bitmapCache.Remove(imageId);
 
     private readonly record struct PreparedImage(
         byte[] Bytes,
