@@ -53,6 +53,7 @@ public sealed partial class PaperWindow
             return false;
         }
 
+        EnsureShellBuilt();
         BeginAnimation(Window.OpacityProperty, null);
         Opacity = 1.0;
         var width = DesiredCapsuleWindowWidth;
@@ -197,6 +198,7 @@ public sealed partial class PaperWindow
 
     private void ShowMainWindowForDeepCapsuleActivation(ProgrammaticPaperExpansionOrigin? programmaticOrigin = null)
     {
+        EnsureShellBuilt();
         if (IsVisible)
         {
             BeginAnimation(Window.OpacityProperty, null);
@@ -267,6 +269,7 @@ public sealed partial class PaperWindow
 
     public void EnsureExpandedSurfaceGeometry(bool alignToDockedEdge = false)
     {
+        EnsureShellBuilt();
         if (_paper.IsCollapsed)
         {
             return;

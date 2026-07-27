@@ -84,8 +84,11 @@ public sealed partial class PaperWindow
             RefreshEffectiveTopmost();
         }
 
-        _paperChrome.ContextMenu = BuildPaperContextMenu();
-        UpdateTextZoom();
+        if (_isShellBuilt)
+        {
+            _paperChrome.ContextMenu = BuildPaperContextMenu();
+            UpdateTextZoom();
+        }
     }
 
     public void RefreshCapsuleEligibility()
@@ -97,7 +100,10 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _paperChrome.ContextMenu = BuildPaperContextMenu();
+        if (_isShellBuilt)
+        {
+            _paperChrome.ContextMenu = BuildPaperContextMenu();
+        }
         if (_capsuleLeftArea != null)
         {
             _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
@@ -437,6 +443,7 @@ public sealed partial class PaperWindow
         bool activateOnExpand,
         ProgrammaticPaperExpansionOrigin? programmaticOrigin)
     {
+        EnsureShellBuilt();
         animate = animate && _controller.State.EnableAnimations;
 
         if (collapsed && !CanDisplayAsCapsule())

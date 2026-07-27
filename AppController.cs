@@ -64,6 +64,8 @@ public sealed partial class AppController : IDisposable
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
     private bool _isRestoringStartupPapers;
+    private bool _isPreparingStartupEdgeCapsules;
+    private int _startupShellPrewarmGeneration;
     private long _saveVersion;
     private long _stateRevision;
     private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
@@ -90,6 +92,7 @@ public sealed partial class AppController : IDisposable
 
     public AppState State { get; private set; }
     public NoteImageStore ImageStore => _imageStore;
+    internal bool IsRunning => _lifecycleState == AppLifecycleState.Running;
     public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOwners.Count > 0;
     private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
     private bool IsExiting => _lifecycleState != AppLifecycleState.Running;
@@ -232,12 +235,12 @@ public sealed partial class AppController : IDisposable
         return changed;
     }
 
-    public void Start(bool createDefaultPaper = true)
+    public async Task StartAsync(bool createDefaultPaper = true)
     {
         CreateTrayIcon();
         InitializeGlobalHotkeys();
         _ = Task.Run(PaperWindow.CleanupOldScriptCapsuleTempFiles);
-        Application.Current.Dispatcher.BeginInvoke(
+        _ = Application.Current.Dispatcher.BeginInvoke(
             () => PaperWindow.EnsurePersistentScriptProcessForSettings(State),
             DispatcherPriority.ApplicationIdle);
         RefreshTopmostForForegroundWindow();
@@ -260,6 +263,48 @@ public sealed partial class AppController : IDisposable
         var papersToRestore = State.Papers.Where(paper => paper.IsVisible).ToList();
         var activationPaper = papersToRestore.LastOrDefault(paper =>
             !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
+        var startupEdgeCapsules = papersToRestore
+            .Where(ShouldPrepareStartupEdgeCapsule)
+            .ToList();
+        _isPreparingStartupEdgeCapsules = startupEdgeCapsules.Count > 0;
+
+        if (startupEdgeCapsules.Count > 0)
+        {
+            _suppressDirty = true;
+            _trayRefreshSuppressionDepth++;
+            _isRestoringStartupPapers = true;
+            try
+            {
+                foreach (var paper in startupEdgeCapsules)
+                {
+                    GetOrCreatePaperWindow(paper, deferShellConstruction: true);
+                }
+
+                ArrangeDeepCapsules(
+                    animate: State.EnableAnimations,
+                    flushInitialPresentations: true);
+            }
+            finally
+            {
+                _isRestoringStartupPapers = false;
+                _trayRefreshSuppressionDepth--;
+                _suppressDirty = false;
+            }
+
+            RefreshTrayMenu();
+
+            // The continuation runs below Render/Loaded so edge hosts reach the compositor
+            // before full paper shells begin their sequential construction.
+            await Application.Current.Dispatcher.InvokeAsync(
+                static () => { },
+                DispatcherPriority.ApplicationIdle);
+            if (IsExiting)
+            {
+                _isPreparingStartupEdgeCapsules = false;
+                return;
+            }
+        }
+
         _suppressDirty = true;
         _trayRefreshSuppressionDepth++;
         _isRestoringStartupPapers = true;
@@ -267,29 +312,95 @@ public sealed partial class AppController : IDisposable
         {
             foreach (var paper in papersToRestore)
             {
+                if (!paper.IsVisible || !State.Papers.Contains(paper))
+                {
+                    continue;
+                }
+
+                if (paper.IsCollapsed &&
+                    ShouldPrepareStartupEdgeCapsule(paper) &&
+                    _windows.TryGetValue(paper.Id, out var capsuleWindow) &&
+                    capsuleWindow.IsDeepCapsulePlaced)
+                {
+                    continue;
+                }
+
                 ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
             }
 
-            // Every presenter now sees the complete queue before any first frame is applied.
-            // This avoids rebuilding partial queues and prevents an expanded foreground paper
-            // from publishing its retained edge capsule ahead of earlier queue members.
+            _isPreparingStartupEdgeCapsules = false;
             ArrangeDeepCapsules(
                 animate: State.EnableAnimations,
                 flushInitialPresentations: true);
         }
         finally
         {
+            _isPreparingStartupEdgeCapsules = false;
             _isRestoringStartupPapers = false;
             _trayRefreshSuppressionDepth--;
             _suppressDirty = false;
         }
 
         RefreshTrayMenu();
+        ScheduleStartupShellPrewarm(papersToRestore);
 
         if (rescuedPapers)
         {
             SaveNow();
         }
+    }
+
+    private bool ShouldPrepareStartupEdgeCapsule(PaperData paper)
+    {
+        return State.UseCapsuleMode &&
+            State.UseDeepCapsuleMode &&
+            paper.IsVisible &&
+            CanPaperDisplayAsCapsule(paper) &&
+            (paper.IsCollapsed || State.ShowDeepCapsuleWhileExpanded);
+    }
+
+    private void ScheduleStartupShellPrewarm(IEnumerable<PaperData> papers)
+    {
+        var pending = new Queue<PaperWindow>(papers
+            .Select(paper => _windows.TryGetValue(paper.Id, out var window) ? window : null)
+            .Where(window => window is { IsClosed: false, IsShellBuilt: false })
+            .Cast<PaperWindow>());
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        var generation = ++_startupShellPrewarmGeneration;
+        void PrewarmNext()
+        {
+            if (generation != _startupShellPrewarmGeneration || IsExiting)
+            {
+                return;
+            }
+
+            while (pending.Count > 0)
+            {
+                var window = pending.Dequeue();
+                if (window.IsClosed || window.IsShellBuilt)
+                {
+                    continue;
+                }
+
+                window.EnsureShellBuilt();
+                break;
+            }
+
+            if (pending.Count > 0)
+            {
+                Application.Current.Dispatcher.BeginInvoke(
+                    (Action)PrewarmNext,
+                    DispatcherPriority.ApplicationIdle);
+            }
+        }
+
+        Application.Current.Dispatcher.BeginInvoke(
+            (Action)PrewarmNext,
+            DispatcherPriority.ApplicationIdle);
     }
 
     public PaperData? CreatePaper(string type, bool show = true, PaperData? sourcePaper = null)
@@ -962,12 +1073,18 @@ public sealed partial class AppController : IDisposable
         return _visibilityAnimationVersions.TryGetValue(paperId, out var current) && current == version;
     }
 
-    private PaperWindow GetOrCreatePaperWindow(PaperData paper)
+    private PaperWindow GetOrCreatePaperWindow(
+        PaperData paper,
+        bool deferShellConstruction = false)
     {
         if (_windows.TryGetValue(paper.Id, out var existing))
         {
             if (!existing.IsClosed)
             {
+                if (!deferShellConstruction)
+                {
+                    existing.EnsureShellBuilt();
+                }
                 return existing;
             }
 
@@ -975,7 +1092,7 @@ public sealed partial class AppController : IDisposable
         }
 
         var paperId = paper.Id;
-        var window = new PaperWindow(paper, this);
+        var window = new PaperWindow(paper, this, deferShellConstruction);
         window.Closed += (_, _) =>
         {
             if (_windows.TryGetValue(paperId, out var current) && ReferenceEquals(current, window))
@@ -1027,9 +1144,11 @@ public sealed partial class AppController : IDisposable
         }
         Rect? snapTileBounds = null;
 
-        var window = GetOrCreatePaperWindow(paper);
-        window.CancelPendingVisibilityTransitions();
         var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
+        var window = GetOrCreatePaperWindow(
+            paper,
+            deferShellConstruction: showAsDeepCapsuleOnly);
+        window.CancelPendingVisibilityTransitions();
         if (!showAsDeepCapsuleOnly)
         {
             RestoreWindowIfMinimized(window);
@@ -2512,7 +2631,7 @@ public sealed partial class AppController : IDisposable
 
         return State.UseDeepCapsuleMode &&
             State.ShowDeepCapsuleWhileExpanded &&
-            window.HasVisibleSurface;
+            (window.HasVisibleSurface || _isPreparingStartupEdgeCapsules);
     }
 
     public void MarkDirty()
@@ -3287,6 +3406,7 @@ public sealed partial class AppController : IDisposable
 
     private void DisposeRuntimeResources()
     {
+        _startupShellPrewarmGeneration++;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;

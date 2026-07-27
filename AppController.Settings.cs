@@ -2526,6 +2526,7 @@ public sealed partial class AppController
     private void RestoreExistingPaperWindowSurface(PaperData paper, PaperWindow window)
     {
         RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
+        window.EnsureShellBuilt();
         window.CancelPendingVisibilityTransitions();
         window.DetachFromDeepCapsuleStack(animate: false);
 

@@ -37,7 +37,7 @@ public partial class App : Application
     private SingleInstanceHelper? _singleInstance;
     private int _handlingGlobalException;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         var startupCommand = StartupCommand.Parse(e.Args);
         ApplyStartupCultureOverride(startupCommand.DefaultLanguage);
@@ -91,7 +91,11 @@ public partial class App : Application
         }
 
         SessionEnding += (s, args) => _controller?.Exit();
-        _controller.Start(createDefaultPaper: !startupCommand.CreatesPaper);
+        await _controller.StartAsync(createDefaultPaper: !startupCommand.CreatesPaper);
+        if (!_controller.IsRunning)
+        {
+            return;
+        }
         _controller.ExecuteStartupCommand(startupCommand);
         CompleteSingleInstanceStartup();
     }

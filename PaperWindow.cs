@@ -49,6 +49,7 @@ public sealed partial class PaperWindow : Window
     private static partial Regex TodoGlyphCleanRegex();
     private readonly PaperData _paper;
     private readonly AppController _controller;
+    private bool _isShellBuilt;
 
     private Grid _windowHost = null!;
     private Border _paperChrome = null!;
@@ -190,6 +191,7 @@ public sealed partial class PaperWindow : Window
     private static readonly object NoteRenderTraceLock = new();
 
     public bool IsDeepCapsulePlaced => _paper.IsCollapsed && HasDeepCapsuleSlotPlacement;
+    internal bool IsShellBuilt => _isShellBuilt;
     public bool IsDeepCapsuleSlotVisible => _edgeCapsuleHost?.IsVisible == true;
     public bool HasVisibleSurface =>
         (IsVisible && WindowState != WindowState.Minimized) ||
@@ -535,7 +537,10 @@ public sealed partial class PaperWindow : Window
         return style;
     }
 
-    public PaperWindow(PaperData paper, AppController controller)
+    public PaperWindow(
+        PaperData paper,
+        AppController controller,
+        bool deferShellConstruction = false)
     {
         _paper = paper;
         _controller = controller;
@@ -548,8 +553,14 @@ public sealed partial class PaperWindow : Window
         InitializePaperPresentationState();
 
         ConfigureWindow();
-        BuildShell();
-        UpdateToolTipSetting();
+        if (deferShellConstruction)
+        {
+            UpdateToolTipSetting();
+        }
+        else
+        {
+            EnsureShellBuilt();
+        }
 
         Loaded += (_, _) =>
         {
@@ -616,6 +627,19 @@ public sealed partial class PaperWindow : Window
                 }
             };
         }
+    }
+
+    internal void EnsureShellBuilt()
+    {
+        if (_isShellBuilt || IsClosed)
+        {
+            return;
+        }
+
+        Dispatcher.VerifyAccess();
+        BuildShell();
+        _isShellBuilt = true;
+        UpdateToolTipSetting();
     }
 
     private void HandleWindowGeometryChanged()
