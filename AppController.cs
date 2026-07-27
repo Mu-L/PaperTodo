@@ -63,6 +63,7 @@ public sealed partial class AppController : IDisposable
     private bool _hasShownSaveFailure;
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
+    private bool _isRestoringStartupPapers;
     private long _saveVersion;
     private long _stateRevision;
     private readonly Dictionary<string, int> _visibilityAnimationVersions = new();
@@ -260,17 +261,30 @@ public sealed partial class AppController : IDisposable
         var activationPaper = papersToRestore.LastOrDefault(paper =>
             !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
         _suppressDirty = true;
+        _trayRefreshSuppressionDepth++;
+        _isRestoringStartupPapers = true;
         try
         {
             foreach (var paper in papersToRestore)
             {
                 ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
             }
+
+            // Every presenter now sees the complete queue before any first frame is applied.
+            // This avoids rebuilding partial queues and prevents an expanded foreground paper
+            // from publishing its retained edge capsule ahead of earlier queue members.
+            ArrangeDeepCapsules(
+                animate: State.EnableAnimations,
+                flushInitialPresentations: true);
         }
         finally
         {
+            _isRestoringStartupPapers = false;
+            _trayRefreshSuppressionDepth--;
             _suppressDirty = false;
         }
+
+        RefreshTrayMenu();
 
         if (rescuedPapers)
         {
@@ -1103,7 +1117,10 @@ public sealed partial class AppController : IDisposable
         {
             window.Activate();
         }
-        if (State.UseCapsuleMode && State.UseDeepCapsuleMode && ShouldPaperOccupyDeepCapsuleSlot(paper, window))
+        if (!_isRestoringStartupPapers &&
+            State.UseCapsuleMode &&
+            State.UseDeepCapsuleMode &&
+            ShouldPaperOccupyDeepCapsuleSlot(paper, window))
         {
             ArrangeDeepCapsules(animate: State.EnableAnimations);
         }
@@ -2230,7 +2247,9 @@ public sealed partial class AppController : IDisposable
         State.CapsuleCollapseAllActive = State.CapsuleCollapseAllActiveQueues.Count > 0;
     }
 
-    public void ArrangeDeepCapsules(bool animate = false)
+    public void ArrangeDeepCapsules(
+        bool animate = false,
+        bool flushInitialPresentations = false)
     {
         if (HasDeepCapsuleReorderDragInProgress())
         {
@@ -2285,7 +2304,10 @@ public sealed partial class AppController : IDisposable
                 }
                 else
                 {
-                    window.ApplyExpandedDeepCapsuleSlotPlacement(placement, animate);
+                    window.ApplyExpandedDeepCapsuleSlotPlacement(
+                        placement,
+                        animate,
+                        deferInitialPresentation: flushInitialPresentations);
                 }
             }
             else
@@ -2296,6 +2318,21 @@ public sealed partial class AppController : IDisposable
                 }
 
                 window.DetachFromDeepCapsuleStack();
+            }
+        }
+
+        if (flushInitialPresentations)
+        {
+            foreach (var queue in plan.Queues)
+            {
+                foreach (var paper in queue.Papers)
+                {
+                    if (_windows.TryGetValue(paper.Id, out var window) &&
+                        ShouldPaperOccupyDeepCapsuleSlot(paper, window))
+                    {
+                        window.FlushStartupDeepCapsulePresentation();
+                    }
+                }
             }
         }
 

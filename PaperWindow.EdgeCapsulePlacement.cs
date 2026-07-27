@@ -116,7 +116,10 @@ public sealed partial class PaperWindow
             refreshLayout: true);
     }
 
-    internal void ApplyExpandedDeepCapsuleSlotPlacement(EdgeCapsulePlacement placement, bool animate = false)
+    internal void ApplyExpandedDeepCapsuleSlotPlacement(
+        EdgeCapsulePlacement placement,
+        bool animate = false,
+        bool deferInitialPresentation = false)
     {
         var shouldReserveWhileExpanded = _controller.State.ShowDeepCapsuleWhileExpanded &&
             _controller.CanPaperDisplayAsCapsule(_paper);
@@ -145,7 +148,7 @@ public sealed partial class PaperWindow
         RefreshDeepCapsuleSlotLabel();
 
         var firstShow = _edgeCapsuleHost?.IsVisible != true;
-        if (firstShow)
+        if (firstShow && !deferInitialPresentation)
         {
             FlushEdgeCapsulePresentation(
                 EdgeCapsuleTransitionReason.Placement,
@@ -165,6 +168,18 @@ public sealed partial class PaperWindow
         {
             _controller.UpdateGeometry(_paper, this);
         }
+    }
+
+    internal void FlushStartupDeepCapsulePresentation()
+    {
+        if (!HasDeepCapsuleSlotPlacement)
+        {
+            return;
+        }
+
+        FlushEdgeCapsulePresentation(
+            EdgeCapsuleTransitionReason.Placement,
+            EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.Measure);
     }
 
     public void ClearExpandedDeepCapsuleSlotPlacement(bool animate = false)
