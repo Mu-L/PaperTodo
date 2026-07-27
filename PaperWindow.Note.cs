@@ -259,6 +259,8 @@ public sealed partial class PaperWindow
         _liveIsScriptCapsule = IsScriptCapsuleDocument(box);
         box.ImageImportFailed += ShowNoteImageImportFailure;
         box.PasteRejected += ShowNotePasteRejected;
+        // New MarkdownTextBox defaults to rendering images; re-apply hide/collapse/minimize policy.
+        SyncNoteImagePresentationState();
 
         host.Children.Add(box);
         var isPreviewing = false;

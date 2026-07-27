@@ -628,6 +628,13 @@ public sealed partial class PaperWindow
         {
             _shell.Visibility = Visibility.Visible;
 
+            // Restore note images before the expand fade so i: markers are not briefly exposed
+            // while rendering is still suspended from the prior collapsed state.
+            if (_paper.Type == PaperTypes.Note)
+            {
+                PrepareForShow();
+            }
+
             if (_paper.Type == PaperTypes.Todo)
             {
                 RebuildTodoRows();

@@ -17,16 +17,22 @@ public sealed class NoteImageStore : IDisposable
     private const int MaxImageBytes = 8 * 1024 * 1024;
     private const int MaxInputImageBytes = 32 * 1024 * 1024;
     private const int MaxTotalImageBytes = 120 * 1024 * 1024;
+    // Decoded pixels (not the 120 MB encoded store). One version per image; LRU drops cold
+    // entries. AvalonEdit only constructs on-screen image blocks, so cold ≈ off-viewport.
+    private const long MaxDecodedBitmapBytes = 50L * 1024 * 1024;
+    private const int MaxBitmapCacheEntries = 20;
 
     private readonly object _gate = new();
     private readonly Dictionary<string, NoteImageAsset> _images = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, BitmapSource> _bitmapCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CachedBitmap> _bitmapCache = new(StringComparer.Ordinal);
+    private readonly LinkedList<string> _bitmapLru = new();
     private readonly HashSet<string> _retiredImageIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _verifiedImageIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _corruptedImageIds = new(StringComparer.Ordinal);
     private readonly Queue<ReusableImageNumberRange> _reusableImageNumberRanges = new();
     private LmdbImageDatabase? _database;
     private long _totalImageBytes;
+    private long _totalDecodedBitmapBytes;
     private int _nextImageNumber = 1;
     private bool _writeDisabled;
     private bool _disposed;
@@ -45,7 +51,7 @@ public sealed class NoteImageStore : IDisposable
             _database?.Dispose();
             _database = null;
             _images.Clear();
-            _bitmapCache.Clear();
+            ClearBitmapCacheLocked();
             _retiredImageIds.Clear();
             _verifiedImageIds.Clear();
             _corruptedImageIds.Clear();
@@ -123,10 +129,11 @@ public sealed class NoteImageStore : IDisposable
         {
             if (_bitmapCache.TryGetValue(imageId, out var cached))
             {
-                fallback = cached;
-                if (!allowDecodeUpgrade || cached.PixelWidth >= requiredPixelWidth)
+                fallback = cached.Bitmap;
+                if (CacheSatisfiesRequired(cached.Bitmap.PixelWidth, requiredPixelWidth, allowDecodeUpgrade))
                 {
-                    return cached;
+                    TouchBitmapCacheLocked(imageId);
+                    return cached.Bitmap;
                 }
             }
         }
@@ -158,12 +165,13 @@ public sealed class NoteImageStore : IDisposable
             lock (_gate)
             {
                 if (_bitmapCache.TryGetValue(imageId, out var current) &&
-                    (!allowDecodeUpgrade || current.PixelWidth >= requiredPixelWidth))
+                    CacheSatisfiesRequired(current.Bitmap.PixelWidth, requiredPixelWidth, allowDecodeUpgrade))
                 {
-                    return current;
+                    TouchBitmapCacheLocked(imageId);
+                    return current.Bitmap;
                 }
 
-                _bitmapCache[imageId] = bitmap;
+                StoreBitmapCacheLocked(imageId, bitmap);
             }
 
             return bitmap;
@@ -174,6 +182,30 @@ public sealed class NoteImageStore : IDisposable
             // failure is not evidence that the stored data is corrupt, so leave it retryable.
             return fallback;
         }
+    }
+
+    /// <summary>
+    /// Preview (!allowDecodeUpgrade): keep any cached decode.
+    /// Otherwise: upgrade when too small; replace when much larger than needed (shrink window).
+    /// </summary>
+    private static bool CacheSatisfiesRequired(
+        int cachedPixelWidth,
+        int requiredPixelWidth,
+        bool allowDecodeUpgrade)
+    {
+        if (!allowDecodeUpgrade)
+        {
+            return true;
+        }
+
+        if (cachedPixelWidth < requiredPixelWidth)
+        {
+            return false;
+        }
+
+        // Slack avoids re-decode thrash on tiny width jitter after settle.
+        var slack = Math.Max(48, requiredPixelWidth / 4);
+        return cachedPixelWidth <= requiredPixelWidth + slack;
     }
 
     public void ReleaseNoteBitmapCache(string noteId)
@@ -190,7 +222,7 @@ public sealed class NoteImageStore : IDisposable
                          .Select(asset => asset.Id)
                          .ToList())
             {
-                _bitmapCache.Remove(imageId);
+                RemoveCachedBitmapsFor(imageId);
             }
         }
     }
@@ -1422,14 +1454,87 @@ public sealed class NoteImageStore : IDisposable
             _database?.Dispose();
             _database = null;
             _images.Clear();
-            _bitmapCache.Clear();
+            ClearBitmapCacheLocked();
             _verifiedImageIds.Clear();
             _corruptedImageIds.Clear();
         }
     }
 
+    private void StoreBitmapCacheLocked(string imageId, BitmapSource bitmap)
+    {
+        RemoveCachedBitmapsFor(imageId);
+        var decodedBytes = EstimateDecodedBytes(bitmap);
+        var node = _bitmapLru.AddLast(imageId);
+        _bitmapCache[imageId] = new CachedBitmap(bitmap, decodedBytes, node);
+        _totalDecodedBitmapBytes += decodedBytes;
+        TrimBitmapCacheLocked();
+    }
+
+    private void TouchBitmapCacheLocked(string imageId)
+    {
+        if (!_bitmapCache.TryGetValue(imageId, out var cached))
+        {
+            return;
+        }
+
+        _bitmapLru.Remove(cached.LruNode);
+        cached.LruNode = _bitmapLru.AddLast(imageId);
+    }
+
+    private void TrimBitmapCacheLocked()
+    {
+        while (_bitmapCache.Count > MaxBitmapCacheEntries ||
+               _totalDecodedBitmapBytes > MaxDecodedBitmapBytes)
+        {
+            var oldest = _bitmapLru.First;
+            if (oldest == null)
+            {
+                _totalDecodedBitmapBytes = 0;
+                return;
+            }
+
+            // Drop cold entries first. Visible blocks re-touch on ConstructElement; scrolled-away
+            // images stay cold and are the natural eviction targets without a viewport walk.
+            RemoveCachedBitmapsFor(oldest.Value);
+        }
+    }
+
+    private void ClearBitmapCacheLocked()
+    {
+        _bitmapCache.Clear();
+        _bitmapLru.Clear();
+        _totalDecodedBitmapBytes = 0;
+    }
+
     private void RemoveCachedBitmapsFor(string imageId)
-        => _bitmapCache.Remove(imageId);
+    {
+        if (!_bitmapCache.Remove(imageId, out var cached))
+        {
+            return;
+        }
+
+        _bitmapLru.Remove(cached.LruNode);
+        _totalDecodedBitmapBytes = Math.Max(0, _totalDecodedBitmapBytes - cached.DecodedBytes);
+    }
+
+    private static long EstimateDecodedBytes(BitmapSource bitmap)
+    {
+        // Frozen BitmapImage is typically Bgra32 after OnLoad; 4 bytes/px is a safe upper bound
+        // for budget accounting even when the source format is lower.
+        var width = Math.Max(0, bitmap.PixelWidth);
+        var height = Math.Max(0, bitmap.PixelHeight);
+        return (long)width * height * 4;
+    }
+
+    private sealed class CachedBitmap(
+        BitmapSource bitmap,
+        long decodedBytes,
+        LinkedListNode<string> lruNode)
+    {
+        public BitmapSource Bitmap { get; } = bitmap;
+        public long DecodedBytes { get; } = decodedBytes;
+        public LinkedListNode<string> LruNode { get; set; } = lruNode;
+    }
 
     private readonly record struct PreparedImage(
         byte[] Bytes,

@@ -77,16 +77,11 @@ public sealed partial class PaperWindow
             ? PaperPresentationState.Collapsed
             : PaperPresentationState.Expanded;
 
-        if (_paper.Type == PaperTypes.Note)
+        // Collapse: release images only after the form transition finishes so the fading shell
+        // still shows bitmaps. Expand restores rendering earlier (when the shell becomes visible).
+        if (collapsed && _paper.Type == PaperTypes.Note)
         {
-            if (collapsed)
-            {
-                ReleaseHiddenNoteImages();
-            }
-            else
-            {
-                PrepareForShow();
-            }
+            ReleaseHiddenNoteImages();
         }
     }
 
@@ -128,20 +123,7 @@ public sealed partial class PaperWindow
     }
 
     internal void PrepareForShow()
-    {
-        if (_paper.Type != PaperTypes.Note)
-        {
-            return;
-        }
-
-        if (_paper.IsCollapsed)
-        {
-            ReleaseHiddenNoteImages();
-            return;
-        }
-
-        _noteBox?.SetImageRenderingSuspended(false);
-    }
+        => SyncNoteImagePresentationState();
 
     internal void ReleaseHiddenNoteImages()
     {
@@ -152,6 +134,28 @@ public sealed partial class PaperWindow
 
         _noteBox?.SetImageRenderingSuspended(true);
         _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
+    }
+
+    /// <summary>
+    /// Align image render/cache with whether the note body is actually on screen.
+    /// Uses paper visibility (not window.IsVisible) so ShowPaper can run before Show().
+    /// </summary>
+    internal void SyncNoteImagePresentationState()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        if (!_paper.IsVisible ||
+            _paper.IsCollapsed ||
+            WindowState == WindowState.Minimized)
+        {
+            ReleaseHiddenNoteImages();
+            return;
+        }
+
+        _noteBox?.SetImageRenderingSuspended(false);
     }
 
     internal void PrepareForCapsulePresentationModeChange()
