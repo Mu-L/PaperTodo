@@ -11,6 +11,7 @@ public sealed partial class MarkdownTextBox
     private bool _isImageResizePreview;
     private bool _imageRenderingSuspended;
     private bool _isImageViewportPreviewQueued;
+    private bool _isViewportProtectedRefreshQueued;
 
     public void SetImageRenderingSuspended(bool suspended)
     {
@@ -25,9 +26,14 @@ public sealed partial class MarkdownTextBox
             _imageResizeSettleTimer?.Stop();
             _isImageResizePreview = false;
             SetBitmapScalingMode(BitmapScalingMode.HighQuality);
+            ClearViewportProtectedBitmaps();
         }
 
         RefreshTextView();
+        if (!suspended)
+        {
+            QueueRefreshViewportProtectedBitmaps();
+        }
     }
 
     private void HandleImageViewportSizeChanged()
@@ -38,9 +44,9 @@ public sealed partial class MarkdownTextBox
         }
 
         _isImageResizePreview = true;
-        SetBitmapScalingMode(BitmapScalingMode.LowQuality);
+        SetBitmapScalingMode(BitmapScalingMode.HighQuality);
 
-        // During drag: only retarget visible image block widths (no full text-view rebuild).
+        // During drag: keep the current decode and only retarget visible image block widths.
         QueueImageViewportPreviewLayout();
 
         _imageResizeSettleTimer ??= new DispatcherTimer(
@@ -68,6 +74,16 @@ public sealed partial class MarkdownTextBox
         QueuePostPasteRefresh();
     }
 
+    internal void RefreshImageDecodeForCurrentDpi()
+    {
+        if (!_hadInternalImageReferences || _imageRenderingSuspended)
+        {
+            return;
+        }
+
+        CompleteImageResizePreview();
+    }
+
     private void QueueImageViewportPreviewLayout()
     {
         if (_isImageViewportPreviewQueued)
@@ -87,7 +103,7 @@ public sealed partial class MarkdownTextBox
 
                 if (!TryApplyImageViewportPreviewLayout())
                 {
-                    // Visual lines not ready: light redraw only (still no decode upgrade in preview).
+                    // Visual lines not ready: light redraw only, without a decode resize in preview.
                     var textView = TextArea.TextView;
                     if (Document != null && Document.TextLength > 0)
                     {
@@ -121,19 +137,20 @@ public sealed partial class MarkdownTextBox
         double targetWidth,
         ref int updated)
     {
-        if (node is Border { Tag: ImageBlockTag } host)
+        if (node is Border { Tag: ImageBlockTag tag } host)
         {
+            var displayWidth = ResolveImageDisplayWidth(
+                tag.DisplayOptions,
+                tag.NaturalWidth,
+                targetWidth);
             host.Width = targetWidth;
             switch (host.Child)
             {
                 case System.Windows.Controls.Image image:
-                    // Preview only retargets layout; LowQuality may upscale a smaller decode until settle.
-                    image.Width = Math.Max(24, targetWidth);
+                    image.Width = displayWidth;
                     break;
                 case Border placeholder:
-                    placeholder.Width = Math.Max(120, Math.Min(targetWidth, placeholder.Width > 0
-                        ? Math.Min(placeholder.Width, targetWidth)
-                        : targetWidth));
+                    placeholder.Width = Math.Max(120, Math.Min(targetWidth, displayWidth));
                     break;
             }
 
@@ -164,6 +181,91 @@ public sealed partial class MarkdownTextBox
             }
 
             ApplyImageViewportPreviewLayout(child, targetWidth, ref updated);
+        }
+    }
+
+    private void QueueRefreshViewportProtectedBitmaps()
+    {
+        if (_isViewportProtectedRefreshQueued)
+        {
+            return;
+        }
+
+        _isViewportProtectedRefreshQueued = true;
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                _isViewportProtectedRefreshQueued = false;
+                RefreshViewportProtectedBitmaps();
+            }),
+            DispatcherPriority.Background);
+    }
+
+    private void RefreshViewportProtectedBitmaps()
+    {
+        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId))
+        {
+            return;
+        }
+
+        if (_imageRenderingSuspended || !ShouldRenderImages || !_hadInternalImageReferences)
+        {
+            _imageStore.SetViewportProtectedBitmapIds(_noteId, Array.Empty<string>());
+            return;
+        }
+
+        var textView = TextArea.TextView;
+        if (!textView.VisualLinesValid)
+        {
+            return;
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        CollectVisibleImageIds(textView, ids);
+        _imageStore.SetViewportProtectedBitmapIds(_noteId, ids);
+    }
+
+    private void ClearViewportProtectedBitmaps()
+    {
+        if (_imageStore == null || string.IsNullOrWhiteSpace(_noteId))
+        {
+            return;
+        }
+
+        _imageStore.SetViewportProtectedBitmapIds(_noteId, Array.Empty<string>());
+    }
+
+    private static void CollectVisibleImageIds(DependencyObject node, ISet<string> imageIds)
+    {
+        if (node is FrameworkElement { Tag: ImageBlockTag tag } &&
+            !string.IsNullOrWhiteSpace(tag.ImageId))
+        {
+            imageIds.Add(tag.ImageId);
+        }
+
+        int childCount;
+        try
+        {
+            childCount = VisualTreeHelper.GetChildrenCount(node);
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        for (var i = 0; i < childCount; i++)
+        {
+            DependencyObject child;
+            try
+            {
+                child = VisualTreeHelper.GetChild(node, i);
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            CollectVisibleImageIds(child, imageIds);
         }
     }
 

@@ -563,6 +563,7 @@ public sealed partial class PaperWindow : Window
         };
         LocationChanged += (_, _) => HandleWindowGeometryChanged();
         SizeChanged += (_, _) => HandleWindowGeometryChanged();
+        DpiChanged += (_, _) => _noteBox?.RefreshImageDecodeForCurrentDpi();
         StateChanged += (_, _) =>
         {
             RefreshSnappedPresentation(forceApply: true);

@@ -1014,13 +1014,15 @@ public sealed partial class AppController : IDisposable
         Rect? snapTileBounds = null;
 
         var window = GetOrCreatePaperWindow(paper);
-        window.PrepareForShow();
         window.CancelPendingVisibilityTransitions();
         var showAsDeepCapsuleOnly = State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed;
         if (!showAsDeepCapsuleOnly)
         {
             RestoreWindowIfMinimized(window);
         }
+        // Restore first: a hidden minimized window raises StateChanged while it is still invisible,
+        // so that event cannot resume note image rendering on its own.
+        window.PrepareForShow();
         if (!paper.IsCollapsed && window.TryGetRememberedSnapTileBoundsForRestore(out var rememberedSnapTileBounds))
         {
             snapTileBounds = rememberedSnapTileBounds;

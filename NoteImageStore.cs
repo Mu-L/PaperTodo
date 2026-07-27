@@ -18,7 +18,7 @@ public sealed class NoteImageStore : IDisposable
     private const int MaxInputImageBytes = 32 * 1024 * 1024;
     private const int MaxTotalImageBytes = 120 * 1024 * 1024;
     // Decoded pixels (not the 120 MB encoded store). One version per image; LRU drops cold
-    // entries. AvalonEdit only constructs on-screen image blocks, so cold ≈ off-viewport.
+    // off-viewport entries. Currently visible (viewport-protected) ids ignore the caps.
     private const long MaxDecodedBitmapBytes = 50L * 1024 * 1024;
     private const int MaxBitmapCacheEntries = 20;
 
@@ -26,6 +26,9 @@ public sealed class NoteImageStore : IDisposable
     private readonly Dictionary<string, NoteImageAsset> _images = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CachedBitmap> _bitmapCache = new(StringComparer.Ordinal);
     private readonly LinkedList<string> _bitmapLru = new();
+    // ownerKey (note id) -> image ids currently constructed in that note's viewport
+    private readonly Dictionary<string, HashSet<string>> _viewportProtectedByOwner = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _viewportProtectedIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _retiredImageIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _verifiedImageIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _corruptedImageIds = new(StringComparer.Ordinal);
@@ -52,6 +55,7 @@ public sealed class NoteImageStore : IDisposable
             _database = null;
             _images.Clear();
             ClearBitmapCacheLocked();
+            ClearViewportProtectionLocked();
             _retiredImageIds.Clear();
             _verifiedImageIds.Clear();
             _corruptedImageIds.Clear();
@@ -109,8 +113,9 @@ public sealed class NoteImageStore : IDisposable
 
     public BitmapSource? GetBitmapSource(
         string imageId,
-        double targetDisplayWidth = 0,
-        bool allowDecodeUpgrade = true)
+        double targetPixelWidth = 0,
+        bool allowDecodeUpgrade = true,
+        bool protectInViewport = false)
     {
         NoteImageAsset asset;
         lock (_gate)
@@ -122,7 +127,7 @@ public sealed class NoteImageStore : IDisposable
             }
         }
 
-        var decodeWidth = DecodePixelWidth(asset, targetDisplayWidth);
+        var decodeWidth = DecodePixelWidth(asset, targetPixelWidth);
         var requiredPixelWidth = decodeWidth > 0 ? decodeWidth : asset.Width;
         BitmapSource? fallback = null;
         lock (_gate)
@@ -132,6 +137,11 @@ public sealed class NoteImageStore : IDisposable
                 fallback = cached.Bitmap;
                 if (CacheSatisfiesRequired(cached.Bitmap.PixelWidth, requiredPixelWidth, allowDecodeUpgrade))
                 {
+                    if (protectInViewport)
+                    {
+                        ProtectViewportBitmapLocked(asset.NoteId, imageId);
+                    }
+
                     TouchBitmapCacheLocked(imageId);
                     return cached.Bitmap;
                 }
@@ -167,8 +177,19 @@ public sealed class NoteImageStore : IDisposable
                 if (_bitmapCache.TryGetValue(imageId, out var current) &&
                     CacheSatisfiesRequired(current.Bitmap.PixelWidth, requiredPixelWidth, allowDecodeUpgrade))
                 {
+                    if (protectInViewport)
+                    {
+                        ProtectViewportBitmapLocked(asset.NoteId, imageId);
+                    }
+
                     TouchBitmapCacheLocked(imageId);
                     return current.Bitmap;
+                }
+
+                // Pin before trim so a multi-image visual-line rebuild cannot evict siblings.
+                if (protectInViewport)
+                {
+                    ProtectViewportBitmapLocked(asset.NoteId, imageId);
                 }
 
                 StoreBitmapCacheLocked(imageId, bitmap);
@@ -185,8 +206,36 @@ public sealed class NoteImageStore : IDisposable
     }
 
     /// <summary>
-    /// Preview (!allowDecodeUpgrade): keep any cached decode.
-    /// Otherwise: upgrade when too small; replace when much larger than needed (shrink window).
+    /// Replace the set of on-screen image ids for one note viewport. Protected ids are never
+    /// LRU-evicted (caps only apply to off-screen cold entries).
+    /// </summary>
+    public void SetViewportProtectedBitmapIds(string ownerKey, IReadOnlyCollection<string> imageIds)
+    {
+        if (string.IsNullOrWhiteSpace(ownerKey))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (imageIds.Count == 0)
+            {
+                if (_viewportProtectedByOwner.Remove(ownerKey))
+                {
+                    RebuildViewportProtectedUnionLocked();
+                }
+
+                return;
+            }
+
+            _viewportProtectedByOwner[ownerKey] = new HashSet<string>(imageIds, StringComparer.Ordinal);
+            RebuildViewportProtectedUnionLocked();
+        }
+    }
+
+    /// <summary>
+    /// Preview (!allowDecodeUpgrade): keep any cached decode. Once resize settles, require the
+    /// exact physical-pixel width requested by the current display layout.
     /// </summary>
     private static bool CacheSatisfiesRequired(
         int cachedPixelWidth,
@@ -198,14 +247,7 @@ public sealed class NoteImageStore : IDisposable
             return true;
         }
 
-        if (cachedPixelWidth < requiredPixelWidth)
-        {
-            return false;
-        }
-
-        // Slack avoids re-decode thrash on tiny width jitter after settle.
-        var slack = Math.Max(48, requiredPixelWidth / 4);
-        return cachedPixelWidth <= requiredPixelWidth + slack;
+        return cachedPixelWidth == requiredPixelWidth;
     }
 
     public void ReleaseNoteBitmapCache(string noteId)
@@ -217,6 +259,11 @@ public sealed class NoteImageStore : IDisposable
 
         lock (_gate)
         {
+            if (_viewportProtectedByOwner.Remove(noteId))
+            {
+                RebuildViewportProtectedUnionLocked();
+            }
+
             foreach (var imageId in _images.Values
                          .Where(asset => string.Equals(asset.NoteId, noteId, StringComparison.Ordinal))
                          .Select(asset => asset.Id)
@@ -1210,14 +1257,14 @@ public sealed class NoteImageStore : IDisposable
         }
     }
 
-    private static int DecodePixelWidth(NoteImageAsset asset, double targetDisplayWidth)
+    private static int DecodePixelWidth(NoteImageAsset asset, double targetPixelWidth)
     {
-        if (targetDisplayWidth <= 0 || asset.Width <= 0)
+        if (targetPixelWidth <= 0 || asset.Width <= 0)
         {
             return 0;
         }
 
-        var requested = (int)Math.Ceiling(targetDisplayWidth);
+        var requested = (int)Math.Ceiling(targetPixelWidth);
         if (requested <= 0 || requested >= asset.Width)
         {
             return 0;
@@ -1455,6 +1502,7 @@ public sealed class NoteImageStore : IDisposable
             _database = null;
             _images.Clear();
             ClearBitmapCacheLocked();
+            ClearViewportProtectionLocked();
             _verifiedImageIds.Clear();
             _corruptedImageIds.Clear();
         }
@@ -1481,21 +1529,58 @@ public sealed class NoteImageStore : IDisposable
         cached.LruNode = _bitmapLru.AddLast(imageId);
     }
 
+    private void ProtectViewportBitmapLocked(string ownerKey, string imageId)
+    {
+        if (string.IsNullOrWhiteSpace(ownerKey) || string.IsNullOrWhiteSpace(imageId))
+        {
+            return;
+        }
+
+        if (!_viewportProtectedByOwner.TryGetValue(ownerKey, out var set))
+        {
+            set = new HashSet<string>(StringComparer.Ordinal);
+            _viewportProtectedByOwner[ownerKey] = set;
+        }
+
+        if (set.Add(imageId))
+        {
+            _viewportProtectedIds.Add(imageId);
+        }
+    }
+
+    private void RebuildViewportProtectedUnionLocked()
+    {
+        _viewportProtectedIds.Clear();
+        foreach (var set in _viewportProtectedByOwner.Values)
+        {
+            _viewportProtectedIds.UnionWith(set);
+        }
+    }
+
+    private void ClearViewportProtectionLocked()
+    {
+        _viewportProtectedByOwner.Clear();
+        _viewportProtectedIds.Clear();
+    }
+
     private void TrimBitmapCacheLocked()
     {
         while (_bitmapCache.Count > MaxBitmapCacheEntries ||
                _totalDecodedBitmapBytes > MaxDecodedBitmapBytes)
         {
-            var oldest = _bitmapLru.First;
-            if (oldest == null)
+            // Evict oldest non-visible entry. On-screen (protected) bitmaps ignore the caps.
+            var victim = _bitmapLru.First;
+            while (victim != null && _viewportProtectedIds.Contains(victim.Value))
             {
-                _totalDecodedBitmapBytes = 0;
+                victim = victim.Next;
+            }
+
+            if (victim == null)
+            {
                 return;
             }
 
-            // Drop cold entries first. Visible blocks re-touch on ConstructElement; scrolled-away
-            // images stay cold and are the natural eviction targets without a viewport walk.
-            RemoveCachedBitmapsFor(oldest.Value);
+            RemoveCachedBitmapsFor(victim.Value);
         }
     }
 

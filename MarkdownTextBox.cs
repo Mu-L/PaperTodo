@@ -97,6 +97,8 @@ public sealed partial class MarkdownTextBox : TextEditor
         TextArea.TextView.BackgroundRenderers.Add(_listBulletRenderer);
         TextArea.TextView.BackgroundRenderers.Add(_horizontalRuleRenderer);
         TextArea.TextView.LineTransformers.Add(_markerColorizer);
+        // Rebuild viewport pin set after visual lines change so on-screen decodes skip LRU eviction.
+        TextArea.TextView.VisualLinesChanged += (_, _) => QueueRefreshViewportProtectedBitmaps();
         DataObject.AddPastingHandler(this, OnPaste);
         Document.Changing += OnDocumentChanging;
         Document.Changed += OnDocumentChanged;
@@ -142,11 +144,19 @@ public sealed partial class MarkdownTextBox : TextEditor
 
     public void ConfigureNoteImages(string noteId, NoteImageStore imageStore)
     {
+        if (_imageStore != null &&
+            !string.IsNullOrWhiteSpace(_noteId) &&
+            !string.Equals(_noteId, noteId, StringComparison.Ordinal))
+        {
+            _imageStore.SetViewportProtectedBitmapIds(_noteId, Array.Empty<string>());
+        }
+
         _noteId = noteId ?? "";
         _imageStore = imageStore;
         EnsureTrailingImageAnchorLine();
         _hadInternalImageReferences = HasInternalImageReference(Document.Text);
         RefreshTextView();
+        QueueRefreshViewportProtectedBitmaps();
     }
 
     private double ScaledFontSize(double baseFontSize)
@@ -2417,12 +2427,14 @@ public sealed partial class MarkdownTextBox : TextEditor
     {
         var targetWidth = ImageTargetWidth();
         var displayWidth = ResolveImageDisplayWidth(reference.DisplayOptions, asset, targetWidth);
+        var decodePixelWidth = ImageDecodePixelWidth(Math.Min(targetWidth, displayWidth));
         var bitmap = asset == null
             ? null
             : _imageStore?.GetBitmapSource(
                 asset.Id,
-                Math.Min(targetWidth, displayWidth),
-                allowDecodeUpgrade: !_isImageResizePreview);
+                decodePixelWidth,
+                allowDecodeUpgrade: !_isImageResizePreview,
+                protectInViewport: true);
         var isCorrupted = _imageStore?.IsImageCorrupted(reference.ImageId) == true;
         var document = Document!;
         var referenceAnchor = document.CreateAnchor(referenceLine.Offset);
@@ -2445,7 +2457,12 @@ public sealed partial class MarkdownTextBox : TextEditor
             MinWidth = 24,
             Width = targetWidth,
             ToolTip = asset?.OriginalName,
-            Tag = new ImageBlockTag(referenceAnchor, caretAnchor, reference.ImageId)
+            Tag = new ImageBlockTag(
+                referenceAnchor,
+                caretAnchor,
+                reference.ImageId,
+                reference.DisplayOptions,
+                Math.Max(1, asset?.Width ?? 180))
         };
         host.ContextMenu = CreateImageContextMenu(reference.ImageId, referenceLine, canCopy: bitmap != null);
         // Raise the guard before the menu (and its focus grab) opens; LostKeyboardFocus
@@ -2518,9 +2535,15 @@ public sealed partial class MarkdownTextBox : TextEditor
         MarkdownImageDisplayOptions options,
         NoteImageAsset? asset,
         double targetWidth)
+        => ResolveImageDisplayWidth(options, Math.Max(1, asset?.Width ?? 180), targetWidth);
+
+    private static double ResolveImageDisplayWidth(
+        MarkdownImageDisplayOptions options,
+        double naturalWidth,
+        double targetWidth)
     {
         targetWidth = Math.Max(80, targetWidth);
-        var naturalWidth = Math.Max(1, asset?.Width ?? 180);
+        naturalWidth = Math.Max(1, naturalWidth);
         var width = Math.Min(targetWidth, naturalWidth);
 
         if (options.WidthAttribute is { } widthAttribute)
@@ -2543,6 +2566,17 @@ public sealed partial class MarkdownTextBox : TextEditor
         }
 
         return Math.Round(Math.Clamp(width, 24, targetWidth), 1);
+    }
+
+    private int ImageDecodePixelWidth(double displayWidth)
+    {
+        var dpiScale = VisualTreeHelper.GetDpi(TextArea.TextView).DpiScaleX;
+        if (double.IsNaN(dpiScale) || double.IsInfinity(dpiScale) || dpiScale <= 0)
+        {
+            dpiScale = 1;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(Math.Max(0, displayWidth) * dpiScale));
     }
 
     private ContextMenu CreateImageContextMenu(string imageId, DocumentLine referenceLine, bool canCopy)
@@ -3241,7 +3275,9 @@ public sealed partial class MarkdownTextBox : TextEditor
     private sealed record ImageBlockTag(
         TextAnchor ReferenceAnchor,
         TextAnchor CaretAnchor,
-        string ImageId);
+        string ImageId,
+        MarkdownImageDisplayOptions DisplayOptions,
+        double NaturalWidth);
 
     private static int CountRepeated(string text, int start, char c)
     {
