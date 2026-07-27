@@ -231,6 +231,14 @@ internal static class WindowNative
         }
     }
 
+    public static void HideWindowImmediately(IntPtr handle)
+    {
+        if (handle != IntPtr.Zero)
+        {
+            _ = ShowWindow(handle, SwHide);
+        }
+    }
+
     public static void ClearCurrentThreadKeyboardFocus()
     {
         _ = SetFocus(IntPtr.Zero);
@@ -539,6 +547,7 @@ internal static class WindowNative
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    private const int SwHide = 0;
     private const int SwRestore = 9;
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]

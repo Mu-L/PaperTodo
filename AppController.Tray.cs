@@ -488,7 +488,11 @@ public sealed partial class AppController
         }
 
         menu.Items.Add(TraySeparator());
-        menu.Items.Add(TrayItem(menu, Strings.Get("TrayExit"), Exit));
+        menu.Items.Add(TrayItem(
+            menu,
+            Strings.Get("TrayExit"),
+            Exit,
+            flushDesktopComposition: true));
     }
 
 
@@ -518,7 +522,11 @@ public sealed partial class AppController
         }
     }
 
-    private MenuItem TrayItem(ContextMenu menu, string text, Action action)
+    private MenuItem TrayItem(
+        ContextMenu menu,
+        string text,
+        Action action,
+        bool flushDesktopComposition = false)
     {
         var item = new MenuItem
         {
@@ -528,15 +536,31 @@ public sealed partial class AppController
 
         item.Click += (_, _) =>
         {
-            InvokeTrayAction(menu, action);
+            InvokeTrayAction(menu, action, flushDesktopComposition);
         };
         return item;
     }
 
-    private static void InvokeTrayAction(ContextMenu menu, Action action)
+    private static void InvokeTrayAction(
+        ContextMenu menu,
+        Action action,
+        bool flushDesktopComposition = false)
     {
+        var popupHandle = flushDesktopComposition &&
+            PresentationSource.FromVisual(menu) is HwndSource source
+                ? source.Handle
+                : IntPtr.Zero;
+        WindowNative.HideWindowImmediately(popupHandle);
         menu.IsOpen = false;
-        _ = Application.Current.Dispatcher.InvokeAsync(action, DispatcherPriority.Background);
+        _ = menu.Dispatcher.InvokeAsync(() =>
+        {
+            if (flushDesktopComposition)
+            {
+                WindowNative.FlushDesktopComposition();
+            }
+
+            action();
+        }, DispatcherPriority.ContextIdle);
     }
 
     private MenuItem TrayTitleBar(ContextMenu menu)
