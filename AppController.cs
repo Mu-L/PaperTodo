@@ -242,7 +242,7 @@ public sealed partial class AppController : IDisposable
         _ = Task.Run(PaperWindow.CleanupOldScriptCapsuleTempFiles);
         _ = Application.Current.Dispatcher.BeginInvoke(
             () => PaperWindow.EnsurePersistentScriptProcessForSettings(State),
-            DispatcherPriority.ApplicationIdle);
+            DispatcherPriority.SystemIdle);
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
 
@@ -361,10 +361,16 @@ public sealed partial class AppController : IDisposable
 
     private void ScheduleStartupShellPrewarm(IEnumerable<PaperData> papers)
     {
-        var pending = new Queue<PaperWindow>(papers
-            .Select(paper => _windows.TryGetValue(paper.Id, out var window) ? window : null)
-            .Where(window => window is { IsClosed: false, IsShellBuilt: false })
-            .Cast<PaperWindow>());
+        var pending = new Queue<(PaperData Paper, PaperWindow Window)>();
+        foreach (var paper in papers)
+        {
+            if (_windows.TryGetValue(paper.Id, out var window) &&
+                !window.IsClosed &&
+                !window.IsShellBuilt)
+            {
+                pending.Enqueue((paper, window));
+            }
+        }
         if (pending.Count == 0)
         {
             return;
@@ -380,8 +386,8 @@ public sealed partial class AppController : IDisposable
 
             while (pending.Count > 0)
             {
-                var window = pending.Dequeue();
-                if (window.IsClosed || window.IsShellBuilt)
+                var (paper, window) = pending.Dequeue();
+                if (!paper.IsVisible || window.IsClosed || window.IsShellBuilt)
                 {
                     continue;
                 }
@@ -400,6 +406,24 @@ public sealed partial class AppController : IDisposable
 
         Application.Current.Dispatcher.BeginInvoke(
             (Action)PrewarmNext,
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    private void ScheduleDeferredShellPrewarm(PaperData paper, PaperWindow window)
+    {
+        Application.Current.Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (IsExiting ||
+                    !paper.IsVisible ||
+                    window.IsClosed ||
+                    window.IsShellBuilt)
+                {
+                    return;
+                }
+
+                window.EnsureShellBuilt();
+            }),
             DispatcherPriority.ApplicationIdle);
     }
 
@@ -1242,6 +1266,10 @@ public sealed partial class AppController : IDisposable
             ShouldPaperOccupyDeepCapsuleSlot(paper, window))
         {
             ArrangeDeepCapsules(animate: State.EnableAnimations);
+        }
+        if (showAsDeepCapsuleOnly && !window.IsShellBuilt)
+        {
+            ScheduleDeferredShellPrewarm(paper, window);
         }
         RefreshTrayMenu();
         if (!_suppressDirty && paper.Type == PaperTypes.Note)
@@ -2397,6 +2425,13 @@ public sealed partial class AppController : IDisposable
         RemoveStaleCollapseAllActiveQueues(queueKeys);
         MigrateLegacyCollapseAllActiveQueues(queueKeys);
 
+        if (flushInitialPresentations)
+        {
+            // The master owns slot 0, so startup creates it before publishing the real slots.
+            // Suppress its standalone fade so the complete queue reaches the first frame together.
+            SyncMasterCapsules(plan, animate: false);
+        }
+
         foreach (var paper in State.Papers)
         {
             if (!_windows.TryGetValue(paper.Id, out var window))
@@ -2455,7 +2490,10 @@ public sealed partial class AppController : IDisposable
             }
         }
 
-        SyncMasterCapsules(plan, animate);
+        if (!flushInitialPresentations)
+        {
+            SyncMasterCapsules(plan, animate);
+        }
     }
 
     // Reconcile one master pill per non-empty queue (when collapse-all is on). Creates/updates the

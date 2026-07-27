@@ -560,7 +560,9 @@ public sealed partial class AppController
             }
 
             action();
-        }, DispatcherPriority.ContextIdle);
+        }, flushDesktopComposition
+            ? DispatcherPriority.ContextIdle
+            : DispatcherPriority.Background);
     }
 
     private MenuItem TrayTitleBar(ContextMenu menu)
