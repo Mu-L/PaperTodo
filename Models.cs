@@ -92,6 +92,23 @@ public static class FullscreenTopmostModes
     }
 }
 
+/// <summary>
+/// Paper corner ResizeGrip presentation: system-contrast color with optional soft fade or full hide.
+/// </summary>
+public static class ResizeGripModes
+{
+    public const string Standard = "standard";
+    public const string Soft = "soft";
+    public const string Hidden = "hidden";
+
+    public static string Normalize(string? mode) => mode switch
+    {
+        Standard => Standard,
+        Hidden => Hidden,
+        _ => Soft
+    };
+}
+
 public static class DeepCapsuleSides
 {
     public const string Left = "left";
@@ -277,6 +294,11 @@ public sealed class AppState
     public bool CollapseExpandedDeepCapsuleOnClick { get; set; }
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
+    /// <summary>
+    /// Paper corner ResizeGrip: standard / soft (50% transparent) / hidden (dots only; corner still resizes).
+    /// Dot color is Windows ControlDark with a light scheme tint.
+    /// </summary>
+    public string ResizeGripMode { get; set; } = ResizeGripModes.Soft;
     public string FullscreenTopmostMode { get; set; } = FullscreenTopmostModes.Avoid;
     public bool UsePersistentPowerShellProcess { get; set; }
     public bool PreferPowerShell7 { get; set; } = true;

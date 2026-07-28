@@ -74,7 +74,7 @@ public sealed partial class AppController
         }
     }
 
-    private static void RefreshApplicationThemeResources()
+    private void RefreshApplicationThemeResources()
     {
         var resources = Application.Current?.Resources;
         if (resources == null)
@@ -84,6 +84,7 @@ public sealed partial class AppController
 
         resources["PaperScrollThumbBrush"] = Theme.ScrollThumbBrush;
         resources["PaperScrollThumbHoverBrush"] = Theme.ScrollThumbHoverBrush;
+        resources["PaperResizeGripBrush"] = Theme.ResizeGripBrush(State.ResizeGripMode);
     }
 
     private UIElement CreateColorSchemeSegmentSelector()
@@ -1144,6 +1145,10 @@ public sealed partial class AppController
         leftColumn.Children.Add(CreateThemeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsColorScheme")), "TipColorScheme"));
         leftColumn.Children.Add(CreateColorSchemeSegmentSelector());
+        leftColumn.Children.Add(WrapWithHint(
+            SettingsFieldLabel(Strings.Get("SettingsResizeGripMode")),
+            "TipResizeGripMode"));
+        leftColumn.Children.Add(CreateResizeGripModeSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsUiFont")), "TipUiFont"));
         leftColumn.Children.Add(CreateUiFontPresetSegmentSelector());
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsTextRenderingProfile")), "TipTextRenderingProfile"));
@@ -1338,6 +1343,7 @@ public sealed partial class AppController
         State.TitleTextBold = true;
         State.CapsuleTextSize = VisualTextSizes.Medium;
         State.CapsuleTextBold = false;
+        State.ResizeGripMode = ResizeGripModes.Soft;
 
         AppTypography.Configure(
             State.UiFontPreset,
@@ -2157,6 +2163,35 @@ public sealed partial class AppController
         }
         SaveNow();
         RefreshSettingsWindowContent();
+    }
+
+    private void SetResizeGripMode(string mode)
+    {
+        var normalized = ResizeGripModes.Normalize(mode);
+        if (State.ResizeGripMode == normalized)
+        {
+            return;
+        }
+
+        State.ResizeGripMode = normalized;
+        SaveNow();
+        RefreshApplicationThemeResources();
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateResizeGripModeSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (ResizeGripModes.Standard, Strings.Get("ResizeGripModeStandard")),
+            (ResizeGripModes.Soft, Strings.Get("ResizeGripModeSoft")),
+            (ResizeGripModes.Hidden, Strings.Get("ResizeGripModeHidden"))
+        };
+
+        return CreateSegmentSelector(
+            segments,
+            ResizeGripModes.Normalize(State.ResizeGripMode),
+            SetResizeGripMode);
     }
 
     private void ToggleAutoClearCompletedTodos()

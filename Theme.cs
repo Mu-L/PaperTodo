@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Windows;
 using System.Windows.Media;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
@@ -120,6 +121,24 @@ public static class Theme
     public static Brush DangerBrush => Solid(Current.Danger);
     public static Brush ScrollThumbBrush => WeakTextBrush;
     public static Brush ScrollThumbHoverBrush => ActiveBrush;
+
+    // Stock ResizeGrip geometry.
+    // Base tone = Windows ControlDark (system light/dark inverse) + light scheme Tint mix.
+    // Mode only changes tile alpha (hidden = 0, still hit-testable for corner resize).
+    private const double ResizeGripSchemeTintMix = 0.14;
+    // 50% transparency => alpha 128.
+    private const byte ResizeGripSoftAlpha = 128;
+
+    public static Brush ResizeGripBrush(string? mode)
+    {
+        var tone = Mix(SystemColors.ControlDarkColor, Current.Tint, ResizeGripSchemeTintMix);
+        return ResizeGripModes.Normalize(mode) switch
+        {
+            ResizeGripModes.Hidden => Solid(WithAlpha(tone, 0)),
+            ResizeGripModes.Soft => Solid(WithAlpha(tone, ResizeGripSoftAlpha)),
+            _ => Solid(tone)
+        };
+    }
 
     public static Brush HoverBrush => Tint((byte)(IsDark ? 48 : 32));
     public static Brush CapsuleFocusBorderBrush => Solid(Mix(Current.Active, Current.Text, IsDark ? 0.38 : 0.08));

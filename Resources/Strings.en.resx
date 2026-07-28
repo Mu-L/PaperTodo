@@ -637,6 +637,22 @@ Settings info icons always stay available.</value>
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>Transition animations for common actions; off feels more immediate.</value>
   </data>
+  <data name="SettingsResizeGripMode" xml:space="preserve">
+    <value>Resize grip</value>
+  </data>
+  <data name="TipResizeGripMode" xml:space="preserve">
+    <value>Paper corner resize dots: Standard is fully opaque; Soft is about 50% transparent; Hidden only hides the dots—you can still drag the bottom-right corner to resize.
+Dot color keeps Windows light/dark contrast with a slight scheme tint. Shape is unchanged.</value>
+  </data>
+  <data name="ResizeGripModeStandard" xml:space="preserve">
+    <value>Standard</value>
+  </data>
+  <data name="ResizeGripModeSoft" xml:space="preserve">
+    <value>Soft</value>
+  </data>
+  <data name="ResizeGripModeHidden" xml:space="preserve">
+    <value>Hidden</value>
+  </data>
   <data name="TipPersistentPowerShellProcess" xml:space="preserve">
     <value>!pf / !powerf use a persistent process for faster starts; variables and state may carry across scripts.
 Turning this off ends that process.</value>

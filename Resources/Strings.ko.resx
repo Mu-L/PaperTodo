@@ -650,6 +650,22 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>자주 쓰는 작업에 전환 애니메이션을 적용합니다. 끄면 반응이 더 직접적입니다.</value>
   </data>
+  <data name="SettingsResizeGripMode" xml:space="preserve">
+    <value>크기 조절 손잡이</value>
+  </data>
+  <data name="TipResizeGripMode" xml:space="preserve">
+    <value>종이 오른쪽 아래 크기 조절 점: 표준은 불투명, 부드럽게는 약 50% 투명, 숨기기는 점만 가리며 오른쪽 아래를 드래그해 크기 조절은 가능합니다.
+점 색은 Windows 밝음/어둠 대비에 배색을 아주 약간 탑니다. 모양은 그대로입니다.</value>
+  </data>
+  <data name="ResizeGripModeStandard" xml:space="preserve">
+    <value>표준</value>
+  </data>
+  <data name="ResizeGripModeSoft" xml:space="preserve">
+    <value>부드럽게</value>
+  </data>
+  <data name="ResizeGripModeHidden" xml:space="preserve">
+    <value>숨기기</value>
+  </data>
   <data name="TipPersistentPowerShellProcess" xml:space="preserve">
     <value>!pf / !powerf는 상주 프로세스를 사용해 더 빠르게 시작하지만, 변수와 상태가 스크립트 사이에 남을 수 있습니다.
 끄면 해당 프로세스를 종료합니다.</value>

@@ -672,6 +672,22 @@
   <data name="TipEnableAnimations" xml:space="preserve">
     <value>常见操作使用过渡动画；关闭后响应更直接。</value>
   </data>
+  <data name="SettingsResizeGripMode" xml:space="preserve">
+    <value>缩放把手</value>
+  </data>
+  <data name="TipResizeGripMode" xml:space="preserve">
+    <value>纸片右下角调整大小点阵：标准为正常不透明；柔和为约 50% 透明；隐藏只去掉可见点阵，右下角仍可拖动缩放。
+点色以 Windows 系统深浅反色为主，并略微带上当前配色；点阵样式不变。</value>
+  </data>
+  <data name="ResizeGripModeStandard" xml:space="preserve">
+    <value>标准</value>
+  </data>
+  <data name="ResizeGripModeSoft" xml:space="preserve">
+    <value>柔和</value>
+  </data>
+  <data name="ResizeGripModeHidden" xml:space="preserve">
+    <value>隐藏</value>
+  </data>
   <data name="TipPersistentPowerShellProcess" xml:space="preserve">
     <value>!pf / !powerf 使用常驻进程，启动更快，但变量与状态可能跨脚本保留。
 关闭后结束该进程。</value>
