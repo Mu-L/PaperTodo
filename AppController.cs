@@ -235,7 +235,9 @@ public sealed partial class AppController : IDisposable
         return changed;
     }
 
-    public async Task StartAsync(bool createDefaultPaper = true)
+    public async Task StartAsync(
+        bool createDefaultPaper = true,
+        StartupCommandKind initialVisibilityCommand = StartupCommandKind.None)
     {
         CreateTrayIcon();
         InitializeGlobalHotkeys();
@@ -250,12 +252,19 @@ public sealed partial class AppController : IDisposable
         {
             if (createDefaultPaper)
             {
-                CreatePaper(PaperTypes.Todo, show: true);
+                var showDefaultPaper = initialVisibilityCommand is not
+                    (StartupCommandKind.Hide or StartupCommandKind.Toggle);
+                CreatePaper(PaperTypes.Todo, show: showDefaultPaper);
+                if (!showDefaultPaper)
+                {
+                    ArrangeDeepCapsules();
+                }
                 SaveNow();
             }
             return;
         }
 
+        ApplyInitialStartupVisibility(initialVisibilityCommand);
         var rescuedPapers = EnsurePapersOnScreen();
 
         // Respect persisted IsVisible: hide closes the paper surface, delete removes it.
@@ -348,6 +357,26 @@ public sealed partial class AppController : IDisposable
         {
             SaveNow();
         }
+    }
+
+    private void ApplyInitialStartupVisibility(StartupCommandKind command)
+    {
+        bool? isVisible = command switch
+        {
+            StartupCommandKind.Hide => false,
+            StartupCommandKind.Toggle => !State.Papers.Any(paper => paper.IsVisible),
+            _ => null
+        };
+        if (!isVisible.HasValue)
+        {
+            return;
+        }
+
+        foreach (var paper in State.Papers)
+        {
+            paper.IsVisible = isVisible.Value;
+        }
+        MarkDirty();
     }
 
     private bool ShouldPrepareStartupEdgeCapsule(PaperData paper)

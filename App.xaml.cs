@@ -91,12 +91,21 @@ public partial class App : Application
         }
 
         SessionEnding += (s, args) => _controller?.Exit();
-        await _controller.StartAsync(createDefaultPaper: !startupCommand.CreatesPaper);
+        var handlesInitialVisibility = startupCommand.Kind is
+            StartupCommandKind.Hide or StartupCommandKind.Toggle;
+        await _controller.StartAsync(
+            createDefaultPaper: !startupCommand.CreatesPaper,
+            initialVisibilityCommand: handlesInitialVisibility
+                ? startupCommand.Kind
+                : StartupCommandKind.None);
         if (!_controller.IsRunning)
         {
             return;
         }
-        _controller.ExecuteStartupCommand(startupCommand);
+        if (!handlesInitialVisibility)
+        {
+            _controller.ExecuteStartupCommand(startupCommand);
+        }
         CompleteSingleInstanceStartup();
     }
 
