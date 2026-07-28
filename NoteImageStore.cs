@@ -116,6 +116,31 @@ public sealed class NoteImageStore : IDisposable
         double targetPixelWidth = 0,
         bool allowDecodeUpgrade = true,
         bool protectInViewport = false)
+        => GetBitmapSourceCore(
+            imageId,
+            targetPixelWidth,
+            allowDecodeUpgrade,
+            protectInViewport,
+            cacheDecodedBitmap: true);
+
+    /// <summary>
+    /// Get the original-size bitmap for a one-shot clipboard copy without replacing the
+    /// display-sized cache entry. An already cached original-size bitmap is still reused.
+    /// </summary>
+    public BitmapSource? GetBitmapSourceForClipboard(string imageId)
+        => GetBitmapSourceCore(
+            imageId,
+            targetPixelWidth: 0,
+            allowDecodeUpgrade: true,
+            protectInViewport: false,
+            cacheDecodedBitmap: false);
+
+    private BitmapSource? GetBitmapSourceCore(
+        string imageId,
+        double targetPixelWidth,
+        bool allowDecodeUpgrade,
+        bool protectInViewport,
+        bool cacheDecodedBitmap)
     {
         NoteImageAsset asset;
         lock (_gate)
@@ -186,13 +211,16 @@ public sealed class NoteImageStore : IDisposable
                     return current.Bitmap;
                 }
 
-                // Pin before trim so a multi-image visual-line rebuild cannot evict siblings.
-                if (protectInViewport)
+                if (cacheDecodedBitmap)
                 {
-                    ProtectViewportBitmapLocked(asset.NoteId, imageId);
-                }
+                    // Pin before trim so a multi-image visual-line rebuild cannot evict siblings.
+                    if (protectInViewport)
+                    {
+                        ProtectViewportBitmapLocked(asset.NoteId, imageId);
+                    }
 
-                StoreBitmapCacheLocked(imageId, bitmap);
+                    StoreBitmapCacheLocked(imageId, bitmap);
+                }
             }
 
             return bitmap;

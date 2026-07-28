@@ -2616,7 +2616,7 @@ public sealed partial class MarkdownTextBox : TextEditor
     {
         try
         {
-            var bitmap = _imageStore?.GetBitmapSource(imageId);
+            var bitmap = _imageStore?.GetBitmapSourceForClipboard(imageId);
             if (bitmap != null)
             {
                 Clipboard.SetImage(bitmap);
