@@ -7,6 +7,7 @@ internal static class FullscreenForegroundWindowDetector
 {
     private const uint MonitorDefaultToNearest = 2;
     private const uint GaRoot = 2;
+    private const uint GaRootOwner = 3;
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
     private const int WsExToolWindow = 0x00000080;
@@ -15,7 +16,15 @@ internal static class FullscreenForegroundWindowDetector
     private const int FullscreenTolerance = 2;
     private const int MinCandidateSize = 160;
     private const int DebugWindowLimit = 60;
+    private const long ForegroundHandoffContinuationMilliseconds = 1000;
     private static IntPtr _lastExternalForegroundWindow;
+    private static IntPtr _foregroundSessionWindow;
+    private static uint _foregroundSessionProcessId;
+    private static IntPtr _trackedFullscreenWindow;
+    private static readonly HashSet<IntPtr> _ignoredSessionFullscreenWindows = new();
+    private static long _lastRelatedForegroundTick;
+    private static IntPtr _temporaryContinuationWindow;
+    private static long _temporaryContinuationStartedTick;
 
     public static bool IsForegroundFullscreen()
     {
@@ -24,21 +33,91 @@ internal static class FullscreenForegroundWindowDetector
 
     public static bool TryGetFullscreenWindow(out IntPtr fullscreenWindow, bool allowGlobalScan)
     {
+        fullscreenWindow = IntPtr.Zero;
         var foreground = GetForegroundWindow();
-        var hasExternalForeground = foreground != IntPtr.Zero && !IsCurrentProcessWindow(foreground);
-        if (hasExternalForeground)
+        var shellWindow = GetShellWindow();
+        if (foreground == IntPtr.Zero)
         {
-            _lastExternalForegroundWindow = foreground;
+            ClearTrackingState();
+            return false;
         }
 
-        if (TryGetTrackedExternalForegroundFullscreen(out fullscreenWindow))
+        if (IsCurrentProcessWindow(foreground))
         {
+            var canContinue = IsWithinHandoffWindow(_lastRelatedForegroundTick, Environment.TickCount64);
+            if (canContinue &&
+                TryGetTrackedFullscreenWindow(shellWindow, out fullscreenWindow))
+            {
+                return true;
+            }
+
+            if (!canContinue)
+            {
+                ClearTrackingState();
+            }
+
+            return false;
+        }
+
+        _lastExternalForegroundWindow = foreground;
+        var isCandidateForeground = IsCandidateExternalWindow(foreground, shellWindow);
+        if (isCandidateForeground && IsFullscreenWindow(foreground))
+        {
+            ClearForegroundSession();
+            _trackedFullscreenWindow = foreground;
+            _lastRelatedForegroundTick = Environment.TickCount64;
+            fullscreenWindow = foreground;
             return true;
         }
 
-        return allowGlobalScan &&
-               hasExternalForeground &&
-               TryGetAnyForegroundRelatedFullscreenWindow(foreground, out fullscreenWindow);
+        var isForegroundSessionWindow = _foregroundSessionWindow != IntPtr.Zero &&
+            foreground == _foregroundSessionWindow &&
+            ProcessIdFor(foreground) == _foregroundSessionProcessId;
+        if (isForegroundSessionWindow ||
+            TryContinueThroughTemporaryOwnedWindow(
+                foreground,
+                GetAncestor(_foregroundSessionWindow, GaRootOwner)))
+        {
+            if (isForegroundSessionWindow)
+            {
+                ClearTemporaryContinuation();
+                _lastRelatedForegroundTick = Environment.TickCount64;
+            }
+
+            CleanupIgnoredSessionFullscreenWindows(shellWindow);
+            if (TryGetTrackedFullscreenWindow(shellWindow, out fullscreenWindow))
+            {
+                return true;
+            }
+
+            return allowGlobalScan &&
+                   TryGetNewSessionFullscreenWindow(shellWindow, out fullscreenWindow);
+        }
+
+        if (TryGetTrackedFullscreenWindow(shellWindow, out var trackedFullscreenWindow) &&
+            TryContinueThroughTemporaryOwnedWindow(
+                foreground,
+                GetAncestor(trackedFullscreenWindow, GaRootOwner)))
+        {
+            fullscreenWindow = trackedFullscreenWindow;
+            return true;
+        }
+
+        if (!isCandidateForeground)
+        {
+            ClearTrackingState();
+            return false;
+        }
+
+        var foregroundProcessId = ProcessIdFor(foreground);
+        if (foregroundProcessId == 0)
+        {
+            ClearTrackingState();
+            return false;
+        }
+
+        StartForegroundSession(foreground, foregroundProcessId, shellWindow);
+        return false;
     }
 
     public static string BuildDebugSnapshot()
@@ -50,6 +129,7 @@ internal static class FullscreenForegroundWindowDetector
         builder.AppendLine($"time={DateTimeOffset.Now:O}");
         builder.AppendLine($"foreground=0x{foreground.ToInt64():X} foregroundClass={GetWindowClassName(foreground)} foregroundTitle={Quote(GetWindowTitle(foreground))} currentProcess={IsCurrentProcessWindow(foreground)}");
         builder.AppendLine($"lastExternalForeground=0x{_lastExternalForegroundWindow.ToInt64():X}");
+        builder.AppendLine($"session=0x{_foregroundSessionWindow.ToInt64():X} processId={_foregroundSessionProcessId} tracked=0x{_trackedFullscreenWindow.ToInt64():X} ignoredCount={_ignoredSessionFullscreenWindows.Count}");
         builder.AppendLine("foregroundDetail:");
         AppendDebugWindow(builder, "fg", foreground, shellWindow);
         builder.AppendLine("lastExternalForegroundDetail:");
@@ -79,67 +159,152 @@ internal static class FullscreenForegroundWindowDetector
         return builder.ToString();
     }
 
-    private static bool TryGetTrackedExternalForegroundFullscreen(out IntPtr fullscreenWindow)
+    private static bool TryGetTrackedFullscreenWindow(IntPtr shellWindow, out IntPtr fullscreenWindow)
     {
         fullscreenWindow = IntPtr.Zero;
-        if (_lastExternalForegroundWindow == IntPtr.Zero)
+        if (_trackedFullscreenWindow == IntPtr.Zero)
         {
             return false;
         }
 
-        if (!IsWindow(_lastExternalForegroundWindow) || IsCurrentProcessWindow(_lastExternalForegroundWindow))
+        if (!IsCandidateExternalWindow(_trackedFullscreenWindow, shellWindow) ||
+            !IsFullscreenWindow(_trackedFullscreenWindow))
         {
-            _lastExternalForegroundWindow = IntPtr.Zero;
+            _trackedFullscreenWindow = IntPtr.Zero;
             return false;
         }
 
-        if (IsCandidateExternalWindow(_lastExternalForegroundWindow, GetShellWindow()) &&
-            IsFullscreenWindow(_lastExternalForegroundWindow))
-        {
-            fullscreenWindow = _lastExternalForegroundWindow;
-            return true;
-        }
-
-        return false;
+        fullscreenWindow = _trackedFullscreenWindow;
+        return true;
     }
 
-    private static bool TryGetAnyForegroundRelatedFullscreenWindow(IntPtr foreground, out IntPtr fullscreenWindow)
+    private static void StartForegroundSession(IntPtr foreground, uint foregroundProcessId, IntPtr shellWindow)
     {
-        var shellWindow = GetShellWindow();
+        _trackedFullscreenWindow = IntPtr.Zero;
+        ClearForegroundSession();
+        _foregroundSessionWindow = foreground;
+        _foregroundSessionProcessId = foregroundProcessId;
+        _lastRelatedForegroundTick = Environment.TickCount64;
+
+        // Existing fullscreen siblings are background history for this normal-window session.
+        EnumWindows((hwnd, _) =>
+        {
+            if (hwnd != foreground &&
+                IsSessionFullscreenCandidate(hwnd, shellWindow))
+            {
+                _ignoredSessionFullscreenWindows.Add(hwnd);
+            }
+
+            return true;
+        }, IntPtr.Zero);
+    }
+
+    private static bool TryGetNewSessionFullscreenWindow(IntPtr shellWindow, out IntPtr fullscreenWindow)
+    {
         fullscreenWindow = IntPtr.Zero;
-        var foundWindow = IntPtr.Zero;
-        var found = false;
-        var foregroundProcessId = ProcessIdFor(foreground);
-        if (foregroundProcessId == 0)
+        if (_foregroundSessionProcessId == 0)
         {
             return false;
         }
+
+        var foundWindow = IntPtr.Zero;
 
         EnumWindows((hwnd, _) =>
         {
-            if (!IsCandidateExternalWindow(hwnd, shellWindow))
+            if (_ignoredSessionFullscreenWindows.Contains(hwnd) ||
+                !IsSessionFullscreenCandidate(hwnd, shellWindow))
             {
                 return true;
             }
 
-            if (hwnd != foreground && ProcessIdFor(hwnd) != foregroundProcessId)
-            {
-                return true;
-            }
-
-            if (!IsFullscreenWindow(hwnd))
-            {
-                return true;
-            }
-
-            _lastExternalForegroundWindow = hwnd;
             foundWindow = hwnd;
-            found = true;
             return false;
         }, IntPtr.Zero);
 
+        _trackedFullscreenWindow = foundWindow;
         fullscreenWindow = foundWindow;
-        return found;
+        return foundWindow != IntPtr.Zero;
+    }
+
+    private static bool IsSessionFullscreenCandidate(IntPtr hwnd, IntPtr shellWindow)
+    {
+        return ProcessIdFor(hwnd) == _foregroundSessionProcessId &&
+               IsCandidateExternalWindow(hwnd, shellWindow) &&
+               IsFullscreenWindow(hwnd);
+    }
+
+    private static void CleanupIgnoredSessionFullscreenWindows(IntPtr shellWindow)
+    {
+        if (_ignoredSessionFullscreenWindows.Count == 0)
+        {
+            return;
+        }
+
+        _ignoredSessionFullscreenWindows.RemoveWhere(hwnd =>
+            !IsSessionFullscreenCandidate(hwnd, shellWindow));
+    }
+
+    private static bool TryContinueThroughTemporaryOwnedWindow(IntPtr window, IntPtr rootOwner)
+    {
+        if (!IsTemporaryOwnedWindowForRootOwner(window, rootOwner))
+        {
+            return false;
+        }
+
+        var now = Environment.TickCount64;
+        if (_temporaryContinuationWindow != window)
+        {
+            _temporaryContinuationWindow = window;
+            _temporaryContinuationStartedTick = now;
+            _lastRelatedForegroundTick = now;
+        }
+
+        return IsWithinHandoffWindow(_temporaryContinuationStartedTick, now);
+    }
+
+    private static bool IsTemporaryOwnedWindowForRootOwner(IntPtr window, IntPtr rootOwner)
+    {
+        if (window == IntPtr.Zero || rootOwner == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var root = GetAncestor(window, GaRoot);
+        return root != IntPtr.Zero &&
+               root != rootOwner &&
+               GetAncestor(window, GaRootOwner) == rootOwner;
+    }
+
+    private static bool IsWithinHandoffWindow(long startedAt, long now)
+    {
+        if (startedAt == 0)
+        {
+            return false;
+        }
+
+        var elapsed = now - startedAt;
+        return elapsed >= 0 && elapsed <= ForegroundHandoffContinuationMilliseconds;
+    }
+
+    private static void ClearTemporaryContinuation()
+    {
+        _temporaryContinuationWindow = IntPtr.Zero;
+        _temporaryContinuationStartedTick = 0;
+    }
+
+    private static void ClearTrackingState()
+    {
+        _trackedFullscreenWindow = IntPtr.Zero;
+        ClearForegroundSession();
+        _lastRelatedForegroundTick = 0;
+    }
+
+    private static void ClearForegroundSession()
+    {
+        _foregroundSessionWindow = IntPtr.Zero;
+        _foregroundSessionProcessId = 0;
+        _ignoredSessionFullscreenWindows.Clear();
+        ClearTemporaryContinuation();
     }
 
     private static bool IsFullscreenWindow(IntPtr hwnd)

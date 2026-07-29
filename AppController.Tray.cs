@@ -35,6 +35,8 @@ public sealed partial class AppController
                 return;
             }
 
+            // Capture taskbar/desktop/external foreground before the popup HWND takes focus.
+            RefreshTopmostForForegroundWindow(forceGlobalScan: true);
             RebuildTrayMenu();
         };
         trayIcon.TrayMouseDoubleClick += (_, _) =>
@@ -44,7 +46,11 @@ public sealed partial class AppController
                 return;
             }
 
-            Application.Current.Dispatcher.Invoke(ShowAllPapers);
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                RefreshTopmostForForegroundWindow(forceGlobalScan: true);
+                ShowAllPapers();
+            });
         };
 
         _trayIcon = trayIcon;

@@ -1083,6 +1083,16 @@ public sealed partial class AppController : IDisposable
 
     public void ExecuteStartupCommand(StartupCommand command)
     {
+        if (command.Kind is StartupCommandKind.Show or
+            StartupCommandKind.Toggle or
+            StartupCommandKind.NewTodo or
+            StartupCommandKind.NewNote)
+        {
+            // Startup and secondary-instance commands arrive before PaperTodo intentionally takes focus.
+            // Refresh here so a recent desktop/taskbar switch cannot leave stale fullscreen avoidance.
+            RefreshTopmostForForegroundWindow(forceGlobalScan: true);
+        }
+
         switch (command.Kind)
         {
             case StartupCommandKind.Show:
