@@ -8,7 +8,9 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 
 ![version](https://img.shields.io/badge/version-v3.1-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
 
-[QQ Group: 551612664 — Strange Magic Research Base](https://qm.qq.com/q/Mp7spYLrig)
+**Website**: [https://snownico0722.github.io/PaperTodo/](https://snownico0722.github.io/PaperTodo/) 
+
+**QQ Group**：[QQ Group: 551612664 — Strange Magic Research Base](https://qm.qq.com/q/Mp7spYLrig)
 
 **Language: [中文](README.md) | English**
 
