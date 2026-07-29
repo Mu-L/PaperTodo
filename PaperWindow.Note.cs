@@ -288,7 +288,6 @@ public sealed partial class PaperWindow
             imageInteractionGeneration++;
             isEnteringEditorFromPreview = false;
             isInteractingWithImage = false;
-            isOpeningImagePicker = false;
             pendingImageReferenceOffset = null;
             pendingImageId = null;
         };
@@ -309,7 +308,16 @@ public sealed partial class PaperWindow
             try
             {
                 ShowEditor(focus: false);
-                InsertImageFromFilePicker(box);
+                var imagePaths = SelectImagesFromFilePicker();
+                if (imagePaths.Length == 0 || !IsCurrentPresenter())
+                {
+                    return;
+                }
+
+                // The modal picker can run deactivation/focus callbacks before returning.
+                // Reassert edit mode only after confirming this presenter is still current.
+                ShowEditor(focus: false);
+                InsertImageFiles(box, imagePaths);
             }
             finally
             {
@@ -866,7 +874,7 @@ public sealed partial class PaperWindow
         return host;
     }
 
-    private void InsertImageFromFilePicker(MarkdownTextBox box)
+    private string[] SelectImagesFromFilePicker()
     {
         var dialog = new OpenFileDialog
         {
@@ -877,12 +885,17 @@ public sealed partial class PaperWindow
 
         if (dialog.ShowDialog(this) != true)
         {
-            return;
+            return Array.Empty<string>();
         }
 
+        return dialog.FileNames;
+    }
+
+    private void InsertImageFiles(MarkdownTextBox box, IEnumerable<string> paths)
+    {
         try
         {
-            box.InsertImagesFromFiles(dialog.FileNames);
+            box.InsertImagesFromFiles(paths);
         }
         catch (Exception ex)
         {
