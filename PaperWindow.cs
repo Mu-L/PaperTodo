@@ -205,6 +205,7 @@ public sealed partial class PaperWindow : Window
         EdgeCapsuleSlotState.ExpandedReserved or
         EdgeCapsuleSlotState.RetractedExpanded or
         EdgeCapsuleSlotState.RetractingExpanded;
+    internal bool IsDeepCapsuleLeavingQueue => IsDeepCapsuleSlotRetracting;
     public bool OccupiesDeepCapsuleSlot => _paper.IsVisible && HasDeepCapsuleSlotPlacement;
     // The short reveal is the commit boundary of the same cross-HWND drag transaction. Keep
     // queue/display rearrangement deferred until the verified docked surface owns presentation.

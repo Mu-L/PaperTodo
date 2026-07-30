@@ -65,6 +65,7 @@ public sealed partial class AppController : IDisposable
     private int _trayRefreshSuppressionDepth;
     private bool _isRestoringStartupPapers;
     private bool _isPreparingStartupEdgeCapsules;
+    private int _paperSurfaceRestoreGeneration;
     private int _startupShellPrewarmGeneration;
     private long _saveVersion;
     private long _stateRevision;
@@ -270,21 +271,34 @@ public sealed partial class AppController : IDisposable
         // Respect persisted IsVisible: hide closes the paper surface, delete removes it.
         // Tray/show-all (and second-instance show) still restore everything intentionally.
         var papersToRestore = State.Papers.Where(paper => paper.IsVisible).ToList();
+        await RestorePaperSurfacesAsync(papersToRestore);
+
+        if (rescuedPapers)
+        {
+            SaveNow();
+        }
+    }
+
+    private async Task RestorePaperSurfacesAsync(IReadOnlyList<PaperData> papersToRestore)
+    {
+        var restoreGeneration = ++_paperSurfaceRestoreGeneration;
         var activationPaper = papersToRestore.LastOrDefault(paper =>
             !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
-        var startupEdgeCapsules = papersToRestore
+        var edgeCapsulesToPrepare = papersToRestore
             .Where(ShouldPrepareStartupEdgeCapsule)
             .ToList();
-        _isPreparingStartupEdgeCapsules = startupEdgeCapsules.Count > 0;
+        _isPreparingStartupEdgeCapsules = edgeCapsulesToPrepare.Count > 0;
 
-        if (startupEdgeCapsules.Count > 0)
+        if (edgeCapsulesToPrepare.Count > 0)
         {
+            var wasSuppressingDirty = _suppressDirty;
+            var wasRestoringPapers = _isRestoringStartupPapers;
             _suppressDirty = true;
             _trayRefreshSuppressionDepth++;
             _isRestoringStartupPapers = true;
             try
             {
-                foreach (var paper in startupEdgeCapsules)
+                foreach (var paper in edgeCapsulesToPrepare)
                 {
                     GetOrCreatePaperWindow(paper, deferShellConstruction: true);
                 }
@@ -295,9 +309,9 @@ public sealed partial class AppController : IDisposable
             }
             finally
             {
-                _isRestoringStartupPapers = false;
+                _isRestoringStartupPapers = wasRestoringPapers;
                 _trayRefreshSuppressionDepth--;
-                _suppressDirty = false;
+                _suppressDirty = wasSuppressingDirty;
             }
 
             RefreshTrayMenu();
@@ -307,6 +321,10 @@ public sealed partial class AppController : IDisposable
             await Application.Current.Dispatcher.InvokeAsync(
                 static () => { },
                 DispatcherPriority.ApplicationIdle);
+            if (restoreGeneration != _paperSurfaceRestoreGeneration)
+            {
+                return;
+            }
             if (IsExiting)
             {
                 _isPreparingStartupEdgeCapsules = false;
@@ -314,6 +332,8 @@ public sealed partial class AppController : IDisposable
             }
         }
 
+        var wasSuppressingDirtyForShow = _suppressDirty;
+        var wasRestoringPapersForShow = _isRestoringStartupPapers;
         _suppressDirty = true;
         _trayRefreshSuppressionDepth++;
         _isRestoringStartupPapers = true;
@@ -345,18 +365,13 @@ public sealed partial class AppController : IDisposable
         finally
         {
             _isPreparingStartupEdgeCapsules = false;
-            _isRestoringStartupPapers = false;
+            _isRestoringStartupPapers = wasRestoringPapersForShow;
             _trayRefreshSuppressionDepth--;
-            _suppressDirty = false;
+            _suppressDirty = wasSuppressingDirtyForShow;
         }
 
         RefreshTrayMenu();
         ScheduleStartupShellPrewarm(papersToRestore);
-
-        if (rescuedPapers)
-        {
-            SaveNow();
-        }
     }
 
     private void ApplyInitialStartupVisibility(StartupCommandKind command)
@@ -1736,7 +1751,7 @@ public sealed partial class AppController : IDisposable
             }
         }
 
-        ArrangeDeepCapsules();
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
         RefreshTrayMenu();
         if (paper.Type == PaperTypes.Note)
         {
@@ -1745,7 +1760,7 @@ public sealed partial class AppController : IDisposable
         MarkDirty();
     }
 
-    public void ShowAllPapers()
+    public async void ShowAllPapers()
     {
         if (IsExiting)
         {
@@ -1753,32 +1768,24 @@ public sealed partial class AppController : IDisposable
         }
 
         EnsurePapersOnScreen();
-
-        var wasSuppressingDirty = _suppressDirty;
-        _suppressDirty = true;
-        _trayRefreshSuppressionDepth++;
-        try
+        var papersToShow = State.Papers.ToList();
+        foreach (var paper in papersToShow)
         {
-            var papersToShow = State.Papers.ToList();
-            var activationPaper = papersToShow.LastOrDefault(paper =>
-                !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
-            foreach (var paper in papersToShow)
-            {
-                ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
-            }
-        }
-        finally
-        {
-            _trayRefreshSuppressionDepth--;
-            _suppressDirty = wasSuppressingDirty;
+            paper.IsVisible = true;
         }
 
-        RefreshTrayMenu();
-        MarkDirty();
+        await RestorePaperSurfacesAsync(papersToShow);
+        if (!IsExiting)
+        {
+            MarkDirty();
+        }
     }
 
     public void HideAllPapers()
     {
+        _paperSurfaceRestoreGeneration++;
+        _isPreparingStartupEdgeCapsules = false;
+
         foreach (var window in _windows.Values)
         {
             window.PrepareForHide();
@@ -2505,7 +2512,7 @@ public sealed partial class AppController : IDisposable
             }
             else
             {
-                if (!paper.IsVisible && window.HasExpandedDeepCapsuleSlotReservation)
+                if (!paper.IsVisible && window.IsDeepCapsuleLeavingQueue)
                 {
                     continue;
                 }
@@ -3483,6 +3490,7 @@ public sealed partial class AppController : IDisposable
 
     private void DisposeRuntimeResources()
     {
+        _paperSurfaceRestoreGeneration++;
         _startupShellPrewarmGeneration++;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
