@@ -676,7 +676,7 @@
     <value>缩放把手</value>
   </data>
   <data name="TipResizeGripMode" xml:space="preserve">
-    <value>纸片右下角调整大小点阵：标准为正常不透明；柔和为约 50% 透明；隐藏只去掉可见点阵，右下角仍可拖动缩放。
+    <value>纸片调整大小方式：标准为右下角不透明点阵；柔和为约 50% 透明点阵；隐藏不显示点阵，可拖动纸片四边或四角缩放。
 点色以 Windows 系统深浅反色为主，并略微带上当前配色；点阵样式不变。</value>
   </data>
   <data name="ResizeGripModeStandard" xml:space="preserve">

@@ -641,7 +641,7 @@ Settings info icons always stay available.</value>
     <value>Resize grip</value>
   </data>
   <data name="TipResizeGripMode" xml:space="preserve">
-    <value>Paper corner resize dots: Standard is fully opaque; Soft is about 50% transparent; Hidden only hides the dots—you can still drag the bottom-right corner to resize.
+    <value>Paper resizing: Standard shows opaque bottom-right dots; Soft makes them about 50% transparent; Hidden removes the dots and lets you resize from any edge or corner.
 Dot color keeps Windows light/dark contrast with a slight scheme tint. Shape is unchanged.</value>
   </data>
   <data name="ResizeGripModeStandard" xml:space="preserve">

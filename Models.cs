@@ -93,7 +93,7 @@ public static class FullscreenTopmostModes
 }
 
 /// <summary>
-/// Paper corner ResizeGrip presentation: system-contrast color with optional soft fade or full hide.
+/// Paper ResizeGrip presentation: system-contrast corner dots, or hidden dots with edge resizing.
 /// </summary>
 public static class ResizeGripModes
 {
@@ -295,7 +295,7 @@ public sealed class AppState
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
     /// <summary>
-    /// Paper corner ResizeGrip: standard / soft (50% transparent) / hidden (dots only; corner still resizes).
+    /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.
     /// </summary>
     public string ResizeGripMode { get; set; } = ResizeGripModes.Soft;

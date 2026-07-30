@@ -741,8 +741,86 @@ public sealed partial class PaperWindow : Window
             !_paper.IsCollapsed;
     }
 
+    private bool TryGetHiddenResizeHitTest(IntPtr hwnd, IntPtr lParam, out int hitTest)
+    {
+        hitTest = 0;
+        if (ResizeGripModes.Normalize(_controller.State.ResizeGripMode) != ResizeGripModes.Hidden ||
+            _paper.IsCollapsed ||
+            IsPaperFormTransitioning ||
+            WindowState != WindowState.Normal ||
+            IsMinimized ||
+            (ResizeMode != ResizeMode.CanResize && ResizeMode != ResizeMode.CanResizeWithGrip) ||
+            !GetWindowRect(hwnd, out var bounds))
+        {
+            return false;
+        }
+
+        // WM_NCHITTEST packs signed screen coordinates into lParam. Preserve the sign so
+        // monitors to the left or above the primary display hit-test correctly.
+        var packedPosition = lParam.ToInt64();
+        var pointerX = unchecked((short)(packedPosition & 0xFFFF));
+        var pointerY = unchecked((short)((packedPosition >> 16) & 0xFFFF));
+
+        if (pointerX < bounds.Left ||
+            pointerX >= bounds.Right ||
+            pointerY < bounds.Top ||
+            pointerY >= bounds.Bottom)
+        {
+            return false;
+        }
+
+        var dpi = GetDpiForWindow(hwnd);
+        var dpiScale = dpi > 0 ? dpi / 96.0 : 1.0;
+        var resizeBorder = Math.Max(1.0, WindowChromeMargin * dpiScale);
+        var nearLeft = pointerX < bounds.Left + resizeBorder;
+        var nearRight = pointerX >= bounds.Right - resizeBorder;
+        var nearTop = pointerY < bounds.Top + resizeBorder;
+        var nearBottom = pointerY >= bounds.Bottom - resizeBorder;
+
+        if (nearTop && nearLeft)
+        {
+            hitTest = HtTopLeft;
+        }
+        else if (nearTop && nearRight)
+        {
+            hitTest = HtTopRight;
+        }
+        else if (nearBottom && nearLeft)
+        {
+            hitTest = HtBottomLeft;
+        }
+        else if (nearBottom && nearRight)
+        {
+            hitTest = HtBottomRight;
+        }
+        else if (nearLeft)
+        {
+            hitTest = HtLeft;
+        }
+        else if (nearRight)
+        {
+            hitTest = HtRight;
+        }
+        else if (nearTop)
+        {
+            hitTest = HtTop;
+        }
+        else if (nearBottom)
+        {
+            hitTest = HtBottom;
+        }
+
+        return hitTest != 0;
+    }
+
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == WmNcHitTest && TryGetHiddenResizeHitTest(hwnd, lParam, out var resizeHitTest))
+        {
+            handled = true;
+            return new IntPtr(resizeHitTest);
+        }
+
         // PreviewKeyDown needs a WPF keyboard-focus target. Note preview deliberately
         // makes the editor non-focusable, so an active paper can receive WM_KEYDOWN
         // without producing a routed key event. Handle Escape at the HWND boundary and

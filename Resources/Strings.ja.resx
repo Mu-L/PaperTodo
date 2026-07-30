@@ -654,7 +654,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>リサイズグリップ</value>
   </data>
   <data name="TipResizeGripMode" xml:space="preserve">
-    <value>紙の右下のサイズ変更ドット：標準は不透明、柔和は約 50% 透明、非表示は点だけを隠し、右下隅のドラッグでのリサイズはできます。
+    <value>紙のサイズ変更：標準は右下に不透明のドットを表示し、柔和は約 50% 透明にします。非表示はドットを消し、紙の四辺または四隅をドラッグしてサイズ変更できます。
 色は Windows の明暗を主に、配色をごく薄く乗せます。形はそのままです。</value>
   </data>
   <data name="ResizeGripModeStandard" xml:space="preserve">

@@ -81,7 +81,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 
 #### Basic Actions
 
-- **Move and resize** — Drag the title bar to move a paper; drag its bottom-right corner to resize it.
+- **Move and resize** — Drag the title bar to move a paper; resize from the bottom-right grip, or from any edge or corner when the grip is hidden.
 - **Pin on top** — The pin control in the top-left toggles always-on-top.
 - **Create** — Create todo and note papers from the top-right buttons.
 - **Open with external editor** — Click `MD` to open the current note externally; the file suffix is customizable.
@@ -169,7 +169,7 @@ The settings window has three pages: **Behavior / Visual / Shortcuts**. **Advanc
 **Visual**
 
 - **Theme and palettes** — Follow system / Light / Dark, with Warm Paper, Ink, Forest, and Rosy color schemes
-- **Resize grip** — Bottom-right resize dots: Standard (opaque) / Soft (about 50% opacity, default) / Hidden (fully transparent but still draggable)
+- **Resize grip** — Standard (opaque bottom-right dots) / Soft (about 50% opacity, default) / Hidden (no dots; drag any edge or corner to resize)
 - **Font** — System default / Microsoft YaHei / DengXian; add `papertodo.ttf` / `papertodo.otf` for a custom face, with optional enhanced bold from a matching file such as `papertodo_bold.ttf`
 - **Sizes and bold** — Overall scale about 80%–120%; note / todo / title / capsule each have Small / Medium / Large sizes and bold options, with additional density choices for todos
 - **Text rendering** — Standard / Soft / Sharp

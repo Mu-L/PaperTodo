@@ -654,7 +654,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>크기 조절 손잡이</value>
   </data>
   <data name="TipResizeGripMode" xml:space="preserve">
-    <value>종이 오른쪽 아래 크기 조절 점: 표준은 불투명, 부드럽게는 약 50% 투명, 숨기기는 점만 가리며 오른쪽 아래를 드래그해 크기 조절은 가능합니다.
+    <value>종이 크기 조절: 표준은 오른쪽 아래 점을 불투명하게 표시하고, 부드럽게는 약 50% 투명하게 표시합니다. 숨기기는 점을 없애고 종이의 네 변이나 모서리를 드래그해 크기를 조절할 수 있습니다.
 점 색은 Windows 밝음/어둠 대비에 배색을 아주 약간 탑니다. 모양은 그대로입니다.</value>
   </data>
   <data name="ResizeGripModeStandard" xml:space="preserve">

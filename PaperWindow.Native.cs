@@ -38,9 +38,18 @@ public sealed partial class PaperWindow
     private const int WmKeyDown = 0x0100;
     private const int WmSettingChange = 0x001A;
     private const int WmDisplayChange = 0x007E;
+    private const int WmNcHitTest = 0x0084;
     private const int WmDpiChanged = 0x02E0;
     private const int WmWindowPosChanged = 0x0047;
     private const int WmGetMinMaxInfo = 0x0024;
+    private const int HtLeft = 10;
+    private const int HtRight = 11;
+    private const int HtTop = 12;
+    private const int HtTopLeft = 13;
+    private const int HtTopRight = 14;
+    private const int HtBottom = 15;
+    private const int HtBottomLeft = 16;
+    private const int HtBottomRight = 17;
     private const int VkEscape = 0x1B;
 
     [StructLayout(LayoutKind.Sequential)]
