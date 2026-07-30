@@ -1216,7 +1216,11 @@ public sealed partial class AppController : IDisposable
         }
         paper.IsVisible = true;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
-        if (!_suppressDirty)
+        var hasLiveMinimizedWindow =
+            _windows.TryGetValue(paper.Id, out var liveWindow) &&
+            !liveWindow.IsClosed &&
+            liveWindow.IsMinimized;
+        if (!_suppressDirty && !hasLiveMinimizedWindow)
         {
             RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
         }
@@ -1227,9 +1231,10 @@ public sealed partial class AppController : IDisposable
             paper,
             deferShellConstruction: showAsDeepCapsuleOnly);
         window.CancelPendingVisibilityTransitions();
+        var restoringMinimizedWindow = false;
         if (!showAsDeepCapsuleOnly)
         {
-            RestoreWindowIfMinimized(window);
+            restoringMinimizedWindow = RestoreWindowIfMinimized(window);
         }
         // Restore first: a hidden minimized window raises StateChanged while it is still invisible,
         // so that event cannot resume note image rendering on its own.
@@ -1241,25 +1246,31 @@ public sealed partial class AppController : IDisposable
 
         if (!showAsDeepCapsuleOnly && !window.IsVisible)
         {
-            var targetBounds = snapTileBounds is Rect snapTile
-                ? snapTile
-                : new Rect(paper.X, paper.Y, paper.Width, paper.Height);
-            window.Left = targetBounds.Left;
-            window.Top = targetBounds.Top;
-            if (paper.IsCollapsed && State.UseCapsuleMode)
+            if (!restoringMinimizedWindow)
             {
-                window.Width = window.DesiredCapsuleWindowWidth;
-                window.Height = PaperLayoutDefaults.CapsuleHeight;
+                var targetBounds = snapTileBounds is Rect snapTile
+                    ? snapTile
+                    : new Rect(paper.X, paper.Y, paper.Width, paper.Height);
+                window.Left = targetBounds.Left;
+                window.Top = targetBounds.Top;
+                if (paper.IsCollapsed && State.UseCapsuleMode)
+                {
+                    window.Width = window.DesiredCapsuleWindowWidth;
+                    window.Height = PaperLayoutDefaults.CapsuleHeight;
+                }
+                else
+                {
+                    window.Width = targetBounds.Width;
+                    window.Height = targetBounds.Height;
+                }
+                if (!snapTileBounds.HasValue && window.TryRestoreRememberedDeepCapsuleExpandedGeometry())
+                {
+                    snapTileBounds = null;
+                }
             }
-            else
-            {
-                window.Width = targetBounds.Width;
-                window.Height = targetBounds.Height;
-            }
-            if (!snapTileBounds.HasValue && window.TryRestoreRememberedDeepCapsuleExpandedGeometry())
-            {
-                snapTileBounds = null;
-            }
+            // SystemCommands.RestoreWindow posts SC_RESTORE. While that message is pending,
+            // assigning WPF Left/Top/Width/Height would replace Win32's pre-minimize restore
+            // bounds and can move a secondary-monitor paper to the primary monitor.
             // To prevent a 1-frame DWM cache flash when a window's size changes while hidden,
             // we show it fully transparent first, then restore opacity after layout is complete.
             double originalOpacity = window.Opacity;
@@ -1278,7 +1289,7 @@ public sealed partial class AppController : IDisposable
                     return;
                 }
 
-                if (snapTileBounds is Rect snapTile)
+                if (!restoringMinimizedWindow && snapTileBounds is Rect snapTile)
                 {
                     window.RestoreSnapTilePresentation(snapTile);
                 }
@@ -1394,12 +1405,17 @@ public sealed partial class AppController : IDisposable
         ForceWindowToFrontWithEmphasis(window, State);
     }
 
-    private static void RestoreWindowIfMinimized(Window window)
+    private static bool RestoreWindowIfMinimized(Window window)
     {
-        if (window.WindowState == WindowState.Minimized)
+        var isMinimized =
+            window.WindowState == WindowState.Minimized ||
+            WindowNative.IsMinimized(window);
+        if (isMinimized)
         {
             SystemCommands.RestoreWindow(window);
         }
+
+        return isMinimized;
     }
 
     private void RefreshTopmostForForegroundWindow(bool forceGlobalScan = false)
@@ -1767,7 +1783,7 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        EnsurePapersOnScreen();
+        EnsurePapersOnScreen(preserveLiveMinimizedWindows: true);
         var papersToShow = State.Papers.ToList();
         foreach (var paper in papersToShow)
         {
@@ -2218,6 +2234,12 @@ public sealed partial class AppController : IDisposable
 
     public void UpdateGeometry(PaperData paper, Window window)
     {
+        if (window.WindowState == WindowState.Minimized ||
+            WindowNative.IsMinimized(window))
+        {
+            return;
+        }
+
         if (window is PaperWindow { SuppressGeometrySave: true })
         {
             return;
@@ -3076,12 +3098,21 @@ public sealed partial class AppController : IDisposable
         return paper.IsVisible && _windows.TryGetValue(paper.Id, out var window) && window.HasVisibleSurface;
     }
 
-    private bool EnsurePapersOnScreen()
+    private bool EnsurePapersOnScreen(bool preserveLiveMinimizedWindows = false)
     {
         var changed = false;
         for (var i = 0; i < State.Papers.Count; i++)
         {
-            changed |= RescuePaperIfOffScreen(State.Papers[i], i);
+            var paper = State.Papers[i];
+            if (preserveLiveMinimizedWindows &&
+                _windows.TryGetValue(paper.Id, out var window) &&
+                !window.IsClosed &&
+                window.IsMinimized)
+            {
+                continue;
+            }
+
+            changed |= RescuePaperIfOffScreen(paper, i);
         }
 
         return changed;

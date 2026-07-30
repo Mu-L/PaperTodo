@@ -193,12 +193,15 @@ public sealed partial class PaperWindow : Window
     public bool IsDeepCapsulePlaced => _paper.IsCollapsed && HasDeepCapsuleSlotPlacement;
     internal bool IsShellBuilt => _isShellBuilt;
     public bool IsDeepCapsuleSlotVisible => _edgeCapsuleHost?.IsVisible == true;
+    internal bool IsMinimized =>
+        WindowState == WindowState.Minimized ||
+        WindowNative.IsMinimized(this);
     public bool HasVisibleSurface =>
-        (IsVisible && WindowState != WindowState.Minimized) ||
+        (IsVisible && !IsMinimized) ||
         IsDeepCapsuleSlotVisible;
     public bool HasExpandedPaperSurface =>
         IsVisible &&
-        WindowState != WindowState.Minimized &&
+        !IsMinimized &&
         !_paper.IsCollapsed;
     public bool IsCollapseAllRetracted => IsDeepCapsuleRetractedIntoMaster;
     public bool HasExpandedDeepCapsuleSlotReservation => EdgeCapsuleSlot is
@@ -578,17 +581,18 @@ public sealed partial class PaperWindow : Window
         DpiChanged += (_, _) => _noteBox?.RefreshImageDecodeForCurrentDpi();
         StateChanged += (_, _) =>
         {
-            RefreshSnappedPresentation(forceApply: true);
-            if (_paper.Type != PaperTypes.Note)
+            if (IsMinimized)
             {
+                if (_paper.Type == PaperTypes.Note)
+                {
+                    ReleaseHiddenNoteImages();
+                }
+
                 return;
             }
 
-            if (WindowState == WindowState.Minimized)
-            {
-                ReleaseHiddenNoteImages();
-            }
-            else if (IsVisible)
+            RefreshSnappedPresentation(forceApply: true);
+            if (_paper.Type == PaperTypes.Note && IsVisible)
             {
                 PrepareForShow();
             }
@@ -829,7 +833,10 @@ public sealed partial class PaperWindow : Window
 
     private void RefreshSnappedPresentation(bool forceApply = false)
     {
-        if (_paperChrome == null)
+        // Win+Down can deliver WM_WINDOWPOSCHANGED after the HWND is iconic but before
+        // WPF has synchronized WindowState. Preserve the last real paper presentation
+        // throughout that transition, then reconcile it from StateChanged after restore.
+        if (_paperChrome == null || IsMinimized)
         {
             return;
         }

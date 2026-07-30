@@ -2548,7 +2548,7 @@ public sealed partial class AppController
         {
             if (!paper.IsVisible ||
                 !_windows.TryGetValue(paper.Id, out var window) ||
-                window.WindowState == WindowState.Minimized ||
+                window.IsMinimized ||
                 window.HasVisibleSurface)
             {
                 continue;

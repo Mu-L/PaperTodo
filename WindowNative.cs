@@ -434,6 +434,12 @@ internal static class WindowNative
         return false;
     }
 
+    public static bool IsMinimized(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        return handle != IntPtr.Zero && IsIconic(handle);
+    }
+
     public static bool TryGetWindowScreenBounds(Window window, out Rect bounds)
     {
         var handle = new WindowInteropHelper(window).Handle;
@@ -598,6 +604,9 @@ internal static class WindowNative
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(
