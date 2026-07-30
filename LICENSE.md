@@ -18,6 +18,23 @@
 
 
 
+# PaperTodo 授权条款（中文译文）
+
+> 本节仅为后附英文说明的中文翻译；如有任何不一致，以英文说明为准。
+
+版权所有 © 2026 snownico0722。
+
+PaperTodo 依据本文件所包含的以下两份授权文件发布：
+
+1. 未经修改的 **PolyForm Noncommercial License 1.0.0**；以及
+2. **PaperTodo Individual Professional Use Additional Permission 1.0**。
+
+该附加许可扩展了自然人自行取得 PaperTodo，并在工作中将其作为个人工具使用时可享有的权利。该许可不授予组织部署权利。
+
+必要声明（中文译文）：PaperTodo 版权所有 © 2026 snownico0722。PaperTodo 依据 PolyForm Noncommercial License 1.0.0 及 PaperTodo Individual Professional Use Additional Permission 1.0 授权，完整条款见原项目 LICENSE 文件：https://github.com/snownico0722/PaperTodo/blob/main/LICENSE.md。原项目：https://github.com/snownico0722/PaperTodo
+
+---
+
 # PaperTodo Licensing Terms
 
 Copyright © 2026 snownico0722.
