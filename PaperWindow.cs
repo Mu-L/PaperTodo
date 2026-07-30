@@ -193,15 +193,12 @@ public sealed partial class PaperWindow : Window
     public bool IsDeepCapsulePlaced => _paper.IsCollapsed && HasDeepCapsuleSlotPlacement;
     internal bool IsShellBuilt => _isShellBuilt;
     public bool IsDeepCapsuleSlotVisible => _edgeCapsuleHost?.IsVisible == true;
-    internal bool IsMinimized =>
-        WindowState == WindowState.Minimized ||
-        WindowNative.IsMinimized(this);
     public bool HasVisibleSurface =>
-        (IsVisible && !IsMinimized) ||
+        (IsVisible && WindowState != WindowState.Minimized) ||
         IsDeepCapsuleSlotVisible;
     public bool HasExpandedPaperSurface =>
         IsVisible &&
-        !IsMinimized &&
+        WindowState != WindowState.Minimized &&
         !_paper.IsCollapsed;
     public bool IsCollapseAllRetracted => IsDeepCapsuleRetractedIntoMaster;
     public bool HasExpandedDeepCapsuleSlotReservation => EdgeCapsuleSlot is
@@ -581,18 +578,17 @@ public sealed partial class PaperWindow : Window
         DpiChanged += (_, _) => _noteBox?.RefreshImageDecodeForCurrentDpi();
         StateChanged += (_, _) =>
         {
-            if (IsMinimized)
+            RefreshSnappedPresentation(forceApply: true);
+            if (_paper.Type != PaperTypes.Note)
             {
-                if (_paper.Type == PaperTypes.Note)
-                {
-                    ReleaseHiddenNoteImages();
-                }
-
                 return;
             }
 
-            RefreshSnappedPresentation(forceApply: true);
-            if (_paper.Type == PaperTypes.Note && IsVisible)
+            if (WindowState == WindowState.Minimized)
+            {
+                ReleaseHiddenNoteImages();
+            }
+            else if (IsVisible)
             {
                 PrepareForShow();
             }
@@ -748,7 +744,6 @@ public sealed partial class PaperWindow : Window
             _paper.IsCollapsed ||
             IsPaperFormTransitioning ||
             WindowState != WindowState.Normal ||
-            IsMinimized ||
             (ResizeMode != ResizeMode.CanResize && ResizeMode != ResizeMode.CanResizeWithGrip) ||
             !GetWindowRect(hwnd, out var bounds))
         {
@@ -815,6 +810,13 @@ public sealed partial class PaperWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // Keep restore/maximize on the default system path; only native minimization is blocked.
+        if (msg == WmSysCommand && (wParam.ToInt64() & SystemCommandMask) == ScMinimize)
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (msg == WmNcHitTest && TryGetHiddenResizeHitTest(hwnd, lParam, out var resizeHitTest))
         {
             handled = true;
@@ -911,10 +913,7 @@ public sealed partial class PaperWindow : Window
 
     private void RefreshSnappedPresentation(bool forceApply = false)
     {
-        // Win+Down can deliver WM_WINDOWPOSCHANGED after the HWND is iconic but before
-        // WPF has synchronized WindowState. Preserve the last real paper presentation
-        // throughout that transition, then reconcile it from StateChanged after restore.
-        if (_paperChrome == null || IsMinimized)
+        if (_paperChrome == null)
         {
             return;
         }

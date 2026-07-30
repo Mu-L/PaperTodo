@@ -36,6 +36,7 @@ namespace PaperTodo;
 public sealed partial class PaperWindow
 {
     private const int WmKeyDown = 0x0100;
+    private const int WmSysCommand = 0x0112;
     private const int WmSettingChange = 0x001A;
     private const int WmDisplayChange = 0x007E;
     private const int WmNcHitTest = 0x0084;
@@ -50,6 +51,8 @@ public sealed partial class PaperWindow
     private const int HtBottom = 15;
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
+    private const int ScMinimize = 0xF020;
+    private const int SystemCommandMask = 0xFFF0;
     private const int VkEscape = 0x1B;
 
     [StructLayout(LayoutKind.Sequential)]
