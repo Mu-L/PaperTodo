@@ -16,3 +16,4 @@ PaperTodo.crash.log
 .codex_decompile_debug/
 extract_code.py
 rollout-*.jsonl
+plugins/**/.runtime/

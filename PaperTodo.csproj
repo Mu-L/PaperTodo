@@ -32,9 +32,11 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="assets\icons\PaperTodo.ico" />
+    <!-- Repository plugin outputs are available to normal development builds, but plugins are
+         distributed separately and must not be included in local or CI publish artifacts. -->
     <Content Include="plugins\**\*" Exclude="plugins\**\.runtime\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </Content>
     <Content Include="$(PaperTodoLmdbLibrary)">
       <Link>papertodo_lmdb.dll</Link>

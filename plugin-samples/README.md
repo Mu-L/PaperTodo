@@ -1,4 +1,14 @@
-# PaperTodo 正文插件目录
+# PaperTodo 插件源码
+
+仓库中的插件目录有明确边界：
+
+- `plugin-samples/` 保存插件源码、清单源文件和构建说明；
+- `plugins/` 只保存已经构建、可由 PaperTodo 直接加载的最终产物；
+- PaperTodo 的本地发布和 GitHub Release 都不携带插件，插件需要单独分发。
+
+最终原生插件目录只保留 `plugin.json`、入口 DLL、必要的 `.deps.json`、插件私有依赖和原生库。不要放入 PDB、XML 文档、重复 DLL 或 PaperTodo 宿主已经提供的共享程序集。
+
+## 部署目录
 
 > **信任边界：PaperTodo 不为插件提供沙箱。** 原生插件以当前用户权限在主进程中运行，Web 插件允许联网；宿主仅拦截 Web 外部导航、远程 iframe、弹窗、下载和权限请求等轻度防误用行为，这些限制不构成安全隔离。只安装你完全信任的插件及其远程依赖。
 

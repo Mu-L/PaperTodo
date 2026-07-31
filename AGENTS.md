@@ -107,6 +107,8 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 
 版本号显式维护在 `PaperTodo.csproj`，不要恢复自动递增版本号。
 
+`plugin-samples/` 只保存插件源码和构建说明，`plugins/` 只保存可直接加载的最终插件产物。普通开发构建可以复制 `plugins/` 方便调试，但本地 `dotnet publish` 和 GitHub Release 都不携带插件；插件单独构建和分发。最终插件目录不保留 PDB、XML 文档、重复原生库、宿主已提供的共享程序集或其他中间产物。
+
 普通编译：
 
 ```powershell
