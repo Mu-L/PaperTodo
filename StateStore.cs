@@ -474,6 +474,9 @@ public sealed class StateStore
         state.ExperimentalRestingCapsuleOpacityLevel = ExperimentalOpacityLevels.Normalize(
             state.ExperimentalRestingCapsuleOpacityLevel,
             ExperimentalOpacityLevels.DefaultRestingCapsule);
+        state.ExperimentalTodoReminderQuickMinutes =
+            ExperimentalTodoReminderOptions.NormalizeQuickMinutes(
+                state.ExperimentalTodoReminderQuickMinutes);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)

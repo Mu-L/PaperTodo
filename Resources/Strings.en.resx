@@ -774,6 +774,72 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>Resting opacity</value>
   </data>
+  <data name="LabsTodoReminders" xml:space="preserve">
+    <value>Todo reminders</value>
+  </data>
+  <data name="LabsEnableTodoReminders" xml:space="preserve">
+    <value>Enable lightweight todo reminders</value>
+  </data>
+  <data name="TipLabsTodoReminders" xml:space="preserve">
+    <value>Shows a reminder button to the left of each todo drag handle and uses a tray balloon when due. Turning it off hides the buttons and stops timing while preserving saved times.</value>
+  </data>
+  <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
+    <value>Default quick reminder</value>
+  </data>
+  <data name="TodoReminderMinutesValueFormat" xml:space="preserve">
+    <value>{0} minutes</value>
+  </data>
+  <data name="TodoReminderSetForFormat" xml:space="preserve">
+    <value>Reminder: {0}</value>
+  </data>
+  <data name="TodoReminderSet" xml:space="preserve">
+    <value>Set reminder</value>
+  </data>
+  <data name="TodoReminderMenuHeader" xml:space="preserve">
+    <value>Reminder time</value>
+  </data>
+  <data name="TodoReminderInMinutesFormat" xml:space="preserve">
+    <value>In {0} minutes</value>
+  </data>
+  <data name="TodoReminderDefaultSuffix" xml:space="preserve">
+    <value> (default)</value>
+  </data>
+  <data name="TodoReminderPresetAtFormat" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="TodoReminderCustom" xml:space="preserve">
+    <value>Custom time…</value>
+  </data>
+  <data name="TodoReminderClear" xml:space="preserve">
+    <value>Clear reminder</value>
+  </data>
+  <data name="TodoReminderCustomTitle" xml:space="preserve">
+    <value>Custom todo reminder</value>
+  </data>
+  <data name="TodoReminderDate" xml:space="preserve">
+    <value>Date</value>
+  </data>
+  <data name="TodoReminderTime" xml:space="preserve">
+    <value>Time</value>
+  </data>
+  <data name="TodoReminderFutureRequired" xml:space="preserve">
+    <value>Choose a reminder later than the current time.</value>
+  </data>
+  <data name="TodoReminderInvalidLocalTime" xml:space="preserve">
+    <value>That local time does not exist because of a daylight-saving transition. Choose another time.</value>
+  </data>
+  <data name="TodoReminderBalloonTitle" xml:space="preserve">
+    <value>Todo reminder</value>
+  </data>
+  <data name="TodoReminderBalloonSingleFormat" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="TodoReminderBalloonMultipleFormat" xml:space="preserve">
+    <value>{0} todos are due. First: {1}</value>
+  </data>
+  <data name="TodoReminderUnnamed" xml:space="preserve">
+    <value>(Unnamed todo)</value>
+  </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>Shortcut pass-through</value>
   </data>

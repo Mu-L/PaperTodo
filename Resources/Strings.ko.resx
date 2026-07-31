@@ -774,6 +774,72 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>대기 중 불투명도</value>
   </data>
+  <data name="LabsTodoReminders" xml:space="preserve">
+    <value>할 일 알림</value>
+  </data>
+  <data name="LabsEnableTodoReminders" xml:space="preserve">
+    <value>가벼운 할 일 알림 사용</value>
+  </data>
+  <data name="TipLabsTodoReminders" xml:space="preserve">
+    <value>각 할 일의 드래그 핸들 왼쪽에 알림 버튼을 표시하고 시간이 되면 트레이 풍선으로 알려 줍니다. 끄면 버튼과 타이머가 중지되지만 저장된 시간은 유지됩니다.</value>
+  </data>
+  <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
+    <value>기본 빠른 알림</value>
+  </data>
+  <data name="TodoReminderMinutesValueFormat" xml:space="preserve">
+    <value>{0}분</value>
+  </data>
+  <data name="TodoReminderSetForFormat" xml:space="preserve">
+    <value>알림: {0}</value>
+  </data>
+  <data name="TodoReminderSet" xml:space="preserve">
+    <value>알림 설정</value>
+  </data>
+  <data name="TodoReminderMenuHeader" xml:space="preserve">
+    <value>알림 시간</value>
+  </data>
+  <data name="TodoReminderInMinutesFormat" xml:space="preserve">
+    <value>{0}분 후</value>
+  </data>
+  <data name="TodoReminderDefaultSuffix" xml:space="preserve">
+    <value>(기본)</value>
+  </data>
+  <data name="TodoReminderPresetAtFormat" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="TodoReminderCustom" xml:space="preserve">
+    <value>사용자 지정 시간…</value>
+  </data>
+  <data name="TodoReminderClear" xml:space="preserve">
+    <value>알림 지우기</value>
+  </data>
+  <data name="TodoReminderCustomTitle" xml:space="preserve">
+    <value>할 일 알림 사용자 지정</value>
+  </data>
+  <data name="TodoReminderDate" xml:space="preserve">
+    <value>날짜</value>
+  </data>
+  <data name="TodoReminderTime" xml:space="preserve">
+    <value>시간</value>
+  </data>
+  <data name="TodoReminderFutureRequired" xml:space="preserve">
+    <value>현재 시간보다 늦은 알림을 선택하세요.</value>
+  </data>
+  <data name="TodoReminderInvalidLocalTime" xml:space="preserve">
+    <value>일광 절약 시간 전환으로 존재하지 않는 현지 시간입니다. 다른 시간을 선택하세요.</value>
+  </data>
+  <data name="TodoReminderBalloonTitle" xml:space="preserve">
+    <value>할 일 알림</value>
+  </data>
+  <data name="TodoReminderBalloonSingleFormat" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="TodoReminderBalloonMultipleFormat" xml:space="preserve">
+    <value>할 일 {0}개가 알림 시간입니다. 첫 항목: {1}</value>
+  </data>
+  <data name="TodoReminderUnnamed" xml:space="preserve">
+    <value>(이름 없는 할 일)</value>
+  </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>단축키로 뒤로 보내기</value>
   </data>

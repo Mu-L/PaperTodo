@@ -231,6 +231,25 @@ public static class ExperimentalOpacityLevels
     }
 }
 
+public static class ExperimentalTodoReminderOptions
+{
+    public const int MinimumQuickMinutes = 5;
+    public const int MaximumQuickMinutes = 240;
+    public const int QuickMinutesStep = 5;
+    public const int DefaultQuickMinutes = 30;
+
+    public static int NormalizeQuickMinutes(int minutes)
+    {
+        var clamped = Math.Clamp(
+            minutes,
+            MinimumQuickMinutes,
+            MaximumQuickMinutes);
+        return (int)Math.Round(
+            clamped / (double)QuickMinutesStep,
+            MidpointRounding.AwayFromZero) * QuickMinutesStep;
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -323,6 +342,9 @@ public sealed class AppState
     public bool ExperimentalRestingCapsuleOpacity { get; set; }
     public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
         ExperimentalOpacityLevels.DefaultRestingCapsule;
+    public bool ExperimentalTodoReminders { get; set; }
+    public int ExperimentalTodoReminderQuickMinutes { get; set; } =
+        ExperimentalTodoReminderOptions.DefaultQuickMinutes;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.
@@ -412,4 +434,7 @@ public sealed class PaperItem
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LinkedNoteId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ReminderAt { get; set; }
 }

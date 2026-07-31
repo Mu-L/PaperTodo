@@ -774,6 +774,72 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>待機中の不透明度</value>
   </data>
+  <data name="LabsTodoReminders" xml:space="preserve">
+    <value>ToDo リマインダー</value>
+  </data>
+  <data name="LabsEnableTodoReminders" xml:space="preserve">
+    <value>軽量 ToDo リマインダーを有効にする</value>
+  </data>
+  <data name="TipLabsTodoReminders" xml:space="preserve">
+    <value>各 ToDo のドラッグハンドル左側にリマインダーボタンを表示し、期限になるとトレイ通知を出します。オフにするとボタンと計時は停止しますが、保存済みの時刻は保持されます。</value>
+  </data>
+  <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
+    <value>既定のクイックリマインダー</value>
+  </data>
+  <data name="TodoReminderMinutesValueFormat" xml:space="preserve">
+    <value>{0} 分</value>
+  </data>
+  <data name="TodoReminderSetForFormat" xml:space="preserve">
+    <value>リマインダー：{0}</value>
+  </data>
+  <data name="TodoReminderSet" xml:space="preserve">
+    <value>リマインダーを設定</value>
+  </data>
+  <data name="TodoReminderMenuHeader" xml:space="preserve">
+    <value>リマインダー時刻</value>
+  </data>
+  <data name="TodoReminderInMinutesFormat" xml:space="preserve">
+    <value>{0} 分後</value>
+  </data>
+  <data name="TodoReminderDefaultSuffix" xml:space="preserve">
+    <value>（既定）</value>
+  </data>
+  <data name="TodoReminderPresetAtFormat" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="TodoReminderCustom" xml:space="preserve">
+    <value>時刻を指定…</value>
+  </data>
+  <data name="TodoReminderClear" xml:space="preserve">
+    <value>リマインダーを解除</value>
+  </data>
+  <data name="TodoReminderCustomTitle" xml:space="preserve">
+    <value>ToDo リマインダーの指定</value>
+  </data>
+  <data name="TodoReminderDate" xml:space="preserve">
+    <value>日付</value>
+  </data>
+  <data name="TodoReminderTime" xml:space="preserve">
+    <value>時刻</value>
+  </data>
+  <data name="TodoReminderFutureRequired" xml:space="preserve">
+    <value>現在より後の時刻を選択してください。</value>
+  </data>
+  <data name="TodoReminderInvalidLocalTime" xml:space="preserve">
+    <value>夏時間の切り替えにより存在しない時刻です。別の時刻を選択してください。</value>
+  </data>
+  <data name="TodoReminderBalloonTitle" xml:space="preserve">
+    <value>ToDo リマインダー</value>
+  </data>
+  <data name="TodoReminderBalloonSingleFormat" xml:space="preserve">
+    <value>{0}・{1}</value>
+  </data>
+  <data name="TodoReminderBalloonMultipleFormat" xml:space="preserve">
+    <value>{0} 件の ToDo が期限です。先頭：{1}</value>
+  </data>
+  <data name="TodoReminderUnnamed" xml:space="preserve">
+    <value>（名前のない ToDo）</value>
+  </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>ショートカットで背面化</value>
   </data>

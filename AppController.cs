@@ -43,6 +43,7 @@ public sealed partial class AppController : IDisposable
     private readonly DispatcherTimer _forceSaveTimer;
     private readonly DispatcherTimer _topmostRefreshTimer;
     private readonly DispatcherTimer _displayMetricsRefreshTimer;
+    private DispatcherTimer? _todoReminderTimer;
     private bool _hasPendingDirty;
 
     private TaskbarIcon? _trayIcon;
@@ -248,6 +249,7 @@ public sealed partial class AppController : IDisposable
             DispatcherPriority.SystemIdle);
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
+        RefreshTodoReminderSchedule();
 
         if (State.Papers.Count == 0)
         {
@@ -1845,6 +1847,7 @@ public sealed partial class AppController : IDisposable
 
         State.Papers.RemoveAll(p => p.Id == paper.Id);
         _visibilityAnimationVersions.Remove(paper.Id);
+        NotifyTodoReminderCollectionChanged();
 
         if (!string.IsNullOrWhiteSpace(deletedNoteId))
         {
@@ -3414,6 +3417,7 @@ public sealed partial class AppController : IDisposable
         _forceSaveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
+        StopTodoReminderTimer();
 
         if (!TrySaveNow(sync: true))
         {
@@ -3512,6 +3516,7 @@ public sealed partial class AppController : IDisposable
         _forceSaveTimer.Stop();
         _topmostRefreshTimer.Stop();
         _displayMetricsRefreshTimer.Stop();
+        StopTodoReminderTimer();
         ClearNoteLinkDropTarget();
         _deepCapsuleContextMenuOwners.Clear();
         _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;

@@ -787,6 +787,72 @@
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>静止透明度</value>
   </data>
+  <data name="LabsTodoReminders" xml:space="preserve">
+    <value>待办提醒</value>
+  </data>
+  <data name="LabsEnableTodoReminders" xml:space="preserve">
+    <value>启用轻量待办提醒</value>
+  </data>
+  <data name="TipLabsTodoReminders" xml:space="preserve">
+    <value>在待办拖拽柄左侧显示提醒键，到期后使用系统托盘气泡提示。关闭时不显示按钮、不运行计时；已保存的时间会保留。</value>
+  </data>
+  <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
+    <value>默认快速提醒</value>
+  </data>
+  <data name="TodoReminderMinutesValueFormat" xml:space="preserve">
+    <value>{0} 分钟</value>
+  </data>
+  <data name="TodoReminderSetForFormat" xml:space="preserve">
+    <value>提醒：{0}</value>
+  </data>
+  <data name="TodoReminderSet" xml:space="preserve">
+    <value>设置提醒</value>
+  </data>
+  <data name="TodoReminderMenuHeader" xml:space="preserve">
+    <value>提醒时间</value>
+  </data>
+  <data name="TodoReminderInMinutesFormat" xml:space="preserve">
+    <value>{0} 分钟后</value>
+  </data>
+  <data name="TodoReminderDefaultSuffix" xml:space="preserve">
+    <value>（默认）</value>
+  </data>
+  <data name="TodoReminderPresetAtFormat" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="TodoReminderCustom" xml:space="preserve">
+    <value>自定义时间…</value>
+  </data>
+  <data name="TodoReminderClear" xml:space="preserve">
+    <value>清除提醒</value>
+  </data>
+  <data name="TodoReminderCustomTitle" xml:space="preserve">
+    <value>自定义待办提醒</value>
+  </data>
+  <data name="TodoReminderDate" xml:space="preserve">
+    <value>日期</value>
+  </data>
+  <data name="TodoReminderTime" xml:space="preserve">
+    <value>时间</value>
+  </data>
+  <data name="TodoReminderFutureRequired" xml:space="preserve">
+    <value>请选择一个晚于当前时间的提醒。</value>
+  </data>
+  <data name="TodoReminderInvalidLocalTime" xml:space="preserve">
+    <value>该本地时间因夏令时切换而不存在，请选择其他时间。</value>
+  </data>
+  <data name="TodoReminderBalloonTitle" xml:space="preserve">
+    <value>待办提醒</value>
+  </data>
+  <data name="TodoReminderBalloonSingleFormat" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="TodoReminderBalloonMultipleFormat" xml:space="preserve">
+    <value>{0} 个待办到期，首项：{1}</value>
+  </data>
+  <data name="TodoReminderUnnamed" xml:space="preserve">
+    <value>（未命名待办）</value>
+  </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>快捷键置底</value>
   </data>

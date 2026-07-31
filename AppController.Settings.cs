@@ -257,6 +257,28 @@ public sealed partial class AppController
         }
     }
 
+    private void ToggleExperimentalTodoReminders()
+    {
+        State.ExperimentalTodoReminders = !State.ExperimentalTodoReminders;
+        SaveNow();
+        RefreshTodoReminderFeature();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalTodoReminderQuickMinutes(int minutes)
+    {
+        var normalized =
+            ExperimentalTodoReminderOptions.NormalizeQuickMinutes(minutes);
+        if (State.ExperimentalTodoReminderQuickMinutes == normalized)
+        {
+            return;
+        }
+
+        State.ExperimentalTodoReminderQuickMinutes = normalized;
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
     private void SetTitleTextSize(string size)
     {
         var normalized = VisualTextSizes.Normalize(size);
@@ -1139,6 +1161,9 @@ public sealed partial class AppController
         columns.Children.Add(rightColumn);
         root.Children.Add(columns);
 
+        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
+        root.Children.Add(BuildLabsTodoReminderSettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsPassiveMode")));
         if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperPassive) is { } currentPassive)
         {
@@ -1154,6 +1179,109 @@ public sealed partial class AppController
         }
 
         return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
+    }
+
+    private UIElement BuildLabsTodoReminderSettings()
+    {
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableTodoReminders"),
+                State.ExperimentalTodoReminders,
+                ToggleExperimentalTodoReminders),
+            "TipLabsTodoReminders"));
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsTodoReminderQuickMinutes"),
+            topMargin: 7));
+        content.Children.Add(CreateLabsTodoReminderMinutesStepper());
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateLabsTodoReminderMinutesStepper()
+    {
+        var isEnabled = State.ExperimentalTodoReminders;
+        var container = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 0),
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEnabled = isEnabled,
+            Opacity = isEnabled ? 1.0 : 0.55
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var valueText = new TextBlock
+        {
+            Text = Strings.Format(
+                "TodoReminderMinutesValueFormat",
+                State.ExperimentalTodoReminderQuickMinutes),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TrayTextBrush
+        };
+        Grid.SetColumn(valueText, 1);
+
+        Border StepButton(string glyph, int column, int delta)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(15),
+                Foreground = TrayTextBrush
+            };
+            var button = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = glyphText
+            };
+            button.MouseEnter += (_, _) => button.Background = TrayHoverBrush;
+            button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
+            button.MouseLeftButtonDown += (_, e) =>
+            {
+                SetExperimentalTodoReminderQuickMinutes(
+                    State.ExperimentalTodoReminderQuickMinutes + delta);
+                e.Handled = true;
+            };
+            Grid.SetColumn(button, column);
+            return button;
+        }
+
+        grid.Children.Add(StepButton(
+            "−",
+            0,
+            -ExperimentalTodoReminderOptions.QuickMinutesStep));
+        grid.Children.Add(valueText);
+        grid.Children.Add(StepButton(
+            "＋",
+            2,
+            ExperimentalTodoReminderOptions.QuickMinutesStep));
+        container.Child = grid;
+        return container;
     }
 
     private UIElement CreateLabsPercentageStepper(
@@ -1234,10 +1362,14 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacity = false;
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
+        State.ExperimentalTodoReminders = false;
+        State.ExperimentalTodoReminderQuickMinutes =
+            ExperimentalTodoReminderOptions.DefaultQuickMinutes;
         RestoreLabsShortcutDefaults();
 
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);
+        RefreshTodoReminderFeature();
         RefreshSettingsWindowContent();
     }
 

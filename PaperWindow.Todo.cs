@@ -316,6 +316,8 @@ public sealed partial class PaperWindow
             _controller.TryGetLinkedNoteTitle(item.LinkedNoteId, out linkedNoteTitle);
         var runLinkedScriptOnClick = hasLinkedNote &&
             _controller.ShouldRunLinkedScriptCapsule(item.LinkedNoteId);
+        var todoRemindersEnabled =
+            _controller.State.ExperimentalTodoReminders;
 
         var row = new Border
         {
@@ -358,6 +360,10 @@ public sealed partial class PaperWindow
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(metrics.CheckColumnWidth) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        if (todoRemindersEnabled)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        }
         grid.ColumnDefinitions.Add(new ColumnDefinition
         {
             Width = new GridLength(Math.Max(
@@ -378,6 +384,7 @@ public sealed partial class PaperWindow
 
         Grid.SetColumn(check, 0);
         grid.Children.Add(check);
+        Border? reminderButton = null;
 
         var text = new TodoTextBox
         {
@@ -443,6 +450,15 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = true;
+            if (todoRemindersEnabled && item.ReminderAt.HasValue)
+            {
+                item.ReminderAt = null;
+                _controller.NotifyTodoReminderChanged(saveImmediately: false);
+            }
+            if (reminderButton != null)
+            {
+                reminderButton.Visibility = Visibility.Hidden;
+            }
             text.IsDone = true;
             text.Foreground = BrightWeakTextBrush;
             _controller.MarkDirty();
@@ -464,6 +480,14 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = false;
+            if (reminderButton != null)
+            {
+                reminderButton.Visibility = Visibility.Visible;
+            }
+            if (todoRemindersEnabled && item.ReminderAt.HasValue)
+            {
+                _controller.NotifyTodoReminderCollectionChanged();
+            }
             text.IsDone = false;
             text.Foreground = TextBrush;
             _controller.MarkDirty();
@@ -711,6 +735,13 @@ public sealed partial class PaperWindow
             grid.Children.Add(linkButton);
         }
 
+        if (todoRemindersEnabled)
+        {
+            reminderButton = BuildTodoReminderButton(item, metrics);
+            Grid.SetColumn(reminderButton, 3);
+            grid.Children.Add(reminderButton);
+        }
+
         var handleGlyph = new TextBlock
         {
             Text = "≡",
@@ -759,7 +790,7 @@ public sealed partial class PaperWindow
         };
         AttachItemContextMenu(handle);
 
-        Grid.SetColumn(handle, 3);
+        Grid.SetColumn(handle, todoRemindersEnabled ? 4 : 3);
         grid.Children.Add(handle);
 
         row.Child = grid;
@@ -820,6 +851,7 @@ public sealed partial class PaperWindow
             NormalizeTodoItems();
             NormalizeOrders();
             _controller.MarkDirty();
+            _controller.NotifyTodoReminderCollectionChanged();
 
             var focusPlacement = previous != null ? TodoFocusPlacement.End : TodoFocusPlacement.Start;
             RebuildTodoRows(focusTarget, focusPlacement);
@@ -1028,6 +1060,7 @@ public sealed partial class PaperWindow
                 NormalizeTodoItems();
                 NormalizeOrders();
                 _controller.MarkDirty();
+                _controller.NotifyTodoReminderCollectionChanged();
                 RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
 
                 var animationGeneration = _todoRowsGeneration;
@@ -1066,6 +1099,7 @@ public sealed partial class PaperWindow
         NormalizeTodoItems();
         NormalizeOrders();
         _controller.MarkDirty();
+        _controller.NotifyTodoReminderCollectionChanged();
         RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
 
         if (rebuild)
@@ -1113,6 +1147,7 @@ public sealed partial class PaperWindow
             ?? remainingItems.FirstOrDefault()?.Id;
 
         _controller.MarkDirty();
+        _controller.NotifyTodoReminderCollectionChanged();
         RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
 
         // 批量消失动画
@@ -1860,7 +1895,8 @@ public sealed partial class PaperWindow
             Text = i.Text,
             Done = i.Done,
             Order = i.Order,
-            LinkedNoteId = i.LinkedNoteId
+            LinkedNoteId = i.LinkedNoteId,
+            ReminderAt = i.ReminderAt
         }).ToList();
     }
 
@@ -1922,6 +1958,7 @@ public sealed partial class PaperWindow
         NormalizeTodoItems();
         NormalizeOrders();
         _controller.MarkDirty();
+        _controller.NotifyTodoReminderCollectionChanged();
 
         RebuildTodoRows(focusedId);
         RefreshCapsuleEligibilityForLinkedNoteChanges(currentItems);
@@ -1946,6 +1983,7 @@ public sealed partial class PaperWindow
         NormalizeTodoItems();
         NormalizeOrders();
         _controller.MarkDirty();
+        _controller.NotifyTodoReminderCollectionChanged();
 
         RebuildTodoRows(focusedId);
         RefreshCapsuleEligibilityForLinkedNoteChanges(currentItems);
