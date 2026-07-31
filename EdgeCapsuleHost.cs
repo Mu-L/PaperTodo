@@ -114,6 +114,20 @@ internal sealed class EdgeCapsuleHost : IDisposable
     public bool IsVisible => !_disposed && Window.IsVisible;
     public Dispatcher Dispatcher => Window.Dispatcher;
 
+    public bool TryMoveToVirtualDesktop(
+        VirtualDesktopAdapter adapter,
+        Guid desktopId)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var handle = new WindowInteropHelper(Window).Handle;
+        return handle == IntPtr.Zero ||
+            adapter.TryMoveWindowToDesktop(handle, desktopId);
+    }
+
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
     {
         if (_disposed)

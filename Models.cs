@@ -415,6 +415,9 @@ public sealed class AppState
     public bool ExperimentalTetherVisibilityLink { get; set; }
     public string ExperimentalTetherMinimizedBehavior { get; set; } =
         ExperimentalTetherVisibilityModes.Hide;
+    public bool ExperimentalVirtualDesktopIntegration { get; set; }
+    public bool ExperimentalVirtualDesktopMoveOnShow { get; set; } = true;
+    public bool ExperimentalVirtualDesktopMoveOnCapsuleActivation { get; set; } = true;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.

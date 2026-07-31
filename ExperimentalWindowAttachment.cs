@@ -520,12 +520,16 @@ public sealed partial class PaperWindow
     private ExperimentalWindowAttachmentSession? _experimentalWindowAttachment;
     private ExperimentalTetherCapsuleWindow? _experimentalTetherCapsule;
     private bool _experimentalTetherPresentationSuppressed;
+    private bool _experimentalTetherReplanPending;
 
     internal bool HasExperimentalWindowAttachment =>
         _experimentalWindowAttachment != null;
 
     internal bool HasExperimentalTetherCapsuleSurface =>
         _experimentalTetherCapsule?.IsVisible == true;
+
+    internal bool IsExperimentalTetherPresentationSuppressed =>
+        _experimentalTetherPresentationSuppressed;
 
     private bool HasExperimentalCapsuleMagnet =>
         _experimentalWindowAttachment?.Owner ==
@@ -626,6 +630,7 @@ public sealed partial class PaperWindow
 
         DetachExperimentalWindowAttachment(savePosition: false);
         _experimentalWindowAttachment = plan.Session;
+        _experimentalTetherReplanPending = false;
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
         RefreshExperimentalAttachmentMenus();
@@ -640,10 +645,12 @@ public sealed partial class PaperWindow
             return;
         }
 
+        var isWindowTether =
+            session.Owner == ExperimentalAttachmentOwner.WindowTether;
         var visibilityLinked =
-            session.Owner == ExperimentalAttachmentOwner.WindowTether &&
+            isWindowTether &&
             _controller.State.ExperimentalTetherVisibilityLink;
-        if (visibilityLinked &&
+        if (isWindowTether &&
             (windowEvent.Kind & ExternalWindowEventKind.Foreground) != 0 &&
             ExternalWindowNative.IsSameProcess(
                 session.ExternalWindow,
@@ -654,10 +661,17 @@ public sealed partial class PaperWindow
             foregroundTarget.IsUsableTarget)
         {
             ReconcileExperimentalWindowAttachment(foregroundTarget);
-            RestoreExperimentalTetherPresentation();
+            if (visibilityLinked)
+            {
+                RestoreExperimentalTetherPresentation();
+            }
+            BringExperimentalTetherAboveTargetNoActivate();
         }
 
-        if (session.ExternalWindow.Handle != windowEvent.Handle)
+        var isDesktopSwitch =
+            (windowEvent.Kind & ExternalWindowEventKind.DesktopSwitched) != 0;
+        if (!isDesktopSwitch &&
+            session.ExternalWindow.Handle != windowEvent.Handle)
         {
             return;
         }
@@ -801,8 +815,12 @@ public sealed partial class PaperWindow
     internal void RefreshExperimentalWindowTetherOptions()
     {
         var session = _experimentalWindowAttachment;
-        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether ||
-            !ExternalWindowNative.TryGetSnapshot(
+        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether)
+        {
+            return;
+        }
+
+        if (!ExternalWindowNative.TryGetSnapshot(
                 session.ExternalWindow,
                 out var snapshot) ||
             !snapshot.IsUsableTarget ||
@@ -816,10 +834,12 @@ public sealed partial class PaperWindow
                 _controller.State.ExperimentalWindowTetherGap,
                 out var plan))
         {
+            _experimentalTetherReplanPending = true;
             return;
         }
 
         _experimentalWindowAttachment = plan.Session;
+        _experimentalTetherReplanPending = false;
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
     }
@@ -837,6 +857,7 @@ public sealed partial class PaperWindow
             RestoreExperimentalTetherPresentation();
         }
         _experimentalWindowAttachment = null;
+        _experimentalTetherReplanPending = false;
         if (savePosition &&
             !HasDeepCapsuleSlotPlacement &&
             IsVisible)
@@ -850,6 +871,7 @@ public sealed partial class PaperWindow
     {
         CancelExperimentalTetherPresentation(showMain: false);
         _experimentalWindowAttachment = null;
+        _experimentalTetherReplanPending = false;
     }
 
     internal void RestoreExperimentalTetherPresentationForExplicitShow()
@@ -873,20 +895,26 @@ public sealed partial class PaperWindow
             currentBounds,
             snapshot.DpiScale);
         if (session.Owner == ExperimentalAttachmentOwner.WindowTether &&
-            TryGetTargetMonitor(snapshot, out var monitor) &&
-            !ExperimentalWindowAttachmentGeometry.FitsWorkArea(
-                desired,
-                monitor.WorkArea) &&
-            ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
-                currentBounds,
-                snapshot,
-                monitor,
-                _controller.State.ExperimentalWindowTetherPreferredEdge,
-                _controller.State.ExperimentalWindowTetherGap,
-                out var replanned))
+            TryGetTargetMonitor(snapshot, out var monitor))
         {
-            session = replanned.Session;
-            desired = replanned.WindowBounds;
+            var shouldReplan =
+                _experimentalTetherReplanPending ||
+                !ExperimentalWindowAttachmentGeometry.FitsWorkArea(
+                    desired,
+                    monitor.WorkArea);
+            if (shouldReplan &&
+                ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
+                    currentBounds,
+                    snapshot,
+                    monitor,
+                    _controller.State.ExperimentalWindowTetherPreferredEdge,
+                    _controller.State.ExperimentalWindowTetherGap,
+                    out var replanned))
+            {
+                session = replanned.Session;
+                desired = replanned.WindowBounds;
+                _experimentalTetherReplanPending = false;
+            }
         }
         else if (session.Owner == ExperimentalAttachmentOwner.CapsuleMagnet &&
             !FitsAnyConnectedMonitor(desired))
@@ -974,6 +1002,7 @@ public sealed partial class PaperWindow
         SaveGeometryForCurrentPresentation();
         _experimentalTetherPresentationSuppressed = true;
         MoveWindowWithoutGeometrySave(Hide);
+        ReleaseHiddenNoteImages();
         if (_controller.State.ExperimentalTetherMinimizedBehavior ==
             ExperimentalTetherVisibilityModes.Capsule)
         {
@@ -1008,6 +1037,9 @@ public sealed partial class PaperWindow
             normalTopmost: true,
             restingOpacity: restingOpacity);
         _experimentalTetherCapsule = capsule;
+        ToolTipPreferences.Apply(
+            capsule,
+            _controller.State.EnableToolTips);
         capsule.UnexpectedlyClosed += (_, _) =>
         {
             if (!ReferenceEquals(_experimentalTetherCapsule, capsule))
@@ -1018,7 +1050,7 @@ public sealed partial class PaperWindow
             _experimentalTetherCapsule = null;
             RestoreExperimentalTetherPresentation();
         };
-        capsule.SetExperimentalPassive(IsExperimentalAllSurfacesPassive);
+        capsule.SetExperimentalPassive(IsExperimentalPassive);
 
         var anchorBounds = WindowNative.TryGetWindowDeviceBounds(
                 this,
@@ -1080,6 +1112,24 @@ public sealed partial class PaperWindow
         {
             ShowActivated = showActivated;
         }
+        PrepareForShow();
+        RefreshEffectiveTopmost();
+        if (!IsExperimentalPassive)
+        {
+            WindowNative.BringToFrontNoActivate(this);
+        }
+    }
+
+    private void BringExperimentalTetherAboveTargetNoActivate()
+    {
+        if (!HasExperimentalWindowTether ||
+            _experimentalTetherPresentationSuppressed ||
+            !IsVisible ||
+            IsExperimentalPassive)
+        {
+            return;
+        }
+
         RefreshEffectiveTopmost();
         WindowNative.BringToFrontNoActivate(this);
     }

@@ -2519,7 +2519,15 @@ public sealed partial class PaperWindow : Window
                 {
                     menu.Items.Add(MenuItem(
                         Strings.Get("MenuRestoreWindow"),
-                        (_, _) => SetCollapsedState(false, activateOnExpand: true)));
+                        (_, _) =>
+                        {
+                            _ = _controller.PreparePaperForCurrentVirtualDesktop(
+                                this,
+                                ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
+                            SetCollapsedState(
+                                false,
+                                activateOnExpand: true);
+                        }));
                 }
             }
             else
@@ -2577,9 +2585,13 @@ public sealed partial class PaperWindow : Window
         {
             WindowNative.ApplyBottomZOrder(this);
         }
-        else if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
+        else if (IsVisible &&
+            (_experimentalPassiveNeedsZOrderRestore ||
+             shouldBeTopmost ||
+             WindowNative.IsTopmost(this)))
         {
             WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, avoidanceWindow);
+            _experimentalPassiveNeedsZOrderRestore = false;
         }
         if (_experimentalTetherCapsule is { } tetherCapsule)
         {

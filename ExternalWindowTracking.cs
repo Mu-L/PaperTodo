@@ -80,7 +80,8 @@ internal sealed class ExternalWindowTracker : IDisposable
         AddHook(EventSystemMoveSizeStart, EventSystemMoveSizeEnd);
         AddHook(EventSystemMinimizeStart, EventSystemMinimizeEnd);
         AddHook(EventSystemDesktopSwitch, EventSystemDesktopSwitch);
-        AddHook(EventObjectDestroy, EventObjectLocationChange);
+        AddHook(EventObjectDestroy, EventObjectDestroy);
+        AddHook(EventObjectLocationChange, EventObjectLocationChange);
         AddHook(EventObjectCloaked, EventObjectUncloaked);
     }
 

@@ -1173,6 +1173,10 @@ public sealed partial class AppController
             Strings.Get("LabsTetherVisibility")));
         root.Children.Add(BuildLabsTetherVisibilitySettings());
 
+        root.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsVirtualDesktops")));
+        root.Children.Add(BuildLabsVirtualDesktopSettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
         root.Children.Add(BuildLabsTodoReminderSettings());
 
@@ -1506,6 +1510,77 @@ public sealed partial class AppController
         return card;
     }
 
+    private UIElement BuildLabsVirtualDesktopSettings()
+    {
+        var enabled = State.ExperimentalVirtualDesktopIntegration;
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableVirtualDesktopIntegration"),
+                enabled,
+                ToggleExperimentalVirtualDesktopIntegration),
+            "TipLabsVirtualDesktopIntegration"));
+
+        var options = new StackPanel
+        {
+            IsEnabled = enabled,
+            Opacity = enabled ? 1.0 : 0.55
+        };
+        options.Children.Add(SettingsToggle(
+            Strings.Get("LabsVirtualDesktopMoveOnShow"),
+            State.ExperimentalVirtualDesktopMoveOnShow,
+            ToggleExperimentalVirtualDesktopMoveOnShow));
+        options.Children.Add(SettingsToggle(
+            Strings.Get("LabsVirtualDesktopMoveOnCapsuleActivation"),
+            State.ExperimentalVirtualDesktopMoveOnCapsuleActivation,
+            ToggleExperimentalVirtualDesktopMoveOnCapsuleActivation));
+        var statusRow = new Grid
+        {
+            Margin = new Thickness(2, 7, 2, 0)
+        };
+        statusRow.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = GridLength.Auto
+        });
+        statusRow.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        var statusLabel = new TextBlock
+        {
+            Text = Strings.Get("LabsVirtualDesktopStatus"),
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(11.5),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var status = new TextBlock
+        {
+            Text = ExperimentalVirtualDesktopStatusText(),
+            Foreground = TrayTextBrush,
+            FontSize = AppTypography.Scale(11.5),
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(statusLabel, 0);
+        Grid.SetColumn(status, 1);
+        statusRow.Children.Add(statusLabel);
+        statusRow.Children.Add(status);
+        options.Children.Add(statusRow);
+        content.Children.Add(options);
+        card.Child = content;
+        return card;
+    }
+
     private UIElement BuildLabsTodoReminderSettings()
     {
         var card = new Border
@@ -1703,6 +1778,9 @@ public sealed partial class AppController
         State.ExperimentalTetherVisibilityLink = false;
         State.ExperimentalTetherMinimizedBehavior =
             ExperimentalTetherVisibilityModes.Hide;
+        State.ExperimentalVirtualDesktopIntegration = false;
+        State.ExperimentalVirtualDesktopMoveOnShow = true;
+        State.ExperimentalVirtualDesktopMoveOnCapsuleActivation = true;
         RestoreLabsShortcutDefaults();
 
         foreach (var window in _windows.Values.ToList())
@@ -1712,6 +1790,7 @@ public sealed partial class AppController
             window.DisableExperimentalWindowTether();
         }
         RefreshExperimentalWindowRuntime();
+        RefreshExperimentalVirtualDesktopRuntime();
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);
         RefreshTodoReminderFeature();
@@ -2094,11 +2173,17 @@ public sealed partial class AppController
 
     private void ApplyGeneralSettingsAfterRestore()
     {
+        var windows = _windows.Values.ToList();
+        foreach (var window in windows)
+        {
+            window.PrepareForCapsulePresentationModeChange();
+        }
+
         RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
         RefreshTopBarNewPaperButtonsSetting();
         RefreshTopmostForForegroundWindow();
 
-        foreach (var window in _windows.Values)
+        foreach (var window in windows)
         {
             window.UpdateMarkdownRenderMode();
             window.UpdateExternalMarkdownExtension();
@@ -3065,6 +3150,12 @@ public sealed partial class AppController
 
     private void ToggleCapsuleMode()
     {
+        var windows = _windows.Values.ToList();
+        foreach (var window in windows)
+        {
+            window.PrepareForCapsulePresentationModeChange();
+        }
+
         State.UseCapsuleMode = !State.UseCapsuleMode;
 
         if (!State.UseCapsuleMode)
@@ -3078,7 +3169,7 @@ public sealed partial class AppController
 
         // Keep IsCollapsed intact until each live window has consumed the mode change.
         // UpdateCapsuleMode uses that state to perform the capsule-to-paper visual transition.
-        foreach (var window in _windows.Values)
+        foreach (var window in windows)
         {
             window.UpdateCapsuleMode();
         }
@@ -3193,17 +3284,17 @@ public sealed partial class AppController
 
     private void ToggleDeepCapsuleMode()
     {
+        var windows = _windows.Values.ToList();
+        foreach (var window in windows)
+        {
+            window.PrepareForCapsulePresentationModeChange();
+        }
+
         List<(PaperWindow Window, PaperWindow.DeepCapsuleModeHandoff Handoff)>? handoffs = null;
         if (State.UseDeepCapsuleMode)
         {
             // Capture normal queue slots before disabling collapse-all and resetting queue
             // margins; once the hosts are detached, only the stale ordinary X/Y remains.
-            var windows = _windows.Values.ToList();
-            foreach (var window in windows)
-            {
-                window.PrepareForCapsulePresentationModeChange();
-            }
-
             handoffs = new List<(PaperWindow, PaperWindow.DeepCapsuleModeHandoff)>();
             foreach (var window in windows)
             {
@@ -3232,7 +3323,7 @@ public sealed partial class AppController
             ResetDeepCapsuleStartTopMargins();
         }
 
-        foreach (var window in _windows.Values)
+        foreach (var window in windows)
         {
             window.UpdateDeepCapsuleMode();
         }
@@ -3253,9 +3344,15 @@ public sealed partial class AppController
 
     private void ToggleDeepCapsuleExpandedSlot()
     {
+        var windows = _windows.Values.ToList();
+        foreach (var window in windows)
+        {
+            window.PrepareForCapsulePresentationModeChange();
+        }
+
         State.ShowDeepCapsuleWhileExpanded = !State.ShowDeepCapsuleWhileExpanded;
 
-        foreach (var window in _windows.Values)
+        foreach (var window in windows)
         {
             window.UpdateDeepCapsuleExpandedSlotMode();
         }
@@ -3297,6 +3394,7 @@ public sealed partial class AppController
             if (!paper.IsVisible ||
                 !_windows.TryGetValue(paper.Id, out var window) ||
                 window.WindowState == WindowState.Minimized ||
+                window.IsExperimentalTetherPresentationSuppressed ||
                 window.HasVisibleSurface)
             {
                 continue;

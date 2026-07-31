@@ -165,6 +165,7 @@ public sealed partial class PaperWindow
         CommitPendingEditsForSave();
         SettlePaperFormPresentation();
         AbortAllInteractions(InteractionAbortReason.FormChanging);
+        DetachExperimentalWindowAttachment(savePosition: true);
         if (!_paper.IsVisible)
         {
             CancelPendingVisibilityTransitions();

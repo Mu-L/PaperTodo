@@ -1115,6 +1115,9 @@ public sealed partial class PaperWindow
             return;
         }
 
+        _ = _controller.PreparePaperForCurrentVirtualDesktop(
+            this,
+            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
         SetCollapsedState(false, activateOnExpand: true);
     }
 
@@ -1122,6 +1125,9 @@ public sealed partial class PaperWindow
     {
         if (_paper.IsCollapsed)
         {
+            _ = _controller.PreparePaperForCurrentVirtualDesktop(
+                this,
+                ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
             if (HasDeepCapsuleSlotPlacement)
             {
                 ShowMainWindowForDeepCapsuleActivation();

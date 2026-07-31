@@ -16,12 +16,10 @@ public sealed partial class PaperWindow
     private ExperimentalPassiveReason _experimentalPassiveReasons;
     private bool _experimentalPassiveNativeApplied;
     private bool _experimentalPassiveHadNoActivateStyle;
+    private bool _experimentalPassiveNeedsZOrderRestore;
 
     internal bool IsExperimentalPassive =>
         _experimentalPassiveReasons != ExperimentalPassiveReason.None;
-
-    private bool IsExperimentalAllSurfacesPassive =>
-        (_experimentalPassiveReasons & ExperimentalPassiveReason.AllSurfaces) != 0;
 
     internal bool CanEnterCurrentExperimentalPassive =>
         !IsClosed &&
@@ -38,6 +36,7 @@ public sealed partial class PaperWindow
         }
 
         var previous = _experimentalPassiveReasons;
+        var wasPassive = previous != ExperimentalPassiveReason.None;
         _experimentalPassiveReasons = enabled
             ? previous | reason
             : previous & ~reason;
@@ -56,16 +55,26 @@ public sealed partial class PaperWindow
         }
 
         ApplyExperimentalPassiveNativeState();
+        ApplyExperimentalAuxiliaryPassiveState();
+        if (wasPassive && !IsExperimentalPassive)
+        {
+            _experimentalPassiveNeedsZOrderRestore = true;
+        }
         RefreshEffectiveTopmost();
     }
 
     internal void SetExperimentalAllSurfacesPassive(bool enabled)
     {
-        _edgeCapsuleHost?.SetExperimentalPassive(enabled);
-        _experimentalTetherCapsule?.SetExperimentalPassive(enabled);
         SetExperimentalPassiveReason(
             ExperimentalPassiveReason.AllSurfaces,
             enabled);
+    }
+
+    private void ApplyExperimentalAuxiliaryPassiveState()
+    {
+        var passive = IsExperimentalPassive;
+        _edgeCapsuleHost?.SetExperimentalPassive(passive);
+        _experimentalTetherCapsule?.SetExperimentalPassive(passive);
     }
 
     private void ApplyExperimentalPassiveNativeState()
@@ -204,7 +213,10 @@ public sealed partial class PaperWindow
         }
 
         target = Math.Clamp(target, 0, 1);
-        if (Math.Abs(element.Opacity - target) < 0.001)
+        var opacityBase = (double)element.GetAnimationBaseValue(
+            UIElement.OpacityProperty);
+        if (Math.Abs(element.Opacity - target) < 0.001 &&
+            Math.Abs(opacityBase - target) < 0.001)
         {
             return;
         }

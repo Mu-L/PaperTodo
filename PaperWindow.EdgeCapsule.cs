@@ -39,7 +39,7 @@ public sealed partial class PaperWindow
             _controller.FullscreenAvoidanceWindowForQueue(
                 _paper.CapsuleMonitorDeviceName) == IntPtr.Zero));
         var host = _edgeCapsuleHost;
-        host.SetExperimentalPassive(IsExperimentalAllSurfacesPassive);
+        host.SetExperimentalPassive(IsExperimentalPassive);
         AttachDeepCapsuleSlotHostInput();
         host.AttachNativeHooks(
             OnDeepCapsuleSlotHostMessage,

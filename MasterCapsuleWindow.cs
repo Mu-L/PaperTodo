@@ -353,6 +353,15 @@ public sealed class MasterCapsuleWindow : Window
         ToolTipPreferences.Apply(this, _controller.State.EnableToolTips);
     }
 
+    internal bool TryMoveToVirtualDesktop(
+        VirtualDesktopAdapter adapter,
+        Guid desktopId)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        return handle == IntPtr.Zero ||
+            adapter.TryMoveWindowToDesktop(handle, desktopId);
+    }
+
     public void RefreshEffectiveTopmost()
     {
         var avoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(

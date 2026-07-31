@@ -867,6 +867,33 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>클릭하여 “{0}” 복원 및 활성화</value>
   </data>
+  <data name="LabsVirtualDesktops" xml:space="preserve">
+    <value>Windows 가상 데스크톱</value>
+  </data>
+  <data name="LabsEnableVirtualDesktopIntegration" xml:space="preserve">
+    <value>현재 데스크톱에서 불러오기 사용</value>
+  </data>
+  <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
+    <value>메모를 명시적으로 표시하거나 불러올 때만 Windows 공개 인터페이스를 사용해 PaperTodo 자체 창을 현재 데스크톱으로 이동합니다. 시스템 데스크톱을 전환하거나 외부 앱을 이동하지 않습니다. 끄면 인터페이스를 즉시 해제하지만 이미 완료된 이동은 되돌리지 않습니다.</value>
+  </data>
+  <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
+    <value>표시하거나 트레이에서 불러올 때 이동</value>
+  </data>
+  <data name="LabsVirtualDesktopMoveOnCapsuleActivation" xml:space="preserve">
+    <value>일반 또는 가장자리 캡슐을 열 때 이동</value>
+  </data>
+  <data name="LabsVirtualDesktopStatus" xml:space="preserve">
+    <value>호환성</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusOff" xml:space="preserve">
+    <value>확인 안 함</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusReady" xml:space="preserve">
+    <value>사용 가능</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
+    <value>이 시스템에서 사용할 수 없음</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>할 일 알림</value>
   </data>
