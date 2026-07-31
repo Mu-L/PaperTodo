@@ -744,6 +744,12 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="SettingsVisual" xml:space="preserve">
     <value>시각</value>
   </data>
+  <data name="SettingsLabs" xml:space="preserve">
+    <value>실험실</value>
+  </data>
+  <data name="SettingsLabsIntro" xml:space="preserve">
+    <value>이 기능들은 실험 중이며 이후 변경될 수 있습니다. 기능을 끄면 일반 메모와 캡슐 동작에 관여하지 않습니다.</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>전체 글꼴 크기</value>
   </data>

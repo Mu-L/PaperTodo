@@ -757,6 +757,12 @@
   <data name="SettingsVisual" xml:space="preserve">
     <value>视觉</value>
   </data>
+  <data name="SettingsLabs" xml:space="preserve">
+    <value>实验室</value>
+  </data>
+  <data name="SettingsLabsIntro" xml:space="preserve">
+    <value>这里的功能仍在试验中，可能随版本调整。关闭功能后，对应行为不会参与普通纸片和胶囊的运行。</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>整体字体大小</value>
   </data>

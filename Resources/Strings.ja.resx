@@ -744,6 +744,12 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="SettingsVisual" xml:space="preserve">
     <value>表示</value>
   </data>
+  <data name="SettingsLabs" xml:space="preserve">
+    <value>ラボ</value>
+  </data>
+  <data name="SettingsLabsIntro" xml:space="preserve">
+    <value>ここにある機能は試験中のため、今後変更される場合があります。オフにすると、通常の付箋やカプセルの動作には参加しません。</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>全体の文字サイズ</value>
   </data>

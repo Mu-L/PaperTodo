@@ -744,6 +744,12 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="SettingsVisual" xml:space="preserve">
     <value>Visual</value>
   </data>
+  <data name="SettingsLabs" xml:space="preserve">
+    <value>Labs</value>
+  </data>
+  <data name="SettingsLabsIntro" xml:space="preserve">
+    <value>These features are experimental and may change. When a feature is off, it does not participate in normal paper or capsule behavior.</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>Overall font size</value>
   </data>

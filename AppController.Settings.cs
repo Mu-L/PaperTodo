@@ -155,6 +155,10 @@ public sealed partial class AppController
     {
         // Compact mode only hides less common controls; stored values stay in effect.
         State.AdvancedSettingsMode = !State.AdvancedSettingsMode;
+        if (!State.AdvancedSettingsMode && _settingsPage == SettingsPage.Labs)
+        {
+            _settingsPage = SettingsPage.General;
+        }
         _shortcutRecordingCommandId = null;
         ClearShortcutApplyFailure();
         SaveNow();
@@ -711,6 +715,11 @@ public sealed partial class AppController
 
     private void ShowSettingsWindow(SettingsPage page)
     {
+        if (page == SettingsPage.Labs && !State.AdvancedSettingsMode)
+        {
+            page = SettingsPage.General;
+        }
+
         var previousPage = _settingsPage;
         _settingsPage = page;
         if (previousPage == SettingsPage.Shortcuts && page != SettingsPage.Shortcuts)
@@ -983,8 +992,34 @@ public sealed partial class AppController
             return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
         }
 
+        if (_settingsPage == SettingsPage.Labs)
+        {
+            root.Children.Add(WrapSettingsPageContent(BuildLabsSettingsPage(), enableScroll));
+            return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
+        }
+
         root.Children.Add(WrapSettingsPageContent(BuildGeneralSettingsPage(), enableScroll));
         return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
+    }
+
+    private UIElement BuildLabsSettingsPage()
+    {
+        var root = new StackPanel
+        {
+            Margin = new Thickness(2, 4, 4, 0)
+        };
+
+        root.Children.Add(new TextBlock
+        {
+            Text = Strings.Get("SettingsLabsIntro"),
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(12),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 520,
+            LineHeight = AppTypography.Scale(19)
+        });
+
+        return root;
     }
 
     private UIElement BuildGeneralSettingsPage()
@@ -1389,16 +1424,23 @@ public sealed partial class AppController
         const string generalKey = "general";
         const string visualKey = "visual";
         const string shortcutsKey = "shortcuts";
-        var segments = new[]
+        const string labsKey = "labs";
+        var segments = new List<(string Key, string Label)>
         {
             (Key: generalKey, Label: Strings.Get("SettingsBehavior")),
             (Key: visualKey, Label: Strings.Get("SettingsVisual")),
             (Key: shortcutsKey, Label: Strings.Get("SettingsShortcuts"))
         };
+        if (State.AdvancedSettingsMode)
+        {
+            segments.Add((Key: labsKey, Label: Strings.Get("SettingsLabs")));
+        }
+
         var activeKey = _settingsPage switch
         {
             SettingsPage.Visual => visualKey,
             SettingsPage.Shortcuts => shortcutsKey,
+            SettingsPage.Labs when State.AdvancedSettingsMode => labsKey,
             _ => generalKey
         };
 
@@ -1409,7 +1451,7 @@ public sealed partial class AppController
             Background = TrayHoverBrush, // Sunken tab track background
             Margin = new Thickness(0),
             Height = 24,
-            Width = 228,
+            Width = segments.Count * 76,
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -1419,7 +1461,7 @@ public sealed partial class AppController
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
 
-        for (int i = 0; i < segments.Length; i++)
+        for (int i = 0; i < segments.Count; i++)
         {
             var key = segments[i].Key;
             var label = segments[i].Label;
@@ -1471,6 +1513,7 @@ public sealed partial class AppController
                 {
                     visualKey => SettingsPage.Visual,
                     shortcutsKey => SettingsPage.Shortcuts,
+                    labsKey => SettingsPage.Labs,
                     _ => SettingsPage.General
                 });
             };
@@ -1560,12 +1603,21 @@ public sealed partial class AppController
         try
         {
             // Use the tallest page so switching tabs does not resize, and options on dense pages stay visible.
-            foreach (var page in new[]
-                     {
-                         SettingsPage.General,
-                         SettingsPage.Visual,
-                         SettingsPage.Shortcuts
-                     })
+            var pages = State.AdvancedSettingsMode
+                ? new[]
+                {
+                    SettingsPage.General,
+                    SettingsPage.Visual,
+                    SettingsPage.Shortcuts,
+                    SettingsPage.Labs
+                }
+                : new[]
+                {
+                    SettingsPage.General,
+                    SettingsPage.Visual,
+                    SettingsPage.Shortcuts
+                };
+            foreach (var page in pages)
             {
                 _settingsPage = page;
                 if (page == SettingsPage.Shortcuts)
