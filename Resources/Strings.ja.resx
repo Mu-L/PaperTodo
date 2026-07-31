@@ -750,6 +750,30 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>ここにある機能は試験中のため、今後変更される場合があります。オフにすると、通常の付箋やカプセルの動作には参加しません。</value>
   </data>
+  <data name="LabsPaperOpacity" xml:space="preserve">
+    <value>付箋の透明度</value>
+  </data>
+  <data name="LabsEnableInactivePaperOpacity" xml:space="preserve">
+    <value>非アクティブ時に半透明にする</value>
+  </data>
+  <data name="TipLabsInactivePaperOpacity" xml:space="preserve">
+    <value>展開中で非アクティブな付箋だけに適用されます。アクティブにするとすぐ不透明に戻ります。</value>
+  </data>
+  <data name="LabsInactivePaperOpacityLevel" xml:space="preserve">
+    <value>非アクティブ時の不透明度</value>
+  </data>
+  <data name="LabsCapsuleOpacity" xml:space="preserve">
+    <value>カプセルの透明度</value>
+  </data>
+  <data name="LabsEnableRestingCapsuleOpacity" xml:space="preserve">
+    <value>待機中に半透明にする</value>
+  </data>
+  <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
+    <value>通常カプセルと端カプセルに適用されます。ホバー、アクティブ、ドラッグ時は不透明に戻り、メインカプセルは変わりません。</value>
+  </data>
+  <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
+    <value>待機中の不透明度</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>全体の文字サイズ</value>
   </data>

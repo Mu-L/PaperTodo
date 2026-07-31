@@ -201,6 +201,62 @@ public sealed partial class AppController
         ApplyTypographySettingsChange();
     }
 
+    private void ToggleExperimentalInactivePaperOpacity()
+    {
+        State.ExperimentalInactivePaperOpacity = !State.ExperimentalInactivePaperOpacity;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalInactivePaperOpacityLevel(double opacity)
+    {
+        var normalized = ExperimentalOpacityLevels.Normalize(
+            opacity,
+            ExperimentalOpacityLevels.DefaultInactivePaper);
+        if (Math.Abs(State.ExperimentalInactivePaperOpacityLevel - normalized) < 0.001)
+        {
+            return;
+        }
+
+        State.ExperimentalInactivePaperOpacityLevel = normalized;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsWindowContent();
+    }
+
+    private void ToggleExperimentalRestingCapsuleOpacity()
+    {
+        State.ExperimentalRestingCapsuleOpacity = !State.ExperimentalRestingCapsuleOpacity;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalRestingCapsuleOpacityLevel(double opacity)
+    {
+        var normalized = ExperimentalOpacityLevels.Normalize(
+            opacity,
+            ExperimentalOpacityLevels.DefaultRestingCapsule);
+        if (Math.Abs(State.ExperimentalRestingCapsuleOpacityLevel - normalized) < 0.001)
+        {
+            return;
+        }
+
+        State.ExperimentalRestingCapsuleOpacityLevel = normalized;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsWindowContent();
+    }
+
+    private void RefreshExperimentalOpacitySurfaces(bool animate = true)
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateExperimentalOpacitySettings(animate);
+        }
+    }
+
     private void SetTitleTextSize(string size)
     {
         var normalized = VisualTextSizes.Normalize(size);
@@ -1019,7 +1075,154 @@ public sealed partial class AppController
             LineHeight = AppTypography.Scale(19)
         });
 
-        return root;
+        var columns = new Grid
+        {
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var leftColumn = new StackPanel
+        {
+            Margin = new Thickness(0, 0, 14, 0)
+        };
+        var rightColumn = new StackPanel
+        {
+            Margin = new Thickness(14, 0, 0, 0)
+        };
+
+        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsPaperOpacity")));
+        leftColumn.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableInactivePaperOpacity"),
+                State.ExperimentalInactivePaperOpacity,
+                ToggleExperimentalInactivePaperOpacity),
+            "TipLabsInactivePaperOpacity"));
+        leftColumn.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsInactivePaperOpacityLevel"),
+            topMargin: 8));
+        leftColumn.Children.Add(CreateLabsPercentageStepper(
+            () => State.ExperimentalInactivePaperOpacityLevel,
+            SetExperimentalInactivePaperOpacityLevel,
+            State.ExperimentalInactivePaperOpacity));
+
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsCapsuleOpacity")));
+        rightColumn.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableRestingCapsuleOpacity"),
+                State.ExperimentalRestingCapsuleOpacity,
+                ToggleExperimentalRestingCapsuleOpacity),
+            "TipLabsRestingCapsuleOpacity"));
+        rightColumn.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsRestingCapsuleOpacityLevel"),
+            topMargin: 8));
+        rightColumn.Children.Add(CreateLabsPercentageStepper(
+            () => State.ExperimentalRestingCapsuleOpacityLevel,
+            SetExperimentalRestingCapsuleOpacityLevel,
+            State.ExperimentalRestingCapsuleOpacity));
+
+        var separator = new Border
+        {
+            Width = 1,
+            Margin = new Thickness(0, 4, 0, 0),
+            Background = TrayBorderBrush,
+            Opacity = 0.65
+        };
+
+        Grid.SetColumn(leftColumn, 0);
+        Grid.SetColumn(separator, 1);
+        Grid.SetColumn(rightColumn, 2);
+        columns.Children.Add(leftColumn);
+        columns.Children.Add(separator);
+        columns.Children.Add(rightColumn);
+        root.Children.Add(columns);
+
+        return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
+    }
+
+    private UIElement CreateLabsPercentageStepper(
+        Func<double> getValue,
+        Action<double> setValue,
+        bool isEnabled)
+    {
+        var container = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 10),
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEnabled = isEnabled,
+            Opacity = isEnabled ? 1.0 : 0.55
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var valueText = new TextBlock
+        {
+            Text = $"{Math.Round(getValue() * 100):0}%",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TrayTextBrush
+        };
+        Grid.SetColumn(valueText, 1);
+
+        Border StepButton(string glyph, int column, double delta)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(15),
+                Foreground = TrayTextBrush
+            };
+            var button = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = glyphText
+            };
+            button.MouseEnter += (_, _) => button.Background = TrayHoverBrush;
+            button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
+            button.MouseLeftButtonDown += (_, e) =>
+            {
+                setValue(getValue() + delta);
+                e.Handled = true;
+            };
+            Grid.SetColumn(button, column);
+            return button;
+        }
+
+        grid.Children.Add(StepButton("−", 0, -ExperimentalOpacityLevels.Step));
+        grid.Children.Add(valueText);
+        grid.Children.Add(StepButton("＋", 2, ExperimentalOpacityLevels.Step));
+        container.Child = grid;
+        return container;
+    }
+
+    private void RestoreLabsSettingsPageDefaults()
+    {
+        State.ExperimentalInactivePaperOpacity = false;
+        State.ExperimentalInactivePaperOpacityLevel =
+            ExperimentalOpacityLevels.DefaultInactivePaper;
+        State.ExperimentalRestingCapsuleOpacity = false;
+        State.ExperimentalRestingCapsuleOpacityLevel =
+            ExperimentalOpacityLevels.DefaultRestingCapsule;
+
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces(animate: false);
+        RefreshSettingsWindowContent();
     }
 
     private UIElement BuildGeneralSettingsPage()

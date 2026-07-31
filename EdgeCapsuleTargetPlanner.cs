@@ -60,6 +60,9 @@ internal static class EdgeCapsuleTargetPlanner
         var surface = SurfaceFor(model, retracted, retracting, dockedSuppressed);
         var hitTest = !retracted && !ownsFloatingHost;
         var interactiveBounds = hitTest ? geometry.InteractiveBounds : default;
+        var contentOpacity = surface == EdgeCapsuleSurfaceKind.DockedResting
+            ? Math.Clamp(layout.RestingContentOpacity, 0, 1)
+            : 1;
         var docked = new EdgeCapsuleTargetPresentation(
             true,
             surface,
@@ -73,7 +76,7 @@ internal static class EdgeCapsuleTargetPlanner
             geometry.DpiScaleY,
             layout.MaximumCloseWidthDip,
             retracted ? 0 : 1,
-            dockedSuppressed ? 0 : 1,
+            dockedSuppressed ? 0 : contentOpacity,
             !retracted && !dockedSuppressed && model.State.Visual == EdgeCapsuleVisualState.Active,
             hitTest,
             layout.CloseSegmentActsAsContent);

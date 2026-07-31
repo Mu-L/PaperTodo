@@ -750,6 +750,30 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>These features are experimental and may change. When a feature is off, it does not participate in normal paper or capsule behavior.</value>
   </data>
+  <data name="LabsPaperOpacity" xml:space="preserve">
+    <value>Paper opacity</value>
+  </data>
+  <data name="LabsEnableInactivePaperOpacity" xml:space="preserve">
+    <value>Fade inactive papers</value>
+  </data>
+  <data name="TipLabsInactivePaperOpacity" xml:space="preserve">
+    <value>Only affects expanded, inactive papers. Activating a paper restores full opacity immediately.</value>
+  </data>
+  <data name="LabsInactivePaperOpacityLevel" xml:space="preserve">
+    <value>Inactive opacity</value>
+  </data>
+  <data name="LabsCapsuleOpacity" xml:space="preserve">
+    <value>Capsule opacity</value>
+  </data>
+  <data name="LabsEnableRestingCapsuleOpacity" xml:space="preserve">
+    <value>Fade resting capsules</value>
+  </data>
+  <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
+    <value>Affects ordinary and edge capsules. Hovering, activating, or dragging restores full opacity; the master capsule is unchanged.</value>
+  </data>
+  <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
+    <value>Resting opacity</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>Overall font size</value>
   </data>

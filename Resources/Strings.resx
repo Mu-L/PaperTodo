@@ -763,6 +763,30 @@
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>这里的功能仍在试验中，可能随版本调整。关闭功能后，对应行为不会参与普通纸片和胶囊的运行。</value>
   </data>
+  <data name="LabsPaperOpacity" xml:space="preserve">
+    <value>纸片透明度</value>
+  </data>
+  <data name="LabsEnableInactivePaperOpacity" xml:space="preserve">
+    <value>失焦后自动半透明</value>
+  </data>
+  <data name="TipLabsInactivePaperOpacity" xml:space="preserve">
+    <value>仅影响展开且未激活的纸片；重新激活时立即恢复实体。</value>
+  </data>
+  <data name="LabsInactivePaperOpacityLevel" xml:space="preserve">
+    <value>失焦透明度</value>
+  </data>
+  <data name="LabsCapsuleOpacity" xml:space="preserve">
+    <value>胶囊透明度</value>
+  </data>
+  <data name="LabsEnableRestingCapsuleOpacity" xml:space="preserve">
+    <value>静止时自动半透明</value>
+  </data>
+  <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
+    <value>影响普通胶囊和贴边胶囊；悬停、激活或拖动时恢复实体，主胶囊不受影响。</value>
+  </data>
+  <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
+    <value>静止透明度</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>整体字体大小</value>
   </data>

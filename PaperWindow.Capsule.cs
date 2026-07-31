@@ -195,6 +195,7 @@ public sealed partial class PaperWindow
 
         _capsulePointerSession = new CapsulePointerSession(pointerDownScreenPosition);
         _capsulePointerState = CapsulePointerState.PendingClick;
+        RefreshExperimentalOpacity();
     }
 
     private void SetCapsulePointerState(CapsulePointerState state)
@@ -209,6 +210,7 @@ public sealed partial class PaperWindow
         {
             _capsulePointerSession = null;
         }
+        RefreshExperimentalOpacity();
     }
 
     private void CancelCapsulePointerInteraction()
@@ -564,6 +566,7 @@ public sealed partial class PaperWindow
         double finalTargetHeight = RoundToDevicePixelY(targetHeight);
 
         _paper.IsCollapsed = collapsed;
+        RefreshExperimentalOpacity();
         if (!collapsed)
         {
             ChangeEdgeCapsulePaperForm(

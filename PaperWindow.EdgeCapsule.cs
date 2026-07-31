@@ -189,7 +189,12 @@ public sealed partial class PaperWindow
                     EdgeCapsuleLayout.HostCapacityWidth,
                     monitor.LocalWorkAreaDip.Width)),
             PaperLayoutDefaults.CapsuleHeight,
-            _controller.State.HideEdgeCapsuleCloseButtonOnHover));
+            _controller.State.HideEdgeCapsuleCloseButtonOnHover,
+            _controller.State.ExperimentalRestingCapsuleOpacity
+                ? ExperimentalOpacityLevels.Normalize(
+                    _controller.State.ExperimentalRestingCapsuleOpacityLevel,
+                    ExperimentalOpacityLevels.DefaultRestingCapsule)
+                : 1.0));
     }
 
     private bool ApplyEdgeCapsulePresentationFrame(EdgeCapsulePresentationFrame frame)

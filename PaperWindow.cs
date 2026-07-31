@@ -93,6 +93,7 @@ public sealed partial class PaperWindow : Window
     private bool _suppressTodoBackspaceUntilKeyUp;
     private Button? _closeButton;
     private Grid _capsuleShell = null!;
+    private Grid? _capsuleOpacityHost;
     private EdgeCapsuleHost? _edgeCapsuleHost;
     // Cross-edge dragging owns a separate top-level window. The docked slot host never changes
     // into a floating pill, so its edge columns/corners cannot leak across a drag transition.
@@ -609,8 +610,16 @@ public sealed partial class PaperWindow : Window
 
             RefreshEffectiveTopmost();
         };
-        Activated += (_, _) => _controller.RefreshFloatingSurfaceZOrder();
-        Deactivated += (_, _) => AbortAllInteractions(InteractionAbortReason.Deactivated);
+        Activated += (_, _) =>
+        {
+            _controller.RefreshFloatingSurfaceZOrder();
+            RefreshExperimentalOpacity();
+        };
+        Deactivated += (_, _) =>
+        {
+            AbortAllInteractions(InteractionAbortReason.Deactivated);
+            RefreshExperimentalOpacity();
+        };
         Closing += OnClosing;
         Closed += (_, _) => CompletePaperWindowClose();
 
@@ -641,6 +650,7 @@ public sealed partial class PaperWindow : Window
         BuildShell();
         _isShellBuilt = true;
         UpdateToolTipSetting();
+        RefreshExperimentalOpacity(animate: false);
     }
 
     private void HandleWindowGeometryChanged()
@@ -1716,6 +1726,55 @@ public sealed partial class PaperWindow : Window
         _capsuleShell.Margin = new Thickness(WindowChromeMargin);
         _capsuleShell.HorizontalAlignment = HorizontalAlignment.Left;
         _capsuleShell.VerticalAlignment = VerticalAlignment.Top;
+        if (_controller.State.ExperimentalRestingCapsuleOpacity)
+        {
+            AttachCapsuleShellToExperimentalOpacityHost();
+        }
+        else
+        {
+            AttachCapsuleShellDirectlyToWindowHost();
+        }
+    }
+
+    private void AttachCapsuleShellToExperimentalOpacityHost()
+    {
+        if (_capsuleOpacityHost == null)
+        {
+            var host = new Grid();
+            host.MouseEnter += (_, _) => RefreshExperimentalOpacity();
+            host.MouseLeave += (_, _) => RefreshExperimentalOpacity();
+            _capsuleOpacityHost = host;
+        }
+
+        if (_windowHost.Children.Contains(_capsuleShell))
+        {
+            _windowHost.Children.Remove(_capsuleShell);
+        }
+        if (!_capsuleOpacityHost.Children.Contains(_capsuleShell))
+        {
+            _capsuleOpacityHost.Children.Add(_capsuleShell);
+        }
+        Panel.SetZIndex(_capsuleOpacityHost, 10);
+        if (!_windowHost.Children.Contains(_capsuleOpacityHost))
+        {
+            _windowHost.Children.Add(_capsuleOpacityHost);
+        }
+    }
+
+    private void AttachCapsuleShellDirectlyToWindowHost()
+    {
+        if (_capsuleOpacityHost != null)
+        {
+            _capsuleOpacityHost.BeginAnimation(UIElement.OpacityProperty, null);
+            _capsuleOpacityHost.Opacity = 1.0;
+            if (_capsuleOpacityHost.Children.Contains(_capsuleShell))
+            {
+                _capsuleOpacityHost.Children.Remove(_capsuleShell);
+            }
+            _windowHost.Children.Remove(_capsuleOpacityHost);
+            _capsuleOpacityHost = null;
+        }
+
         Panel.SetZIndex(_capsuleShell, 10);
         if (!_windowHost.Children.Contains(_capsuleShell))
         {
@@ -3027,7 +3086,11 @@ public sealed partial class PaperWindow : Window
             }
 
             UpdateContextMenuTheme(menu);
+            RefreshExperimentalOpacity();
         };
+        menu.Closed += (_, _) => Dispatcher.BeginInvoke(
+            (Action)(() => RefreshExperimentalOpacity()),
+            System.Windows.Threading.DispatcherPriority.Background);
 
         menu.Resources.Add(typeof(MenuItem), SharedCompactMenuItemStyle);
         RegisterThemedContextMenu(menu);

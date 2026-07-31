@@ -61,7 +61,8 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     double MaximumCloseWidthDip,
     double HostWidthDip,
     double HeightDip,
-    bool CloseSegmentActsAsContent)
+    bool CloseSegmentActsAsContent,
+    double RestingContentOpacity)
 {
     public bool IsUsable =>
         !Monitor.WorkArea.IsEmpty &&

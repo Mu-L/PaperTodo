@@ -174,6 +174,7 @@ public sealed partial class PaperWindow
     {
         CancelPendingVisibilityTransitions();
         SettlePaperFormPresentation();
+        RefreshExperimentalOpacity(animate: false);
         if (!_paper.IsVisible)
         {
             HideWithoutGeometrySave();

@@ -208,6 +208,29 @@ public static class OverallFontScales
     }
 }
 
+public static class ExperimentalOpacityLevels
+{
+    public const double Minimum = 0.3;
+    public const double Maximum = 1.0;
+    public const double Step = 0.05;
+    public const double DefaultInactivePaper = 0.7;
+    public const double DefaultRestingCapsule = 0.6;
+
+    public static double Normalize(double opacity, double fallback)
+    {
+        if (double.IsNaN(opacity) || double.IsInfinity(opacity))
+        {
+            opacity = fallback;
+        }
+
+        var clamped = Math.Clamp(opacity, Minimum, Maximum);
+        return Math.Round(
+            Math.Round(clamped / Step, MidpointRounding.AwayFromZero) * Step,
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -294,6 +317,12 @@ public sealed class AppState
     public bool CollapseExpandedDeepCapsuleOnClick { get; set; }
     public bool EnableAnimations { get; set; } = true;
     public bool EnableToolTips { get; set; } = true;
+    public bool ExperimentalInactivePaperOpacity { get; set; }
+    public double ExperimentalInactivePaperOpacityLevel { get; set; } =
+        ExperimentalOpacityLevels.DefaultInactivePaper;
+    public bool ExperimentalRestingCapsuleOpacity { get; set; }
+    public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
+        ExperimentalOpacityLevels.DefaultRestingCapsule;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.

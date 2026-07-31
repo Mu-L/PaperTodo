@@ -468,6 +468,12 @@ public sealed class StateStore
         state.UiFontPreset = UiFontPresets.Normalize(state.UiFontPreset);
         state.TextRenderingProfile = TextRenderingProfiles.Normalize(state.TextRenderingProfile);
         state.ImageReferenceTextMode = ImageReferenceTextModes.Normalize(state.ImageReferenceTextMode);
+        state.ExperimentalInactivePaperOpacityLevel = ExperimentalOpacityLevels.Normalize(
+            state.ExperimentalInactivePaperOpacityLevel,
+            ExperimentalOpacityLevels.DefaultInactivePaper);
+        state.ExperimentalRestingCapsuleOpacityLevel = ExperimentalOpacityLevels.Normalize(
+            state.ExperimentalRestingCapsuleOpacityLevel,
+            ExperimentalOpacityLevels.DefaultRestingCapsule);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)
