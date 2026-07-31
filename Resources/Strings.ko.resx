@@ -748,7 +748,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>실험실</value>
   </data>
   <data name="SettingsLabsIntro" xml:space="preserve">
-    <value>이 기능들은 실험 중이며 이후 변경될 수 있습니다. 기능을 끄면 일반 메모와 캡슐 동작에 관여하지 않습니다.</value>
+    <value>이 기능들은 실험 중이며 동작이나 옵션이 이후 변경될 수 있습니다. 각 기능은 독립적으로 켜며, 끄는 즉시 관련 실행 상태를 중지합니다.</value>
   </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>메모 투명도</value>
@@ -769,7 +769,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>대기 중 캡슐 반투명 표시</value>
   </data>
   <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
-    <value>일반 및 가장자리 캡슐에 적용됩니다. 가리키거나 활성화하거나 드래그하면 불투명하게 돌아오며, 메인 캡슐은 바뀌지 않습니다.</value>
+    <value>일반 및 가장자리 캡슐이 대기 중일 때만 적용됩니다. 가리키거나 활성화하거나 드래그하면 불투명하게 돌아오며, 메인 캡슐은 바뀌지 않습니다.</value>
   </data>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>대기 중 불투명도</value>
@@ -781,7 +781,10 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>일반 캡슐 자석 맞춤 사용</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>일반 캡슐을 화면 또는 다른 앱 창 가장자리 근처에 놓으면 붙어서 따라갑니다. 다시 드래그하거나 대상이 사라지거나 기능을 끄면 자동으로 해제됩니다. 가장자리 대기열과 메인 캡슐에는 영향을 주지 않습니다.</value>
+    <value>가장자리 대기열에 들어가지 않은 일반 캡슐에만 적용됩니다. 화면 또는 다른 앱 창 가장자리 근처까지 드래그한 뒤 놓으면 붙습니다. 다시 드래그하거나 대상이 사라지거나 기능을 끄면 해제되며, 가장자리 대기열과 메인 캡슐에는 영향을 주지 않습니다.</value>
+  </data>
+  <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
+    <value>현재 가장자리 캡슐이 켜져 있어 접은 메모는 가장자리 대기열로 들어가며 일반 캡슐 자석 맞춤의 대상이 아닙니다. 이 기능을 사용하려면 일반 설정에서 가장자리 캡슐을 끄세요.</value>
   </data>
   <data name="LabsMagnetScreenEdges" xml:space="preserve">
     <value>화면 가장자리</value>
@@ -793,7 +796,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>흡착 거리</value>
   </data>
   <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
-    <value>{0}px</value>
+    <value>약 {0}px</value>
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>캡슐 흡착 해제</value>
@@ -805,7 +808,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>창 연결 사용</value>
   </data>
   <data name="TipLabsWindowTethering" xml:space="preserve">
-    <value>펼친 메모의 바로 가기 메뉴에서 외부 창을 선택하면 메모가 그 가장자리에 붙어 따라갑니다. 메모를 다시 드래그하거나 연결을 해제하거나 기능을 끄면 따라가기를 중지합니다.</value>
+    <value>펼친 메모를 오른쪽 클릭하고 외부 창을 선택하면 그 가장자리에 연결되어 따라갑니다. 펼친 가장자리 캡슐 슬롯이 있으면 연결 중에만 비우고, 연결을 해제하면 자동으로 복원합니다.</value>
   </data>
   <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
     <value>선호 가장자리</value>
@@ -829,7 +832,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>가장자리 간격</value>
   </data>
   <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
-    <value>{0}px</value>
+    <value>약 {0}px</value>
   </data>
   <data name="LabsWindowTetherChoose" xml:space="preserve">
     <value>창에 연결</value>
@@ -847,7 +850,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>연결 표시 연동</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
-    <value>대상 최소화 및 활성화 따라가기</value>
+    <value>대상이 숨겨지면 함께 접기</value>
   </data>
   <data name="TipLabsTetherVisibility" xml:space="preserve">
     <value>대상이 최소화되거나 숨겨지면 연결된 메모를 임시로 숨기거나 별도 캡슐로 바꿉니다. 대상을 복원하거나 활성화하면 메모를 다시 표시합니다. 메모 자체의 펼침, 캡슐 및 표시 상태 데이터는 변경하지 않습니다.</value>
@@ -874,7 +877,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>현재 데스크톱에서 불러오기 사용</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>메모를 명시적으로 표시하거나 불러올 때만 Windows 공개 인터페이스를 사용해 PaperTodo 자체 창을 현재 데스크톱으로 이동합니다. 시스템 데스크톱을 전환하거나 외부 앱을 이동하지 않습니다. 끄면 인터페이스를 즉시 해제하지만 이미 완료된 이동은 되돌리지 않습니다.</value>
+    <value>메모를 표시하거나 캡슐을 열 때 PaperTodo 자체 창을 현재 데스크톱으로 이동합니다. 시스템 데스크톱을 전환하거나 외부 앱을 이동하지 않습니다. 끄면 연동을 중지하지만 이미 완료된 이동은 되돌리지 않습니다.</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>표시하거나 트레이에서 불러올 때 이동</value>
@@ -901,7 +904,13 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>가벼운 할 일 알림 사용</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>각 할 일의 드래그 핸들 왼쪽에 알림 버튼을 표시하고 시간이 되면 트레이 풍선으로 알려 줍니다. 끄면 버튼과 타이머가 중지되지만 저장된 시간은 유지됩니다.</value>
+    <value>할 일 행의 알림 버튼이나 오른쪽 클릭 메뉴에서 시간을 설정할 수 있습니다. 설정 후에는 짧은 카운트다운을 표시하고 시간이 되면 트레이에서 알려 줍니다. 기능을 끄면 타이머와 진입점을 중지하지만 저장된 시간은 유지됩니다.</value>
+  </data>
+  <data name="LabsTodoReminderShowButton" xml:space="preserve">
+    <value>할 일 행에 알림 버튼 표시</value>
+  </data>
+  <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
+    <value>끄면 종 모양 버튼을 숨기고 할 일의 오른쪽 클릭 메뉴에서만 알림을 만들거나 변경합니다. 설정된 알림은 짧은 카운트다운을 계속 표시합니다.</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>기본 빠른 알림</value>
@@ -917,6 +926,9 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   </data>
   <data name="TodoReminderMenuHeader" xml:space="preserve">
     <value>알림 시간</value>
+  </data>
+  <data name="TodoReminderMenuUnavailable" xml:space="preserve">
+    <value>지금은 알림을 설정할 수 없습니다</value>
   </data>
   <data name="TodoReminderInMinutesFormat" xml:space="preserve">
     <value>{0}분 후</value>
@@ -959,6 +971,18 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   </data>
   <data name="TodoReminderUnnamed" xml:space="preserve">
     <value>(이름 없는 할 일)</value>
+  </data>
+  <data name="TodoReminderCountdownNow" xml:space="preserve">
+    <value>지금</value>
+  </data>
+  <data name="TodoReminderCountdownMinutesFormat" xml:space="preserve">
+    <value>{0}분</value>
+  </data>
+  <data name="TodoReminderCountdownHoursFormat" xml:space="preserve">
+    <value>{0}시간</value>
+  </data>
+  <data name="TodoReminderCountdownDaysFormat" xml:space="preserve">
+    <value>{0}일</value>
   </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>단축키로 뒤로 보내기</value>

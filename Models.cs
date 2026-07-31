@@ -400,6 +400,7 @@ public sealed class AppState
     public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
         ExperimentalOpacityLevels.DefaultRestingCapsule;
     public bool ExperimentalTodoReminders { get; set; }
+    public bool ExperimentalTodoReminderShowButton { get; set; } = true;
     public int ExperimentalTodoReminderQuickMinutes { get; set; } =
         ExperimentalTodoReminderOptions.DefaultQuickMinutes;
     public bool ExperimentalCapsuleMagnetism { get; set; }

@@ -10,6 +10,9 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private readonly Dictionary<string, TextBlock> _todoReminderCountdowns =
+        new(StringComparer.Ordinal);
+
     internal void UpdateTodoReminderFeature()
     {
         if (_paper.Type == PaperTypes.Todo)
@@ -26,16 +29,38 @@ public sealed partial class PaperWindow
         }
     }
 
+    internal void RefreshTodoReminderCountdowns(DateTimeOffset now)
+    {
+        if (_paper.Type != PaperTypes.Todo ||
+            !_controller.State.ExperimentalTodoReminders ||
+            _todoReminderCountdowns.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (itemId, countdown) in _todoReminderCountdowns)
+        {
+            var item = _paper.Items.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, itemId, StringComparison.Ordinal));
+            if (item?.ReminderAt is not { } reminderAt || item.Done)
+            {
+                continue;
+            }
+
+            countdown.Text = TodoReminderCountdownText(reminderAt, now);
+            countdown.ToolTip = TodoReminderToolTip(item);
+        }
+    }
+
     private Border BuildTodoReminderButton(
         PaperItem item,
         TodoVisualMetrics metrics)
     {
-        var hasReminder = item.ReminderAt.HasValue;
         var glyph = new TextBlock
         {
             Text = "\uE823",
-            Foreground = hasReminder ? Theme.ActiveBrush : WeakTextBrush,
-            Opacity = hasReminder ? 1.0 : 0.44,
+            Foreground = WeakTextBrush,
+            Opacity = 0.44,
             FontFamily = new FontFamily("Segoe MDL2 Assets"),
             FontSize = Math.Max(
                 AppTypography.Scale(10.5),
@@ -57,7 +82,7 @@ public sealed partial class PaperWindow
             Cursor = Cursors.Hand,
             Child = glyph,
             Visibility = item.Done ? Visibility.Hidden : Visibility.Visible,
-            ToolTip = TodoReminderToolTip(item)
+            ToolTip = Strings.Get("TodoReminderSet")
         };
 
         button.MouseEnter += (_, _) =>
@@ -68,7 +93,7 @@ public sealed partial class PaperWindow
         button.MouseLeave += (_, _) =>
         {
             button.Background = Brushes.Transparent;
-            glyph.Opacity = item.ReminderAt.HasValue ? 1.0 : 0.44;
+            glyph.Opacity = 0.44;
         };
         button.PreviewMouseLeftButtonDown += (_, e) =>
         {
@@ -82,6 +107,74 @@ public sealed partial class PaperWindow
             e.Handled = true;
         };
         return button;
+    }
+
+    private Border BuildTodoReminderCountdown(
+        PaperItem item,
+        TodoVisualMetrics metrics)
+    {
+        var countdown = new TextBlock
+        {
+            Text = TodoReminderCountdownText(
+                item.ReminderAt!.Value,
+                DateTimeOffset.Now),
+            Foreground = Theme.ActiveBrush,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = Math.Max(
+                AppTypography.Scale(10),
+                metrics.TextFontSize - AppTypography.Scale(2)),
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.NoWrap,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = TodoReminderToolTip(item)
+        };
+        _todoReminderCountdowns[item.Id] = countdown;
+        return new Border
+        {
+            MinWidth = Math.Max(
+                AppTypography.Scale(24),
+                metrics.CheckColumnWidth),
+            MinHeight = metrics.RowMinHeight,
+            Margin = new Thickness(1, 0, 1, 0),
+            Padding = new Thickness(3, 0, 3, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            CornerRadius = new CornerRadius(RadiusSmall),
+            Background = Brushes.Transparent,
+            Child = countdown,
+            Visibility = item.Done ? Visibility.Hidden : Visibility.Visible
+        };
+    }
+
+    private static string TodoReminderCountdownText(
+        DateTimeOffset reminderAt,
+        DateTimeOffset now)
+    {
+        var remaining = reminderAt - now;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return Strings.Get("TodoReminderCountdownNow");
+        }
+
+        if (remaining.TotalMinutes < 60)
+        {
+            return Strings.Format(
+                "TodoReminderCountdownMinutesFormat",
+                Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes)));
+        }
+
+        if (remaining.TotalHours < 24)
+        {
+            return Strings.Format(
+                "TodoReminderCountdownHoursFormat",
+                Math.Max(1, (int)Math.Ceiling(remaining.TotalHours)));
+        }
+
+        return Strings.Format(
+            "TodoReminderCountdownDaysFormat",
+            Math.Max(1, (int)Math.Ceiling(remaining.TotalDays)));
     }
 
     private string TodoReminderToolTip(PaperItem item)
@@ -112,7 +205,78 @@ public sealed partial class PaperWindow
         }
 
         var menu = CreateContextMenu();
-        menu.Items.Add(MenuHeader(Strings.Get("TodoReminderMenuHeader")));
+        if (!PopulateTodoReminderMenu(
+                menu,
+                itemId,
+                includeHeader: true))
+        {
+            return;
+        }
+
+        var previousContextMenu = placementTarget.ContextMenu;
+        menu.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(placementTarget.ContextMenu, menu))
+            {
+                placementTarget.ContextMenu = previousContextMenu;
+            }
+        };
+        placementTarget.ContextMenu = menu;
+        menu.PlacementTarget = placementTarget;
+        menu.Placement = PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private MenuItem BuildTodoReminderContextMenuItem(string itemId)
+    {
+        var root = new MenuItem
+        {
+            Header = Strings.Get("TodoReminderSet"),
+            Padding = new Thickness(8, 4, 10, 4),
+            Background = Brushes.Transparent
+        };
+        root.SetResourceReference(
+            Control.ForegroundProperty,
+            "TextBrushKey");
+        root.Items.Add(MenuHeader(Strings.Get("TodoReminderMenuHeader")));
+        root.SubmenuOpened += (_, _) =>
+        {
+            root.Items.Clear();
+            if (!PopulateTodoReminderMenu(
+                    root,
+                    itemId,
+                    includeHeader: false))
+            {
+                root.Items.Add(MenuHeader(
+                    Strings.Get("TodoReminderMenuUnavailable")));
+            }
+        };
+        return root;
+    }
+
+    private bool PopulateTodoReminderMenu(
+        ItemsControl menu,
+        string itemId,
+        bool includeHeader)
+    {
+        if (!_controller.State.ExperimentalTodoReminders)
+        {
+            return false;
+        }
+
+        var item = _paper.Items.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, itemId, StringComparison.Ordinal));
+        if (item == null || item.Done)
+        {
+            return false;
+        }
+
+        if (includeHeader)
+        {
+            menu.Items.Add(MenuHeader(
+                Strings.Get("TodoReminderMenuHeader")));
+        }
+
         var now = DateTimeOffset.Now;
         var defaultMinutes =
             ExperimentalTodoReminderOptions.NormalizeQuickMinutes(
@@ -195,10 +359,7 @@ public sealed partial class PaperWindow
                 (_, _) => QueueTodoReminderChange(itemId, null)));
         }
 
-        placementTarget.ContextMenu = menu;
-        menu.PlacementTarget = placementTarget;
-        menu.Placement = PlacementMode.Bottom;
-        menu.IsOpen = true;
+        return true;
     }
 
     private void QueueTodoReminderChange(

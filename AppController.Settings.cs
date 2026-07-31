@@ -265,6 +265,15 @@ public sealed partial class AppController
         RefreshSettingsWindowContent();
     }
 
+    private void ToggleExperimentalTodoReminderShowButton()
+    {
+        State.ExperimentalTodoReminderShowButton =
+            !State.ExperimentalTodoReminderShowButton;
+        SaveNow();
+        RefreshTodoReminderFeature();
+        RefreshSettingsWindowContent();
+    }
+
     private void SetExperimentalTodoReminderQuickMinutes(int minutes)
     {
         var normalized =
@@ -906,11 +915,12 @@ public sealed partial class AppController
         InvalidateSystemThemeCacheIfNeeded();
         var width = SettingsWindowWidth();
 
-        // Measure natural page chrome (no ScrollViewer). Only enable scrolling when the tallest
-        // page exceeds the work-area cap — otherwise Auto scrollbars appear even with free space.
+        // Keep the frame based on the original three settings pages. Labs uses that same
+        // viewport and scrolls inside it, so adding experiments never grows the window.
         var naturalHeight = MeasureRequiredSettingsWindowHeight(width);
         var maxHeight = SettingsWindowMaxHeight();
-        var needsScroll = naturalHeight > maxHeight + 0.5;
+        var needsScroll = naturalHeight > maxHeight + 0.5 ||
+            _settingsPage == SettingsPage.Labs;
         var fittedHeight = Math.Min(naturalHeight, maxHeight);
         // Pin border height only when scrolling (viewport must be capped). When content fits,
         // leave the border unconstrained so a slightly short measure cannot clip the last rows;
@@ -1216,6 +1226,17 @@ public sealed partial class AppController
                 enabled,
                 ToggleExperimentalCapsuleMagnetism),
             "TipLabsCapsuleMagnetism"));
+        if (State.UseDeepCapsuleMode)
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = Strings.Get("LabsCapsuleMagnetEdgeModeNotice"),
+                Foreground = TrayWeakTextBrush,
+                FontSize = AppTypography.Scale(11),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 5, 2, 0)
+            });
+        }
 
         var targets = new Grid
         {
@@ -1599,6 +1620,16 @@ public sealed partial class AppController
                 State.ExperimentalTodoReminders,
                 ToggleExperimentalTodoReminders),
             "TipLabsTodoReminders"));
+        var showButtonToggle = WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsTodoReminderShowButton"),
+                State.ExperimentalTodoReminderShowButton,
+                ToggleExperimentalTodoReminderShowButton),
+            "TipLabsTodoReminderShowButton");
+        showButtonToggle.IsEnabled = State.ExperimentalTodoReminders;
+        showButtonToggle.Opacity =
+            State.ExperimentalTodoReminders ? 1.0 : 0.55;
+        content.Children.Add(showButtonToggle);
         content.Children.Add(SettingsFieldLabel(
             Strings.Get("LabsTodoReminderQuickMinutes"),
             topMargin: 7));
@@ -1763,6 +1794,7 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
         State.ExperimentalTodoReminders = false;
+        State.ExperimentalTodoReminderShowButton = true;
         State.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.DefaultQuickMinutes;
         State.ExperimentalCapsuleMagnetism = false;
@@ -2383,21 +2415,14 @@ public sealed partial class AppController
         var maxHeight = 0.0;
         try
         {
-            // Use the tallest page so switching tabs does not resize, and options on dense pages stay visible.
-            var pages = State.AdvancedSettingsMode
-                ? new[]
-                {
-                    SettingsPage.General,
-                    SettingsPage.Visual,
-                    SettingsPage.Shortcuts,
-                    SettingsPage.Labs
-                }
-                : new[]
-                {
-                    SettingsPage.General,
-                    SettingsPage.Visual,
-                    SettingsPage.Shortcuts
-                };
+            // Preserve the pre-Labs sizing rule: only the original three pages
+            // determine the settings-window frame. Labs receives this fixed viewport.
+            var pages = new[]
+            {
+                SettingsPage.General,
+                SettingsPage.Visual,
+                SettingsPage.Shortcuts
+            };
             foreach (var page in pages)
             {
                 _settingsPage = page;

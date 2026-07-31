@@ -748,7 +748,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ラボ</value>
   </data>
   <data name="SettingsLabsIntro" xml:space="preserve">
-    <value>ここにある機能は試験中のため、今後変更される場合があります。オフにすると、通常の付箋やカプセルの動作には参加しません。</value>
+    <value>これらは試験中の機能で、動作や設定項目が今後変わる場合があります。各機能は個別に有効化され、オフにすると関連する動作状態を直ちに停止します。</value>
   </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>付箋の透明度</value>
@@ -769,7 +769,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>待機中に半透明にする</value>
   </data>
   <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
-    <value>通常カプセルと端カプセルに適用されます。ホバー、アクティブ、ドラッグ時は不透明に戻り、メインカプセルは変わりません。</value>
+    <value>通常カプセルと端カプセルの待機中だけに適用されます。ホバー、アクティブ、ドラッグ時は不透明に戻り、メインカプセルは変わりません。</value>
   </data>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>待機中の不透明度</value>
@@ -781,7 +781,10 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>通常カプセルのスナップを有効にする</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>通常カプセルを画面または他のアプリのウィンドウ端付近で離すと吸着して追従します。もう一度ドラッグするか、対象が失われるか、機能をオフにすると解除されます。端のキューとメインカプセルには影響しません。</value>
+    <value>端のキューに入っていない通常カプセルだけが対象です。画面または他のアプリのウィンドウ端付近までドラッグして離すと吸着します。再ドラッグ、対象の消失、または機能のオフで解除され、端のキューとメインカプセルには影響しません。</value>
+  </data>
+  <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
+    <value>現在は端カプセルが有効なため、折りたたんだ付箋は端のキューに入り、通常カプセルの吸着対象にはなりません。この機能を使うには一般設定で端カプセルをオフにしてください。</value>
   </data>
   <data name="LabsMagnetScreenEdges" xml:space="preserve">
     <value>画面の端</value>
@@ -793,7 +796,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>吸着距離</value>
   </data>
   <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
-    <value>{0} px</value>
+    <value>約 {0} px</value>
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>カプセルの吸着を解除</value>
@@ -805,7 +808,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ウィンドウ連結を有効にする</value>
   </data>
   <data name="TipLabsWindowTethering" xml:space="preserve">
-    <value>展開した付箋のコンテキストメニューから外部ウィンドウを選ぶと、その端に付箋が連結されて追従します。付箋の再ドラッグ、連結解除、または機能をオフにすると追従を停止します。</value>
+    <value>展開した付箋を右クリックして外部ウィンドウを選ぶと、その端に連結して追従します。展開中の端カプセル用スロットがある場合は連結中だけ解放され、解除後に自動で戻ります。</value>
   </data>
   <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
     <value>優先する端</value>
@@ -829,7 +832,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>端との間隔</value>
   </data>
   <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
-    <value>{0} px</value>
+    <value>約 {0} px</value>
   </data>
   <data name="LabsWindowTetherChoose" xml:space="preserve">
     <value>ウィンドウに連結</value>
@@ -847,7 +850,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>連結表示の連動</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
-    <value>対象の最小化とアクティブ化に連動</value>
+    <value>対象が非表示のとき収納する</value>
   </data>
   <data name="TipLabsTetherVisibility" xml:space="preserve">
     <value>対象が最小化または非表示になると、連結した付箋を一時的に隠すか、独立したカプセルに置き換えます。対象を復元またはアクティブにすると付箋を再表示します。付箋自体の展開、カプセル、表示状態のデータは変更しません。</value>
@@ -874,7 +877,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>現在のデスクトップでの呼び出しを有効にする</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>付箋を明示的に表示または呼び出したときだけ、Windows の公開インターフェイスを使用して PaperTodo 自身のウィンドウを現在のデスクトップへ移動します。システムのデスクトップを切り替えたり、外部アプリを移動したりしません。オフにするとインターフェイスを直ちに解放しますが、完了済みの移動は元に戻しません。</value>
+    <value>付箋を表示するかカプセルを開いたとき、PaperTodo 自身のウィンドウを現在のデスクトップへ移動します。システムのデスクトップ切り替えや外部アプリの移動は行いません。オフにすると連携を停止しますが、完了済みの移動は元に戻しません。</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>表示またはトレイから呼び出すときに移動</value>
@@ -901,7 +904,13 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>軽量 ToDo リマインダーを有効にする</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>各 ToDo のドラッグハンドル左側にリマインダーボタンを表示し、期限になるとトレイ通知を出します。オフにするとボタンと計時は停止しますが、保存済みの時刻は保持されます。</value>
+    <value>ToDo 行のリマインダーボタンまたは右クリックメニューから時刻を設定できます。設定後は短いカウントダウンを表示し、期限になるとトレイで通知します。機能をオフにすると計時と入口を停止しますが、保存済みの時刻は保持されます。</value>
+  </data>
+  <data name="LabsTodoReminderShowButton" xml:space="preserve">
+    <value>ToDo 行にリマインダーボタンを表示</value>
+  </data>
+  <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
+    <value>オフにするとベルボタンを隠し、ToDo の右クリックメニューからのみリマインダーを作成・変更します。設定済みのリマインダーは短いカウントダウンを引き続き表示します。</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>既定のクイックリマインダー</value>
@@ -917,6 +926,9 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="TodoReminderMenuHeader" xml:space="preserve">
     <value>リマインダー時刻</value>
+  </data>
+  <data name="TodoReminderMenuUnavailable" xml:space="preserve">
+    <value>現在はリマインダーを設定できません</value>
   </data>
   <data name="TodoReminderInMinutesFormat" xml:space="preserve">
     <value>{0} 分後</value>
@@ -959,6 +971,18 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="TodoReminderUnnamed" xml:space="preserve">
     <value>（名前のない ToDo）</value>
+  </data>
+  <data name="TodoReminderCountdownNow" xml:space="preserve">
+    <value>今</value>
+  </data>
+  <data name="TodoReminderCountdownMinutesFormat" xml:space="preserve">
+    <value>{0}分</value>
+  </data>
+  <data name="TodoReminderCountdownHoursFormat" xml:space="preserve">
+    <value>{0}時間</value>
+  </data>
+  <data name="TodoReminderCountdownDaysFormat" xml:space="preserve">
+    <value>{0}日</value>
   </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>ショートカットで背面化</value>

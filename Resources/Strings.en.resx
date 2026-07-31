@@ -748,7 +748,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Labs</value>
   </data>
   <data name="SettingsLabsIntro" xml:space="preserve">
-    <value>These features are experimental and may change. When a feature is off, it does not participate in normal paper or capsule behavior.</value>
+    <value>These features are experimental, and their behavior or options may change. Each feature runs independently and stops its related runtime state as soon as it is turned off.</value>
   </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>Paper opacity</value>
@@ -769,7 +769,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Fade resting capsules</value>
   </data>
   <data name="TipLabsRestingCapsuleOpacity" xml:space="preserve">
-    <value>Affects ordinary and edge capsules. Hovering, activating, or dragging restores full opacity; the master capsule is unchanged.</value>
+    <value>Only affects ordinary and edge capsules while resting. Hovering, activating, or dragging restores full opacity; the master capsule is unchanged.</value>
   </data>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>Resting opacity</value>
@@ -781,7 +781,10 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable ordinary capsule magnetism</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>Dropping an ordinary capsule near a screen or application-window edge attaches it to that target. Dragging it again, losing the target, or turning this off detaches it. Edge queues and master capsules are unaffected.</value>
+    <value>Only applies to ordinary capsules outside edge queues. Drag and release one near a screen or application-window edge to attach it. Dragging it again, losing the target, or turning this off detaches it; edge queues and master capsules are unaffected.</value>
+  </data>
+  <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
+    <value>Edge capsules are currently enabled, so collapsed papers enter an edge queue instead of ordinary capsule magnetism. Turn off edge capsules in General settings to use this feature.</value>
   </data>
   <data name="LabsMagnetScreenEdges" xml:space="preserve">
     <value>Screen edges</value>
@@ -793,7 +796,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Attraction distance</value>
   </data>
   <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
-    <value>{0} px</value>
+    <value>About {0} px</value>
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>Detach capsule</value>
@@ -805,7 +808,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable window tethering</value>
   </data>
   <data name="TipLabsWindowTethering" xml:space="preserve">
-    <value>Choose an external window from an expanded paper's context menu. The paper attaches to its edge and follows it. Dragging the paper again, detaching, or turning this off stops following.</value>
+    <value>Right-click an expanded paper and choose an external window to attach and follow. If the paper reserved an expanded edge-capsule slot, that slot is released while tethered and restored after detaching.</value>
   </data>
   <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
     <value>Preferred edge</value>
@@ -829,7 +832,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Edge gap</value>
   </data>
   <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
-    <value>{0} px</value>
+    <value>About {0} px</value>
   </data>
   <data name="LabsWindowTetherChoose" xml:space="preserve">
     <value>Tether to window</value>
@@ -847,7 +850,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Tether visibility link</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
-    <value>Follow target minimize and activation</value>
+    <value>Retract when the target is hidden</value>
   </data>
   <data name="TipLabsTetherVisibility" xml:space="preserve">
     <value>When the target is minimized or hidden, its tethered paper is temporarily hidden or replaced by a separate capsule. Restoring or activating the target shows the paper again. The paper's own expanded, capsule, and visibility data is not changed.</value>
@@ -874,7 +877,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable wake on current desktop</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>Only when you explicitly show or wake a paper, the documented Windows interface moves PaperTodo's own windows to the current desktop. It never switches the system desktop or moves external apps. Turning it off releases the interface immediately; desktop moves already completed are not reversed.</value>
+    <value>Moves PaperTodo's own windows to the current desktop when you show a paper or open a capsule. It never switches the system desktop or moves external apps. Turning it off stops integration; completed moves are not reversed.</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>Move on show or tray wake</value>
@@ -901,7 +904,13 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable lightweight todo reminders</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>Shows a reminder button to the left of each todo drag handle and uses a tray balloon when due. Turning it off hides the buttons and stops timing while preserving saved times.</value>
+    <value>Set a time from a todo's reminder button or context menu. A compact countdown appears afterward, followed by a tray notification when due. Turning the feature off stops timing and hides its entry points while preserving saved times.</value>
+  </data>
+  <data name="LabsTodoReminderShowButton" xml:space="preserve">
+    <value>Show reminder buttons in todo rows</value>
+  </data>
+  <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
+    <value>Turn this off to remove the bell buttons and create or edit reminders only from a todo's context menu. Existing reminders still show a compact countdown.</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>Default quick reminder</value>
@@ -917,6 +926,9 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="TodoReminderMenuHeader" xml:space="preserve">
     <value>Reminder time</value>
+  </data>
+  <data name="TodoReminderMenuUnavailable" xml:space="preserve">
+    <value>A reminder cannot be set right now</value>
   </data>
   <data name="TodoReminderInMinutesFormat" xml:space="preserve">
     <value>In {0} minutes</value>
@@ -959,6 +971,18 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="TodoReminderUnnamed" xml:space="preserve">
     <value>(Unnamed todo)</value>
+  </data>
+  <data name="TodoReminderCountdownNow" xml:space="preserve">
+    <value>now</value>
+  </data>
+  <data name="TodoReminderCountdownMinutesFormat" xml:space="preserve">
+    <value>{0}m</value>
+  </data>
+  <data name="TodoReminderCountdownHoursFormat" xml:space="preserve">
+    <value>{0}h</value>
+  </data>
+  <data name="TodoReminderCountdownDaysFormat" xml:space="preserve">
+    <value>{0}d</value>
   </data>
   <data name="LabsPassiveMode" xml:space="preserve">
     <value>Shortcut pass-through</value>

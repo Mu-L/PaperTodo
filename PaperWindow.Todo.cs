@@ -78,6 +78,7 @@ public sealed partial class PaperWindow
 
         _todoPanel.Children.Clear();
         _todoEditors.Clear();
+        _todoReminderCountdowns.Clear();
         _todoRows.Clear();
         _linkedNoteDropRow = null;
 
@@ -318,6 +319,10 @@ public sealed partial class PaperWindow
             _controller.ShouldRunLinkedScriptCapsule(item.LinkedNoteId);
         var todoRemindersEnabled =
             _controller.State.ExperimentalTodoReminders;
+        var showTodoReminderButton = todoRemindersEnabled &&
+            _controller.State.ExperimentalTodoReminderShowButton;
+        var showTodoReminderControl = todoRemindersEnabled &&
+            (showTodoReminderButton || item.ReminderAt.HasValue);
 
         var row = new Border
         {
@@ -360,7 +365,7 @@ public sealed partial class PaperWindow
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(metrics.CheckColumnWidth) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        if (todoRemindersEnabled)
+        if (showTodoReminderControl)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         }
@@ -385,6 +390,7 @@ public sealed partial class PaperWindow
         Grid.SetColumn(check, 0);
         grid.Children.Add(check);
         Border? reminderButton = null;
+        Border? reminderCountdown = null;
 
         var text = new TodoTextBox
         {
@@ -459,6 +465,10 @@ public sealed partial class PaperWindow
             {
                 reminderButton.Visibility = Visibility.Hidden;
             }
+            if (reminderCountdown != null)
+            {
+                reminderCountdown.Visibility = Visibility.Hidden;
+            }
             text.IsDone = true;
             text.Foreground = BrightWeakTextBrush;
             _controller.MarkDirty();
@@ -484,6 +494,12 @@ public sealed partial class PaperWindow
             {
                 reminderButton.Visibility = Visibility.Visible;
             }
+            if (reminderCountdown != null)
+            {
+                reminderCountdown.Visibility = item.ReminderAt.HasValue
+                    ? Visibility.Visible
+                    : Visibility.Hidden;
+            }
             if (todoRemindersEnabled && item.ReminderAt.HasValue)
             {
                 _controller.NotifyTodoReminderCollectionChanged();
@@ -507,6 +523,7 @@ public sealed partial class PaperWindow
         ContextMenu CreateItemMenu()
         {
             var itemMenu = CreateContextMenu();
+            MenuItem? reminderMenu = null;
             itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
             if (hasLinkedNote)
             {
@@ -517,10 +534,24 @@ public sealed partial class PaperWindow
                 itemMenu.Items.Add(MenuItem(Strings.Get("MenuUnlinkNote"), (_, _) => UnlinkNoteFromTodoItem(item)));
                 itemMenu.Items.Add(MenuSeparator());
             }
+            if (todoRemindersEnabled)
+            {
+                reminderMenu = BuildTodoReminderContextMenuItem(item.Id);
+                reminderMenu.IsEnabled = !item.Done;
+                itemMenu.Items.Add(reminderMenu);
+                itemMenu.Items.Add(MenuSeparator());
+            }
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuDeleteItem"), (_, _) => RemoveItem(item)));
             itemMenu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
 
-            itemMenu.Opened += (_, _) => row.Background = HoverBrush;
+            itemMenu.Opened += (_, _) =>
+            {
+                row.Background = HoverBrush;
+                if (reminderMenu != null)
+                {
+                    reminderMenu.IsEnabled = !item.Done;
+                }
+            };
             itemMenu.Closed += (_, _) =>
             {
                 if (!row.IsMouseOver)
@@ -735,11 +766,28 @@ public sealed partial class PaperWindow
             grid.Children.Add(linkButton);
         }
 
-        if (todoRemindersEnabled)
+        if (showTodoReminderControl)
         {
-            reminderButton = BuildTodoReminderButton(item, metrics);
-            Grid.SetColumn(reminderButton, 3);
-            grid.Children.Add(reminderButton);
+            var reminderHost = new Grid();
+            if (showTodoReminderButton)
+            {
+                reminderButton = BuildTodoReminderButton(item, metrics);
+                reminderButton.Visibility =
+                    !item.Done && !item.ReminderAt.HasValue
+                        ? Visibility.Visible
+                        : Visibility.Hidden;
+                AttachItemContextMenu(reminderButton);
+                reminderHost.Children.Add(reminderButton);
+            }
+            if (item.ReminderAt.HasValue)
+            {
+                reminderCountdown = BuildTodoReminderCountdown(item, metrics);
+                AttachItemContextMenu(reminderCountdown);
+                reminderHost.Children.Add(reminderCountdown);
+            }
+
+            Grid.SetColumn(reminderHost, 3);
+            grid.Children.Add(reminderHost);
         }
 
         var handleGlyph = new TextBlock
@@ -790,7 +838,7 @@ public sealed partial class PaperWindow
         };
         AttachItemContextMenu(handle);
 
-        Grid.SetColumn(handle, todoRemindersEnabled ? 4 : 3);
+        Grid.SetColumn(handle, showTodoReminderControl ? 4 : 3);
         grid.Children.Add(handle);
 
         row.Child = grid;

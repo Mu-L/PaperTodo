@@ -95,17 +95,21 @@ public sealed partial class AppController
         }
 
         StopTodoReminderTimer();
-        ProcessDueTodoReminders();
+        var now = DateTimeOffset.Now;
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshTodoReminderCountdowns(now);
+        }
+        ProcessDueTodoReminders(now);
     }
 
-    private void ProcessDueTodoReminders()
+    private void ProcessDueTodoReminders(DateTimeOffset now)
     {
         if (IsExiting || !State.ExperimentalTodoReminders)
         {
             return;
         }
 
-        var now = DateTimeOffset.Now;
         var due = State.Papers
             .Where(paper => paper.Type == PaperTypes.Todo)
             .SelectMany(paper => paper.Items
