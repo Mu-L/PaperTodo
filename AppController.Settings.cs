@@ -1165,6 +1165,10 @@ public sealed partial class AppController
             Strings.Get("LabsCapsuleMagnetism")));
         root.Children.Add(BuildLabsCapsuleMagnetSettings());
 
+        root.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsWindowTethering")));
+        root.Children.Add(BuildLabsWindowTetherSettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
         root.Children.Add(BuildLabsTodoReminderSettings());
 
@@ -1314,6 +1318,140 @@ public sealed partial class AppController
             "＋",
             2,
             ExperimentalWindowAttachmentOptions.SnapDistanceStep));
+        container.Child = grid;
+        return container;
+    }
+
+    private UIElement BuildLabsWindowTetherSettings()
+    {
+        var enabled = State.ExperimentalWindowTethering;
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableWindowTethering"),
+                enabled,
+                ToggleExperimentalWindowTethering),
+            "TipLabsWindowTethering"));
+
+        var options = new StackPanel
+        {
+            IsEnabled = enabled,
+            Opacity = enabled ? 1.0 : 0.55
+        };
+        options.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsWindowTetherPreferredEdge"),
+            topMargin: 8));
+        options.Children.Add(CreateLabsWindowTetherEdgeSelector());
+        options.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsWindowTetherGap")));
+        options.Children.Add(CreateLabsWindowTetherGapStepper());
+        content.Children.Add(options);
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateLabsWindowTetherEdgeSelector()
+    {
+        var segments = new[]
+        {
+            (ExperimentalWindowTetherOptions.Auto,
+                Strings.Get("LabsWindowTetherEdgeAuto")),
+            (ExperimentalWindowTetherOptions.Left,
+                Strings.Get("LabsWindowTetherEdgeLeft")),
+            (ExperimentalWindowTetherOptions.Right,
+                Strings.Get("LabsWindowTetherEdgeRight")),
+            (ExperimentalWindowTetherOptions.Top,
+                Strings.Get("LabsWindowTetherEdgeTop")),
+            (ExperimentalWindowTetherOptions.Bottom,
+                Strings.Get("LabsWindowTetherEdgeBottom"))
+        };
+        return CreateSegmentSelector(
+            segments,
+            ExperimentalWindowTetherOptions.NormalizeEdge(
+                State.ExperimentalWindowTetherPreferredEdge),
+            SetExperimentalWindowTetherPreferredEdge);
+    }
+
+    private UIElement CreateLabsWindowTetherGapStepper()
+    {
+        var container = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 0),
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var valueText = new TextBlock
+        {
+            Text = Strings.Format(
+                "LabsWindowTetherGapValueFormat",
+                State.ExperimentalWindowTetherGap),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TrayTextBrush
+        };
+        Grid.SetColumn(valueText, 1);
+
+        Border StepButton(string glyph, int column, int delta)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(15),
+                Foreground = TrayTextBrush
+            };
+            var button = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = glyphText
+            };
+            button.MouseEnter += (_, _) => button.Background = TrayHoverBrush;
+            button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
+            button.MouseLeftButtonDown += (_, e) =>
+            {
+                SetExperimentalWindowTetherGap(
+                    State.ExperimentalWindowTetherGap + delta);
+                e.Handled = true;
+            };
+            Grid.SetColumn(button, column);
+            return button;
+        }
+
+        grid.Children.Add(StepButton(
+            "−",
+            0,
+            -ExperimentalWindowTetherOptions.GapStep));
+        grid.Children.Add(valueText);
+        grid.Children.Add(StepButton(
+            "＋",
+            2,
+            ExperimentalWindowTetherOptions.GapStep));
         container.Child = grid;
         return container;
     }
@@ -1507,11 +1645,17 @@ public sealed partial class AppController
         State.ExperimentalCapsuleMagnetWindowEdges = true;
         State.ExperimentalCapsuleMagnetDistance =
             ExperimentalWindowAttachmentOptions.DefaultSnapDistance;
+        State.ExperimentalWindowTethering = false;
+        State.ExperimentalWindowTetherPreferredEdge =
+            ExperimentalWindowTetherOptions.Auto;
+        State.ExperimentalWindowTetherGap =
+            ExperimentalWindowTetherOptions.DefaultGap;
         RestoreLabsShortcutDefaults();
 
         foreach (var window in _windows.Values.ToList())
         {
             window.DisableExperimentalCapsuleMagnet();
+            window.DisableExperimentalWindowTether();
         }
         RefreshExperimentalWindowRuntime();
         SaveNow();

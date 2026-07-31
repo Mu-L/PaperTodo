@@ -480,6 +480,12 @@ public sealed class StateStore
         state.ExperimentalCapsuleMagnetDistance =
             ExperimentalWindowAttachmentOptions.NormalizeSnapDistance(
                 state.ExperimentalCapsuleMagnetDistance);
+        state.ExperimentalWindowTetherPreferredEdge =
+            ExperimentalWindowTetherOptions.NormalizeEdge(
+                state.ExperimentalWindowTetherPreferredEdge);
+        state.ExperimentalWindowTetherGap =
+            ExperimentalWindowTetherOptions.NormalizeGap(
+                state.ExperimentalWindowTetherGap);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)

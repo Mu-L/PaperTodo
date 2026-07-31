@@ -7,8 +7,9 @@ public sealed partial class AppController
     private ExternalWindowTracker? _externalWindowTracker;
 
     private bool NeedsExternalWindowTracker =>
-        State.ExperimentalCapsuleMagnetism &&
-        State.ExperimentalCapsuleMagnetWindowEdges;
+        (State.ExperimentalCapsuleMagnetism &&
+         State.ExperimentalCapsuleMagnetWindowEdges) ||
+        State.ExperimentalWindowTethering;
 
     private void RefreshExperimentalWindowRuntime()
     {
@@ -101,6 +102,66 @@ public sealed partial class AppController
         State.ExperimentalCapsuleMagnetDistance = normalized;
         SaveNow();
         RefreshSettingsWindowContent();
+    }
+
+    private void ToggleExperimentalWindowTethering()
+    {
+        State.ExperimentalWindowTethering =
+            !State.ExperimentalWindowTethering;
+        if (!State.ExperimentalWindowTethering)
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.DisableExperimentalWindowTether();
+            }
+        }
+
+        SaveNow();
+        RefreshExperimentalWindowRuntime();
+        RefreshExperimentalAttachmentMenus();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalWindowTetherPreferredEdge(string edge)
+    {
+        var normalized = ExperimentalWindowTetherOptions.NormalizeEdge(edge);
+        if (State.ExperimentalWindowTetherPreferredEdge == normalized)
+        {
+            return;
+        }
+
+        State.ExperimentalWindowTetherPreferredEdge = normalized;
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.RefreshExperimentalWindowTetherOptions();
+        }
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalWindowTetherGap(int gap)
+    {
+        var normalized = ExperimentalWindowTetherOptions.NormalizeGap(gap);
+        if (State.ExperimentalWindowTetherGap == normalized)
+        {
+            return;
+        }
+
+        State.ExperimentalWindowTetherGap = normalized;
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.RefreshExperimentalWindowTetherOptions();
+        }
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void RefreshExperimentalAttachmentMenus()
+    {
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.RefreshExperimentalAttachmentMenu();
+        }
     }
 
     private void RefreshExperimentalAttachmentsAfterDisplayMetrics()

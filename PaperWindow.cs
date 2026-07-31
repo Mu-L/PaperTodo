@@ -960,6 +960,7 @@ public sealed partial class PaperWindow : Window
             }
 
             _isSnappedPresentation = true;
+            DetachExperimentalWindowAttachment(savePosition: true);
             ApplyPaperChromePresentation();
             SaveGeometryIfAllowed();
             return;
@@ -1839,6 +1840,7 @@ public sealed partial class PaperWindow : Window
         }
 
         EndTitleBarDragGesture(dragSource);
+        DetachExperimentalAttachmentBeforeUserDrag();
         WindowNative.BeginWindowCaptionDrag(this);
         e.Handled = true;
     }
@@ -2528,6 +2530,22 @@ public sealed partial class PaperWindow : Window
         {
             menu.Items.Add(MenuItem(
                 Strings.Get("LabsCapsuleMagnetDetach"),
+                (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
+        }
+
+        if (_controller.State.ExperimentalWindowTethering &&
+            !_paper.IsCollapsed &&
+            !forDeepCapsuleSlot &&
+            !HasDeepCapsuleSlotPlacement &&
+            WindowState == WindowState.Normal &&
+            !_isSnappedPresentation)
+        {
+            menu.Items.Add(BuildExperimentalWindowTetherMenu());
+        }
+        if (HasExperimentalWindowTether)
+        {
+            menu.Items.Add(MenuItem(
+                Strings.Get("LabsWindowTetherDetach"),
                 (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
         }
 

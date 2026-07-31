@@ -1,3 +1,5 @@
+using System.Windows.Controls;
+
 namespace PaperTodo;
 
 internal enum ExperimentalAttachmentOwner
@@ -95,6 +97,70 @@ internal static class ExperimentalWindowAttachmentGeometry
         return true;
     }
 
+    public static bool TryPlanWindowTether(
+        DeviceScreenRect paperBounds,
+        ExternalWindowSnapshot externalWindow,
+        MonitorGeometry monitor,
+        string preferredEdge,
+        double gapDip,
+        out ExperimentalAttachmentPlan plan)
+    {
+        plan = default;
+        if (paperBounds.IsEmpty ||
+            !externalWindow.IsUsableTarget ||
+            monitor.WorkArea.IsEmpty ||
+            !double.IsFinite(gapDip))
+        {
+            return false;
+        }
+
+        var normalizedEdge =
+            ExperimentalWindowTetherOptions.NormalizeEdge(preferredEdge);
+        ExperimentalAttachmentEdge[] edges = normalizedEdge switch
+        {
+            ExperimentalWindowTetherOptions.Left =>
+                [ExperimentalAttachmentEdge.Left],
+            ExperimentalWindowTetherOptions.Right =>
+                [ExperimentalAttachmentEdge.Right],
+            ExperimentalWindowTetherOptions.Top =>
+                [ExperimentalAttachmentEdge.Top],
+            ExperimentalWindowTetherOptions.Bottom =>
+                [ExperimentalAttachmentEdge.Bottom],
+            _ => Enum.GetValues<ExperimentalAttachmentEdge>()
+        };
+        var candidates = new List<ExperimentalAttachmentPlan>();
+        foreach (var edge in edges)
+        {
+            AddTetherCandidate(
+                candidates,
+                paperBounds,
+                externalWindow,
+                monitor,
+                edge,
+                insideTarget: false,
+                gapDip);
+            AddTetherCandidate(
+                candidates,
+                paperBounds,
+                externalWindow,
+                monitor,
+                edge,
+                insideTarget: true,
+                gapDip);
+        }
+
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        plan = candidates
+            .OrderBy(candidate => candidate.Session.InsideTarget ? 1 : 0)
+            .ThenBy(candidate => candidate.ScoreDip)
+            .First();
+        return true;
+    }
+
     public static DeviceScreenRect Resolve(
         ExperimentalWindowAttachmentSession session,
         DeviceScreenRect targetBounds,
@@ -158,6 +224,11 @@ internal static class ExperimentalWindowAttachmentGeometry
 
         return new DeviceScreenRect(left, top, left + width, top + height);
     }
+
+    public static bool FitsWorkArea(
+        DeviceScreenRect bounds,
+        DeviceScreenRect workArea) =>
+        IsContainedBy(bounds, workArea);
 
     private static void AddScreenCandidates(
         ICollection<ExperimentalAttachmentPlan> candidates,
@@ -273,6 +344,58 @@ internal static class ExperimentalWindowAttachmentGeometry
         }
     }
 
+    private static void AddTetherCandidate(
+        ICollection<ExperimentalAttachmentPlan> candidates,
+        DeviceScreenRect paperBounds,
+        ExternalWindowSnapshot externalWindow,
+        MonitorGeometry monitor,
+        ExperimentalAttachmentEdge edge,
+        bool insideTarget,
+        double gapDip)
+    {
+        var perpendicularOffset = edge is
+            ExperimentalAttachmentEdge.Left or ExperimentalAttachmentEdge.Right
+                ? paperBounds.Top - externalWindow.Bounds.Top
+                : paperBounds.Left - externalWindow.Bounds.Left;
+        var session = new ExperimentalWindowAttachmentSession(
+            ExperimentalAttachmentOwner.WindowTether,
+            ExperimentalAttachmentTargetKind.ExternalWindow,
+            edge,
+            insideTarget,
+            externalWindow.Identity,
+            monitor.DeviceName,
+            externalWindow.Title,
+            perpendicularOffset,
+            Math.Max(0, gapDip),
+            externalWindow.Bounds);
+        var desired = Resolve(
+            session,
+            externalWindow.Bounds,
+            paperBounds,
+            externalWindow.DpiScale);
+        if (desired.IsEmpty ||
+            !IsContainedBy(desired, monitor.WorkArea) ||
+            (insideTarget &&
+             !CanFitInsideAttachmentAxis(
+                 edge,
+                 desired,
+                 externalWindow.Bounds)))
+        {
+            return;
+        }
+
+        var deltaX = desired.Left - paperBounds.Left;
+        var deltaY = desired.Top - paperBounds.Top;
+        var scoreDip = Math.Sqrt(
+            deltaX * (double)deltaX +
+            deltaY * (double)deltaY) /
+            Math.Max(1, externalWindow.DpiScale);
+        candidates.Add(new ExperimentalAttachmentPlan(
+            session,
+            desired,
+            scoreDip));
+    }
+
     private static void AddCandidate(
         ICollection<ExperimentalAttachmentPlan> candidates,
         ExperimentalAttachmentOwner owner,
@@ -353,6 +476,25 @@ internal static class ExperimentalWindowAttachmentGeometry
                   window.Left <= target.Right + tolerance;
     }
 
+    private static bool IsContainedBy(
+        DeviceScreenRect inner,
+        DeviceScreenRect outer) =>
+        inner.Left >= outer.Left &&
+        inner.Top >= outer.Top &&
+        inner.Right <= outer.Right &&
+        inner.Bottom <= outer.Bottom;
+
+    private static bool CanFitInsideAttachmentAxis(
+        ExperimentalAttachmentEdge edge,
+        DeviceScreenRect window,
+        DeviceScreenRect target)
+    {
+        return edge is
+            ExperimentalAttachmentEdge.Left or ExperimentalAttachmentEdge.Right
+                ? window.Width <= target.Width
+                : window.Height <= target.Height;
+    }
+
     private static double ClampOffset(
         double offset,
         int targetLength,
@@ -383,6 +525,10 @@ public sealed partial class PaperWindow
     private bool HasExperimentalCapsuleMagnet =>
         _experimentalWindowAttachment?.Owner ==
         ExperimentalAttachmentOwner.CapsuleMagnet;
+
+    private bool HasExperimentalWindowTether =>
+        _experimentalWindowAttachment?.Owner ==
+        ExperimentalAttachmentOwner.WindowTether;
 
     private void DetachExperimentalAttachmentBeforeUserDrag()
     {
@@ -438,6 +584,48 @@ public sealed partial class PaperWindow
         RefreshExperimentalAttachmentMenus();
     }
 
+    private void AttachExperimentalWindowTether(
+        ExternalWindowIdentity identity)
+    {
+        if (!_controller.State.ExperimentalWindowTethering ||
+            _paper.IsCollapsed ||
+            HasDeepCapsuleSlotPlacement ||
+            IsPaperFormTransitioning ||
+            WindowState != System.Windows.WindowState.Normal ||
+            _isSnappedPresentation ||
+            !IsVisible ||
+            !WindowNative.TryGetWindowDeviceBounds(this, out var paperBounds) ||
+            !ExternalWindowNative.TryGetSnapshot(identity, out var target) ||
+            !target.IsUsableTarget)
+        {
+            return;
+        }
+
+        var targetCenter = new DeviceScreenPoint(
+            target.Bounds.Left + target.Bounds.Width / 2.0,
+            target.Bounds.Top + target.Bounds.Height / 2.0);
+        if (!WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                targetCenter,
+                this,
+                out var monitor) ||
+            !ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
+                paperBounds,
+                target,
+                monitor,
+                _controller.State.ExperimentalWindowTetherPreferredEdge,
+                _controller.State.ExperimentalWindowTetherGap,
+                out var plan))
+        {
+            return;
+        }
+
+        DetachExperimentalWindowAttachment(savePosition: false);
+        _experimentalWindowAttachment = plan.Session;
+        ApplyExperimentalAttachmentBounds(plan.WindowBounds);
+        SaveGeometryForCurrentPresentation();
+        RefreshExperimentalAttachmentMenus();
+    }
+
     internal void HandleExternalWindowEvent(ExternalWindowEvent windowEvent)
     {
         var session = _experimentalWindowAttachment;
@@ -457,10 +645,12 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (session.Owner == ExperimentalAttachmentOwner.CapsuleMagnet &&
-            (snapshot.IsMinimized || snapshot.IsCloaked || !snapshot.IsVisible))
+        if (snapshot.IsMinimized || snapshot.IsCloaked || !snapshot.IsVisible)
         {
-            DetachExperimentalWindowAttachment(savePosition: true);
+            if (session.Owner == ExperimentalAttachmentOwner.CapsuleMagnet)
+            {
+                DetachExperimentalWindowAttachment(savePosition: true);
+            }
             return;
         }
 
@@ -523,6 +713,41 @@ public sealed partial class PaperWindow
         RefreshExperimentalAttachmentMenus();
     }
 
+    internal void DisableExperimentalWindowTether()
+    {
+        if (HasExperimentalWindowTether)
+        {
+            DetachExperimentalWindowAttachment(savePosition: true);
+        }
+        RefreshExperimentalAttachmentMenus();
+    }
+
+    internal void RefreshExperimentalWindowTetherOptions()
+    {
+        var session = _experimentalWindowAttachment;
+        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether ||
+            !ExternalWindowNative.TryGetSnapshot(
+                session.ExternalWindow,
+                out var snapshot) ||
+            !snapshot.IsUsableTarget ||
+            !WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds) ||
+            !TryGetTargetMonitor(snapshot, out var monitor) ||
+            !ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
+                currentBounds,
+                snapshot,
+                monitor,
+                _controller.State.ExperimentalWindowTetherPreferredEdge,
+                _controller.State.ExperimentalWindowTetherGap,
+                out var plan))
+        {
+            return;
+        }
+
+        _experimentalWindowAttachment = plan.Session;
+        ApplyExperimentalAttachmentBounds(plan.WindowBounds);
+        SaveGeometryForCurrentPresentation();
+    }
+
     internal void DetachExperimentalWindowAttachment(bool savePosition)
     {
         if (_experimentalWindowAttachment == null)
@@ -556,7 +781,23 @@ public sealed partial class PaperWindow
             snapshot.Bounds,
             currentBounds,
             snapshot.DpiScale);
-        if (session.Owner == ExperimentalAttachmentOwner.CapsuleMagnet &&
+        if (session.Owner == ExperimentalAttachmentOwner.WindowTether &&
+            TryGetTargetMonitor(snapshot, out var monitor) &&
+            !ExperimentalWindowAttachmentGeometry.FitsWorkArea(
+                desired,
+                monitor.WorkArea) &&
+            ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
+                currentBounds,
+                snapshot,
+                monitor,
+                _controller.State.ExperimentalWindowTetherPreferredEdge,
+                _controller.State.ExperimentalWindowTetherGap,
+                out var replanned))
+        {
+            session = replanned.Session;
+            desired = replanned.WindowBounds;
+        }
+        else if (session.Owner == ExperimentalAttachmentOwner.CapsuleMagnet &&
             !FitsAnyConnectedMonitor(desired))
         {
             var visibleSession = session with
@@ -597,6 +838,19 @@ public sealed partial class PaperWindow
                 bounds.Bottom <= monitor.WorkArea.Bottom);
     }
 
+    private bool TryGetTargetMonitor(
+        ExternalWindowSnapshot snapshot,
+        out MonitorGeometry monitor)
+    {
+        var center = new DeviceScreenPoint(
+            snapshot.Bounds.Left + snapshot.Bounds.Width / 2.0,
+            snapshot.Bounds.Top + snapshot.Bounds.Height / 2.0);
+        return WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+            center,
+            this,
+            out monitor);
+    }
+
     private void ApplyExperimentalAttachmentBounds(DeviceScreenRect bounds)
     {
         if (bounds.IsEmpty)
@@ -622,5 +876,49 @@ public sealed partial class PaperWindow
         {
             _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
         }
+    }
+
+    internal void RefreshExperimentalAttachmentMenu()
+    {
+        RefreshExperimentalAttachmentMenus();
+    }
+
+    private MenuItem BuildExperimentalWindowTetherMenu()
+    {
+        var root = new MenuItem
+        {
+            Header = Strings.Get("LabsWindowTetherChoose"),
+            Padding = new System.Windows.Thickness(8, 4, 10, 4),
+            Background = System.Windows.Media.Brushes.Transparent
+        };
+        root.SetResourceReference(
+            System.Windows.Controls.Control.ForegroundProperty,
+            "TextBrushKey");
+        root.Items.Add(MenuHeader(Strings.Get("LabsWindowTetherOpenToChoose")));
+        root.SubmenuOpened += (_, _) =>
+        {
+            root.Items.Clear();
+            var targets = ExternalWindowNative.EnumerateTargets(maximumCount: 24);
+            if (targets.Count == 0)
+            {
+                root.Items.Add(MenuHeader(
+                    Strings.Get("LabsWindowTetherNoTargets")));
+                return;
+            }
+
+            foreach (var target in targets)
+            {
+                var title = target.Title.Length <= 60
+                    ? target.Title
+                    : target.Title[..57] + "…";
+                var item = MenuItem(
+                    title,
+                    (_, _) => AttachExperimentalWindowTether(
+                        target.Identity));
+                item.ToolTip = target.Title;
+                root.Items.Add(item);
+            }
+        };
+        return root;
     }
 }

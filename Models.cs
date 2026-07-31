@@ -270,6 +270,32 @@ public static class ExperimentalWindowAttachmentOptions
     }
 }
 
+public static class ExperimentalWindowTetherOptions
+{
+    public const string Auto = "auto";
+    public const string Left = "left";
+    public const string Right = "right";
+    public const string Top = "top";
+    public const string Bottom = "bottom";
+    public const int MinimumGap = 0;
+    public const int MaximumGap = 24;
+    public const int GapStep = 2;
+    public const int DefaultGap = 8;
+
+    public static string NormalizeEdge(string? edge)
+    {
+        return edge is Left or Right or Top or Bottom ? edge : Auto;
+    }
+
+    public static int NormalizeGap(int gap)
+    {
+        var clamped = Math.Clamp(gap, MinimumGap, MaximumGap);
+        return (int)Math.Round(
+            clamped / (double)GapStep,
+            MidpointRounding.AwayFromZero) * GapStep;
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -370,6 +396,11 @@ public sealed class AppState
     public bool ExperimentalCapsuleMagnetWindowEdges { get; set; } = true;
     public int ExperimentalCapsuleMagnetDistance { get; set; } =
         ExperimentalWindowAttachmentOptions.DefaultSnapDistance;
+    public bool ExperimentalWindowTethering { get; set; }
+    public string ExperimentalWindowTetherPreferredEdge { get; set; } =
+        ExperimentalWindowTetherOptions.Auto;
+    public int ExperimentalWindowTetherGap { get; set; } =
+        ExperimentalWindowTetherOptions.DefaultGap;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.

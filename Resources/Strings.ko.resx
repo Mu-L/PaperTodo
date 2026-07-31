@@ -798,6 +798,51 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>캡슐 흡착 해제</value>
   </data>
+  <data name="LabsWindowTethering" xml:space="preserve">
+    <value>창 연결</value>
+  </data>
+  <data name="LabsEnableWindowTethering" xml:space="preserve">
+    <value>창 연결 사용</value>
+  </data>
+  <data name="TipLabsWindowTethering" xml:space="preserve">
+    <value>펼친 메모의 바로 가기 메뉴에서 외부 창을 선택하면 메모가 그 가장자리에 붙어 따라갑니다. 메모를 다시 드래그하거나 연결을 해제하거나 기능을 끄면 따라가기를 중지합니다.</value>
+  </data>
+  <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
+    <value>선호 가장자리</value>
+  </data>
+  <data name="LabsWindowTetherEdgeAuto" xml:space="preserve">
+    <value>자동</value>
+  </data>
+  <data name="LabsWindowTetherEdgeLeft" xml:space="preserve">
+    <value>왼쪽</value>
+  </data>
+  <data name="LabsWindowTetherEdgeRight" xml:space="preserve">
+    <value>오른쪽</value>
+  </data>
+  <data name="LabsWindowTetherEdgeTop" xml:space="preserve">
+    <value>위</value>
+  </data>
+  <data name="LabsWindowTetherEdgeBottom" xml:space="preserve">
+    <value>아래</value>
+  </data>
+  <data name="LabsWindowTetherGap" xml:space="preserve">
+    <value>가장자리 간격</value>
+  </data>
+  <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
+    <value>{0}px</value>
+  </data>
+  <data name="LabsWindowTetherChoose" xml:space="preserve">
+    <value>창에 연결</value>
+  </data>
+  <data name="LabsWindowTetherOpenToChoose" xml:space="preserve">
+    <value>사용 가능한 창 불러오는 중…</value>
+  </data>
+  <data name="LabsWindowTetherNoTargets" xml:space="preserve">
+    <value>사용 가능한 창 없음</value>
+  </data>
+  <data name="LabsWindowTetherDetach" xml:space="preserve">
+    <value>창 연결 해제</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>할 일 알림</value>
   </data>

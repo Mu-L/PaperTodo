@@ -811,6 +811,51 @@
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>解除胶囊磁吸</value>
   </data>
+  <data name="LabsWindowTethering" xml:space="preserve">
+    <value>窗口系留</value>
+  </data>
+  <data name="LabsEnableWindowTethering" xml:space="preserve">
+    <value>启用窗口系留</value>
+  </data>
+  <data name="TipLabsWindowTethering" xml:space="preserve">
+    <value>在展开纸片的右键菜单中选择一个外部窗口，纸片会贴到它的边缘并随其移动。重新拖动纸片、解除系留或关闭功能都会停止跟随。</value>
+  </data>
+  <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
+    <value>优先贴合边缘</value>
+  </data>
+  <data name="LabsWindowTetherEdgeAuto" xml:space="preserve">
+    <value>自动</value>
+  </data>
+  <data name="LabsWindowTetherEdgeLeft" xml:space="preserve">
+    <value>左</value>
+  </data>
+  <data name="LabsWindowTetherEdgeRight" xml:space="preserve">
+    <value>右</value>
+  </data>
+  <data name="LabsWindowTetherEdgeTop" xml:space="preserve">
+    <value>上</value>
+  </data>
+  <data name="LabsWindowTetherEdgeBottom" xml:space="preserve">
+    <value>下</value>
+  </data>
+  <data name="LabsWindowTetherGap" xml:space="preserve">
+    <value>边缘间距</value>
+  </data>
+  <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
+    <value>{0} 像素</value>
+  </data>
+  <data name="LabsWindowTetherChoose" xml:space="preserve">
+    <value>系留到窗口</value>
+  </data>
+  <data name="LabsWindowTetherOpenToChoose" xml:space="preserve">
+    <value>正在读取可用窗口…</value>
+  </data>
+  <data name="LabsWindowTetherNoTargets" xml:space="preserve">
+    <value>未找到可用窗口</value>
+  </data>
+  <data name="LabsWindowTetherDetach" xml:space="preserve">
+    <value>解除窗口系留</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>待办提醒</value>
   </data>

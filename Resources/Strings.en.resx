@@ -798,6 +798,51 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>Detach capsule</value>
   </data>
+  <data name="LabsWindowTethering" xml:space="preserve">
+    <value>Window tethering</value>
+  </data>
+  <data name="LabsEnableWindowTethering" xml:space="preserve">
+    <value>Enable window tethering</value>
+  </data>
+  <data name="TipLabsWindowTethering" xml:space="preserve">
+    <value>Choose an external window from an expanded paper's context menu. The paper attaches to its edge and follows it. Dragging the paper again, detaching, or turning this off stops following.</value>
+  </data>
+  <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
+    <value>Preferred edge</value>
+  </data>
+  <data name="LabsWindowTetherEdgeAuto" xml:space="preserve">
+    <value>Auto</value>
+  </data>
+  <data name="LabsWindowTetherEdgeLeft" xml:space="preserve">
+    <value>Left</value>
+  </data>
+  <data name="LabsWindowTetherEdgeRight" xml:space="preserve">
+    <value>Right</value>
+  </data>
+  <data name="LabsWindowTetherEdgeTop" xml:space="preserve">
+    <value>Top</value>
+  </data>
+  <data name="LabsWindowTetherEdgeBottom" xml:space="preserve">
+    <value>Bottom</value>
+  </data>
+  <data name="LabsWindowTetherGap" xml:space="preserve">
+    <value>Edge gap</value>
+  </data>
+  <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
+    <value>{0} px</value>
+  </data>
+  <data name="LabsWindowTetherChoose" xml:space="preserve">
+    <value>Tether to window</value>
+  </data>
+  <data name="LabsWindowTetherOpenToChoose" xml:space="preserve">
+    <value>Loading available windows…</value>
+  </data>
+  <data name="LabsWindowTetherNoTargets" xml:space="preserve">
+    <value>No available windows</value>
+  </data>
+  <data name="LabsWindowTetherDetach" xml:space="preserve">
+    <value>Detach from window</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>Todo reminders</value>
   </data>
