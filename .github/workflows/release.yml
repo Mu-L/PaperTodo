@@ -42,10 +42,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -145,7 +145,7 @@ jobs:
           Get-ChildItem -LiteralPath $releaseDir -File | Sort-Object Name | Format-Table Name, Length
 
       - name: Upload executable package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PaperTodo-v${{ steps.meta.outputs.version }}-win-x64
           if-no-files-found: error
