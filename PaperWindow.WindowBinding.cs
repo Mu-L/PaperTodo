@@ -1,19 +1,25 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Threading;
 
 namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private const double WindowBindingTargetSampleMilliseconds = 32;
+
     private sealed record WindowBindingDragFeedback(
         Border Chrome,
         TextBlock Label);
 
     private Button? _windowBindingButton;
     private ExternalWindowSnapshot? _windowBindingDragTarget;
+    private DeviceScreenPoint? _windowBindingPressStart;
+    private long _windowBindingTargetSampleTimestamp;
 
     private void ConfigureWindowBindingButton(Button button)
     {
@@ -21,6 +27,39 @@ public sealed partial class PaperWindow
         button.Width = 24;
         button.FontSize = AppTypography.Scale(13);
         button.Cursor = Cursors.Cross;
+        button.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            _windowBindingPressStart = HasExperimentalWindowTether
+                ? DeviceScreenPoint.FromPoint(
+                    PointToScreen(e.GetPosition(this)))
+                : null;
+        };
+        button.PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            var start = _windowBindingPressStart;
+            _windowBindingPressStart = null;
+            if (!start.HasValue ||
+                !HasExperimentalWindowTether)
+            {
+                return;
+            }
+
+            var current = WindowNative.TryGetCursorScreenPosition(
+                    out var cursor)
+                ? cursor
+                : start.Value;
+            if (WindowWorkAreaHelper.ExceedsDragThreshold(
+                    start.Value,
+                    current,
+                    this))
+            {
+                return;
+            }
+
+            _ = Dispatcher.BeginInvoke(
+                (Action)(() => ShowWindowBindingButtonMenu(button)),
+                DispatcherPriority.Input);
+        };
         button.PreviewMouseRightButtonUp +=
             (_, e) => OpenWindowBindingButtonMenu(button, e);
         ConfigureTopBarDragGesture(
@@ -32,6 +71,7 @@ public sealed partial class PaperWindow
                 Started = () =>
                 {
                     _windowBindingDragTarget = null;
+                    _windowBindingTargetSampleTimestamp = 0;
                     ExitNoteEditor();
                 },
                 CreateFeedback = CreateWindowBindingDragFeedback,
@@ -62,6 +102,8 @@ public sealed partial class PaperWindow
         _windowBindingButton.Visibility =
             enabled ? Visibility.Visible : Visibility.Collapsed;
         _windowBindingButton.Content = isBound ? "◉" : "◎";
+        _windowBindingButton.Cursor =
+            isBound ? Cursors.Hand : Cursors.Cross;
         _windowBindingButton.FontWeight =
             isBound ? FontWeights.Bold : FontWeights.SemiBold;
         if (isBound)
@@ -89,6 +131,18 @@ public sealed partial class PaperWindow
             return;
         }
 
+        ShowWindowBindingButtonMenu(placementTarget);
+        e.Handled = true;
+    }
+
+    private void ShowWindowBindingButtonMenu(
+        FrameworkElement placementTarget)
+    {
+        if (!HasExperimentalWindowTether)
+        {
+            return;
+        }
+
         var menu = CreateContextMenu();
         menu.Items.Add(MenuItem(
             Strings.Get("LabsWindowTetherDetach"),
@@ -107,13 +161,22 @@ public sealed partial class PaperWindow
         menu.Placement =
             System.Windows.Controls.Primitives.PlacementMode.Bottom;
         menu.IsOpen = true;
-        e.Handled = true;
     }
 
     private void UpdateWindowBindingDragTarget(
         TopBarDragFeedback feedback,
         DeviceScreenPoint point)
     {
+        var now = Stopwatch.GetTimestamp();
+        if (_windowBindingTargetSampleTimestamp != 0 &&
+            (now - _windowBindingTargetSampleTimestamp) * 1000.0 /
+                Stopwatch.Frequency <
+            WindowBindingTargetSampleMilliseconds)
+        {
+            return;
+        }
+        _windowBindingTargetSampleTimestamp = now;
+
         _windowBindingDragTarget =
             ExternalWindowNative.TryGetTargetAtPoint(
                 point,
@@ -145,8 +208,20 @@ public sealed partial class PaperWindow
 
     private void CompleteWindowBindingDrag(bool commit)
     {
+        if (commit &&
+            WindowNative.TryGetCursorScreenPosition(out var cursor))
+        {
+            _windowBindingDragTarget =
+                ExternalWindowNative.TryGetTargetAtPoint(
+                    cursor,
+                    out var finalTarget)
+                    ? finalTarget
+                    : null;
+        }
+
         var target = commit ? _windowBindingDragTarget : null;
         _windowBindingDragTarget = null;
+        _windowBindingTargetSampleTimestamp = 0;
         if (target is { } selected)
         {
             var attached =

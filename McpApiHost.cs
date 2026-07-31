@@ -11,6 +11,10 @@ internal sealed class McpApiHost : IDisposable
     public const string PipeName = "PaperTodo-Mcp-Api-v1";
     // 200 normal-size todo rows can exceed one million JSON characters after escaping.
     private const int MaxRequestCharacters = 8_000_000;
+    private static readonly TimeSpan RequestReadTimeout =
+        TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ResponseWriteTimeout =
+        TimeSpan.FromSeconds(15);
 
     private readonly Dispatcher _dispatcher;
     private readonly McpCommandService _commands;
@@ -97,49 +101,76 @@ internal sealed class McpApiHost : IDisposable
             AutoFlush = true
         };
 
-        var line = await ReadRequestLineAsync(reader, token);
-        object response = line == null
-            ? ErrorResponse(
-                null,
-                "request_too_large",
-                "The MCP request is too large.")
-            : await DispatchAsync(line, token);
+        object response;
+        try
+        {
+            var line = await ReadRequestLineAsync(reader, token);
+            response = await DispatchAsync(line, token);
+        }
+        catch (McpApiException ex)
+        {
+            response = ErrorResponse(null, ex.Code, ex.Message);
+        }
 
-        await writer.WriteLineAsync(JsonSerializer.Serialize(response));
+        var serializedResponse = JsonSerializer.Serialize(response);
+        using var writeTimeout =
+            CancellationTokenSource.CreateLinkedTokenSource(token);
+        writeTimeout.CancelAfter(ResponseWriteTimeout);
+        await writer.WriteLineAsync(
+            serializedResponse.AsMemory(),
+            writeTimeout.Token);
     }
 
-    private static async Task<string?> ReadRequestLineAsync(
+    private static async Task<string> ReadRequestLineAsync(
         StreamReader reader,
         CancellationToken token)
     {
+        using var readTimeout =
+            CancellationTokenSource.CreateLinkedTokenSource(token);
+        readTimeout.CancelAfter(RequestReadTimeout);
+
         var buffer = new char[4096];
         var text = new StringBuilder();
-        while (true)
+        try
         {
-            var read = await reader.ReadAsync(buffer, token);
-            if (read == 0)
+            while (true)
             {
-                return text.Length == 0 ? "" : text.ToString();
-            }
-
-            for (var index = 0; index < read; index++)
-            {
-                var character = buffer[index];
-                if (character == '\n')
+                var read = await reader.ReadAsync(
+                    buffer,
+                    readTimeout.Token);
+                if (read == 0)
                 {
-                    if (text.Length > 0 && text[^1] == '\r')
+                    return text.Length == 0 ? "" : text.ToString();
+                }
+
+                for (var index = 0; index < read; index++)
+                {
+                    var character = buffer[index];
+                    if (character == '\n')
                     {
-                        text.Length--;
+                        if (text.Length > 0 && text[^1] == '\r')
+                        {
+                            text.Length--;
+                        }
+                        return text.ToString();
                     }
-                    return text.ToString();
-                }
 
-                text.Append(character);
-                if (text.Length > MaxRequestCharacters)
-                {
-                    return null;
+                    text.Append(character);
+                    if (text.Length > MaxRequestCharacters)
+                    {
+                        throw new McpApiException(
+                            "request_too_large",
+                            "The MCP request is too large.");
+                    }
                 }
             }
+        }
+        catch (OperationCanceledException)
+            when (!token.IsCancellationRequested)
+        {
+            throw new McpApiException(
+                "request_timeout",
+                "The MCP client did not finish its request in time.");
         }
     }
 

@@ -166,6 +166,31 @@ public sealed partial class AppController
             return;
         }
 
+        var surfaced = false;
+        try
+        {
+            OpenTodoReminderTarget(due[0].Paper, due[0].Item);
+            surfaced = true;
+        }
+        catch
+        {
+            // A stale paper surface may still allow the tray notification to surface.
+        }
+        try
+        {
+            surfaced |= ShowTodoReminderBalloon(due);
+        }
+        catch
+        {
+            // Keep the reminder pending when neither delivery path is available.
+        }
+
+        if (!surfaced)
+        {
+            ScheduleTodoReminderRetry();
+            return;
+        }
+
         foreach (var (_, item) in due)
         {
             item.ReminderAt = null;
@@ -180,23 +205,6 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        try
-        {
-            OpenTodoReminderTarget(due[0].Paper, due[0].Item);
-        }
-        catch
-        {
-            // A stale paper surface must not suppress the tray notification
-            // or stop future reminder scheduling.
-        }
-        try
-        {
-            ShowTodoReminderBalloon(due);
-        }
-        catch
-        {
-            // A stale shell notification area must not break future reminder scheduling.
-        }
         RefreshTodoReminderSchedule();
     }
 
@@ -211,12 +219,12 @@ public sealed partial class AppController
         }
     }
 
-    private void ShowTodoReminderBalloon(
+    private bool ShowTodoReminderBalloon(
         IReadOnlyList<(PaperData Paper, PaperItem Item)> due)
     {
         if (_trayIcon == null || due.Count == 0)
         {
-            return;
+            return false;
         }
 
         var first = due[0];
@@ -234,6 +242,24 @@ public sealed partial class AppController
             Strings.Get("TodoReminderBalloonTitle"),
             message,
             BalloonIcon.Info);
+        return true;
+    }
+
+    private void ScheduleTodoReminderRetry()
+    {
+        StopTodoReminderTimer();
+        if (IsExiting || !State.ExperimentalTodoReminders)
+        {
+            return;
+        }
+
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(30)
+        };
+        timer.Tick += OnTodoReminderTimerTick;
+        _todoReminderTimer = timer;
+        timer.Start();
     }
 
     private static string CompactTodoReminderText(string? text)

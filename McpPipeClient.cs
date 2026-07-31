@@ -9,6 +9,7 @@ namespace PaperTodo;
 internal sealed class McpPipeClient
 {
     private const int ConnectTimeoutMilliseconds = 2500;
+    private const int ResponseTimeoutMilliseconds = 20_000;
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
 
@@ -57,7 +58,25 @@ internal sealed class McpPipeClient
         await writer.WriteLineAsync(
             JsonSerializer.Serialize(request, JsonOptions));
 
-        var responseLine = await reader.ReadLineAsync(cancellationToken);
+        string? responseLine;
+        using (var responseTimeout =
+               CancellationTokenSource.CreateLinkedTokenSource(
+                   cancellationToken))
+        {
+            responseTimeout.CancelAfter(ResponseTimeoutMilliseconds);
+            try
+            {
+                responseLine = await reader.ReadLineAsync(
+                    responseTimeout.Token);
+            }
+            catch (OperationCanceledException)
+                when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new McpException(
+                    "PaperTodo did not return an MCP response in time.");
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(responseLine))
         {
             throw new McpException(

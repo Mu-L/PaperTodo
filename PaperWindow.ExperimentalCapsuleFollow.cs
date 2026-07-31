@@ -6,6 +6,7 @@ namespace PaperTodo;
 public sealed partial class PaperWindow
 {
     private const double ExperimentalCapsuleFollowSlideMilliseconds = 130;
+    private const int ExperimentalCapsuleFollowRetractDelayMilliseconds = 180;
 
     private readonly record struct ExperimentalCapsuleFollowTransition(
         DeviceScreenRect StartBounds,
@@ -17,7 +18,7 @@ public sealed partial class PaperWindow
         _experimentalCapsuleFollowPresentation;
     private ExperimentalCapsuleFollowTransition?
         _experimentalCapsuleFollowTransition;
-    private int _experimentalCapsuleFollowHoverGeneration;
+    private DispatcherTimer? _experimentalCapsuleFollowRetractTimer;
 
     private bool ExperimentalCapsuleFollowCloseActivates =>
         _experimentalCapsuleFollowPresentation is
@@ -74,14 +75,13 @@ public sealed partial class PaperWindow
     {
         if (reveal)
         {
-            _experimentalCapsuleFollowHoverGeneration++;
+            StopExperimentalCapsuleFollowRetractTimer();
         }
 
         var session = _experimentalWindowAttachment;
         if (session?.Owner != ExperimentalAttachmentOwner.CapsuleMagnet ||
             session.TargetKind !=
                 ExperimentalAttachmentTargetKind.ExternalWindow ||
-            !_paper.IsCollapsed ||
             !ExternalWindowNative.TryGetSnapshot(
                 session.ExternalWindow,
                 out var snapshot) ||
@@ -95,13 +95,14 @@ public sealed partial class PaperWindow
         }
 
         var plan =
-            ExperimentalWindowAttachmentGeometry.ResolveCapsuleFollow(
-                session,
-                snapshot.Bounds,
-                currentBounds,
-                monitor,
-                WindowWorkAreaHelper.ConnectedMonitorGeometries(),
-                reveal);
+            ExperimentalWindowAttachmentGeometry
+                .ResolveCapsuleFollow(
+                    session,
+                    snapshot.Bounds,
+                    currentBounds,
+                    monitor,
+                    WindowWorkAreaHelper.ConnectedMonitorGeometries(),
+                    reveal);
         SetExperimentalCapsuleFollowPresentation(
             plan,
             animate: true);
@@ -109,22 +110,38 @@ public sealed partial class PaperWindow
 
     private void ScheduleExperimentalCapsuleFollowRetract()
     {
-        var generation =
-            ++_experimentalCapsuleFollowHoverGeneration;
-        _ = Dispatcher.BeginInvoke(
-            (Action)(() =>
+        var timer = _experimentalCapsuleFollowRetractTimer;
+        if (timer == null)
+        {
+            timer = new DispatcherTimer
             {
-                if (generation !=
-                        _experimentalCapsuleFollowHoverGeneration ||
-                    _capsuleShell?.IsMouseOver == true)
-                {
-                    return;
-                }
+                Interval = TimeSpan.FromMilliseconds(
+                    ExperimentalCapsuleFollowRetractDelayMilliseconds)
+            };
+            timer.Tick += OnExperimentalCapsuleFollowRetractTimerTick;
+            _experimentalCapsuleFollowRetractTimer = timer;
+        }
 
-                OnExperimentalCapsuleFollowHoverChanged(
-                    reveal: false);
-            }),
-            DispatcherPriority.Input);
+        timer.Stop();
+        timer.Start();
+    }
+
+    private void OnExperimentalCapsuleFollowRetractTimerTick(
+        object? sender,
+        EventArgs e)
+    {
+        StopExperimentalCapsuleFollowRetractTimer();
+        if (_capsuleShell?.IsMouseOver == true)
+        {
+            return;
+        }
+
+        OnExperimentalCapsuleFollowHoverChanged(reveal: false);
+    }
+
+    private void StopExperimentalCapsuleFollowRetractTimer()
+    {
+        _experimentalCapsuleFollowRetractTimer?.Stop();
     }
 
     private void SetExperimentalCapsuleFollowPresentation(
@@ -273,7 +290,7 @@ public sealed partial class PaperWindow
 
     private void ClearExperimentalCapsuleFollowPresentation()
     {
-        _experimentalCapsuleFollowHoverGeneration++;
+        StopExperimentalCapsuleFollowRetractTimer();
         var changed =
             _experimentalCapsuleFollowPresentation.HasValue ||
             _experimentalCapsuleFollowTransition.HasValue;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Threading;
@@ -277,10 +278,37 @@ internal static class ExternalWindowNative
     private const int SwRestore = 9;
     private const int MinimumTargetWidth = 80;
     private const int MinimumTargetHeight = 40;
+    private const double TargetEnumerationCacheMilliseconds = 64;
+    private static readonly object TargetEnumerationCacheGate = new();
+    private static IReadOnlyList<ExternalWindowSnapshot>
+        _targetEnumerationCache = Array.Empty<ExternalWindowSnapshot>();
+    private static int _targetEnumerationCacheMaximumCount;
+    private static long _targetEnumerationCacheTimestamp;
 
     public static IReadOnlyList<ExternalWindowSnapshot> EnumerateTargets(
         int maximumCount = 24)
     {
+        maximumCount = Math.Max(1, maximumCount);
+        var now = Stopwatch.GetTimestamp();
+        lock (TargetEnumerationCacheGate)
+        {
+            var cacheAgeMilliseconds =
+                _targetEnumerationCacheTimestamp == 0
+                    ? double.PositiveInfinity
+                    : (now - _targetEnumerationCacheTimestamp) * 1000.0 /
+                      Stopwatch.Frequency;
+            if (cacheAgeMilliseconds <
+                    TargetEnumerationCacheMilliseconds &&
+                _targetEnumerationCacheMaximumCount >= maximumCount)
+            {
+                return _targetEnumerationCache.Count <= maximumCount
+                    ? _targetEnumerationCache
+                    : _targetEnumerationCache
+                        .Take(maximumCount)
+                        .ToArray();
+            }
+        }
+
         var results = new List<ExternalWindowSnapshot>();
         var occluders = new List<DeviceScreenRect>();
         var visibleAreas = WindowWorkAreaHelper
@@ -291,7 +319,7 @@ internal static class ExternalWindowNative
         var shellWindow = GetShellWindow();
         _ = EnumWindows((hwnd, _) =>
         {
-            if (results.Count >= Math.Max(1, maximumCount))
+            if (results.Count >= maximumCount)
             {
                 return false;
             }
@@ -318,7 +346,16 @@ internal static class ExternalWindowNative
             occluders.Add(snapshot.Bounds);
             return true;
         }, IntPtr.Zero);
-        return results;
+
+        IReadOnlyList<ExternalWindowSnapshot> snapshotResult =
+            results.ToArray();
+        lock (TargetEnumerationCacheGate)
+        {
+            _targetEnumerationCache = snapshotResult;
+            _targetEnumerationCacheMaximumCount = maximumCount;
+            _targetEnumerationCacheTimestamp = Stopwatch.GetTimestamp();
+        }
+        return snapshotResult;
     }
 
     public static bool TryGetTargetAtPoint(
@@ -410,10 +447,32 @@ internal static class ExternalWindowNative
         ExternalWindowIdentity identity,
         IntPtr candidate)
     {
-        return !identity.IsEmpty &&
-            candidate != IntPtr.Zero &&
-            TryGetProcessId(candidate, out var processId) &&
-            processId == identity.ProcessId;
+        if (identity.IsEmpty ||
+            candidate == IntPtr.Zero ||
+            !IsWindow(candidate))
+        {
+            return false;
+        }
+
+        // Attachment identity is one top-level HWND. Accept its owned dialogs
+        // and popups, but not sibling windows from the same browser or app process.
+        var root = GetAncestor(candidate, GaRoot);
+        if (root != IntPtr.Zero)
+        {
+            candidate = root;
+        }
+
+        while (candidate != IntPtr.Zero)
+        {
+            if (candidate == identity.Handle)
+            {
+                return TryGetProcessId(candidate, out var processId) &&
+                    processId == identity.ProcessId;
+            }
+            candidate = GetWindow(candidate, GwOwner);
+        }
+
+        return false;
     }
 
     public static bool IsIdentityValid(ExternalWindowIdentity identity)
