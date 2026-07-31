@@ -107,6 +107,24 @@ internal static partial class ExperimentalWindowAttachmentGeometry
                 HeadUsesCloseSegment: false);
         }
 
+        if (!targetCoversMonitor && hasReachableOutsideHead)
+        {
+            // Near a monitor boundary there may be room for the exposed head
+            // but not for the full outside capsule. Keep the same anchor and
+            // reveal by raising it above the target; crossing to the opposite
+            // side would move the capsule out from under the pointer and cause
+            // an enter/leave loop.
+            return new ExperimentalCapsuleFollowPlan(
+                PlaceCapsuleBehindTarget(
+                    outside,
+                    targetBounds,
+                    session.Edge,
+                    monitor.DpiScaleX,
+                    monitor.DpiScaleY),
+                ExperimentalCapsuleFollowMode.Revealed,
+                HeadUsesCloseSegment: false);
+        }
+
         var inside = Resolve(
             session with
             {

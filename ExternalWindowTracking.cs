@@ -263,8 +263,15 @@ internal sealed class ExternalWindowTracker : IDisposable
 internal static class ExternalWindowNative
 {
     private const uint GaRoot = 2;
+    private const uint GwOwner = 4;
+    private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
+    private const int WsDisabled = 0x08000000;
+    private const int WsChild = 0x40000000;
+    private const int WsExTransparent = 0x00000020;
     private const int WsExToolWindow = 0x00000080;
+    private const int WsExAppWindow = 0x00040000;
+    private const int WsExNoActivate = 0x08000000;
     private const int DwmwaExtendedFrameBounds = 9;
     private const int DwmwaCloaked = 14;
     private const int SwRestore = 9;
@@ -470,18 +477,31 @@ internal static class ExternalWindowNative
         return SetForegroundWindow(identity.Handle);
     }
 
-    private static bool IsToolWindow(IntPtr hwnd) =>
-        (GetWindowLong(hwnd, GwlExStyle) & WsExToolWindow) != 0;
-
     private static bool IsSelectableTarget(
         IntPtr hwnd,
         ExternalWindowSnapshot snapshot)
     {
-        return snapshot.IsUsableTarget &&
-            !IsToolWindow(hwnd) &&
-            snapshot.Title.Length > 0 &&
-            snapshot.Bounds.Width >= MinimumTargetWidth &&
-            snapshot.Bounds.Height >= MinimumTargetHeight;
+        if (!snapshot.IsUsableTarget ||
+            snapshot.Title.Length == 0 ||
+            snapshot.Bounds.Width < MinimumTargetWidth ||
+            snapshot.Bounds.Height < MinimumTargetHeight)
+        {
+            return false;
+        }
+
+        var style = GetWindowLong(hwnd, GwlStyle);
+        var exStyle = GetWindowLong(hwnd, GwlExStyle);
+        if ((style & (WsChild | WsDisabled)) != 0 ||
+            (exStyle &
+             (WsExToolWindow |
+              WsExNoActivate |
+              WsExTransparent)) != 0)
+        {
+            return false;
+        }
+
+        return GetWindow(hwnd, GwOwner) == IntPtr.Zero ||
+            (exStyle & WsExAppWindow) != 0;
     }
 
     private static bool HasExposedArea(
@@ -655,6 +675,9 @@ internal static class ExternalWindowNative
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(

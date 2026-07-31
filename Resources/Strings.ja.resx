@@ -781,7 +781,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>通常カプセルのスナップを有効にする</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>通常カプセルをドラッグすると吸着先が表示されます。画面または他のアプリのウィンドウ端付近で離すと吸着して追従します。端のキュー外のカプセルだけが対象で、再ドラッグ、対象の消失、または機能のオフで解除されます。</value>
+    <value>通常カプセルをドラッグすると吸着先が表示されます。画面または他のアプリのウィンドウ端付近で離すと吸着して追従します。ウィンドウ連携も有効な場合、ウィンドウに吸着したカプセルを開いても同じウィンドウへの連携を維持します。端のキュー外のカプセルだけが対象で、再ドラッグ、対象の消失、または機能のオフで解除されます。</value>
   </data>
   <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
     <value>現在は端カプセルが有効なため、折りたたんだ付箋は端のキューに入り、通常カプセルの吸着対象にはなりません。この機能を使うには一般設定で端カプセルをオフにしてください。</value>
@@ -952,7 +952,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ToDo リマインダーの指定</value>
   </data>
   <data name="TodoReminderCustomHint" xml:space="preserve">
-    <value>日付と時刻を直接入力し、ボタンで1日・1分ずつ調整できます。</value>
+    <value>日付と時刻を直接入力できます。加減ボタンの長押しで素早く調整できます。</value>
   </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>日付</value>

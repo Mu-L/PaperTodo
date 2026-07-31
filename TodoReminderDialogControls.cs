@@ -12,7 +12,44 @@ internal static class TodoReminderDialogControls
         bool primary = false,
         bool compact = false)
     {
-        var style = new Style(typeof(Button));
+        return new Button
+        {
+            Content = text,
+            Style = CreateButtonStyle(
+                typeof(Button),
+                primary,
+                compact),
+            MinWidth = compact ? 28 : 72,
+            Height = compact ? 28 : double.NaN,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = AppTypography.Scale(compact ? 14 : 13)
+        };
+    }
+
+    public static RepeatButton RepeatButton(string text)
+    {
+        return new RepeatButton
+        {
+            Content = text,
+            Style = CreateButtonStyle(
+                typeof(RepeatButton),
+                primary: false,
+                compact: true),
+            MinWidth = 28,
+            Height = 28,
+            Delay = 360,
+            Interval = 70,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = AppTypography.Scale(14)
+        };
+    }
+
+    private static Style CreateButtonStyle(
+        Type targetType,
+        bool primary,
+        bool compact)
+    {
+        var style = new Style(targetType);
         style.Setters.Add(new Setter(
             Control.PaddingProperty,
             compact
@@ -57,7 +94,7 @@ internal static class TodoReminderDialogControls
             VerticalAlignment.Center);
         border.AppendChild(presenter);
 
-        var template = new ControlTemplate(typeof(Button))
+        var template = new ControlTemplate(targetType)
         {
             VisualTree = border
         };
@@ -84,15 +121,6 @@ internal static class TodoReminderDialogControls
         style.Setters.Add(new Setter(
             Control.TemplateProperty,
             template));
-
-        return new Button
-        {
-            Content = text,
-            Style = style,
-            MinWidth = compact ? 28 : 72,
-            Height = compact ? 28 : double.NaN,
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(compact ? 14 : 13)
-        };
+        return style;
     }
 }

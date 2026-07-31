@@ -2,7 +2,7 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private const double ExperimentalTetherDetachThresholdDip = 28;
+    private const double ExperimentalTetherDetachThresholdDip = 48;
 
     private enum ExperimentalTetherDragUpdate
     {

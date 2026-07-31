@@ -781,7 +781,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable edge snap</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>Dragging an ordinary capsule shows its snap destination. Release near a screen or application-window edge to attach and follow it. This only affects capsules outside edge queues; dragging again, losing the target, or turning the feature off detaches it.</value>
+    <value>Dragging an ordinary capsule shows its snap destination. Release near a screen or application-window edge to attach and follow it. With window binding also enabled, opening a window-attached capsule keeps it bound to that window. This only affects capsules outside edge queues; dragging again, losing the target, or turning the feature off detaches it.</value>
   </data>
   <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
     <value>Edge capsules are currently enabled, so collapsed papers enter an edge queue instead of ordinary capsule magnetism. Turn off edge capsules in General settings to use this feature.</value>
@@ -952,7 +952,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Custom todo reminder</value>
   </data>
   <data name="TodoReminderCustomHint" xml:space="preserve">
-    <value>Type the date and time; buttons adjust by one day or minute.</value>
+    <value>Type the date and time; hold + or − to adjust quickly.</value>
   </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>Date</value>

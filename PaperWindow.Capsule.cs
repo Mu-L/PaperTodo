@@ -239,7 +239,7 @@ public sealed partial class PaperWindow
         _capsuleShell.MouseEnter += (_, _) =>
             OnExperimentalCapsuleFollowHoverChanged(reveal: true);
         _capsuleShell.MouseLeave += (_, _) =>
-            OnExperimentalCapsuleFollowHoverChanged(reveal: false);
+            ScheduleExperimentalCapsuleFollowRetract();
         _capsuleShell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _capsuleShell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -518,7 +518,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        DetachExperimentalWindowAttachment(savePosition: false);
+        PrepareExperimentalAttachmentForFormTransition(collapsed);
 
         double? interruptedVisualWidth = null;
         double? interruptedVisualHeight = null;
@@ -848,6 +848,8 @@ public sealed partial class PaperWindow
 
                 CompletePaperFormTransition(collapsed);
                 ApplyCurrentCollapsedCapsuleWidth();
+                RestoreExperimentalAttachmentAfterFormTransition(
+                    collapsed);
                 // Re-judge snap state and force re-apply: transition-time position messages
                 // were guarded off, and ResetTransitionVisuals rewrote the corner radius.
                 RefreshSnappedPresentation(forceApply: true);
@@ -909,6 +911,8 @@ public sealed partial class PaperWindow
 
             CompletePaperFormTransition(collapsed);
             ApplyCurrentCollapsedCapsuleWidth();
+            RestoreExperimentalAttachmentAfterFormTransition(
+                collapsed);
             // Same as the animated path: re-judge and force re-apply after the transition
             // rewrote the chrome visuals.
             RefreshSnappedPresentation(forceApply: true);

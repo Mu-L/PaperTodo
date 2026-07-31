@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows.Threading;
 
 namespace PaperTodo;
 
@@ -16,6 +17,7 @@ public sealed partial class PaperWindow
         _experimentalCapsuleFollowPresentation;
     private ExperimentalCapsuleFollowTransition?
         _experimentalCapsuleFollowTransition;
+    private int _experimentalCapsuleFollowHoverGeneration;
 
     private bool ExperimentalCapsuleFollowCloseActivates =>
         _experimentalCapsuleFollowPresentation is
@@ -70,6 +72,11 @@ public sealed partial class PaperWindow
 
     private void OnExperimentalCapsuleFollowHoverChanged(bool reveal)
     {
+        if (reveal)
+        {
+            _experimentalCapsuleFollowHoverGeneration++;
+        }
+
         var session = _experimentalWindowAttachment;
         if (session?.Owner != ExperimentalAttachmentOwner.CapsuleMagnet ||
             session.TargetKind !=
@@ -98,6 +105,26 @@ public sealed partial class PaperWindow
         SetExperimentalCapsuleFollowPresentation(
             plan,
             animate: true);
+    }
+
+    private void ScheduleExperimentalCapsuleFollowRetract()
+    {
+        var generation =
+            ++_experimentalCapsuleFollowHoverGeneration;
+        _ = Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (generation !=
+                        _experimentalCapsuleFollowHoverGeneration ||
+                    _capsuleShell?.IsMouseOver == true)
+                {
+                    return;
+                }
+
+                OnExperimentalCapsuleFollowHoverChanged(
+                    reveal: false);
+            }),
+            DispatcherPriority.Input);
     }
 
     private void SetExperimentalCapsuleFollowPresentation(
@@ -246,6 +273,7 @@ public sealed partial class PaperWindow
 
     private void ClearExperimentalCapsuleFollowPresentation()
     {
+        _experimentalCapsuleFollowHoverGeneration++;
         var changed =
             _experimentalCapsuleFollowPresentation.HasValue ||
             _experimentalCapsuleFollowTransition.HasValue;

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -74,10 +75,7 @@ internal static class TodoReminderDialog
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
-        var header = new Grid
-        {
-            Cursor = Cursors.SizeAll
-        };
+        var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition
         {
             Width = new GridLength(1, GridUnitType.Star)
@@ -89,7 +87,25 @@ internal static class TodoReminderDialog
         Grid.SetColumn(close, 1);
         header.Children.Add(title);
         header.Children.Add(close);
-        header.MouseLeftButtonDown += (_, e) =>
+        var hint = new TextBlock
+        {
+            Text = Strings.Get("TodoReminderCustomHint"),
+            Foreground = Theme.WeakTextBrush,
+            FontSize = AppTypography.Scale(10.8),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        var heading = new StackPanel();
+        heading.Children.Add(header);
+        heading.Children.Add(hint);
+        var dragSurface = new Border
+        {
+            Cursor = Cursors.SizeAll,
+            Margin = new Thickness(-4, -4, -4, 4),
+            Padding = new Thickness(4, 4, 4, 8),
+            Child = heading
+        };
+        dragSurface.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ChangedButton != MouseButton.Left ||
                 close.IsMouseOver)
@@ -106,43 +122,38 @@ internal static class TodoReminderDialog
                 // Windows may release the pointer while native moving starts.
             }
         };
-        content.Children.Add(header);
-        content.Children.Add(new TextBlock
-        {
-            Text = Strings.Get("TodoReminderCustomHint"),
-            Foreground = Theme.WeakTextBrush,
-            FontSize = AppTypography.Scale(10.8),
-            Margin = new Thickness(0, 3, 0, 12)
-        });
+        content.Children.Add(dragSurface);
 
         var dateInput = CreateInput(
             selectedDate.ToString(
                 "yyyy-MM-dd",
                 CultureInfo.InvariantCulture),
             maximumLength: 10);
-        var previousDay = TodoReminderDialogControls.Button(
-            "−",
-            compact: true);
-        var nextDay = TodoReminderDialogControls.Button(
-            "+",
-            compact: true);
+        var previousDay =
+            TodoReminderDialogControls.RepeatButton("−");
+        var nextDay =
+            TodoReminderDialogControls.RepeatButton("+");
+        var today = CreateQuickDateButton(
+            Strings.Get("TodoReminderToday"));
+        var tomorrow = CreateQuickDateButton(
+            Strings.Get("TodoReminderTomorrow"));
         content.Children.Add(BuildAdjustableField(
             Strings.Get("TodoReminderDate"),
             dateInput,
             previousDay,
-            nextDay));
+            nextDay,
+            today,
+            tomorrow));
 
         var timeInput = CreateInput(
             selectedTime.ToString(
                 @"hh\:mm",
                 CultureInfo.InvariantCulture),
             maximumLength: 5);
-        var previousMinute = TodoReminderDialogControls.Button(
-            "−",
-            compact: true);
-        var nextMinute = TodoReminderDialogControls.Button(
-            "+",
-            compact: true);
+        var previousMinute =
+            TodoReminderDialogControls.RepeatButton("−");
+        var nextMinute =
+            TodoReminderDialogControls.RepeatButton("+");
         var timeField = BuildAdjustableField(
             Strings.Get("TodoReminderTime"),
             timeInput,
@@ -220,6 +231,9 @@ internal static class TodoReminderDialog
 
         previousDay.Click += (_, _) => AdjustDays(-1);
         nextDay.Click += (_, _) => AdjustDays(1);
+        today.Click += (_, _) => SetDate(DateTime.Today);
+        tomorrow.Click += (_, _) =>
+            SetDate(DateTime.Today.AddDays(1));
         previousMinute.Click += (_, _) => AdjustMinutes(-1);
         nextMinute.Click += (_, _) => AdjustMinutes(1);
         dateInput.PreviewMouseWheel += (_, e) =>
@@ -259,7 +273,12 @@ internal static class TodoReminderDialog
             {
                 selectedDate = date;
             }
-            selectedDate = selectedDate.AddDays(days);
+            SetDate(selectedDate.AddDays(days));
+        }
+
+        void SetDate(DateTime date)
+        {
+            selectedDate = date.Date;
             dateInput.Text = selectedDate.ToString(
                 "yyyy-MM-dd",
                 CultureInfo.InvariantCulture);
@@ -328,8 +347,9 @@ internal static class TodoReminderDialog
     private static Border BuildAdjustableField(
         string label,
         TextBox input,
-        Button decrease,
-        Button increase)
+        ButtonBase decrease,
+        ButtonBase increase,
+        params ButtonBase[] trailingButtons)
     {
         var controls = new Grid();
         controls.ColumnDefinitions.Add(new ColumnDefinition
@@ -344,12 +364,26 @@ internal static class TodoReminderDialog
         {
             Width = GridLength.Auto
         });
+        foreach (var _ in trailingButtons)
+        {
+            controls.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = GridLength.Auto
+            });
+        }
         input.Margin = new Thickness(7, 0, 7, 0);
         Grid.SetColumn(input, 1);
         Grid.SetColumn(increase, 2);
         controls.Children.Add(decrease);
         controls.Children.Add(input);
         controls.Children.Add(increase);
+        for (var index = 0; index < trailingButtons.Length; index++)
+        {
+            var button = trailingButtons[index];
+            button.Margin = new Thickness(6, 0, 0, 0);
+            Grid.SetColumn(button, index + 3);
+            controls.Children.Add(button);
+        }
 
         var layout = new StackPanel();
         layout.Children.Add(new TextBlock
@@ -371,6 +405,17 @@ internal static class TodoReminderDialog
             Padding = new Thickness(9),
             Child = layout
         };
+    }
+
+    private static Button CreateQuickDateButton(string text)
+    {
+        var button = TodoReminderDialogControls.Button(
+            text,
+            compact: true);
+        button.MinWidth = 44;
+        button.Padding = new Thickness(7, 0, 7, 0);
+        button.FontSize = AppTypography.Scale(10.5);
+        return button;
     }
 
     private static TextBox CreateInput(

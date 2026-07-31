@@ -165,6 +165,54 @@ internal static partial class ExperimentalWindowAttachmentGeometry
         return true;
     }
 
+    public static bool TryPlanCapsuleMagnetForExternalTarget(
+        DeviceScreenRect capsuleBounds,
+        ExternalWindowSnapshot externalWindow,
+        ExperimentalAttachmentEdge edge,
+        double gapDip,
+        out ExperimentalAttachmentPlan plan)
+    {
+        plan = default;
+        if (capsuleBounds.IsEmpty ||
+            !externalWindow.IsUsableTarget ||
+            !double.IsFinite(gapDip))
+        {
+            return false;
+        }
+
+        var perpendicularOffset = edge is
+            ExperimentalAttachmentEdge.Left or
+            ExperimentalAttachmentEdge.Right
+                ? capsuleBounds.Top - externalWindow.Bounds.Top
+                : capsuleBounds.Left - externalWindow.Bounds.Left;
+        var session = new ExperimentalWindowAttachmentSession(
+            ExperimentalAttachmentOwner.CapsuleMagnet,
+            ExperimentalAttachmentTargetKind.ExternalWindow,
+            edge,
+            InsideTarget: false,
+            externalWindow.Identity,
+            "",
+            externalWindow.Title,
+            perpendicularOffset,
+            Math.Max(0, gapDip),
+            externalWindow.Bounds);
+        var desired = Resolve(
+            session,
+            externalWindow.Bounds,
+            capsuleBounds,
+            externalWindow.DpiScale);
+        if (desired.IsEmpty)
+        {
+            return false;
+        }
+
+        plan = new ExperimentalAttachmentPlan(
+            session,
+            desired,
+            ScoreDip: 0);
+        return true;
+    }
+
     public static DeviceScreenRect Resolve(
         ExperimentalWindowAttachmentSession session,
         DeviceScreenRect targetBounds,
@@ -564,7 +612,16 @@ internal static partial class ExperimentalWindowAttachmentGeometry
 
 public sealed partial class PaperWindow
 {
+    private readonly record struct
+        ExperimentalAttachmentFormContinuation(
+            ExternalWindowIdentity Target,
+            ExperimentalAttachmentEdge Edge);
+
     private ExperimentalWindowAttachmentSession? _experimentalWindowAttachment;
+    // One-shot handoff while the existing paper-form transition owns HWND
+    // geometry; it never acts as a second tracking or presentation state.
+    private ExperimentalAttachmentFormContinuation?
+        _experimentalAttachmentFormContinuation;
     private ExperimentalTetherCapsuleWindow? _experimentalTetherCapsule;
     private bool _experimentalTetherPresentationSuppressed;
     private bool _experimentalTetherReplanPending;
@@ -837,7 +894,14 @@ public sealed partial class PaperWindow
     }
 
     private bool AttachExperimentalWindowTether(
-        ExternalWindowIdentity identity)
+        ExternalWindowIdentity identity) =>
+        AttachExperimentalWindowTether(
+            identity,
+            preferredEdge: null);
+
+    private bool AttachExperimentalWindowTether(
+        ExternalWindowIdentity identity,
+        ExperimentalAttachmentEdge? preferredEdge)
     {
         if (!_controller.State.ExperimentalWindowTethering ||
             _paper.IsCollapsed ||
@@ -863,7 +927,10 @@ public sealed partial class PaperWindow
                 paperBounds,
                 target,
                 monitor,
-                _controller.State.ExperimentalWindowTetherPreferredEdge,
+                preferredEdge.HasValue
+                    ? ExperimentalWindowTetherOption(preferredEdge.Value)
+                    : _controller.State
+                        .ExperimentalWindowTetherPreferredEdge,
                 _controller.State.ExperimentalWindowTetherGap,
                 out var plan))
         {
@@ -881,6 +948,110 @@ public sealed partial class PaperWindow
         SaveGeometryForCurrentPresentation();
         RefreshExperimentalAttachmentMenus();
         return true;
+    }
+
+    private static string ExperimentalWindowTetherOption(
+        ExperimentalAttachmentEdge edge) =>
+        edge switch
+        {
+            ExperimentalAttachmentEdge.Left =>
+                ExperimentalWindowTetherOptions.Left,
+            ExperimentalAttachmentEdge.Right =>
+                ExperimentalWindowTetherOptions.Right,
+            ExperimentalAttachmentEdge.Top =>
+                ExperimentalWindowTetherOptions.Top,
+            _ => ExperimentalWindowTetherOptions.Bottom
+        };
+
+    private void PrepareExperimentalAttachmentForFormTransition(
+        bool collapsed)
+    {
+        if (_experimentalAttachmentFormContinuation.HasValue)
+        {
+            return;
+        }
+
+        var session = _experimentalWindowAttachment;
+        var continuesFromMagnet =
+            !collapsed &&
+            session is
+            {
+                Owner: ExperimentalAttachmentOwner.CapsuleMagnet,
+                TargetKind:
+                    ExperimentalAttachmentTargetKind.ExternalWindow
+            } &&
+            _controller.State.ExperimentalCapsuleMagnetism &&
+            _controller.State.ExperimentalCapsuleMagnetWindowEdges &&
+            _controller.State.ExperimentalWindowTethering;
+        if (!continuesFromMagnet)
+        {
+            DetachExperimentalWindowAttachment(savePosition: false);
+            return;
+        }
+
+        var continuation =
+            new ExperimentalAttachmentFormContinuation(
+                session!.ExternalWindow,
+                session.Edge);
+        DetachExperimentalWindowAttachment(savePosition: false);
+        _experimentalAttachmentFormContinuation = continuation;
+    }
+
+    private void RestoreExperimentalAttachmentAfterFormTransition(
+        bool collapsed)
+    {
+        var continuation =
+            _experimentalAttachmentFormContinuation;
+        _experimentalAttachmentFormContinuation = null;
+        if (!continuation.HasValue)
+        {
+            return;
+        }
+
+        if (!collapsed)
+        {
+            _ = AttachExperimentalWindowTether(
+                continuation.Value.Target,
+                continuation.Value.Edge);
+            return;
+        }
+
+        RestoreExperimentalCapsuleMagnetAfterInterruptedTransition(
+            continuation.Value);
+    }
+
+    private void RestoreExperimentalCapsuleMagnetAfterInterruptedTransition(
+        ExperimentalAttachmentFormContinuation continuation)
+    {
+        if (!_controller.State.ExperimentalCapsuleMagnetism ||
+            !_controller.State.ExperimentalCapsuleMagnetWindowEdges ||
+            !_paper.IsCollapsed ||
+            HasDeepCapsuleSlotPlacement ||
+            IsPaperFormTransitioning ||
+            !IsVisible ||
+            !WindowNative.TryGetWindowDeviceBounds(
+                this,
+                out var capsuleBounds) ||
+            !ExternalWindowNative.TryGetSnapshot(
+                continuation.Target,
+                out var target) ||
+            !ExperimentalWindowAttachmentGeometry
+                .TryPlanCapsuleMagnetForExternalTarget(
+                    capsuleBounds,
+                    target,
+                    continuation.Edge,
+                    ExperimentalWindowAttachmentOptions
+                        .DefaultWindowGap,
+                    out var plan))
+        {
+            return;
+        }
+
+        _experimentalWindowAttachment = plan.Session;
+        ReconcileExperimentalWindowAttachment(
+            target,
+            animateCapsulePresentation: false);
+        RefreshExperimentalAttachmentMenus();
     }
 
     internal void HandleExternalWindowEvent(ExternalWindowEvent windowEvent)
@@ -1007,6 +1178,7 @@ public sealed partial class PaperWindow
     internal void DisableExperimentalCapsuleMagnet()
     {
         EndExperimentalCapsuleMagnetDragPreview();
+        _experimentalAttachmentFormContinuation = null;
         if (HasExperimentalCapsuleMagnet)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -1019,6 +1191,7 @@ public sealed partial class PaperWindow
         EndTopBarDragGesture(
             commit: false,
             TopBarDragKind.WindowBinding);
+        _experimentalAttachmentFormContinuation = null;
         if (HasExperimentalWindowTether)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -1097,6 +1270,7 @@ public sealed partial class PaperWindow
 
     internal void DetachExperimentalWindowAttachment(bool savePosition)
     {
+        _experimentalAttachmentFormContinuation = null;
         var session = _experimentalWindowAttachment;
         if (session == null)
         {
@@ -1140,6 +1314,7 @@ public sealed partial class PaperWindow
             TopBarDragKind.WindowBinding);
         CancelExperimentalTetherPresentation(showMain: false);
         _experimentalWindowAttachment = null;
+        _experimentalAttachmentFormContinuation = null;
         _experimentalTetherReplanPending = false;
         ClearExperimentalCapsuleFollowPresentation();
     }
