@@ -14,7 +14,7 @@ internal sealed class McpApiHost : IDisposable
     private static readonly TimeSpan RequestReadTimeout =
         TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ResponseWriteTimeout =
-        TimeSpan.FromSeconds(15);
+        TimeSpan.FromSeconds(10);
 
     private readonly Dispatcher _dispatcher;
     private readonly McpCommandService _commands;

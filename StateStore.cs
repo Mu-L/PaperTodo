@@ -585,8 +585,13 @@ public sealed class StateStore
             paper.BodyProviderId = paper.Type == PaperTypes.Note
                 ? NormalizeBodyProviderId(paper.BodyProviderId)
                 : PaperBodyProviderIds.Markdown;
-            paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
-            NormalizeBodyStates(paper.BodyStates);
+            if (paper.BodyStates == null)
+            {
+                throw new InvalidDataException(
+                    $"Paper '{paper.Id}' has a null bodyStates collection.");
+            }
+            // Plugin state is opaque persisted data. Validate it only when that provider starts;
+            // load normalization must never replace recoverable bytes with an empty state.
             paper.BodyCapsuleText ??= "";
             if (paper.BodyCapsuleText.Length > 120)
             {
@@ -662,39 +667,6 @@ public sealed class StateStore
                 character is '.' or '_' or '-')
             ? value
             : PaperBodyProviderIds.Markdown;
-    }
-
-    private static void NormalizeBodyStates(
-        Dictionary<string, PaperBodyStoredState> states)
-    {
-        foreach (var key in states.Keys.ToList())
-        {
-            var normalizedKey = NormalizeBodyProviderId(key);
-            var state = states[key];
-            if (state == null ||
-                !string.Equals(key, normalizedKey, StringComparison.Ordinal) ||
-                string.Equals(normalizedKey, PaperBodyProviderIds.Markdown, StringComparison.Ordinal))
-            {
-                states.Remove(key);
-                continue;
-            }
-
-            state.Version = Math.Max(1, state.Version);
-            state.Json ??= "{}";
-            if (state.Json.Length > 1_000_000)
-            {
-                state.Json = "{}";
-                continue;
-            }
-            try
-            {
-                using var _ = JsonDocument.Parse(state.Json);
-            }
-            catch
-            {
-                state.Json = "{}";
-            }
-        }
     }
 
     private static void NormalizeLinks(AppState state)

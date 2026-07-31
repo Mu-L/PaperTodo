@@ -147,7 +147,7 @@ internal sealed class McpTools
         Destructive = true,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Delete a paper after the user confirms in PaperTodo. Requires delete permission.")]
+    [Description("Delete a paper. Requires PaperTodo's direct-delete permission.")]
     public Task<JsonElement> DeletePaper(
         [Description("Exact paper ID.")] string paper_id,
         CancellationToken cancellationToken = default)
@@ -162,7 +162,7 @@ internal sealed class McpTools
         Destructive = true,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Delete a todo after the user confirms in PaperTodo. Requires delete permission.")]
+    [Description("Delete a todo. Requires PaperTodo's direct-delete permission.")]
     public Task<JsonElement> DeleteTodo(
         [Description("Exact todo paper ID.")] string paper_id,
         [Description("Exact todo item ID.")] string todo_id,

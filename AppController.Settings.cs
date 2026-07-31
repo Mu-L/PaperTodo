@@ -1542,7 +1542,9 @@ public sealed partial class AppController
 
     private UIElement BuildLabsVirtualDesktopSettings()
     {
-        var enabled = State.ExperimentalVirtualDesktopIntegration;
+        var compatible = !State.HidePapersFromWindowSwitcher;
+        var enabled =
+            State.ExperimentalVirtualDesktopIntegration && compatible;
         var card = new Border
         {
             BorderBrush = TrayBorderBrush,
@@ -1553,11 +1555,13 @@ public sealed partial class AppController
             Margin = new Thickness(0, 5, 0, 7)
         };
         var content = new StackPanel();
+        var integrationToggle = SettingsToggle(
+            Strings.Get("LabsEnableVirtualDesktopIntegration"),
+            State.ExperimentalVirtualDesktopIntegration,
+            ToggleExperimentalVirtualDesktopIntegration);
+        integrationToggle.IsEnabled = compatible;
         content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableVirtualDesktopIntegration"),
-                enabled,
-                ToggleExperimentalVirtualDesktopIntegration),
+            integrationToggle,
             "TipLabsVirtualDesktopIntegration"));
 
         var options = new StackPanel
@@ -1756,11 +1760,16 @@ public sealed partial class AppController
                 State.McpAllowFullWrites,
                 ToggleMcpFullWrites),
             "TipLabsMcpFullWrites"));
+        var directDeletes = SettingsToggle(
+            Strings.Get("LabsMcpDeletes"),
+            State.McpAllowDeletes,
+            ToggleMcpDeletes);
+        if (State.McpAllowDeletes)
+        {
+            directDeletes.Foreground = Theme.DangerBrush;
+        }
         content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsMcpDeletes"),
-                State.McpAllowDeletes,
-                ToggleMcpDeletes),
+            directDeletes,
             "TipLabsMcpDeletes"));
 
         var status = new TextBlock
@@ -2317,6 +2326,7 @@ public sealed partial class AppController
         }
 
         RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
+        RefreshExperimentalVirtualDesktopRuntime();
         RefreshTopBarNewPaperButtonsSetting();
         RefreshTopmostForForegroundWindow();
 
@@ -3201,6 +3211,7 @@ public sealed partial class AppController
 
         SaveNow();
         RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
+        RefreshExperimentalVirtualDesktopRuntime();
         RefreshSettingsSystemVisibilityToggleStates();
     }
 

@@ -400,13 +400,6 @@ internal sealed class McpCommandService
     {
         RequireDeletes();
         var paper = RequirePaper(parameters);
-        var target = _controller.PaperTitleText(paper);
-        if (!_controller.ConfirmMcpDeletion(target))
-        {
-            throw new McpApiException(
-                "delete_cancelled",
-                "The user declined this deletion.");
-        }
 
         var papers = _controller.State.Papers;
         var originalIndex = papers.IndexOf(paper);
@@ -496,15 +489,6 @@ internal sealed class McpCommandService
         RequireDeletes();
         var paper = RequirePaper(parameters, PaperTypes.Todo);
         var item = RequireTodo(parameters, paper);
-        var target = string.IsNullOrWhiteSpace(item.Text)
-            ? Strings.Get("McpUntitledTodo")
-            : item.Text.Trim();
-        if (!_controller.ConfirmMcpDeletion(target))
-        {
-            throw new McpApiException(
-                "delete_cancelled",
-                "The user declined this deletion.");
-        }
 
         var snapshot = TodoPaperSnapshot.Capture(paper);
         paper.Items.Remove(item);
@@ -662,11 +646,14 @@ internal sealed class McpCommandService
                         paper.BodyProviderId,
                         PaperBodyProviderIds.Markdown,
                         StringComparison.Ordinal) &&
-                    paper.BodyStates.TryGetValue(paper.BodyProviderId, out var bodyState)
+                    paper.BodyStates.TryGetValue(
+                        paper.BodyProviderId,
+                        out var bodyState) &&
+                    bodyState != null
                         ? new
                         {
                             version = bodyState.Version,
-                            json = bodyState.Json ?? "{}"
+                            json = bodyState.Json
                         }
                         : null,
                 content = string.Equals(
@@ -779,7 +766,7 @@ internal sealed class McpCommandService
         {
             throw new McpApiException(
                 "deletes_disabled",
-                "AI deletes are disabled in PaperTodo Settings.");
+                "Direct MCP deletion is disabled in PaperTodo Settings.");
         }
     }
 

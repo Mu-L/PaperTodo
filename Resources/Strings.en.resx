@@ -625,7 +625,7 @@ Also forced on when “Hide papers from window switching” is on.</value>
   </data>
   <data name="TipHidePapersFromWindowSwitcher" xml:space="preserve">
     <value>Hide expanded papers from Alt+Tab and Task View, and hide taskbar icons too.
-Still reachable via tray, desktop papers, and capsules.</value>
+They remain reachable via the tray, desktop papers, and capsules. In this mode papers appear on every virtual desktop, so the Labs current-desktop wake feature is unavailable.</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
     <value>Brief hints when the pointer rests on buttons or interactive areas.
@@ -880,7 +880,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable wake on current desktop</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>Moves PaperTodo's own windows to the current desktop when you show a paper or open a capsule. It never switches the system desktop or moves external apps. Turning it off stops integration; completed moves are not reversed.</value>
+    <value>Moves PaperTodo's own windows to the current desktop when you show a paper or open a capsule. It never switches the system desktop or moves external apps. This is incompatible with hiding papers from the window switcher. Turning it off stops integration; completed moves are not reversed.</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>Move on show or tray wake</value>
@@ -899,6 +899,9 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
     <value>Unavailable on this system</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
+    <value>Turn off window-switcher hiding first</value>
   </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>Todo reminders</value>
@@ -1202,22 +1205,19 @@ When off, open at the docked edge or remembered position.</value>
   <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>Allows creating papers, adding todos to an existing paper, filling blank content, and appending notes without overwriting existing text.</value></data>
   <data name="LabsMcpFullWrites" xml:space="preserve"><value>Allow full writes</value></data>
   <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>Allows changing existing todo text, replacing notes, and changing completion or reminder state. This also grants blank and additive writes.</value></data>
-  <data name="LabsMcpDeletes" xml:space="preserve"><value>Allow delete requests</value></data>
-  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>Allows AI to request paper or todo deletion. Every deletion still requires manual confirmation in PaperTodo.</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>Allow direct MCP deletion</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>Enabling this pre-authorizes AI to delete papers or todos without per-operation prompts. Deletion cannot be undone automatically; enable with care.</value></data>
   <data name="LabsMcpStatusReady" xml:space="preserve"><value>Local MCP interface is ready</value></data>
   <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>Local MCP interface is off</value></data>
   <data name="LabsMcpCopyCodex" xml:space="preserve"><value>Copy Codex config</value></data>
   <data name="LabsMcpCopyJson" xml:space="preserve"><value>Copy JSON config</value></data>
   <data name="LabsMcpCopied" xml:space="preserve"><value>Copied</value></data>
   <data name="LabsMcpCopyFailed" xml:space="preserve"><value>Copy failed</value></data>
-  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI deletion request</value></data>
-  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI requests deletion of: {0}&#xA;&#xA;AI cannot automatically undo this operation. Allow it?</value></data>
-  <data name="McpUntitledTodo" xml:space="preserve"><value>(blank todo)</value></data>
   <data name="SettingsPlugins" xml:space="preserve">
     <value>Plugins</value>
   </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>Note bodies can use built-in Markdown, a trusted native DLL, or a local Web plugin. Each plugin lives in a self-contained plugins/&lt;plugin-id&gt;/ folder and owns only the area below the title bar.</value>
+    <value>Note bodies can use built-in Markdown, native DLLs, or local Web plugins. Plugins run as fully trusted code with no sandbox: native plugins have the current user's permissions, and Web plugins may use the network. PaperTodo only applies light misuse guards to Web navigation, frames, popups, downloads, and permission requests; these are not security isolation. Install trusted plugins only.</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>Open folder</value>
@@ -1226,7 +1226,7 @@ When off, open at the docked edge or remembered position.</value>
     <value>Rescan</value>
   </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
-    <value>{0} body plugins loaded</value>
+    <value>{0} body plugins found</value>
   </data>
   <data name="PluginsLoadProblems" xml:space="preserve">
     <value>Load problems</value>

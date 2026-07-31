@@ -170,15 +170,26 @@ public sealed partial class PaperWindow
         {
             if (descriptor.Kind == PaperBodyPluginKind.Native)
             {
-                var plugin = _controller.PaperBodyPlugins.CreateNativePlugin(descriptor);
+                var stored = ReadPluginState(descriptor.Id);
+                var activation =
+                    _controller.PaperBodyPlugins.CreateNativePlugin(descriptor);
+                var plugin = activation.Plugin;
+                descriptor = activation.Descriptor;
+                _bodyDescriptor = descriptor;
                 IPaperBodySession? createdSession = null;
                 try
                 {
-                    var stored = ReadPluginState(descriptor.Id);
                     var migrated = MigrateNativePluginState(plugin, descriptor, stored);
                     var context = CreatePluginContext(descriptor, generation, migrated);
                     createdSession = plugin.Create(context)
                         ?? throw new InvalidOperationException("Plugin returned a null body session.");
+                    if (migrated.Version != stored.Version)
+                    {
+                        SavePluginStateValidated(
+                            descriptor.Id,
+                            migrated.Version,
+                            migrated.Json);
+                    }
                     return createdSession;
                 }
                 finally
@@ -432,13 +443,56 @@ public sealed partial class PaperWindow
     private PaperBodyStoredState ReadPluginState(string providerId)
     {
         _paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
-        return _paper.BodyStates.TryGetValue(providerId, out var state)
-            ? new PaperBodyStoredState
+        if (!_paper.BodyStates.TryGetValue(providerId, out var state))
+        {
+            return new PaperBodyStoredState();
+        }
+        if (state == null)
+        {
+            throw new InvalidOperationException(
+                $"Saved state for plugin '{providerId}' is null.");
+        }
+        if (state.Version < 1)
+        {
+            throw new InvalidOperationException(
+                $"Saved state version {state.Version} for plugin '{providerId}' is invalid.");
+        }
+
+        return new PaperBodyStoredState
+        {
+            Version = state.Version,
+            Json = ValidateStoredPluginStateJson(providerId, state.Json)
+        };
+    }
+
+    private static string ValidateStoredPluginStateJson(
+        string providerId,
+        string? json)
+    {
+        if (json == null)
+        {
+            throw new InvalidOperationException(
+                $"Saved state for plugin '{providerId}' has no JSON payload.");
+        }
+        if (json.Length > MaximumPluginStateCharacters)
+        {
+            throw new InvalidOperationException(
+                $"Saved state for plugin '{providerId}' exceeds {MaximumPluginStateCharacters} characters.");
+        }
+
+        try
+        {
+            using (JsonDocument.Parse(json))
             {
-                Version = Math.Max(1, state.Version),
-                Json = state.Json ?? "{}"
             }
-            : new PaperBodyStoredState();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Saved state for plugin '{providerId}' is not valid JSON.",
+                ex);
+        }
+        return json;
     }
 
     private PaperBodyStoredState MigrateNativePluginState(
@@ -456,21 +510,13 @@ public sealed partial class PaperWindow
             return stored;
         }
 
-        var migratedJson = plugin.MigrateState(stored.Json ?? "{}", stored.Version);
-        SavePluginState(descriptor.Id, descriptor.StateVersion, migratedJson);
+        var migratedJson = NormalizePluginStateJson(
+            plugin.MigrateState(stored.Json ?? "{}", stored.Version));
         return new PaperBodyStoredState
         {
             Version = descriptor.StateVersion,
-            Json = string.IsNullOrWhiteSpace(migratedJson) ? "{}" : migratedJson.Trim()
+            Json = migratedJson
         };
-    }
-
-    private void SavePluginState(string providerId, int stateVersion, string? json)
-    {
-        SavePluginStateValidated(
-            providerId,
-            Math.Max(1, stateVersion),
-            NormalizePluginStateJson(json));
     }
 
     private static string NormalizePluginStateJson(string? json)
@@ -495,6 +541,7 @@ public sealed partial class PaperWindow
         _paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
         stateVersion = Math.Max(1, stateVersion);
         if (_paper.BodyStates.TryGetValue(providerId, out var existing) &&
+            existing != null &&
             existing.Version == stateVersion &&
             string.Equals(existing.Json, normalized, StringComparison.Ordinal))
         {

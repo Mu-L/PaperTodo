@@ -1,5 +1,7 @@
 # PaperTodo 正文插件目录
 
+> **信任边界：PaperTodo 不为插件提供沙箱。** 原生插件以当前用户权限在主进程中运行，Web 插件允许联网；宿主仅拦截 Web 外部导航、远程 iframe、弹窗、下载和权限请求等轻度防误用行为，这些限制不构成安全隔离。只安装你完全信任的插件及其远程依赖。
+
 每个插件使用一个与插件 ID 同名的自包含目录，不再区分 `web` 和 `native` 总目录：
 
 ```text
@@ -45,3 +47,4 @@ papertodo.onEvent(message => console.log(message));
 宿主发送 `initialize`、`stateChanged`、`activated`、`deactivated`、`visibilityChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 同时提供 `stateVersion` 与 `targetStateVersion`，Web 插件可迁移旧状态后立即 `saveState`。
 
 原生插件目录的 `entry` 指向实现 `PaperTodo.Plugin.IPaperBodyPlugin` 的入口 DLL，依赖、`.deps.json`、资源和本地库全部放在同一插件目录。PaperTodo 为每个纸片创建新的插件工厂对象；`IPaperBodyPlugin` 不应保存纸片实例状态，正文会话必须在 `Dispose` 中停止计时器、取消任务并解除事件。
+未被任何纸片使用的原生插件在启动时只读取 `plugin.json`，不会加载 DLL 或调用构造函数；入口程序集会在首次创建对应正文时加载并校验。

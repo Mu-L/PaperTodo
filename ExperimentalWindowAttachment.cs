@@ -635,6 +635,10 @@ public sealed partial class PaperWindow
     internal bool HasExperimentalWindowAttachment =>
         _experimentalWindowAttachment != null;
 
+    internal bool HasExperimentalExternalWindowAttachment =>
+        _experimentalWindowAttachment?.TargetKind ==
+        ExperimentalAttachmentTargetKind.ExternalWindow;
+
     internal bool HasExperimentalTetherCapsuleSurface =>
         _experimentalTetherCapsule?.IsVisible == true;
 
@@ -660,6 +664,23 @@ public sealed partial class PaperWindow
                 ExperimentalAttachmentTargetKind.ExternalWindow
         } session &&
         session.ExternalWindow.Handle == handle;
+
+    private void SetExperimentalWindowAttachment(
+        ExperimentalWindowAttachmentSession? session)
+    {
+        var trackedExternalWindow =
+            HasExperimentalExternalWindowAttachment;
+        _experimentalWindowAttachment = session;
+        if (trackedExternalWindow !=
+            HasExperimentalExternalWindowAttachment)
+        {
+            _controller.NotifyExperimentalWindowAttachmentChanged();
+            if (HasExperimentalExternalWindowAttachment)
+            {
+                _controller.RequestExperimentalWindowFrames();
+            }
+        }
+    }
 
     internal bool RefreshExperimentalAttachmentFrame(
         out IntPtr targetHandle,
@@ -835,7 +856,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _experimentalWindowAttachment = plan.Session;
+        SetExperimentalWindowAttachment(plan.Session);
         if (plan.Session.TargetKind ==
                 ExperimentalAttachmentTargetKind.ExternalWindow &&
             ExternalWindowNative.TryGetSnapshot(
@@ -938,7 +959,7 @@ public sealed partial class PaperWindow
         }
 
         DetachExperimentalWindowAttachment(savePosition: false);
-        _experimentalWindowAttachment = plan.Session;
+        SetExperimentalWindowAttachment(plan.Session);
         _experimentalTetherReplanPending = false;
         // A tethered expanded paper owns its external-window edge instead of an
         // expanded edge-queue reservation. Reconcile through the existing queue
@@ -1047,7 +1068,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _experimentalWindowAttachment = plan.Session;
+        SetExperimentalWindowAttachment(plan.Session);
         ReconcileExperimentalWindowAttachment(
             target,
             animateCapsulePresentation: false);
@@ -1162,10 +1183,10 @@ public sealed partial class PaperWindow
                     ExperimentalAttachmentEdge.Left or ExperimentalAttachmentEdge.Right
                         ? monitor.DpiScaleX
                         : monitor.DpiScaleY);
-            _experimentalWindowAttachment = session with
+            SetExperimentalWindowAttachment(session with
             {
                 LastTargetBounds = monitor.WorkArea
-            };
+            });
             ApplyExperimentalAttachmentBounds(desired);
             return;
         }
@@ -1262,7 +1283,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _experimentalWindowAttachment = plan.Session;
+        SetExperimentalWindowAttachment(plan.Session);
         _experimentalTetherReplanPending = false;
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
@@ -1288,7 +1309,7 @@ public sealed partial class PaperWindow
         {
             PrepareExperimentalCapsuleFollowForDetach();
         }
-        _experimentalWindowAttachment = null;
+        SetExperimentalWindowAttachment(null);
         _experimentalTetherReplanPending = false;
         ClearExperimentalCapsuleFollowPresentation();
         if (savePosition &&
@@ -1313,7 +1334,7 @@ public sealed partial class PaperWindow
             commit: false,
             TopBarDragKind.WindowBinding);
         CancelExperimentalTetherPresentation(showMain: false);
-        _experimentalWindowAttachment = null;
+        SetExperimentalWindowAttachment(null);
         _experimentalAttachmentFormContinuation = null;
         _experimentalTetherReplanPending = false;
         ClearExperimentalCapsuleFollowPresentation();
@@ -1398,11 +1419,11 @@ public sealed partial class PaperWindow
         {
             ClearExperimentalCapsuleFollowPresentation();
         }
-        _experimentalWindowAttachment = session with
+        SetExperimentalWindowAttachment(session with
         {
             LastTargetBounds = snapshot.Bounds,
             TargetTitle = snapshot.Title
-        };
+        });
         if (session.Owner !=
             ExperimentalAttachmentOwner.CapsuleMagnet)
         {

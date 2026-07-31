@@ -40,6 +40,10 @@ internal sealed record PaperBodyPluginLoadIssue(
     string Message,
     bool RestartRequired = false);
 
+internal sealed record PaperBodyNativePluginActivation(
+    IPaperBodyPlugin Plugin,
+    PaperBodyPluginDescriptor Descriptor);
+
 internal sealed class PaperBodyPluginManifest
 {
     public string Kind { get; set; } = "web";
@@ -57,7 +61,7 @@ internal sealed class PaperBodyPluginManifest
 }
 
 /// <summary>
-/// Discovers one trusted native or local Web plugin from each self-contained
+/// Discovers one fully trusted, unsandboxed native or local Web plugin from each self-contained
 /// plugins/&lt;plugin-id&gt;/plugin.json folder. Native code is not hot-replaced: changed native
 /// folders remain on the loaded version until restart, while Web folders reload immediately.
 /// </summary>
@@ -89,7 +93,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     public PaperBodyPluginRegistry()
     {
         PluginRoot = Path.Combine(AppContext.BaseDirectory, "plugins");
-        Reload();
+        Reload(scanPluginContents: false);
     }
 
     public string PluginRoot { get; }
@@ -111,20 +115,46 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         return _descriptors.TryGetValue(normalized, out descriptor!);
     }
 
-    public IPaperBodyPlugin CreateNativePlugin(PaperBodyPluginDescriptor descriptor)
+    public PaperBodyNativePluginActivation CreateNativePlugin(
+        PaperBodyPluginDescriptor descriptor)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (descriptor.Kind != PaperBodyPluginKind.Native || descriptor.NativePluginType == null)
+        if (descriptor.Kind != PaperBodyPluginKind.Native ||
+            descriptor.Manifest == null)
         {
             throw new InvalidOperationException("The descriptor is not a native plugin.");
         }
 
-        return (IPaperBodyPlugin?)Activator.CreateInstance(descriptor.NativePluginType)
-            ?? throw new InvalidOperationException(
-                $"Could not create native plugin {descriptor.NativePluginType.FullName}.");
+        if (_loadedNativeByDirectory.TryGetValue(
+                descriptor.PluginDirectory,
+                out var loaded))
+        {
+            if (!string.Equals(
+                    loaded.Descriptor.Id,
+                    descriptor.Id,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The loaded native plugin does not match the requested descriptor.");
+            }
+
+            var pluginType = loaded.Descriptor.NativePluginType
+                ?? throw new InvalidOperationException(
+                    "The loaded native plugin has no factory type.");
+            var plugin = (IPaperBodyPlugin?)Activator.CreateInstance(pluginType)
+                ?? throw new InvalidOperationException(
+                    $"Could not create native plugin {pluginType.FullName}.");
+            return new PaperBodyNativePluginActivation(
+                plugin,
+                loaded.Descriptor);
+        }
+
+        return LoadNativePlugin(descriptor);
     }
 
-    public void Reload()
+    public void Reload() => Reload(scanPluginContents: true);
+
+    private void Reload(bool scanPluginContents)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var previous = _descriptors.ToDictionary(
@@ -146,21 +176,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             typeof(PaperWindow).Assembly.Location,
             "builtin");
 
-        try
-        {
-            Directory.CreateDirectory(PluginRoot);
-        }
-        catch (Exception ex)
-        {
-            _issues.Add(new PaperBodyPluginLoadIssue(
-                PluginRoot,
-                ex.GetBaseException().Message));
-            ReplaceDescriptors(next, previous);
-            return;
-        }
-
         var discoveredNativeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var directory in EnumeratePluginDirectories())
+        var pluginDirectories = Directory.Exists(PluginRoot)
+            ? EnumeratePluginDirectories()
+            : Array.Empty<string>();
+        foreach (var directory in pluginDirectories)
         {
             var manifestPath = Path.Combine(directory, "plugin.json");
             if (!File.Exists(manifestPath))
@@ -174,7 +194,10 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 var kind = NormalizeKind(manifest.Kind);
                 var descriptor = kind switch
                 {
-                    PaperBodyPluginKind.Web => LoadWebDescriptor(manifest, manifestPath),
+                    PaperBodyPluginKind.Web => LoadWebDescriptor(
+                        manifest,
+                        manifestPath,
+                        scanPluginContents),
                     PaperBodyPluginKind.Native => LoadOrReuseNativeDescriptor(
                         manifest,
                         manifestPath,
@@ -267,9 +290,12 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
     private PaperBodyPluginDescriptor LoadWebDescriptor(
         PaperBodyPluginManifest manifest,
-        string manifestPath)
+        string manifestPath,
+        bool scanPluginContents)
     {
-        var fingerprint = PluginFolderFingerprint(manifest.DirectoryPath);
+        var fingerprint = scanPluginContents
+            ? PluginFolderFingerprint(manifest.DirectoryPath)
+            : DiscoveryFingerprint(manifestPath, manifest.EntryPath);
         return new PaperBodyPluginDescriptor(
             manifest.Id.Trim(),
             string.IsNullOrWhiteSpace(manifest.Name) ? manifest.Id.Trim() : manifest.Name.Trim(),
@@ -296,9 +322,9 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException("A native plugin entry must be a .dll file.");
         }
 
-        var fingerprint = PluginFolderFingerprint(directory);
         if (_loadedNativeByDirectory.TryGetValue(directory, out var loaded))
         {
+            var fingerprint = PluginFolderFingerprint(directory);
             if (string.Equals(loaded.Fingerprint, fingerprint, StringComparison.Ordinal) &&
                 string.Equals(loaded.Descriptor.Id, manifest.Id.Trim(), StringComparison.Ordinal))
             {
@@ -312,7 +338,34 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             return loaded.Descriptor;
         }
 
+        // Discovery stays manifest-only. Loading the assembly, reflecting its types and running
+        // its constructor are deferred until a paper actually selects this provider.
+        return new PaperBodyPluginDescriptor(
+            manifest.Id.Trim(),
+            string.IsNullOrWhiteSpace(manifest.Name)
+                ? manifest.Id.Trim()
+                : manifest.Name.Trim(),
+            manifest.Description?.Trim() ?? "",
+            ParseVersion(manifest.Version),
+            manifest.StateVersion,
+            PaperBodyPluginKind.Native,
+            ParseCapabilities(manifest.Capabilities),
+            directory,
+            manifestPath,
+            DiscoveryFingerprint(manifestPath, manifest.EntryPath),
+            Manifest: manifest);
+    }
+
+    private PaperBodyNativePluginActivation LoadNativePlugin(
+        PaperBodyPluginDescriptor discoveredDescriptor)
+    {
+        var manifest = discoveredDescriptor.Manifest
+            ?? throw new InvalidOperationException(
+                "The native plugin manifest is unavailable.");
+        var directory = manifest.DirectoryPath;
+        var fingerprint = PluginFolderFingerprint(directory);
         var loadContext = new NativePluginLoadContext(manifest.EntryPath);
+        IPaperBodyPlugin? plugin = null;
         try
         {
             var assembly = loadContext.LoadFromAssemblyPath(manifest.EntryPath);
@@ -324,56 +377,61 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             }
 
             var pluginType = pluginTypes[0];
-            var plugin = (IPaperBodyPlugin?)Activator.CreateInstance(pluginType)
+            plugin = (IPaperBodyPlugin?)Activator.CreateInstance(pluginType)
                 ?? throw new InvalidDataException($"Could not create {pluginType.FullName}.");
-            try
+            ValidatePluginId(plugin.Id);
+            if (!string.Equals(plugin.Id.Trim(), manifest.Id.Trim(), StringComparison.Ordinal))
             {
-                ValidatePluginId(plugin.Id);
-                if (!string.Equals(plugin.Id.Trim(), manifest.Id.Trim(), StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException(
-                        $"Native plugin id '{plugin.Id}' does not match manifest id '{manifest.Id}'.");
-                }
-                if (plugin.StateVersion < 1 || plugin.StateVersion != manifest.StateVersion)
-                {
-                    throw new InvalidDataException(
-                        $"Native plugin StateVersion {plugin.StateVersion} must match manifest stateVersion {manifest.StateVersion}.");
-                }
+                throw new InvalidDataException(
+                    $"Native plugin id '{plugin.Id}' does not match manifest id '{manifest.Id}'.");
+            }
+            if (plugin.StateVersion < 1 ||
+                plugin.StateVersion != manifest.StateVersion)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin StateVersion {plugin.StateVersion} must match manifest stateVersion {manifest.StateVersion}.");
+            }
 
-                var descriptor = new PaperBodyPluginDescriptor(
-                    plugin.Id.Trim(),
-                    string.IsNullOrWhiteSpace(manifest.Name)
-                        ? (string.IsNullOrWhiteSpace(plugin.DisplayName) ? plugin.Id.Trim() : plugin.DisplayName.Trim())
-                        : manifest.Name.Trim(),
-                    string.IsNullOrWhiteSpace(manifest.Description)
-                        ? plugin.Description?.Trim() ?? ""
-                        : manifest.Description.Trim(),
-                    ParseVersion(manifest.Version, plugin.Version),
-                    plugin.StateVersion,
-                    PaperBodyPluginKind.Native,
-                    plugin.Capabilities,
+            var descriptor = new PaperBodyPluginDescriptor(
+                plugin.Id.Trim(),
+                string.IsNullOrWhiteSpace(manifest.Name)
+                    ? (string.IsNullOrWhiteSpace(plugin.DisplayName)
+                        ? plugin.Id.Trim()
+                        : plugin.DisplayName.Trim())
+                    : manifest.Name.Trim(),
+                string.IsNullOrWhiteSpace(manifest.Description)
+                    ? plugin.Description?.Trim() ?? ""
+                    : manifest.Description.Trim(),
+                ParseVersion(manifest.Version, plugin.Version),
+                plugin.StateVersion,
+                PaperBodyPluginKind.Native,
+                plugin.Capabilities,
+                directory,
+                discoveredDescriptor.SourcePath,
+                fingerprint,
+                NativePluginType: pluginType,
+                Manifest: manifest);
+            _loadedNativeByDirectory[directory] = new LoadedNativePlugin(
+                directory,
+                fingerprint,
+                descriptor,
+                loadContext);
+            if (_descriptors.TryGetValue(descriptor.Id, out var current) &&
+                string.Equals(
+                    current.PluginDirectory,
                     directory,
-                    manifestPath,
-                    fingerprint,
-                    NativePluginType: pluginType,
-                    Manifest: manifest);
-                _loadedNativeByDirectory[directory] = new LoadedNativePlugin(
-                    directory,
-                    fingerprint,
-                    descriptor,
-                    loadContext);
-                return descriptor;
-            }
-            finally
+                    StringComparison.OrdinalIgnoreCase))
             {
-                if (plugin is IDisposable disposable)
-                {
-                    try { disposable.Dispose(); } catch { }
-                }
+                _descriptors[descriptor.Id] = descriptor;
             }
+            return new PaperBodyNativePluginActivation(plugin, descriptor);
         }
         catch
         {
+            if (plugin is IDisposable disposable)
+            {
+                try { disposable.Dispose(); } catch { }
+            }
             try { loadContext.Unload(); } catch { }
             throw;
         }
@@ -519,6 +577,16 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             hash.AppendData(new byte[] { 0 });
         }
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static string DiscoveryFingerprint(
+        string manifestPath,
+        string entryPath)
+    {
+        var manifest = new FileInfo(manifestPath);
+        var entry = new FileInfo(entryPath);
+        return $"discovery:{manifest.Length}:{manifest.LastWriteTimeUtc.Ticks}:" +
+            $"{entry.Length}:{entry.LastWriteTimeUtc.Ticks}";
     }
 
     private static bool IsRuntimePath(string directory, string path)

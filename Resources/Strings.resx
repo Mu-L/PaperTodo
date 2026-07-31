@@ -660,7 +660,7 @@
   </data>
   <data name="TipHidePapersFromWindowSwitcher" xml:space="preserve">
     <value>展开的纸片不出现在 Alt+Tab 与任务视图，并同时隐藏任务栏图标。
-仍可用托盘、桌面纸片与胶囊访问。</value>
+仍可用托盘、桌面纸片与胶囊访问；此模式下纸片会显示在所有虚拟桌面，实验室的当前桌面唤醒不可用。</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
     <value>指针停在按钮或可操作区时显示简短说明。
@@ -893,7 +893,7 @@
     <value>启用当前桌面唤醒</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>主动显示纸片或打开胶囊时，把 PaperTodo 自有窗口移到当前桌面；不会切换系统桌面，也不会移动外部软件。关闭后停止接入，已完成的移动不会回滚。</value>
+    <value>主动显示纸片或打开胶囊时，把 PaperTodo 自有窗口移到当前桌面；不会切换系统桌面，也不会移动外部软件。与「从窗口切换中隐藏纸片」不兼容；关闭后停止接入，已完成的移动不会回滚。</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>显示或从托盘唤醒时移到当前桌面</value>
@@ -912,6 +912,9 @@
   </data>
   <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
     <value>当前系统不可用</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
+    <value>需先关闭窗口切换隐藏</value>
   </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>待办提醒</value>
@@ -1215,22 +1218,19 @@
   <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>允许新建纸片、向已有待办纸添加新待办、填写空白内容以及追加笔记；不会覆盖已有文字。</value></data>
   <data name="LabsMcpFullWrites" xml:space="preserve"><value>允许完整写入</value></data>
   <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>允许修改已有待办文字、替换笔记、修改完成状态和提醒；同时包含空白与追加写入权限。</value></data>
-  <data name="LabsMcpDeletes" xml:space="preserve"><value>允许发起删除</value></data>
-  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>允许 AI 请求删除纸片或待办；每次删除仍必须在 PaperTodo 中手动确认。</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>允许 MCP 直接删除</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>开启即预授权 AI 直接删除纸片或待办，不再逐次弹窗确认；操作无法自动撤销，请谨慎启用。</value></data>
   <data name="LabsMcpStatusReady" xml:space="preserve"><value>本地 MCP 接口已就绪</value></data>
   <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>本地 MCP 接口已关闭</value></data>
   <data name="LabsMcpCopyCodex" xml:space="preserve"><value>复制 Codex 配置</value></data>
   <data name="LabsMcpCopyJson" xml:space="preserve"><value>复制 JSON 配置</value></data>
   <data name="LabsMcpCopied" xml:space="preserve"><value>已复制</value></data>
   <data name="LabsMcpCopyFailed" xml:space="preserve"><value>复制失败</value></data>
-  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI 请求删除</value></data>
-  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI 请求删除：{0}&#xA;&#xA;此操作无法由 AI 自动撤销，是否允许？</value></data>
-  <data name="McpUntitledTodo" xml:space="preserve"><value>（空白待办）</value></data>
   <data name="SettingsPlugins" xml:space="preserve">
     <value>插件</value>
   </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>笔记正文可以使用内置 Markdown、可信原生 DLL 或本地 Web 插件。每个插件位于 plugins/&lt;插件 ID&gt;/ 自包含目录，仅接管标题栏下方正文。</value>
+    <value>笔记正文可使用内置 Markdown、原生 DLL 或本地 Web 插件。插件按完全信任代码运行，不提供沙箱：原生插件拥有当前用户权限，Web 插件可以联网。PaperTodo 仅对 Web 外部导航、框架、弹窗、下载和权限请求做轻度防误用限制，不构成安全隔离；请只安装可信插件。</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>打开目录</value>
@@ -1239,7 +1239,7 @@
     <value>重新扫描</value>
   </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
-    <value>已加载 {0} 个正文插件</value>
+    <value>发现 {0} 个正文插件</value>
   </data>
   <data name="PluginsLoadProblems" xml:space="preserve">
     <value>加载问题</value>

@@ -13,9 +13,16 @@ public sealed partial class AppController
     private int _experimentalFollowStableFrames;
 
     private bool NeedsExternalWindowTracker =>
-        (State.ExperimentalCapsuleMagnetism &&
-         State.ExperimentalCapsuleMagnetWindowEdges) ||
-        State.ExperimentalWindowTethering;
+        _windows.Values.Any(window =>
+            window.HasExperimentalExternalWindowAttachment);
+
+    internal void NotifyExperimentalWindowAttachmentChanged()
+    {
+        if (!IsExiting)
+        {
+            RefreshExperimentalWindowRuntime();
+        }
+    }
 
     private void RefreshExperimentalWindowRuntime()
     {
@@ -83,7 +90,9 @@ public sealed partial class AppController
     private void BeginExperimentalFollowFrames()
     {
         _experimentalFollowStableFrames = 0;
-        if (_experimentalFollowRendering || IsExiting)
+        if (_experimentalFollowRendering ||
+            IsExiting ||
+            !NeedsExternalWindowTracker)
         {
             return;
         }

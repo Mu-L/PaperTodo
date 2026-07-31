@@ -638,7 +638,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="TipHidePapersFromWindowSwitcher" xml:space="preserve">
     <value>展開中の紙片を Alt+Tab とタスクビューから隠し、タスクバーアイコンも同時に隠します。
-トレイ、デスクトップ上の紙片、カプセルからは引き続き開けます。</value>
+トレイ、デスクトップ上の紙片、カプセルからは引き続き開けます。このモードでは紙片がすべての仮想デスクトップに表示されるため、ラボの現在のデスクトップでの呼び出しは利用できません。</value>
   </data>
   <data name="TipEnableToolTips" xml:space="preserve">
     <value>ボタンや操作できる領域にポインターを置いたとき短い説明を表示します。
@@ -880,7 +880,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>現在のデスクトップでの呼び出しを有効にする</value>
   </data>
   <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>付箋を表示するかカプセルを開いたとき、PaperTodo 自身のウィンドウを現在のデスクトップへ移動します。システムのデスクトップ切り替えや外部アプリの移動は行いません。オフにすると連携を停止しますが、完了済みの移動は元に戻しません。</value>
+    <value>付箋を表示するかカプセルを開いたとき、PaperTodo 自身のウィンドウを現在のデスクトップへ移動します。システムのデスクトップ切り替えや外部アプリの移動は行いません。「ウィンドウ切り替えから紙片を隠す」とは併用できません。オフにすると連携を停止しますが、完了済みの移動は元に戻しません。</value>
   </data>
   <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
     <value>表示またはトレイから呼び出すときに移動</value>
@@ -899,6 +899,9 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
     <value>このシステムでは利用できません</value>
+  </data>
+  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
+    <value>先にウィンドウ切り替えでの非表示をオフにしてください</value>
   </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>ToDo リマインダー</value>
@@ -1202,22 +1205,19 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>紙片の新規作成、既存の ToDo 紙への項目追加、空欄への入力、ノートへの追記を許可します。既存の文字は上書きしません。</value></data>
   <data name="LabsMcpFullWrites" xml:space="preserve"><value>完全な書き込みを許可</value></data>
   <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>既存 ToDo の文字、ノート本文、完了状態、リマインダーの変更を許可します。空欄・追加書き込み権限も含みます。</value></data>
-  <data name="LabsMcpDeletes" xml:space="preserve"><value>削除要求を許可</value></data>
-  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>AI による紙片または ToDo の削除要求を許可します。削除ごとに PaperTodo で手動確認が必要です。</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>MCP による直接削除を許可</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>有効にすると、AI が紙片や ToDo を確認ダイアログなしで直接削除することを事前承認します。自動的には元に戻せないため、注意して有効にしてください。</value></data>
   <data name="LabsMcpStatusReady" xml:space="preserve"><value>ローカル MCP は準備完了</value></data>
   <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>ローカル MCP は無効</value></data>
   <data name="LabsMcpCopyCodex" xml:space="preserve"><value>Codex 設定をコピー</value></data>
   <data name="LabsMcpCopyJson" xml:space="preserve"><value>JSON 設定をコピー</value></data>
   <data name="LabsMcpCopied" xml:space="preserve"><value>コピーしました</value></data>
   <data name="LabsMcpCopyFailed" xml:space="preserve"><value>コピーに失敗しました</value></data>
-  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI からの削除要求</value></data>
-  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI が次の項目の削除を要求しています：{0}&#xA;&#xA;AI から自動的に元に戻せません。許可しますか？</value></data>
-  <data name="McpUntitledTodo" xml:space="preserve"><value>（空の ToDo）</value></data>
   <data name="SettingsPlugins" xml:space="preserve">
     <value>プラグイン</value>
   </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>ノート本文には内蔵 Markdown、信頼済みネイティブ DLL、またはローカル Web プラグインを使用できます。各プラグインは plugins/&lt;プラグイン ID&gt;/ の自己完結フォルダーに置かれ、タイトルバー下の本文だけを担当します。</value>
+    <value>ノート本文には内蔵 Markdown、ネイティブ DLL、またはローカル Web プラグインを使用できます。プラグインは完全に信頼されたコードとして動作し、サンドボックスはありません。ネイティブプラグインは現在のユーザー権限を持ち、Web プラグインはネットワークを利用できます。PaperTodo が Web の外部ナビゲーション、フレーム、ポップアップ、ダウンロード、権限要求に行うのは軽い誤操作防止だけで、セキュリティ隔離ではありません。信頼できるプラグインだけを導入してください。</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>フォルダーを開く</value>
@@ -1226,7 +1226,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>再スキャン</value>
   </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
-    <value>本文プラグイン {0} 件を読み込み済み</value>
+    <value>本文プラグイン {0} 件を検出</value>
   </data>
   <data name="PluginsLoadProblems" xml:space="preserve">
     <value>読み込みの問題</value>

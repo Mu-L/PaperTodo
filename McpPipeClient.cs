@@ -9,7 +9,7 @@ namespace PaperTodo;
 internal sealed class McpPipeClient
 {
     private const int ConnectTimeoutMilliseconds = 2500;
-    private const int ResponseTimeoutMilliseconds = 20_000;
+    private const int ResponseTimeoutMilliseconds = 10_000;
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
 

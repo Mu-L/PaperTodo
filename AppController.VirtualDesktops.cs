@@ -14,7 +14,8 @@ public sealed partial class AppController
     private void RefreshExperimentalVirtualDesktopRuntime()
     {
         if (IsExiting ||
-            !State.ExperimentalVirtualDesktopIntegration)
+            !State.ExperimentalVirtualDesktopIntegration ||
+            State.HidePapersFromWindowSwitcher)
         {
             DisposeExperimentalVirtualDesktopRuntime();
             return;
@@ -32,6 +33,12 @@ public sealed partial class AppController
 
     private void ToggleExperimentalVirtualDesktopIntegration()
     {
+        if (State.HidePapersFromWindowSwitcher)
+        {
+            RefreshExperimentalVirtualDesktopRuntime();
+            return;
+        }
+
         State.ExperimentalVirtualDesktopIntegration =
             !State.ExperimentalVirtualDesktopIntegration;
         RefreshExperimentalVirtualDesktopRuntime();
@@ -61,6 +68,7 @@ public sealed partial class AppController
     {
         if (IsExiting ||
             !State.ExperimentalVirtualDesktopIntegration ||
+            State.HidePapersFromWindowSwitcher ||
             (reason == ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront &&
              !State.ExperimentalVirtualDesktopMoveOnShow) ||
             (reason == ExperimentalVirtualDesktopWakeReason.CapsuleActivation &&
@@ -162,6 +170,11 @@ public sealed partial class AppController
 
     private string ExperimentalVirtualDesktopStatusText()
     {
+        if (State.HidePapersFromWindowSwitcher)
+        {
+            return Strings.Get(
+                "LabsVirtualDesktopStatusWindowSwitcherConflict");
+        }
         if (!State.ExperimentalVirtualDesktopIntegration)
         {
             return Strings.Get("LabsVirtualDesktopStatusOff");

@@ -21,7 +21,7 @@ public sealed record PaperBodyTheme(
     double FontScale);
 
 /// <summary>
-/// Narrow host surface exposed to trusted PaperTodo body plugins.
+/// Narrow host surface exposed to fully trusted, unsandboxed PaperTodo body plugins.
 /// Callbacks are queued onto PaperTodo's UI dispatcher and ignored after the session is replaced.
 /// </summary>
 public sealed class PaperBodyContext
@@ -41,7 +41,8 @@ public sealed class PaperBodyContext
 }
 
 /// <summary>
-/// A trusted native plugin loaded from one self-contained plugins/&lt;plugin-id&gt;/ folder.
+/// A fully trusted, unsandboxed native plugin loaded from one self-contained
+/// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions.
 /// Implementations must provide a public parameterless constructor and act as stateless factories.
 /// PaperTodo creates a fresh plugin object for every body session.
 /// </summary>

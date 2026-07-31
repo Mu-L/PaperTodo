@@ -171,29 +171,6 @@ public sealed partial class AppController
         RefreshTrayMenu();
     }
 
-    internal bool ConfirmMcpDeletion(string target)
-    {
-        var owner = _settingsWindow is { IsVisible: true }
-            ? _settingsWindow
-            : _windows.Values.FirstOrDefault(window => window.IsVisible);
-        var message = Strings.Format("McpDeleteConfirmBody", target);
-        var result = owner != null
-            ? MessageBox.Show(
-                owner,
-                message,
-                Strings.Get("McpDeleteConfirmTitle"),
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No)
-            : MessageBox.Show(
-                message,
-                Strings.Get("McpDeleteConfirmTitle"),
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-        return result == MessageBoxResult.Yes;
-    }
-
     internal void FinalizeMcpPaperDeletion(
         PaperData deleted,
         PaperData? replacement,

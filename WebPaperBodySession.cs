@@ -10,6 +10,8 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
+// Web plugins are trusted and may use the network. The navigation, frame, popup, download and
+// permission handlers below are light misuse guards, not a sandbox or a security boundary.
 internal sealed class WebPaperBodySession : IPaperBodySession
 {
     private static readonly object EnvironmentGate = new();

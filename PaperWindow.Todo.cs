@@ -457,7 +457,7 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = true;
-            if (todoRemindersEnabled && item.ReminderAt.HasValue)
+            if (item.ReminderAt.HasValue)
             {
                 item.ReminderAt = null;
                 _controller.NotifyTodoReminderChanged(saveImmediately: false);
