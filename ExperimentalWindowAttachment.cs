@@ -1,4 +1,4 @@
-using System.Windows.Controls;
+using System.Diagnostics;
 
 namespace PaperTodo;
 
@@ -521,6 +521,12 @@ public sealed partial class PaperWindow
     private ExperimentalTetherCapsuleWindow? _experimentalTetherCapsule;
     private bool _experimentalTetherPresentationSuppressed;
     private bool _experimentalTetherReplanPending;
+    private ExperimentalAttachmentPreviewWindow?
+        _experimentalCapsuleMagnetPreview;
+    private ExperimentalAttachmentPlan?
+        _experimentalCapsuleMagnetPreviewPlan;
+    private bool _experimentalCapsuleMagnetDragPreviewActive;
+    private long _experimentalCapsuleMagnetPreviewTimestamp;
 
     internal bool HasExperimentalWindowAttachment =>
         _experimentalWindowAttachment != null;
@@ -550,8 +556,10 @@ public sealed partial class PaperWindow
         }
     }
 
-    private void TryAttachExperimentalCapsuleMagnetAfterDrag()
+    private bool TryPlanExperimentalCapsuleMagnet(
+        out ExperimentalAttachmentPlan plan)
     {
+        plan = default;
         if (!_controller.State.ExperimentalCapsuleMagnetism ||
             !_paper.IsCollapsed ||
             HasDeepCapsuleSlotPlacement ||
@@ -559,7 +567,7 @@ public sealed partial class PaperWindow
             !IsVisible ||
             !WindowNative.TryGetWindowDeviceBounds(this, out var capsuleBounds))
         {
-            return;
+            return false;
         }
 
         var center = new DeviceScreenPoint(
@@ -570,14 +578,14 @@ public sealed partial class PaperWindow
                 this,
                 out var monitor))
         {
-            return;
+            return false;
         }
 
         var externalTargets =
             _controller.State.ExperimentalCapsuleMagnetWindowEdges
                 ? ExternalWindowNative.EnumerateTargets(maximumCount: 40)
                 : Array.Empty<ExternalWindowSnapshot>();
-        if (!ExperimentalWindowAttachmentGeometry.TryPlanCapsuleMagnet(
+        return ExperimentalWindowAttachmentGeometry.TryPlanCapsuleMagnet(
                 capsuleBounds,
                 monitor,
                 externalTargets,
@@ -585,7 +593,80 @@ public sealed partial class PaperWindow
                 _controller.State.ExperimentalCapsuleMagnetWindowEdges,
                 _controller.State.ExperimentalCapsuleMagnetDistance,
                 ExperimentalWindowAttachmentOptions.DefaultWindowGap,
-                out var plan))
+                out plan);
+    }
+
+    private void BeginExperimentalCapsuleMagnetDragPreview()
+    {
+        EndExperimentalCapsuleMagnetDragPreview();
+        if (!_controller.State.ExperimentalCapsuleMagnetism ||
+            !_paper.IsCollapsed ||
+            HasDeepCapsuleSlotPlacement ||
+            IsPaperFormTransitioning ||
+            !IsVisible)
+        {
+            return;
+        }
+
+        _experimentalCapsuleMagnetDragPreviewActive = true;
+        _experimentalCapsuleMagnetPreviewTimestamp = 0;
+        UpdateExperimentalCapsuleMagnetDragPreview(force: true);
+    }
+
+    private void UpdateExperimentalCapsuleMagnetDragPreview(
+        bool force = false)
+    {
+        if (!_experimentalCapsuleMagnetDragPreviewActive)
+        {
+            return;
+        }
+
+        var now = Stopwatch.GetTimestamp();
+        if (!force &&
+            _experimentalCapsuleMagnetPreviewTimestamp != 0 &&
+            (now - _experimentalCapsuleMagnetPreviewTimestamp) * 1000.0 /
+                Stopwatch.Frequency < 32)
+        {
+            return;
+        }
+        _experimentalCapsuleMagnetPreviewTimestamp = now;
+
+        if (!TryPlanExperimentalCapsuleMagnet(out var plan))
+        {
+            CloseExperimentalCapsuleMagnetPreview();
+            _experimentalCapsuleMagnetPreviewPlan = null;
+            return;
+        }
+
+        var emphasize =
+            !_experimentalCapsuleMagnetPreviewPlan.HasValue ||
+            !IsSameExperimentalMagnetPreviewTarget(
+                _experimentalCapsuleMagnetPreviewPlan.Value,
+                plan);
+        _experimentalCapsuleMagnetPreviewPlan = plan;
+        var preview = _experimentalCapsuleMagnetPreview ??=
+            new ExperimentalAttachmentPreviewWindow();
+        preview.ShowAt(
+            plan.WindowBounds,
+            _controller.FullscreenAvoidanceWindowFor(this),
+            emphasize,
+            _controller.State.EnableAnimations);
+        if (emphasize &&
+            _controller.State.EnableAnimations &&
+            _capsuleShell != null)
+        {
+            AnimationHelper.QuickBounce(
+                _capsuleShell,
+                scale: 1.025,
+                duration: 70);
+        }
+    }
+
+    private void TryAttachExperimentalCapsuleMagnetAfterDrag()
+    {
+        var hasPlan = TryPlanExperimentalCapsuleMagnet(out var plan);
+        EndExperimentalCapsuleMagnetDragPreview();
+        if (!hasPlan)
         {
             return;
         }
@@ -594,9 +675,47 @@ public sealed partial class PaperWindow
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
         RefreshExperimentalAttachmentMenus();
+        if (_controller.State.EnableAnimations && _capsuleShell != null)
+        {
+            AnimationHelper.QuickBounce(
+                _capsuleShell,
+                scale: 1.04,
+                duration: 90);
+        }
     }
 
-    private void AttachExperimentalWindowTether(
+    private void EndExperimentalCapsuleMagnetDragPreview()
+    {
+        _experimentalCapsuleMagnetDragPreviewActive = false;
+        _experimentalCapsuleMagnetPreviewTimestamp = 0;
+        _experimentalCapsuleMagnetPreviewPlan = null;
+        CloseExperimentalCapsuleMagnetPreview();
+    }
+
+    private void CloseExperimentalCapsuleMagnetPreview()
+    {
+        var preview = _experimentalCapsuleMagnetPreview;
+        _experimentalCapsuleMagnetPreview = null;
+        preview?.CloseForOwner();
+    }
+
+    private static bool IsSameExperimentalMagnetPreviewTarget(
+        ExperimentalAttachmentPlan first,
+        ExperimentalAttachmentPlan second)
+    {
+        var left = first.Session;
+        var right = second.Session;
+        return left.TargetKind == right.TargetKind &&
+            left.Edge == right.Edge &&
+            left.InsideTarget == right.InsideTarget &&
+            left.ExternalWindow == right.ExternalWindow &&
+            string.Equals(
+                left.MonitorDeviceName,
+                right.MonitorDeviceName,
+                StringComparison.Ordinal);
+    }
+
+    private bool AttachExperimentalWindowTether(
         ExternalWindowIdentity identity)
     {
         if (!_controller.State.ExperimentalWindowTethering ||
@@ -609,7 +728,7 @@ public sealed partial class PaperWindow
             !ExternalWindowNative.TryGetSnapshot(identity, out var target) ||
             !target.IsUsableTarget)
         {
-            return;
+            return false;
         }
 
         var targetCenter = new DeviceScreenPoint(
@@ -627,7 +746,7 @@ public sealed partial class PaperWindow
                 _controller.State.ExperimentalWindowTetherGap,
                 out var plan))
         {
-            return;
+            return false;
         }
 
         DetachExperimentalWindowAttachment(savePosition: false);
@@ -640,6 +759,7 @@ public sealed partial class PaperWindow
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
         RefreshExperimentalAttachmentMenus();
+        return true;
     }
 
     internal void HandleExternalWindowEvent(ExternalWindowEvent windowEvent)
@@ -765,6 +885,7 @@ public sealed partial class PaperWindow
 
     internal void DisableExperimentalCapsuleMagnet()
     {
+        EndExperimentalCapsuleMagnetDragPreview();
         if (HasExperimentalCapsuleMagnet)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -774,6 +895,7 @@ public sealed partial class PaperWindow
 
     internal void DisableExperimentalWindowTether()
     {
+        EndWindowBindingMouseGesture(commit: false);
         if (HasExperimentalWindowTether)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -883,6 +1005,8 @@ public sealed partial class PaperWindow
 
     internal void DisposeExperimentalWindowAttachment()
     {
+        EndExperimentalCapsuleMagnetDragPreview();
+        EndWindowBindingMouseGesture(commit: false);
         CancelExperimentalTetherPresentation(showMain: false);
         _experimentalWindowAttachment = null;
         _experimentalTetherReplanPending = false;
@@ -1167,6 +1291,7 @@ public sealed partial class PaperWindow
         {
             _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
         }
+        RefreshWindowBindingButton();
     }
 
     internal void RefreshExperimentalAttachmentMenu()
@@ -1174,42 +1299,4 @@ public sealed partial class PaperWindow
         RefreshExperimentalAttachmentMenus();
     }
 
-    private MenuItem BuildExperimentalWindowTetherMenu()
-    {
-        var root = new MenuItem
-        {
-            Header = Strings.Get("LabsWindowTetherChoose"),
-            Padding = new System.Windows.Thickness(8, 4, 10, 4),
-            Background = System.Windows.Media.Brushes.Transparent
-        };
-        root.SetResourceReference(
-            System.Windows.Controls.Control.ForegroundProperty,
-            "TextBrushKey");
-        root.Items.Add(MenuHeader(Strings.Get("LabsWindowTetherOpenToChoose")));
-        root.SubmenuOpened += (_, _) =>
-        {
-            root.Items.Clear();
-            var targets = ExternalWindowNative.EnumerateTargets(maximumCount: 24);
-            if (targets.Count == 0)
-            {
-                root.Items.Add(MenuHeader(
-                    Strings.Get("LabsWindowTetherNoTargets")));
-                return;
-            }
-
-            foreach (var target in targets)
-            {
-                var title = target.Title.Length <= 60
-                    ? target.Title
-                    : target.Title[..57] + "…";
-                var item = MenuItem(
-                    title,
-                    (_, _) => AttachExperimentalWindowTether(
-                        target.Identity));
-                item.ToolTip = target.Title;
-                root.Items.Add(item);
-            }
-        };
-        return root;
-    }
 }

@@ -278,12 +278,7 @@ internal static class ExternalWindowNative
             }
 
             if (hwnd != shellWindow &&
-                TryGetSnapshot(hwnd, out var snapshot) &&
-                snapshot.IsUsableTarget &&
-                !IsToolWindow(hwnd) &&
-                snapshot.Title.Length > 0 &&
-                snapshot.Bounds.Width >= MinimumTargetWidth &&
-                snapshot.Bounds.Height >= MinimumTargetHeight)
+                TryGetSelectableTarget(hwnd, out var snapshot))
             {
                 results.Add(snapshot);
             }
@@ -291,6 +286,36 @@ internal static class ExternalWindowNative
             return true;
         }, IntPtr.Zero);
         return results;
+    }
+
+    public static bool TryGetTargetAtPoint(
+        DeviceScreenPoint point,
+        out ExternalWindowSnapshot snapshot)
+    {
+        ExternalWindowSnapshot? match = null;
+        var x = (int)Math.Round(point.X, MidpointRounding.AwayFromZero);
+        var y = (int)Math.Round(point.Y, MidpointRounding.AwayFromZero);
+        var shellWindow = GetShellWindow();
+        _ = EnumWindows((hwnd, _) =>
+        {
+            if (hwnd == shellWindow ||
+                !TryGetSelectableTarget(hwnd, out var candidate) ||
+                x < candidate.Bounds.Left ||
+                x >= candidate.Bounds.Right ||
+                y < candidate.Bounds.Top ||
+                y >= candidate.Bounds.Bottom)
+            {
+                return true;
+            }
+
+            // EnumWindows walks top-level windows in z-order, so the first usable
+            // external window under the pointer is the one the user can see.
+            match = candidate;
+            return false;
+        }, IntPtr.Zero);
+
+        snapshot = match.GetValueOrDefault();
+        return match.HasValue;
     }
 
     public static bool TryGetSnapshot(
@@ -417,6 +442,18 @@ internal static class ExternalWindowNative
 
     private static bool IsToolWindow(IntPtr hwnd) =>
         (GetWindowLong(hwnd, GwlExStyle) & WsExToolWindow) != 0;
+
+    private static bool TryGetSelectableTarget(
+        IntPtr hwnd,
+        out ExternalWindowSnapshot snapshot)
+    {
+        return TryGetSnapshot(hwnd, out snapshot) &&
+            snapshot.IsUsableTarget &&
+            !IsToolWindow(hwnd) &&
+            snapshot.Title.Length > 0 &&
+            snapshot.Bounds.Width >= MinimumTargetWidth &&
+            snapshot.Bounds.Height >= MinimumTargetHeight;
+    }
 
     private static bool IsCloaked(IntPtr hwnd) =>
         DwmGetWindowAttribute(

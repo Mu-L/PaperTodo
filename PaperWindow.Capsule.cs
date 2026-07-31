@@ -314,6 +314,7 @@ public sealed partial class PaperWindow
                 leftArea.ReleaseMouseCapture();
                 leftArea.Background = Brushes.Transparent;
                 leftArea.Cursor = Cursors.SizeAll;
+                BeginExperimentalCapsuleMagnetDragPreview();
 
                 try
                 {

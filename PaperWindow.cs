@@ -659,6 +659,7 @@ public sealed partial class PaperWindow : Window
     private void HandleWindowGeometryChanged()
     {
         SaveGeometryIfAllowed();
+        UpdateExperimentalCapsuleMagnetDragPreview();
         if (_mainWindowFullscreenAvoidanceWindow != _controller.FullscreenAvoidanceWindowFor(this))
         {
             RefreshEffectiveTopmost();
@@ -1463,6 +1464,7 @@ public sealed partial class PaperWindow : Window
 
         RefreshPaperTitle();
         RefreshPaperIconButton();
+        RefreshWindowBindingButton();
         UpdateTextZoom();
         UpdateDeepCapsuleSlotHostTheme();
 
@@ -1517,6 +1519,11 @@ public sealed partial class PaperWindow : Window
         if (_linkNoteButton != null)
         {
             _linkNoteButton.FontSize = AppTypography.Scale(13);
+        }
+
+        if (_windowBindingButton != null)
+        {
+            _windowBindingButton.FontSize = AppTypography.Scale(13);
         }
 
         if (_newTodoButton != null)
@@ -2051,6 +2058,12 @@ public sealed partial class PaperWindow : Window
         _newNoteButton = IconButton("＋✎", Strings.Get("ToolTipNewNotePaper"));
         _newNoteButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper);
 
+        var windowBindingButton = IconButton(
+            "▣",
+            Strings.Get("ToolTipDragPaperToWindow"));
+        ConfigureWindowBindingButton(windowBindingButton);
+        buttons.Children.Add(windowBindingButton);
+
         if (_paper.Type == PaperTypes.Note)
         {
             _linkNoteButton = IconButton("⌖", Strings.Get("ToolTipDragNoteToTodo"));
@@ -2543,14 +2556,6 @@ public sealed partial class PaperWindow : Window
                 (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
         }
 
-        if (_controller.State.ExperimentalWindowTethering &&
-            !_paper.IsCollapsed &&
-            !forDeepCapsuleSlot &&
-            WindowState == WindowState.Normal &&
-            !_isSnappedPresentation)
-        {
-            menu.Items.Add(BuildExperimentalWindowTetherMenu());
-        }
         if (HasExperimentalWindowTether)
         {
             menu.Items.Add(MenuItem(
@@ -2609,6 +2614,21 @@ public sealed partial class PaperWindow : Window
             {
                 WindowNative.ApplyTopmostZOrder(
                     noteLinkGhost,
+                    ghostTopmost,
+                    ghostAvoidanceWindow);
+            }
+        }
+        if (_windowBindingDrag is { Ghost: { } bindingGhost } bindingDrag)
+        {
+            var ghostAvoidanceWindow =
+                _controller.FullscreenAvoidanceWindowFor(bindingGhost);
+            bindingDrag.FullscreenAvoidanceWindow = ghostAvoidanceWindow;
+            var ghostTopmost = ghostAvoidanceWindow == IntPtr.Zero;
+            bindingGhost.Topmost = ghostTopmost;
+            if (bindingGhost.IsVisible)
+            {
+                WindowNative.ApplyTopmostZOrder(
+                    bindingGhost,
                     ghostTopmost,
                     ghostAvoidanceWindow);
             }

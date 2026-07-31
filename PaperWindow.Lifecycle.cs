@@ -232,6 +232,7 @@ public sealed partial class PaperWindow
         CancelNotePresenterDeferredWork();
         EndTitleBarDragGesture();
         CancelCapsulePointerInteraction();
+        EndExperimentalCapsuleMagnetDragPreview();
 
         if (_todoDrag != null)
         {
@@ -241,6 +242,11 @@ public sealed partial class PaperWindow
         if (_noteLinkDrag != null)
         {
             EndNoteLinkMouseGesture(commit: false);
+        }
+
+        if (_windowBindingDrag != null)
+        {
+            EndWindowBindingMouseGesture(commit: false);
         }
 
         CancelDeepCapsuleReorderDrag();

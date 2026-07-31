@@ -775,13 +775,13 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>대기 중 불투명도</value>
   </data>
   <data name="LabsCapsuleMagnetism" xml:space="preserve">
-    <value>일반 캡슐 자석 맞춤</value>
+    <value>일반 캡슐 가장자리 맞춤</value>
   </data>
   <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
     <value>일반 캡슐 자석 맞춤 사용</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>가장자리 대기열에 들어가지 않은 일반 캡슐에만 적용됩니다. 화면 또는 다른 앱 창 가장자리 근처까지 드래그한 뒤 놓으면 붙습니다. 다시 드래그하거나 대상이 사라지거나 기능을 끄면 해제되며, 가장자리 대기열과 메인 캡슐에는 영향을 주지 않습니다.</value>
+    <value>일반 캡슐을 드래그하면 붙을 위치가 표시됩니다. 화면이나 다른 앱 창의 가장자리 근처에서 놓으면 붙어서 따라갑니다. 가장자리 대기열 밖의 캡슐에만 적용되며 다시 드래그하거나 대상이 사라지거나 기능을 끄면 해제됩니다.</value>
   </data>
   <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
     <value>현재 가장자리 캡슐이 켜져 있어 접은 메모는 가장자리 대기열로 들어가며 일반 캡슐 자석 맞춤의 대상이 아닙니다. 이 기능을 사용하려면 일반 설정에서 가장자리 캡슐을 끄세요.</value>
@@ -793,7 +793,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>창 가장자리</value>
   </data>
   <data name="LabsMagnetDistance" xml:space="preserve">
-    <value>흡착 거리</value>
+    <value>반응 거리</value>
   </data>
   <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
     <value>약 {0}px</value>
@@ -802,16 +802,16 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>캡슐 흡착 해제</value>
   </data>
   <data name="LabsWindowTethering" xml:space="preserve">
-    <value>창 연결</value>
+    <value>창 바인딩</value>
   </data>
   <data name="LabsEnableWindowTethering" xml:space="preserve">
-    <value>창 연결 사용</value>
+    <value>창 바인딩 사용</value>
   </data>
   <data name="TipLabsWindowTethering" xml:space="preserve">
-    <value>펼친 메모를 오른쪽 클릭하고 외부 창을 선택하면 그 가장자리에 연결되어 따라갑니다. 펼친 가장자리 캡슐 슬롯이 있으면 연결 중에만 비우고, 연결을 해제하면 자동으로 복원합니다.</value>
+    <value>펼친 메모의 제목 표시줄에 있는 창 바인딩 버튼을 다른 앱 창으로 드래그하세요. 할 일과 노트 모두 바인딩할 수 있으며 해제하면 예약되어 있던 가장자리 캡슐 위치도 복원됩니다.</value>
   </data>
   <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
-    <value>선호 가장자리</value>
+    <value>바인딩 위치</value>
   </data>
   <data name="LabsWindowTetherEdgeAuto" xml:space="preserve">
     <value>자동</value>
@@ -829,31 +829,34 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>아래</value>
   </data>
   <data name="LabsWindowTetherGap" xml:space="preserve">
-    <value>가장자리 간격</value>
+    <value>대상과의 간격</value>
   </data>
   <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
     <value>약 {0}px</value>
   </data>
-  <data name="LabsWindowTetherChoose" xml:space="preserve">
-    <value>창에 연결</value>
-  </data>
-  <data name="LabsWindowTetherOpenToChoose" xml:space="preserve">
-    <value>사용 가능한 창 불러오는 중…</value>
-  </data>
-  <data name="LabsWindowTetherNoTargets" xml:space="preserve">
-    <value>사용 가능한 창 없음</value>
-  </data>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
-    <value>창 연결 해제</value>
+    <value>창 바인딩 해제</value>
   </data>
   <data name="LabsTetherVisibility" xml:space="preserve">
-    <value>연결 표시 연동</value>
+    <value>창 바인딩 표시 연동</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
     <value>대상이 숨겨지면 함께 접기</value>
   </data>
   <data name="TipLabsTetherVisibility" xml:space="preserve">
-    <value>대상이 최소화되거나 숨겨지면 연결된 메모를 임시로 숨기거나 별도 캡슐로 바꿉니다. 대상을 복원하거나 활성화하면 메모를 다시 표시합니다. 메모 자체의 펼침, 캡슐 및 표시 상태 데이터는 변경하지 않습니다.</value>
+    <value>대상이 최소화되거나 숨겨지면 바인딩된 메모를 임시로 숨기거나 별도 캡슐로 바꿉니다. 대상을 복원하거나 활성화하면 메모 자체의 펼침, 캡슐 또는 표시 상태를 바꾸지 않고 다시 표시합니다.</value>
+  </data>
+  <data name="ToolTipDragPaperToWindow" xml:space="preserve">
+    <value>다른 앱 창으로 드래그해 바인딩</value>
+  </data>
+  <data name="ToolTipWindowBindingActiveFormat" xml:space="preserve">
+    <value>“{0}”에 바인딩됨. 드래그로 변경하거나 오른쪽 클릭으로 바인딩 해제</value>
+  </data>
+  <data name="WindowBindingDragHint" xml:space="preserve">
+    <value>바인딩할 앱 창으로 드래그</value>
+  </data>
+  <data name="WindowBindingDropTargetFormat" xml:space="preserve">
+    <value>놓으면 “{0}”에 바인딩</value>
   </data>
   <data name="LabsTetherMinimizedBehavior" xml:space="preserve">
     <value>대상이 최소화될 때</value>
@@ -865,7 +868,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>캡슐 표시</value>
   </data>
   <data name="LabsTetherCapsuleLabelFormat" xml:space="preserve">
-    <value>연결 · {0}</value>
+    <value>바인딩 · {0}</value>
   </data>
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>클릭하여 “{0}” 복원 및 활성화</value>

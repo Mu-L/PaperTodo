@@ -775,13 +775,13 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>待機中の不透明度</value>
   </data>
   <data name="LabsCapsuleMagnetism" xml:space="preserve">
-    <value>通常カプセルのスナップ</value>
+    <value>通常カプセルの端スナップ</value>
   </data>
   <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
     <value>通常カプセルのスナップを有効にする</value>
   </data>
   <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
-    <value>端のキューに入っていない通常カプセルだけが対象です。画面または他のアプリのウィンドウ端付近までドラッグして離すと吸着します。再ドラッグ、対象の消失、または機能のオフで解除され、端のキューとメインカプセルには影響しません。</value>
+    <value>通常カプセルをドラッグすると吸着先が表示されます。画面または他のアプリのウィンドウ端付近で離すと吸着して追従します。端のキュー外のカプセルだけが対象で、再ドラッグ、対象の消失、または機能のオフで解除されます。</value>
   </data>
   <data name="LabsCapsuleMagnetEdgeModeNotice" xml:space="preserve">
     <value>現在は端カプセルが有効なため、折りたたんだ付箋は端のキューに入り、通常カプセルの吸着対象にはなりません。この機能を使うには一般設定で端カプセルをオフにしてください。</value>
@@ -793,7 +793,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ウィンドウの端</value>
   </data>
   <data name="LabsMagnetDistance" xml:space="preserve">
-    <value>吸着距離</value>
+    <value>反応距離</value>
   </data>
   <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
     <value>約 {0} px</value>
@@ -802,16 +802,16 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>カプセルの吸着を解除</value>
   </data>
   <data name="LabsWindowTethering" xml:space="preserve">
-    <value>ウィンドウ連結</value>
+    <value>ウィンドウ連携</value>
   </data>
   <data name="LabsEnableWindowTethering" xml:space="preserve">
-    <value>ウィンドウ連結を有効にする</value>
+    <value>ウィンドウ連携を有効にする</value>
   </data>
   <data name="TipLabsWindowTethering" xml:space="preserve">
-    <value>展開した付箋を右クリックして外部ウィンドウを選ぶと、その端に連結して追従します。展開中の端カプセル用スロットがある場合は連結中だけ解放され、解除後に自動で戻ります。</value>
+    <value>展開した付箋のタイトルバーにある連携ボタンを、別のアプリのウィンドウへドラッグします。Todo とノートの両方を連携でき、解除後は予約されていた端カプセルの位置も復元されます。</value>
   </data>
   <data name="LabsWindowTetherPreferredEdge" xml:space="preserve">
-    <value>優先する端</value>
+    <value>連携位置</value>
   </data>
   <data name="LabsWindowTetherEdgeAuto" xml:space="preserve">
     <value>自動</value>
@@ -829,31 +829,34 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>下</value>
   </data>
   <data name="LabsWindowTetherGap" xml:space="preserve">
-    <value>端との間隔</value>
+    <value>対象との間隔</value>
   </data>
   <data name="LabsWindowTetherGapValueFormat" xml:space="preserve">
     <value>約 {0} px</value>
   </data>
-  <data name="LabsWindowTetherChoose" xml:space="preserve">
-    <value>ウィンドウに連結</value>
-  </data>
-  <data name="LabsWindowTetherOpenToChoose" xml:space="preserve">
-    <value>利用可能なウィンドウを読み込み中…</value>
-  </data>
-  <data name="LabsWindowTetherNoTargets" xml:space="preserve">
-    <value>利用可能なウィンドウがありません</value>
-  </data>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
-    <value>ウィンドウ連結を解除</value>
+    <value>ウィンドウ連携を解除</value>
   </data>
   <data name="LabsTetherVisibility" xml:space="preserve">
-    <value>連結表示の連動</value>
+    <value>ウィンドウ連携の表示連動</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
     <value>対象が非表示のとき収納する</value>
   </data>
   <data name="TipLabsTetherVisibility" xml:space="preserve">
-    <value>対象が最小化または非表示になると、連結した付箋を一時的に隠すか、独立したカプセルに置き換えます。対象を復元またはアクティブにすると付箋を再表示します。付箋自体の展開、カプセル、表示状態のデータは変更しません。</value>
+    <value>対象が最小化または非表示になると、連携した付箋を一時的に隠すか、独立したカプセルに置き換えます。対象を復元またはアクティブにすると、付箋自体の展開、カプセル、表示状態を変えずに再表示します。</value>
+  </data>
+  <data name="ToolTipDragPaperToWindow" xml:space="preserve">
+    <value>別のアプリのウィンドウへドラッグして連携</value>
+  </data>
+  <data name="ToolTipWindowBindingActiveFormat" xml:space="preserve">
+    <value>「{0}」と連携中。ドラッグで変更、右クリックで連携解除</value>
+  </data>
+  <data name="WindowBindingDragHint" xml:space="preserve">
+    <value>連携するアプリのウィンドウへドラッグ</value>
+  </data>
+  <data name="WindowBindingDropTargetFormat" xml:space="preserve">
+    <value>離すと「{0}」に連携</value>
   </data>
   <data name="LabsTetherMinimizedBehavior" xml:space="preserve">
     <value>対象が最小化されたとき</value>
@@ -865,7 +868,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>カプセルを表示</value>
   </data>
   <data name="LabsTetherCapsuleLabelFormat" xml:space="preserve">
-    <value>連結 · {0}</value>
+    <value>連携 · {0}</value>
   </data>
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>クリックして「{0}」を復元してアクティブにします</value>
