@@ -15,6 +15,7 @@ public sealed partial class AppController
         General,
         Visual,
         Shortcuts,
+        Plugins,
         Labs
     }
 

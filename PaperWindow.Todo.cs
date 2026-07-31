@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
@@ -1041,7 +1042,11 @@ public sealed partial class PaperWindow
     {
         if (_linkNoteButton != null)
         {
-            _linkNoteButton.Visibility = _controller.State.EnableTodoNoteLinks ? Visibility.Visible : Visibility.Collapsed;
+            _linkNoteButton.Visibility =
+                _controller.State.EnableTodoNoteLinks &&
+                BodySupports(PaperBodyCapabilities.NoteLinks)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
         }
 
         if (!_controller.State.EnableTodoNoteLinks)

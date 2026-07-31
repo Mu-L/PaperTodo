@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PaperTodo Clock</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: transparent;
+      --text: #222;
+      --weak: #777;
+      --accent: #b07a31;
+      --font: system-ui, sans-serif;
+      --scale: 1;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; background: var(--paper); }
+    body {
+      display: grid;
+      place-items: center;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: calc(16px * var(--scale));
+      user-select: none;
+      overflow: hidden;
+    }
+    main { text-align: center; padding: 20px; }
+    #time { font-size: clamp(38px, 15vw, 76px); font-weight: 650; letter-spacing: .04em; }
+    #date { margin-top: 10px; color: var(--weak); font-size: .86em; }
+    #seconds { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="time"><span id="hours"></span>:<span id="minutes"></span><span id="seconds"></span></div>
+    <div id="date"></div>
+  </main>
+  <script>
+    let visible = true;
+    let timer = 0;
+    const hoursElement = document.getElementById('hours');
+    const minutesElement = document.getElementById('minutes');
+    const secondsElement = document.getElementById('seconds');
+    const dateElement = document.getElementById('date');
+
+    function applyTheme(theme) {
+      if (!theme) return;
+      const root = document.documentElement.style;
+      root.setProperty('--paper', theme.paperColor || 'transparent');
+      root.setProperty('--text', theme.textColor || '#222');
+      root.setProperty('--weak', theme.weakTextColor || '#777');
+      root.setProperty('--accent', theme.accentColor || '#b07a31');
+      root.setProperty('--font', JSON.stringify(theme.fontFamily || 'system-ui'));
+      root.setProperty('--scale', String(theme.fontScale || 1));
+    }
+
+    function render() {
+      const now = new Date();
+      const two = value => String(value).padStart(2, '0');
+      hoursElement.textContent = two(now.getHours());
+      minutesElement.textContent = two(now.getMinutes());
+      secondsElement.textContent = ':' + two(now.getSeconds());
+      dateElement.textContent = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
+      }).format(now);
+      window.papertodo?.setCapsuleText(`${two(now.getHours())}:${two(now.getMinutes())}`);
+    }
+
+    function updateTimer() {
+      clearInterval(timer);
+      if (visible) timer = setInterval(render, 1000);
+      render();
+    }
+
+    window.addEventListener('papertodo', event => {
+      const message = event.detail || {};
+      if (message.type === 'initialize') {
+        visible = message.visible !== false;
+        applyTheme(message.theme);
+        updateTimer();
+      } else if (message.type === 'themeChanged' || message.type === 'typographyChanged') {
+        applyTheme(message.theme);
+      } else if (message.type === 'visibilityChanged') {
+        visible = message.visible !== false;
+        updateTimer();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

@@ -1226,4 +1226,75 @@
   <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI 请求删除</value></data>
   <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI 请求删除：{0}&#xA;&#xA;此操作无法由 AI 自动撤销，是否允许？</value></data>
   <data name="McpUntitledTodo" xml:space="preserve"><value>（空白待办）</value></data>
+  <data name="SettingsPlugins" xml:space="preserve">
+    <value>插件</value>
+  </data>
+  <data name="PluginsIntro" xml:space="preserve">
+    <value>笔记正文可以使用内置 Markdown、可信原生 DLL 或本地 Web 插件。每个插件位于 plugins/&lt;插件 ID&gt;/ 自包含目录，仅接管标题栏下方正文。</value>
+  </data>
+  <data name="PluginsOpenFolder" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+  <data name="PluginsReload" xml:space="preserve">
+    <value>重新扫描</value>
+  </data>
+  <data name="PluginsLoadedCountFormat" xml:space="preserve">
+    <value>已加载 {0} 个正文插件</value>
+  </data>
+  <data name="PluginsLoadProblems" xml:space="preserve">
+    <value>加载问题</value>
+  </data>
+  <data name="PluginsNative" xml:space="preserve">
+    <value>原生</value>
+  </data>
+  <data name="PluginsWeb" xml:space="preserve">
+    <value>Web</value>
+  </data>
+  <data name="PluginsBuiltIn" xml:space="preserve">
+    <value>内置</value>
+  </data>
+  <data name="PluginsRestartRequired" xml:space="preserve">
+    <value>重启后生效</value>
+  </data>
+  <data name="PluginsNativeChangedRestart" xml:space="preserve">
+    <value>该原生插件已在本次运行中加载，目录内容变化需要重启 PaperTodo。</value>
+  </data>
+  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
+    <value>该原生插件目录已删除；本次运行仍使用内存中已加载版本，重启 PaperTodo 后将不可用。</value>
+  </data>
+  <data name="PluginsWebLoading" xml:space="preserve">
+    <value>正在加载 Web 插件…</value>
+  </data>
+  <data name="PluginsWebNavigationFailed" xml:space="preserve">
+    <value>Web 插件页面加载失败</value>
+  </data>
+  <data name="PluginsWebProcessFailedFormat" xml:space="preserve">
+    <value>Web 插件进程异常：{0}</value>
+  </data>
+  <data name="PluginsMissingProviderFormat" xml:space="preserve">
+    <value>找不到正文插件：{0}</value>
+  </data>
+  <data name="PaperBodyMenu" xml:space="preserve">
+    <value>正文类型</value>
+  </data>
+  <data name="BodyProviderMarkdown" xml:space="preserve">
+    <value>Markdown 笔记</value>
+  </data>
+  <data name="BodyProviderMarkdownDescription" xml:space="preserve">
+    <value>PaperTodo 内置 Markdown 编辑、预览与图片正文。</value>
+  </data>
+  <data name="PluginBodyFailureTitle" xml:space="preserve">
+    <value>正文插件无法运行</value>
+  </data>
+  <data name="PluginBodyFailureMessageFormat" xml:space="preserve">
+    <value>{0}
+
+{1}</value>
+  </data>
+  <data name="PluginBodyRetry" xml:space="preserve">
+    <value>重试</value>
+  </data>
+  <data name="PluginBodyUseMarkdown" xml:space="preserve">
+    <value>切回 Markdown</value>
+  </data>
 </root>

@@ -1213,4 +1213,75 @@ When off, open at the docked edge or remembered position.</value>
   <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI deletion request</value></data>
   <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI requests deletion of: {0}&#xA;&#xA;AI cannot automatically undo this operation. Allow it?</value></data>
   <data name="McpUntitledTodo" xml:space="preserve"><value>(blank todo)</value></data>
+  <data name="SettingsPlugins" xml:space="preserve">
+    <value>Plugins</value>
+  </data>
+  <data name="PluginsIntro" xml:space="preserve">
+    <value>Note bodies can use built-in Markdown, a trusted native DLL, or a local Web plugin. Each plugin lives in a self-contained plugins/&lt;plugin-id&gt;/ folder and owns only the area below the title bar.</value>
+  </data>
+  <data name="PluginsOpenFolder" xml:space="preserve">
+    <value>Open folder</value>
+  </data>
+  <data name="PluginsReload" xml:space="preserve">
+    <value>Rescan</value>
+  </data>
+  <data name="PluginsLoadedCountFormat" xml:space="preserve">
+    <value>{0} body plugins loaded</value>
+  </data>
+  <data name="PluginsLoadProblems" xml:space="preserve">
+    <value>Load problems</value>
+  </data>
+  <data name="PluginsNative" xml:space="preserve">
+    <value>Native</value>
+  </data>
+  <data name="PluginsWeb" xml:space="preserve">
+    <value>Web</value>
+  </data>
+  <data name="PluginsBuiltIn" xml:space="preserve">
+    <value>Built-in</value>
+  </data>
+  <data name="PluginsRestartRequired" xml:space="preserve">
+    <value>Restart required</value>
+  </data>
+  <data name="PluginsNativeChangedRestart" xml:space="preserve">
+    <value>This native plugin is already loaded in this run. Restart PaperTodo to use changes in its folder.</value>
+  </data>
+  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
+    <value>This native plugin folder was removed. The already loaded in-memory version remains available for this run and disappears after PaperTodo restarts.</value>
+  </data>
+  <data name="PluginsWebLoading" xml:space="preserve">
+    <value>Loading Web plugin…</value>
+  </data>
+  <data name="PluginsWebNavigationFailed" xml:space="preserve">
+    <value>The Web plugin page failed to load</value>
+  </data>
+  <data name="PluginsWebProcessFailedFormat" xml:space="preserve">
+    <value>Web plugin process failed: {0}</value>
+  </data>
+  <data name="PluginsMissingProviderFormat" xml:space="preserve">
+    <value>Body plugin not found: {0}</value>
+  </data>
+  <data name="PaperBodyMenu" xml:space="preserve">
+    <value>Body type</value>
+  </data>
+  <data name="BodyProviderMarkdown" xml:space="preserve">
+    <value>Markdown note</value>
+  </data>
+  <data name="BodyProviderMarkdownDescription" xml:space="preserve">
+    <value>PaperTodo built-in Markdown editing, preview, and image body.</value>
+  </data>
+  <data name="PluginBodyFailureTitle" xml:space="preserve">
+    <value>The body plugin could not run</value>
+  </data>
+  <data name="PluginBodyFailureMessageFormat" xml:space="preserve">
+    <value>{0}
+
+{1}</value>
+  </data>
+  <data name="PluginBodyRetry" xml:space="preserve">
+    <value>Retry</value>
+  </data>
+  <data name="PluginBodyUseMarkdown" xml:space="preserve">
+    <value>Use Markdown</value>
+  </data>
 </root>

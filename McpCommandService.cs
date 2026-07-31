@@ -314,6 +314,15 @@ internal sealed class McpCommandService
     private object WriteNote(JsonElement parameters)
     {
         var paper = RequirePaper(parameters, PaperTypes.Note);
+        if (!string.Equals(
+                paper.BodyProviderId,
+                PaperBodyProviderIds.Markdown,
+                StringComparison.Ordinal))
+        {
+            throw new McpApiException(
+                "note_body_not_markdown",
+                "write_note only applies to notes using the built-in Markdown body.");
+        }
         var content = RequiredString(
             parameters,
             "content",
@@ -648,7 +657,24 @@ internal sealed class McpCommandService
                 type = paper.Type,
                 title = _controller.PaperTitleText(paper),
                 is_visible = paper.IsVisible,
-                content = paper.Content ?? ""
+                body_provider_id = paper.BodyProviderId,
+                body_state = !string.Equals(
+                        paper.BodyProviderId,
+                        PaperBodyProviderIds.Markdown,
+                        StringComparison.Ordinal) &&
+                    paper.BodyStates.TryGetValue(paper.BodyProviderId, out var bodyState)
+                        ? new
+                        {
+                            version = bodyState.Version,
+                            json = bodyState.Json ?? "{}"
+                        }
+                        : null,
+                content = string.Equals(
+                        paper.BodyProviderId,
+                        PaperBodyProviderIds.Markdown,
+                        StringComparison.Ordinal)
+                    ? paper.Content ?? ""
+                    : null
             };
         }
 

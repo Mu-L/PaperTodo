@@ -167,6 +167,7 @@ public sealed partial class AppController : IDisposable
             State.TextRenderingProfile);
         NoteTypography.Configure(State.NoteTextSize, State.NoteTextBold);
         ToolTipPreferences.Register(() => State.EnableToolTips);
+        _paperBodyPlugins = new PaperBodyPluginRegistry();
 
         // Idle debounce: save ~1s after the last change.
         // Force cap: while edits keep resetting the idle timer, still flush at least every 10s.
@@ -736,6 +737,11 @@ public sealed partial class AppController : IDisposable
 
     public string PaperCapsuleTitle(PaperData paper)
     {
+        if (paper.Type == PaperTypes.Note &&
+            !string.IsNullOrWhiteSpace(paper.BodyCapsuleText))
+        {
+            return paper.BodyCapsuleText.Trim();
+        }
         return PaperTitles.CapsuleText(paper, TitleNumberFor(paper));
     }
 
@@ -847,6 +853,13 @@ public sealed partial class AppController : IDisposable
 
     private bool IsCurrentScriptCapsule(PaperData note)
     {
+        if (!string.Equals(
+                note.BodyProviderId,
+                PaperBodyProviderIds.Markdown,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
         return _windows.TryGetValue(note.Id, out var window)
             ? window.IsCurrentScriptCapsule()
             : PaperWindow.IsScriptCapsuleContent(note.Content);
@@ -1979,6 +1992,13 @@ public sealed partial class AppController : IDisposable
     {
         if (paper.Type == PaperTypes.Note)
         {
+            if (!string.Equals(
+                    paper.BodyProviderId,
+                    PaperBodyProviderIds.Markdown,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
             return _windows.TryGetValue(paper.Id, out var window)
                 ? window.IsCurrentNoteEmpty()
                 : string.IsNullOrWhiteSpace(paper.Content);
@@ -3559,6 +3579,7 @@ public sealed partial class AppController : IDisposable
             TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
         }
         _windows.Clear();
+        TryExitCleanup(DisposePaperBodyPlugins);
         foreach (var m in _masterCapsules.Values.ToList())
         {
             TryExitCleanup(m.CloseForReal);

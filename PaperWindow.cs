@@ -31,6 +31,7 @@ using TextBox = System.Windows.Controls.TextBox;
 using VerticalAlignment = System.Windows.VerticalAlignment;
 using WpfMenuItem = System.Windows.Controls.MenuItem;
 using WpfPath = System.Windows.Shapes.Path;
+using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
@@ -67,7 +68,6 @@ public sealed partial class PaperWindow : Window
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
-    private UIElement? _noteBodyElement;
     private Border? _capsuleLeftArea;
     private Border? _activeDropRow;
     private Border? _dropIndicatorLine;
@@ -81,9 +81,7 @@ public sealed partial class PaperWindow : Window
     private readonly Dictionary<string, TodoTextBox> _todoEditors = new();
     private readonly List<Border> _todoRows = new();
     private TodoDragState? _todoDrag;
-    private MarkdownTextBox? _noteBox;
     private readonly List<WeakReference<ContextMenu>> _themedContextMenus = new();
-    private Action? _showNotePreview;
     private readonly List<List<PaperItem>> _undoStack = new();
     private readonly List<List<PaperItem>> _redoStack = new();
     private const int MaxUndoDepth = 100;
@@ -559,22 +557,17 @@ public sealed partial class PaperWindow : Window
         };
         LocationChanged += (_, _) => HandleWindowGeometryChanged();
         SizeChanged += (_, _) => HandleWindowGeometryChanged();
-        DpiChanged += (_, _) => _noteBox?.RefreshImageDecodeForCurrentDpi();
+        DpiChanged += (_, _) => NotifyCurrentPaperBodyDpiChanged();
         StateChanged += (_, _) =>
         {
             RefreshSnappedPresentation(forceApply: true);
-            if (_paper.Type != PaperTypes.Note)
+            if (_paper.Type == PaperTypes.Note)
             {
-                return;
-            }
-
-            if (WindowState == WindowState.Minimized)
-            {
-                ReleaseHiddenNoteImages();
-            }
-            else if (IsVisible)
-            {
-                PrepareForShow();
+                NotifyCurrentPaperBodyVisibility(
+                    _paper.IsVisible &&
+                    !_paper.IsCollapsed &&
+                    WindowState != WindowState.Minimized &&
+                    IsVisible);
             }
         };
         PreviewMouseMove += OnWindowPreviewMouseMove;
@@ -598,10 +591,12 @@ public sealed partial class PaperWindow : Window
         {
             _controller.NotifyPaperWindowActivated(this);
             _controller.RefreshFloatingSurfaceZOrder();
+            NotifyCurrentPaperBodyActivated();
             RefreshExperimentalOpacity();
         };
         Deactivated += (_, _) =>
         {
+            NotifyCurrentPaperBodyDeactivated();
             AbortAllInteractions(InteractionAbortReason.Deactivated);
             RefreshExperimentalOpacity();
         };
@@ -1452,11 +1447,7 @@ public sealed partial class PaperWindow : Window
 
         if (_paper.Type == PaperTypes.Note)
         {
-            if (_noteBox != null)
-            {
-                _noteBox.RefreshVisualStyle();
-            }
-
+            NotifyCurrentPaperBodyThemeChanged();
         }
         else
         {
@@ -1528,9 +1519,9 @@ public sealed partial class PaperWindow : Window
             _textZoomIndicator.FontSize = AppTypography.Scale(10.5);
         }
 
-        if (_noteBox != null)
+        if (_paper.Type == PaperTypes.Note)
         {
-            _noteBox.RefreshTypography();
+            NotifyCurrentPaperBodyTypographyChanged();
         }
 
         if (_paper.Type == PaperTypes.Todo)
@@ -2164,7 +2155,8 @@ public sealed partial class PaperWindow : Window
                 Kind = TopBarDragKind.NoteLink,
                 CanBegin = () =>
                     _controller.State.EnableTodoNoteLinks &&
-                    _paper.Type == PaperTypes.Note,
+                    _paper.Type == PaperTypes.Note &&
+                    BodySupports(PaperBodyCapabilities.NoteLinks),
                 Started = () =>
                 {
                     ExitNoteEditor();
@@ -2237,17 +2229,19 @@ public sealed partial class PaperWindow : Window
 
     private void BuildBody()
     {
-        UIElement body = _paper.Type == PaperTypes.Note ? BuildNoteBody() : BuildTodoBody();
+        UIElement body = _paper.Type == PaperTypes.Note
+            ? CreateAndAttachInitialPaperBody()
+            : BuildTodoBody();
         Grid.SetRow(body, 1);
-        if (_paper.Type == PaperTypes.Note)
-        {
-            _noteBodyElement = body;
-        }
         _shell.Children.Add(body);
 
         if (_paper.Type == PaperTypes.Note)
         {
-            BuildTextZoomOverlay();
+            NotifyCurrentPaperBodyVisibility(
+                _paper.IsVisible &&
+                !_paper.IsCollapsed &&
+                WindowState != WindowState.Minimized);
+            RefreshPaperBodyChrome();
         }
     }
 
@@ -2359,6 +2353,12 @@ public sealed partial class PaperWindow : Window
             menu.Items.Add(MenuItem(
                 Strings.Get("LabsWindowTetherDetach"),
                 (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
+        }
+
+        if (_paper.Type == PaperTypes.Note)
+        {
+            menu.Items.Add(MenuSeparator());
+            menu.Items.Add(BuildPaperBodyProviderMenuItem());
         }
 
         menu.Items.Add(MenuItem(Strings.Get("MenuHide"), (_, _) => _controller.HidePaper(_paper)));
@@ -2612,7 +2612,11 @@ public sealed partial class PaperWindow : Window
         }
         if (_openMarkdownButton != null)
         {
-            _openMarkdownButton.Visibility = _controller.State.ShowTopBarExternalOpenButton ? Visibility.Visible : Visibility.Collapsed;
+            _openMarkdownButton.Visibility =
+                _controller.State.ShowTopBarExternalOpenButton &&
+                IsCurrentBodyProviderMarkdown
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
         }
     }
 
@@ -2626,7 +2630,8 @@ public sealed partial class PaperWindow : Window
 
     private void DeletePaperFromPaperMenu()
     {
-        if (_controller.IsPaperEmpty(_paper))
+        if ((_paper.Type != PaperTypes.Note || IsCurrentBodyProviderMarkdown) &&
+            _controller.IsPaperEmpty(_paper))
         {
             _controller.DeletePaper(_paper);
             return;

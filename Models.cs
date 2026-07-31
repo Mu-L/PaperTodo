@@ -461,6 +461,12 @@ public sealed class AppState
     public bool? ShowTopBarNewPaperButtons { get; set; }
 }
 
+public sealed class PaperBodyStoredState
+{
+    public int Version { get; set; } = 1;
+    public string Json { get; set; } = "{}";
+}
+
 public sealed class PaperData
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -476,6 +482,12 @@ public sealed class PaperData
     public bool AlwaysOnTop { get; set; }
     public bool IsCollapsed { get; set; } = false;
     public double TextZoom { get; set; } = 1.0;
+
+    // Note body provider. Older data files omit these fields and therefore remain Markdown.
+    public string BodyProviderId { get; set; } = PaperBodyProviderIds.Markdown;
+    public Dictionary<string, PaperBodyStoredState> BodyStates { get; set; } =
+        new(StringComparer.Ordinal);
+    public string BodyCapsuleText { get; set; } = "";
 
     // Which edge-queue this paper's capsule belongs to. A queue is identified by
     // (CapsuleMonitorDeviceName, CapsuleSide): every docked capsule sharing the same pair

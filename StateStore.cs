@@ -582,6 +582,24 @@ public sealed class StateStore
                 paper.Type = PaperTypes.Todo;
             }
 
+            paper.BodyProviderId = paper.Type == PaperTypes.Note
+                ? NormalizeBodyProviderId(paper.BodyProviderId)
+                : PaperBodyProviderIds.Markdown;
+            paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
+            NormalizeBodyStates(paper.BodyStates);
+            paper.BodyCapsuleText ??= "";
+            if (paper.BodyCapsuleText.Length > 120)
+            {
+                paper.BodyCapsuleText = paper.BodyCapsuleText[..120];
+            }
+            if (string.Equals(
+                    paper.BodyProviderId,
+                    PaperBodyProviderIds.Markdown,
+                    StringComparison.Ordinal))
+            {
+                paper.BodyCapsuleText = "";
+            }
+
             // Per-paper queue identity. Migration: a capsule with no explicit side inherits the
             // legacy single global anchor, so existing docked capsules keep their current edge /
             // monitor. New papers default to the global side until dragged to a queue.
@@ -631,6 +649,50 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
+            }
+        }
+    }
+
+    private static string NormalizeBodyProviderId(string? providerId)
+    {
+        var value = (providerId ?? "").Trim();
+        return value.Length is >= 3 and <= 120 &&
+            value.All(character =>
+                char.IsAsciiLetterOrDigit(character) ||
+                character is '.' or '_' or '-')
+            ? value
+            : PaperBodyProviderIds.Markdown;
+    }
+
+    private static void NormalizeBodyStates(
+        Dictionary<string, PaperBodyStoredState> states)
+    {
+        foreach (var key in states.Keys.ToList())
+        {
+            var normalizedKey = NormalizeBodyProviderId(key);
+            var state = states[key];
+            if (state == null ||
+                !string.Equals(key, normalizedKey, StringComparison.Ordinal) ||
+                string.Equals(normalizedKey, PaperBodyProviderIds.Markdown, StringComparison.Ordinal))
+            {
+                states.Remove(key);
+                continue;
+            }
+
+            state.Version = Math.Max(1, state.Version);
+            state.Json ??= "{}";
+            if (state.Json.Length > 1_000_000)
+            {
+                state.Json = "{}";
+                continue;
+            }
+            try
+            {
+                using var _ = JsonDocument.Parse(state.Json);
+            }
+            catch
+            {
+                state.Json = "{}";
             }
         }
     }

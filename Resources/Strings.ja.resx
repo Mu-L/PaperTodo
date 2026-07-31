@@ -1213,4 +1213,75 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI からの削除要求</value></data>
   <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI が次の項目の削除を要求しています：{0}&#xA;&#xA;AI から自動的に元に戻せません。許可しますか？</value></data>
   <data name="McpUntitledTodo" xml:space="preserve"><value>（空の ToDo）</value></data>
+  <data name="SettingsPlugins" xml:space="preserve">
+    <value>プラグイン</value>
+  </data>
+  <data name="PluginsIntro" xml:space="preserve">
+    <value>ノート本文には内蔵 Markdown、信頼済みネイティブ DLL、またはローカル Web プラグインを使用できます。各プラグインは plugins/&lt;プラグイン ID&gt;/ の自己完結フォルダーに置かれ、タイトルバー下の本文だけを担当します。</value>
+  </data>
+  <data name="PluginsOpenFolder" xml:space="preserve">
+    <value>フォルダーを開く</value>
+  </data>
+  <data name="PluginsReload" xml:space="preserve">
+    <value>再スキャン</value>
+  </data>
+  <data name="PluginsLoadedCountFormat" xml:space="preserve">
+    <value>本文プラグイン {0} 件を読み込み済み</value>
+  </data>
+  <data name="PluginsLoadProblems" xml:space="preserve">
+    <value>読み込みの問題</value>
+  </data>
+  <data name="PluginsNative" xml:space="preserve">
+    <value>ネイティブ</value>
+  </data>
+  <data name="PluginsWeb" xml:space="preserve">
+    <value>Web</value>
+  </data>
+  <data name="PluginsBuiltIn" xml:space="preserve">
+    <value>内蔵</value>
+  </data>
+  <data name="PluginsRestartRequired" xml:space="preserve">
+    <value>再起動が必要</value>
+  </data>
+  <data name="PluginsNativeChangedRestart" xml:space="preserve">
+    <value>このネイティブプラグインはすでに読み込まれています。フォルダーの変更を反映するには PaperTodo を再起動してください。</value>
+  </data>
+  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
+    <value>このネイティブプラグインのフォルダーは削除されました。この実行中は読み込み済みのメモリ内バージョンを使用でき、PaperTodo の再起動後は利用できなくなります。</value>
+  </data>
+  <data name="PluginsWebLoading" xml:space="preserve">
+    <value>Web プラグインを読み込み中…</value>
+  </data>
+  <data name="PluginsWebNavigationFailed" xml:space="preserve">
+    <value>Web プラグインのページを読み込めませんでした</value>
+  </data>
+  <data name="PluginsWebProcessFailedFormat" xml:space="preserve">
+    <value>Web プラグインのプロセス異常：{0}</value>
+  </data>
+  <data name="PluginsMissingProviderFormat" xml:space="preserve">
+    <value>本文プラグインが見つかりません：{0}</value>
+  </data>
+  <data name="PaperBodyMenu" xml:space="preserve">
+    <value>本文の種類</value>
+  </data>
+  <data name="BodyProviderMarkdown" xml:space="preserve">
+    <value>Markdown ノート</value>
+  </data>
+  <data name="BodyProviderMarkdownDescription" xml:space="preserve">
+    <value>PaperTodo 内蔵の Markdown 編集・プレビュー・画像本文です。</value>
+  </data>
+  <data name="PluginBodyFailureTitle" xml:space="preserve">
+    <value>本文プラグインを実行できません</value>
+  </data>
+  <data name="PluginBodyFailureMessageFormat" xml:space="preserve">
+    <value>{0}
+
+{1}</value>
+  </data>
+  <data name="PluginBodyRetry" xml:space="preserve">
+    <value>再試行</value>
+  </data>
+  <data name="PluginBodyUseMarkdown" xml:space="preserve">
+    <value>Markdown に戻す</value>
+  </data>
 </root>

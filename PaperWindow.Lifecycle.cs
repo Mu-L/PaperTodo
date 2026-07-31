@@ -115,13 +115,10 @@ public sealed partial class PaperWindow
 
     private void CommitPendingNoteContent()
     {
-        if (_paper.Type != PaperTypes.Note || _noteBox == null || !_noteContentDirty)
+        if (_paper.Type == PaperTypes.Note)
         {
-            return;
+            CommitCurrentPaperBody();
         }
-
-        _paper.Content = _noteBox.PersistentText;
-        _noteContentDirty = false;
     }
 
     internal void PrepareForHide()
@@ -143,6 +140,12 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (_bodySession != null)
+        {
+            NotifyCurrentPaperBodyVisibility(false);
+            return;
+        }
+
         _noteBox?.SetImageRenderingSuspended(true);
         _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
     }
@@ -158,15 +161,21 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (!_paper.IsVisible ||
-            _paper.IsCollapsed ||
-            WindowState == WindowState.Minimized)
+        var visible =
+            _paper.IsVisible &&
+            !_paper.IsCollapsed &&
+            WindowState != WindowState.Minimized;
+        if (_bodySession != null)
         {
-            ReleaseHiddenNoteImages();
+            NotifyCurrentPaperBodyVisibility(visible);
             return;
         }
 
-        _noteBox?.SetImageRenderingSuspended(false);
+        _noteBox?.SetImageRenderingSuspended(!visible);
+        if (!visible)
+        {
+            _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
+        }
     }
 
     internal void PrepareForCapsulePresentationModeChange()
@@ -230,6 +239,7 @@ public sealed partial class PaperWindow
         WindowNative.ReleaseWindowSwitcherOwner(ref _windowSwitcherHiddenOwner);
         _windowSwitcherHiddenOwnerApplied = false;
         ReleaseHiddenNoteImages();
+        DisposeCurrentPaperBody();
         _windowLifecycle = PaperWindowLifecycleState.Closed;
         _presentationState = PaperPresentationState.Closed;
         CancelPendingTitleEditIntent();
@@ -238,7 +248,7 @@ public sealed partial class PaperWindow
     private void AbortAllInteractions(InteractionAbortReason reason)
     {
         CancelPendingTitleEditIntent();
-        CancelNotePresenterDeferredWork();
+        CancelCurrentPaperBodyInteractions();
         EndTitleBarDragGesture();
         CancelCapsulePointerInteraction();
         EndExperimentalCapsuleMagnetDragPreview();

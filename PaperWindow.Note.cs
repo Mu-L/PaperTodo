@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
@@ -19,41 +20,12 @@ public sealed partial class PaperWindow
     private static readonly Dictionary<string, Process> PersistentScriptProcesses = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object ActiveScriptProcessLock = new();
     private static readonly Dictionary<Guid, Process> ActiveScriptProcesses = new();
-    private int _notePresenterGeneration;
-    private int _noteDeferredWorkGeneration;
-    private Action? _cancelNotePresenterInteractions;
-    private Action? _settlePendingNoteBodyRebuild;
-    private bool _noteContentDirty;
-    private bool _applyingExternalNoteChange;
-    private bool _liveIsScriptCapsule;
 
     internal void RefreshNoteForExternalChange()
     {
-        if (_paper.Type != PaperTypes.Note || _noteBox == null)
+        if (_paper.Type == PaperTypes.Note)
         {
-            return;
-        }
-
-        var content = _paper.Content ?? "";
-        var caret = Math.Clamp(_noteBox.CaretIndex, 0, content.Length);
-        _applyingExternalNoteChange = true;
-        try
-        {
-            _noteBox.Text = content;
-        }
-        finally
-        {
-            _applyingExternalNoteChange = false;
-        }
-        _noteBox.CaretIndex = caret;
-        _noteContentDirty = false;
-
-        var wasScriptCapsule = _liveIsScriptCapsule;
-        _liveIsScriptCapsule = IsScriptCapsuleDocument(_noteBox);
-        if (wasScriptCapsule != _liveIsScriptCapsule)
-        {
-            RefreshCapsuleLabel();
-            RefreshPaperContextMenus();
+            RefreshCurrentPaperBodyFromModel();
         }
     }
 
@@ -172,7 +144,7 @@ public sealed partial class PaperWindow
         Grid.SetRow(body, 1);
         Panel.SetZIndex(body, 1);
         _noteBodyElement = body;
-        _shell.Children.Add(body);
+        _markdownBodySession?.AddPresenter(body);
 
         var rebuiltBox = _noteBox;
         if (rebuiltBox == null)
@@ -193,7 +165,7 @@ public sealed partial class PaperWindow
             {
                 if (!ReferenceEquals(oldBody, _noteBodyElement))
                 {
-                    _shell.Children.Remove(oldBody);
+                    _markdownBodySession?.RemovePresenter(oldBody);
                 }
             }
         }
@@ -959,7 +931,8 @@ public sealed partial class PaperWindow
 
     public void UpdateTextZoom()
     {
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !BodySupports(PaperBodyCapabilities.TextZoom))
         {
             return;
         }
@@ -976,6 +949,10 @@ public sealed partial class PaperWindow
             {
                 _noteBox.SetTextZoom(zoom);
             }
+        }
+        else
+        {
+            NotifyCurrentPaperBodyTypographyChanged();
         }
 
         if (_textZoomIndicator != null)
@@ -997,7 +974,8 @@ public sealed partial class PaperWindow
 
     private void OnWindowPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !BodySupports(PaperBodyCapabilities.TextZoom))
         {
             return;
         }
@@ -1014,7 +992,8 @@ public sealed partial class PaperWindow
 
     private void OpenMarkdownInDefaultEditor()
     {
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !IsCurrentBodyProviderMarkdown)
         {
             return;
         }
@@ -1043,7 +1022,11 @@ public sealed partial class PaperWindow
         {
             _openMarkdownButton.Content = ExternalOpenButtonLabel();
             _openMarkdownButton.ToolTip = OpenMarkdownEditorToolTip();
-            _openMarkdownButton.Visibility = _controller.State.ShowTopBarExternalOpenButton ? Visibility.Visible : Visibility.Collapsed;
+            _openMarkdownButton.Visibility =
+                _controller.State.ShowTopBarExternalOpenButton &&
+                IsCurrentBodyProviderMarkdown
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
         }
     }
 
@@ -1120,7 +1103,8 @@ public sealed partial class PaperWindow
 
     internal bool IsCurrentScriptCapsule()
     {
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !IsCurrentBodyProviderMarkdown)
         {
             return false;
         }
@@ -1132,7 +1116,8 @@ public sealed partial class PaperWindow
 
     internal bool IsCurrentNoteEmpty()
     {
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !IsCurrentBodyProviderMarkdown)
         {
             return false;
         }
@@ -1196,7 +1181,8 @@ public sealed partial class PaperWindow
     private bool TryGetScriptCapsule(out ScriptCapsuleSpec spec)
     {
         spec = default;
-        if (_paper.Type != PaperTypes.Note)
+        if (_paper.Type != PaperTypes.Note ||
+            !IsCurrentBodyProviderMarkdown)
         {
             return false;
         }

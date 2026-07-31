@@ -920,7 +920,7 @@ public sealed partial class AppController
         var naturalHeight = MeasureRequiredSettingsWindowHeight(width);
         var maxHeight = SettingsWindowMaxHeight();
         var needsScroll = naturalHeight > maxHeight + 0.5 ||
-            _settingsPage == SettingsPage.Labs;
+            _settingsPage is SettingsPage.Labs or SettingsPage.Plugins;
         var fittedHeight = Math.Min(naturalHeight, maxHeight);
         // Pin border height only when scrolling (viewport must be capped). When content fits,
         // leave the border unconstrained so a slightly short measure cannot clip the last rows;
@@ -1084,6 +1084,12 @@ public sealed partial class AppController
         if (_settingsPage == SettingsPage.Labs)
         {
             root.Children.Add(WrapSettingsPageContent(BuildLabsSettingsPage(), enableScroll));
+            return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
+        }
+
+        if (_settingsPage == SettingsPage.Plugins)
+        {
+            root.Children.Add(WrapSettingsPageContent(BuildPluginsSettingsPage(), enableScroll));
             return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
         }
 
@@ -2336,12 +2342,14 @@ public sealed partial class AppController
         const string generalKey = "general";
         const string visualKey = "visual";
         const string shortcutsKey = "shortcuts";
+        const string pluginsKey = "plugins";
         const string labsKey = "labs";
         var segments = new List<(string Key, string Label)>
         {
             (Key: generalKey, Label: Strings.Get("SettingsBehavior")),
             (Key: visualKey, Label: Strings.Get("SettingsVisual")),
-            (Key: shortcutsKey, Label: Strings.Get("SettingsShortcuts"))
+            (Key: shortcutsKey, Label: Strings.Get("SettingsShortcuts")),
+            (Key: pluginsKey, Label: Strings.Get("SettingsPlugins"))
         };
         if (State.AdvancedSettingsMode)
         {
@@ -2352,6 +2360,7 @@ public sealed partial class AppController
         {
             SettingsPage.Visual => visualKey,
             SettingsPage.Shortcuts => shortcutsKey,
+            SettingsPage.Plugins => pluginsKey,
             SettingsPage.Labs when State.AdvancedSettingsMode => labsKey,
             _ => generalKey
         };
@@ -2363,7 +2372,7 @@ public sealed partial class AppController
             Background = TrayHoverBrush, // Sunken tab track background
             Margin = new Thickness(0),
             Height = 24,
-            Width = segments.Count * 76,
+            Width = segments.Count * (segments.Count >= 5 ? 68 : 76),
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -2425,6 +2434,7 @@ public sealed partial class AppController
                 {
                     visualKey => SettingsPage.Visual,
                     shortcutsKey => SettingsPage.Shortcuts,
+                    pluginsKey => SettingsPage.Plugins,
                     labsKey => SettingsPage.Labs,
                     _ => SettingsPage.General
                 });
