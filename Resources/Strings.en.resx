@@ -904,16 +904,16 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Todo reminders</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">
-    <value>Enable lightweight todo reminders</value>
+    <value>Enable todo reminders</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>Set a time from a todo's reminder button or context menu. A compact countdown appears afterward, followed by a tray notification when due. Turning the feature off stops timing and hides its entry points while preserving saved times.</value>
+    <value>Set a time from a todo-row button or its context menu. The compact countdown can be clicked to change or clear the reminder, and a tray notification appears when due. Turning the feature off stops timing and hides its entry points while preserving saved times.</value>
   </data>
   <data name="LabsTodoReminderShowButton" xml:space="preserve">
-    <value>Show reminder buttons in todo rows</value>
+    <value>Show inline reminder buttons</value>
   </data>
   <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
-    <value>Turn this off to remove the bell buttons and create or edit reminders only from a todo's context menu. Existing reminders still show a compact countdown.</value>
+    <value>When off, bell buttons are hidden and new reminders are created from a todo's context menu. Existing countdowns remain visible and can be clicked to change or clear them.</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>Default quick reminder</value>
@@ -922,7 +922,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>{0} minutes</value>
   </data>
   <data name="TodoReminderSetForFormat" xml:space="preserve">
-    <value>Reminder: {0}</value>
+    <value>Reminder: {0}; click to change or clear</value>
   </data>
   <data name="TodoReminderSet" xml:space="preserve">
     <value>Set reminder</value>

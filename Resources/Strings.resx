@@ -917,16 +917,16 @@
     <value>待办提醒</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">
-    <value>启用轻量待办提醒</value>
+    <value>启用待办提醒</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>可从待办行的提醒键或右键菜单快速设定时间；设置后显示简短倒计时，到期时通过系统托盘提示。关闭功能会停止计时并隐藏入口，但保留已保存的时间。</value>
+    <value>可从待办行按钮或右键菜单快速设置时间；设置后显示可点击的简洁倒计时，可随时修改或取消，到期时通过系统托盘提示。关闭功能会停止计时并隐藏入口，但保留已保存的时间。</value>
   </data>
   <data name="LabsTodoReminderShowButton" xml:space="preserve">
-    <value>显示待办行提醒按钮</value>
+    <value>显示行内提醒按钮</value>
   </data>
   <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
-    <value>关闭后不再显示铃铛按钮，只能从待办右键菜单创建或修改提醒；已设置的提醒仍显示简洁倒计时。</value>
+    <value>关闭后隐藏铃铛按钮，仍可从待办右键菜单创建提醒；已设置的倒计时继续显示，并可点击修改或取消。</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>默认快速提醒</value>
@@ -935,7 +935,7 @@
     <value>{0} 分钟</value>
   </data>
   <data name="TodoReminderSetForFormat" xml:space="preserve">
-    <value>提醒：{0}</value>
+    <value>提醒：{0}；点击可修改或取消</value>
   </data>
   <data name="TodoReminderSet" xml:space="preserve">
     <value>设置提醒</value>

@@ -904,16 +904,16 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ToDo リマインダー</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">
-    <value>軽量 ToDo リマインダーを有効にする</value>
+    <value>ToDo リマインダーを有効にする</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>ToDo 行のリマインダーボタンまたは右クリックメニューから時刻を設定できます。設定後は短いカウントダウンを表示し、期限になるとトレイで通知します。機能をオフにすると計時と入口を停止しますが、保存済みの時刻は保持されます。</value>
+    <value>ToDo 行のボタンまたは右クリックメニューから時刻を設定できます。簡潔なカウントダウンをクリックしていつでも変更または解除でき、期限になるとトレイで通知します。機能をオフにすると計時と入口を停止しますが、保存済みの時刻は保持されます。</value>
   </data>
   <data name="LabsTodoReminderShowButton" xml:space="preserve">
-    <value>ToDo 行にリマインダーボタンを表示</value>
+    <value>行内リマインダーボタンを表示</value>
   </data>
   <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
-    <value>オフにするとベルボタンを隠し、ToDo の右クリックメニューからのみリマインダーを作成・変更します。設定済みのリマインダーは短いカウントダウンを引き続き表示します。</value>
+    <value>オフにするとベルボタンを隠し、新しいリマインダーは ToDo の右クリックメニューから作成します。設定済みのカウントダウンは表示され、クリックして変更または解除できます。</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>既定のクイックリマインダー</value>
@@ -922,7 +922,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>{0} 分</value>
   </data>
   <data name="TodoReminderSetForFormat" xml:space="preserve">
-    <value>リマインダー：{0}</value>
+    <value>リマインダー：{0}。クリックで変更または解除</value>
   </data>
   <data name="TodoReminderSet" xml:space="preserve">
     <value>リマインダーを設定</value>

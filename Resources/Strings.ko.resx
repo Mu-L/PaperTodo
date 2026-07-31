@@ -904,16 +904,16 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>할 일 알림</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">
-    <value>가벼운 할 일 알림 사용</value>
+    <value>할 일 알림 사용</value>
   </data>
   <data name="TipLabsTodoReminders" xml:space="preserve">
-    <value>할 일 행의 알림 버튼이나 오른쪽 클릭 메뉴에서 시간을 설정할 수 있습니다. 설정 후에는 짧은 카운트다운을 표시하고 시간이 되면 트레이에서 알려 줍니다. 기능을 끄면 타이머와 진입점을 중지하지만 저장된 시간은 유지됩니다.</value>
+    <value>할 일 행 버튼이나 오른쪽 클릭 메뉴에서 시간을 설정할 수 있습니다. 간단한 카운트다운을 클릭해 언제든 변경하거나 취소할 수 있고 시간이 되면 트레이에서 알려 줍니다. 기능을 끄면 타이머와 진입점을 중지하지만 저장된 시간은 유지됩니다.</value>
   </data>
   <data name="LabsTodoReminderShowButton" xml:space="preserve">
-    <value>할 일 행에 알림 버튼 표시</value>
+    <value>행 안에 알림 버튼 표시</value>
   </data>
   <data name="TipLabsTodoReminderShowButton" xml:space="preserve">
-    <value>끄면 종 모양 버튼을 숨기고 할 일의 오른쪽 클릭 메뉴에서만 알림을 만들거나 변경합니다. 설정된 알림은 짧은 카운트다운을 계속 표시합니다.</value>
+    <value>끄면 종 모양 버튼을 숨기고 새 알림은 할 일의 오른쪽 클릭 메뉴에서 만듭니다. 설정된 카운트다운은 계속 표시되며 클릭하여 변경하거나 취소할 수 있습니다.</value>
   </data>
   <data name="LabsTodoReminderQuickMinutes" xml:space="preserve">
     <value>기본 빠른 알림</value>
@@ -922,7 +922,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>{0}분</value>
   </data>
   <data name="TodoReminderSetForFormat" xml:space="preserve">
-    <value>알림: {0}</value>
+    <value>알림: {0}. 클릭하여 변경하거나 지우기</value>
   </data>
   <data name="TodoReminderSet" xml:space="preserve">
     <value>알림 설정</value>

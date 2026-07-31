@@ -12,9 +12,14 @@ public sealed partial class PaperWindow
 {
     private readonly Dictionary<string, TextBlock> _todoReminderCountdowns =
         new(StringComparer.Ordinal);
+    private string? _pendingTodoReminderRevealItemId;
 
     internal void UpdateTodoReminderFeature()
     {
+        if (!_controller.State.ExperimentalTodoReminders)
+        {
+            _pendingTodoReminderRevealItemId = null;
+        }
         if (_paper.Type == PaperTypes.Todo)
         {
             RebuildTodoRows(CurrentFocusedTodoItemId());
@@ -131,7 +136,7 @@ public sealed partial class PaperWindow
             ToolTip = TodoReminderToolTip(item)
         };
         _todoReminderCountdowns[item.Id] = countdown;
-        return new Border
+        var host = new Border
         {
             MinWidth = Math.Max(
                 AppTypography.Scale(24),
@@ -143,9 +148,51 @@ public sealed partial class PaperWindow
             VerticalAlignment = VerticalAlignment.Stretch,
             CornerRadius = new CornerRadius(RadiusSmall),
             Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
             Child = countdown,
             Visibility = item.Done ? Visibility.Hidden : Visibility.Visible
         };
+        host.MouseEnter += (_, _) =>
+        {
+            host.Background = HoverBrush;
+            countdown.Foreground = TextBrush;
+        };
+        host.MouseLeave += (_, _) =>
+        {
+            host.Background = Brushes.Transparent;
+            countdown.Foreground = Theme.ActiveBrush;
+            countdown.Opacity = 1.0;
+        };
+        host.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            countdown.Opacity = 0.66;
+            e.Handled = true;
+        };
+        host.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            countdown.Opacity = 1.0;
+            OpenTodoReminderMenu(host, item.Id);
+            e.Handled = true;
+        };
+
+        if (_controller.State.EnableAnimations &&
+            string.Equals(
+                _pendingTodoReminderRevealItemId,
+                item.Id,
+                StringComparison.Ordinal))
+        {
+            _pendingTodoReminderRevealItemId = null;
+            host.Opacity = 0;
+            host.Loaded += (_, _) =>
+            {
+                AnimationHelper.FadeIn(host, duration: 120);
+                AnimationHelper.QuickBounce(
+                    host,
+                    scale: 1.06,
+                    duration: 80);
+            };
+        }
+        return host;
     }
 
     private static string TodoReminderCountdownText(
@@ -392,6 +439,10 @@ public sealed partial class PaperWindow
 
         PushUndoSnapshot();
         item.ReminderAt = reminderAt;
+        _pendingTodoReminderRevealItemId =
+            reminderAt.HasValue && _controller.State.EnableAnimations
+                ? itemId
+                : null;
         _controller.NotifyTodoReminderChanged(saveImmediately: true);
         RebuildTodoRows(item.Id);
     }
