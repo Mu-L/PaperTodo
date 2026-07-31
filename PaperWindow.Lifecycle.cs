@@ -118,6 +118,7 @@ public sealed partial class PaperWindow
     internal void PrepareForHide()
     {
         CommitPendingEditsForSave();
+        CancelExperimentalTetherPresentation(showMain: false);
         DetachExperimentalWindowAttachment(savePosition: false);
         SettlePaperFormPresentation();
         AbortAllInteractions(InteractionAbortReason.Hiding);
@@ -214,6 +215,7 @@ public sealed partial class PaperWindow
 
     private void CompletePaperWindowClose()
     {
+        CancelExperimentalTetherPresentation(showMain: false);
         DetachExperimentalWindowAttachment(savePosition: false);
         WindowNative.ReleaseWindowSwitcherOwner(ref _windowSwitcherHiddenOwner);
         _windowSwitcherHiddenOwnerApplied = false;

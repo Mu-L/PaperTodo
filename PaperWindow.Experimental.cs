@@ -62,6 +62,7 @@ public sealed partial class PaperWindow
     internal void SetExperimentalAllSurfacesPassive(bool enabled)
     {
         _edgeCapsuleHost?.SetExperimentalPassive(enabled);
+        _experimentalTetherCapsule?.SetExperimentalPassive(enabled);
         SetExperimentalPassiveReason(
             ExperimentalPassiveReason.AllSurfaces,
             enabled);
@@ -101,6 +102,12 @@ public sealed partial class PaperWindow
 
     internal void UpdateExperimentalOpacitySettings(bool animate = true)
     {
+        _experimentalTetherCapsule?.UpdateRestingOpacity(
+            _controller.State.ExperimentalRestingCapsuleOpacity
+                ? ExperimentalOpacityLevels.Normalize(
+                    _controller.State.ExperimentalRestingCapsuleOpacityLevel,
+                    ExperimentalOpacityLevels.DefaultRestingCapsule)
+                : 1.0);
         if (_isShellBuilt)
         {
             if (_controller.State.ExperimentalRestingCapsuleOpacity)

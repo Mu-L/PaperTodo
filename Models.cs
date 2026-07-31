@@ -296,6 +296,17 @@ public static class ExperimentalWindowTetherOptions
     }
 }
 
+public static class ExperimentalTetherVisibilityModes
+{
+    public const string Hide = "hide";
+    public const string Capsule = "capsule";
+
+    public static string Normalize(string? mode)
+    {
+        return mode == Capsule ? Capsule : Hide;
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -401,6 +412,9 @@ public sealed class AppState
         ExperimentalWindowTetherOptions.Auto;
     public int ExperimentalWindowTetherGap { get; set; } =
         ExperimentalWindowTetherOptions.DefaultGap;
+    public bool ExperimentalTetherVisibilityLink { get; set; }
+    public string ExperimentalTetherMinimizedBehavior { get; set; } =
+        ExperimentalTetherVisibilityModes.Hide;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.

@@ -843,6 +843,30 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
     <value>창 연결 해제</value>
   </data>
+  <data name="LabsTetherVisibility" xml:space="preserve">
+    <value>연결 표시 연동</value>
+  </data>
+  <data name="LabsEnableTetherVisibility" xml:space="preserve">
+    <value>대상 최소화 및 활성화 따라가기</value>
+  </data>
+  <data name="TipLabsTetherVisibility" xml:space="preserve">
+    <value>대상이 최소화되거나 숨겨지면 연결된 메모를 임시로 숨기거나 별도 캡슐로 바꿉니다. 대상을 복원하거나 활성화하면 메모를 다시 표시합니다. 메모 자체의 펼침, 캡슐 및 표시 상태 데이터는 변경하지 않습니다.</value>
+  </data>
+  <data name="LabsTetherMinimizedBehavior" xml:space="preserve">
+    <value>대상이 최소화될 때</value>
+  </data>
+  <data name="LabsTetherMinimizedHide" xml:space="preserve">
+    <value>메모 숨기기</value>
+  </data>
+  <data name="LabsTetherMinimizedCapsule" xml:space="preserve">
+    <value>캡슐 표시</value>
+  </data>
+  <data name="LabsTetherCapsuleLabelFormat" xml:space="preserve">
+    <value>연결 · {0}</value>
+  </data>
+  <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
+    <value>클릭하여 “{0}” 복원 및 활성화</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>할 일 알림</value>
   </data>

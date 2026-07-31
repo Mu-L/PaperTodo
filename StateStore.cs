@@ -486,6 +486,9 @@ public sealed class StateStore
         state.ExperimentalWindowTetherGap =
             ExperimentalWindowTetherOptions.NormalizeGap(
                 state.ExperimentalWindowTetherGap);
+        state.ExperimentalTetherMinimizedBehavior =
+            ExperimentalTetherVisibilityModes.Normalize(
+                state.ExperimentalTetherMinimizedBehavior);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)

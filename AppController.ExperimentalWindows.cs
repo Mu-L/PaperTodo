@@ -156,6 +156,47 @@ public sealed partial class AppController
         RefreshSettingsWindowContent();
     }
 
+    private void ToggleExperimentalTetherVisibilityLink()
+    {
+        State.ExperimentalTetherVisibilityLink =
+            !State.ExperimentalTetherVisibilityLink;
+        if (!State.ExperimentalTetherVisibilityLink)
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.DisableExperimentalTetherVisibilityLink();
+            }
+        }
+        else
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.RefreshExperimentalTetherVisibilityOptions();
+            }
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetExperimentalTetherMinimizedBehavior(string behavior)
+    {
+        var normalized =
+            ExperimentalTetherVisibilityModes.Normalize(behavior);
+        if (State.ExperimentalTetherMinimizedBehavior == normalized)
+        {
+            return;
+        }
+
+        State.ExperimentalTetherMinimizedBehavior = normalized;
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.RefreshExperimentalTetherVisibilityOptions();
+        }
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
     private void RefreshExperimentalAttachmentMenus()
     {
         foreach (var window in _windows.Values.ToList())
@@ -189,7 +230,7 @@ public sealed partial class AppController
         DisposeExternalWindowTracker();
         foreach (var window in _windows.Values.ToList())
         {
-            window.DetachExperimentalWindowAttachment(savePosition: false);
+            window.DisposeExperimentalWindowAttachment();
         }
     }
 }

@@ -1169,6 +1169,10 @@ public sealed partial class AppController
             Strings.Get("LabsWindowTethering")));
         root.Children.Add(BuildLabsWindowTetherSettings());
 
+        root.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsTetherVisibility")));
+        root.Children.Add(BuildLabsTetherVisibilitySettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
         root.Children.Add(BuildLabsTodoReminderSettings());
 
@@ -1456,6 +1460,52 @@ public sealed partial class AppController
         return container;
     }
 
+    private UIElement BuildLabsTetherVisibilitySettings()
+    {
+        var tetherEnabled = State.ExperimentalWindowTethering;
+        var enabled = State.ExperimentalTetherVisibilityLink;
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7),
+            IsEnabled = tetherEnabled,
+            Opacity = tetherEnabled ? 1.0 : 0.55
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableTetherVisibility"),
+                enabled,
+                ToggleExperimentalTetherVisibilityLink),
+            "TipLabsTetherVisibility"));
+
+        var options = new StackPanel
+        {
+            IsEnabled = enabled,
+            Opacity = enabled ? 1.0 : 0.55
+        };
+        options.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsTetherMinimizedBehavior"),
+            topMargin: 8));
+        options.Children.Add(CreateSegmentSelector(
+            [
+                (ExperimentalTetherVisibilityModes.Hide,
+                    Strings.Get("LabsTetherMinimizedHide")),
+                (ExperimentalTetherVisibilityModes.Capsule,
+                    Strings.Get("LabsTetherMinimizedCapsule"))
+            ],
+            ExperimentalTetherVisibilityModes.Normalize(
+                State.ExperimentalTetherMinimizedBehavior),
+            SetExperimentalTetherMinimizedBehavior));
+        content.Children.Add(options);
+        card.Child = content;
+        return card;
+    }
+
     private UIElement BuildLabsTodoReminderSettings()
     {
         var card = new Border
@@ -1650,11 +1700,15 @@ public sealed partial class AppController
             ExperimentalWindowTetherOptions.Auto;
         State.ExperimentalWindowTetherGap =
             ExperimentalWindowTetherOptions.DefaultGap;
+        State.ExperimentalTetherVisibilityLink = false;
+        State.ExperimentalTetherMinimizedBehavior =
+            ExperimentalTetherVisibilityModes.Hide;
         RestoreLabsShortcutDefaults();
 
         foreach (var window in _windows.Values.ToList())
         {
             window.DisableExperimentalCapsuleMagnet();
+            window.DisableExperimentalTetherVisibilityLink();
             window.DisableExperimentalWindowTether();
         }
         RefreshExperimentalWindowRuntime();

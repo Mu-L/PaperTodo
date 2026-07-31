@@ -1234,6 +1234,7 @@ public sealed partial class AppController : IDisposable
         var window = GetOrCreatePaperWindow(
             paper,
             deferShellConstruction: showAsDeepCapsuleOnly);
+        window.RestoreExperimentalTetherPresentationForExplicitShow();
         window.CancelPendingVisibilityTransitions();
         if (!showAsDeepCapsuleOnly)
         {

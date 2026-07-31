@@ -196,7 +196,8 @@ public sealed partial class PaperWindow : Window
     public bool IsDeepCapsuleSlotVisible => _edgeCapsuleHost?.IsVisible == true;
     public bool HasVisibleSurface =>
         (IsVisible && WindowState != WindowState.Minimized) ||
-        IsDeepCapsuleSlotVisible;
+        IsDeepCapsuleSlotVisible ||
+        HasExperimentalTetherCapsuleSurface;
     public bool HasExpandedPaperSurface =>
         IsVisible &&
         WindowState != WindowState.Minimized &&
@@ -1410,6 +1411,7 @@ public sealed partial class PaperWindow : Window
         var themeAnimationGeneration = _themeAnimationGeneration;
 
         InitializeThemeResources();
+        _experimentalTetherCapsule?.UpdateTheme();
         RefreshThemedContextMenus();
 
         var canAnimateTheme = _controller.State.EnableAnimations &&
@@ -2578,6 +2580,11 @@ public sealed partial class PaperWindow : Window
         else if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
         {
             WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, avoidanceWindow);
+        }
+        if (_experimentalTetherCapsule is { } tetherCapsule)
+        {
+            tetherCapsule.SetFullscreenAvoidance(
+                _controller.FullscreenAvoidanceWindowFor(tetherCapsule));
         }
 
         RefreshDeepCapsuleSlotTopmost();

@@ -843,6 +843,30 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
     <value>Detach from window</value>
   </data>
+  <data name="LabsTetherVisibility" xml:space="preserve">
+    <value>Tether visibility link</value>
+  </data>
+  <data name="LabsEnableTetherVisibility" xml:space="preserve">
+    <value>Follow target minimize and activation</value>
+  </data>
+  <data name="TipLabsTetherVisibility" xml:space="preserve">
+    <value>When the target is minimized or hidden, its tethered paper is temporarily hidden or replaced by a separate capsule. Restoring or activating the target shows the paper again. The paper's own expanded, capsule, and visibility data is not changed.</value>
+  </data>
+  <data name="LabsTetherMinimizedBehavior" xml:space="preserve">
+    <value>When the target is minimized</value>
+  </data>
+  <data name="LabsTetherMinimizedHide" xml:space="preserve">
+    <value>Hide paper</value>
+  </data>
+  <data name="LabsTetherMinimizedCapsule" xml:space="preserve">
+    <value>Show capsule</value>
+  </data>
+  <data name="LabsTetherCapsuleLabelFormat" xml:space="preserve">
+    <value>Tethered · {0}</value>
+  </data>
+  <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
+    <value>Click to restore and activate “{0}”</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>Todo reminders</value>
   </data>
