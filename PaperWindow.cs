@@ -2546,7 +2546,6 @@ public sealed partial class PaperWindow : Window
         if (_controller.State.ExperimentalWindowTethering &&
             !_paper.IsCollapsed &&
             !forDeepCapsuleSlot &&
-            !HasDeepCapsuleSlotPlacement &&
             WindowState == WindowState.Normal &&
             !_isSnappedPresentation)
         {

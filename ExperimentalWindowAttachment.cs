@@ -539,6 +539,9 @@ public sealed partial class PaperWindow
         _experimentalWindowAttachment?.Owner ==
         ExperimentalAttachmentOwner.WindowTether;
 
+    internal bool SuppressesExpandedDeepCapsuleSlot =>
+        HasExperimentalWindowTether && !_paper.IsCollapsed;
+
     private void DetachExperimentalAttachmentBeforeUserDrag()
     {
         if (_experimentalWindowAttachment != null)
@@ -598,7 +601,6 @@ public sealed partial class PaperWindow
     {
         if (!_controller.State.ExperimentalWindowTethering ||
             _paper.IsCollapsed ||
-            HasDeepCapsuleSlotPlacement ||
             IsPaperFormTransitioning ||
             WindowState != System.Windows.WindowState.Normal ||
             _isSnappedPresentation ||
@@ -631,6 +633,10 @@ public sealed partial class PaperWindow
         DetachExperimentalWindowAttachment(savePosition: false);
         _experimentalWindowAttachment = plan.Session;
         _experimentalTetherReplanPending = false;
+        // A tethered expanded paper owns its external-window edge instead of an
+        // expanded edge-queue reservation. Reconcile through the existing queue
+        // coordinator so the edge capsule keeps a single source of truth.
+        _controller.ArrangeDeepCapsules(animate: false);
         ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         SaveGeometryForCurrentPresentation();
         RefreshExperimentalAttachmentMenus();
@@ -852,7 +858,9 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (session.Owner == ExperimentalAttachmentOwner.WindowTether)
+        var wasWindowTether =
+            session.Owner == ExperimentalAttachmentOwner.WindowTether;
+        if (wasWindowTether)
         {
             RestoreExperimentalTetherPresentation();
         }
@@ -863,6 +871,12 @@ public sealed partial class PaperWindow
             IsVisible)
         {
             SaveGeometryForCurrentPresentation();
+        }
+        if (wasWindowTether)
+        {
+            // Clearing the session makes the paper eligible for its configured
+            // expanded edge slot again. Let the queue coordinator restore it.
+            _controller.ArrangeDeepCapsules(animate: false);
         }
         RefreshExperimentalAttachmentMenus();
     }

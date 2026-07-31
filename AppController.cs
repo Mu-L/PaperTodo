@@ -2734,7 +2734,9 @@ public sealed partial class AppController : IDisposable
 
     private bool ShouldPaperOccupyDeepCapsuleSlot(PaperData paper, PaperWindow window)
     {
-        if (!paper.IsVisible || !CanPaperDisplayAsCapsule(paper))
+        if (!paper.IsVisible ||
+            !CanPaperDisplayAsCapsule(paper) ||
+            window.SuppressesExpandedDeepCapsuleSlot)
         {
             return false;
         }
