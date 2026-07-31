@@ -63,6 +63,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
     private EdgeCapsuleCaptureLossReason _contentCaptureLossReason;
     private int _nativeMetricsVersion;
     private int _appliedNativeMetricsVersion;
+    private bool _experimentalPassive;
     private bool _disposed;
     private Window Window { get; }
     private Grid Root { get; }
@@ -123,6 +124,11 @@ internal sealed class EdgeCapsuleHost : IDisposable
         window.SourceInitialized += (_, _) =>
         {
             WindowNative.ApplyNoActivateStyle(window);
+            if (_experimentalPassive)
+            {
+                WindowNative.SetInputPassthrough(window, enabled: true);
+                WindowNative.ApplyBottomZOrder(window);
+            }
             if (PresentationSource.FromVisual(window) is HwndSource source)
             {
                 source.AddHook(OnNativeMessage);
@@ -319,6 +325,10 @@ internal sealed class EdgeCapsuleHost : IDisposable
             window.Opacity = opacity;
         }
         _appliedNativeMetricsVersion = nativeMetricsVersion;
+        if (_experimentalPassive)
+        {
+            WindowNative.ApplyBottomZOrder(window);
+        }
         return true;
     }
 
@@ -425,6 +435,12 @@ internal sealed class EdgeCapsuleHost : IDisposable
         IntPtr lParam,
         ref bool handled)
     {
+        if (msg == WmNcHitTest && _experimentalPassive)
+        {
+            handled = true;
+            return HtTransparent;
+        }
+
         if (msg != WmNcHitTest)
         {
             return IntPtr.Zero;
@@ -818,10 +834,40 @@ internal sealed class EdgeCapsuleHost : IDisposable
         {
             return;
         }
-        Window.Topmost = topmost;
+        var effectiveTopmost = topmost && !_experimentalPassive;
+        Window.Topmost = effectiveTopmost;
         if (Window.IsVisible)
         {
-            WindowNative.ApplyTopmostZOrder(Window, topmost, insertAfter);
+            if (_experimentalPassive)
+            {
+                WindowNative.ApplyBottomZOrder(Window);
+            }
+            else
+            {
+                WindowNative.ApplyTopmostZOrder(
+                    Window,
+                    effectiveTopmost,
+                    insertAfter);
+            }
+        }
+    }
+
+    public void SetExperimentalPassive(bool enabled)
+    {
+        if (_disposed || _experimentalPassive == enabled)
+        {
+            return;
+        }
+
+        _experimentalPassive = enabled;
+        WindowNative.SetInputPassthrough(Window, enabled);
+        if (enabled)
+        {
+            Window.Topmost = false;
+            if (Window.IsVisible)
+            {
+                WindowNative.ApplyBottomZOrder(Window);
+            }
         }
     }
 

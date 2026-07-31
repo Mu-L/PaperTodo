@@ -50,6 +50,7 @@ internal static class GlobalShortcutCatalog
     public const string NewNote = "startup.newNote";
     public const string Exit = "startup.exit";
     public const string CurrentPaperPassive = "labs.passiveCurrent";
+    public const string AllSurfacesPassive = "labs.passiveAll";
 
     public static IReadOnlyList<GlobalShortcutDefinition> Definitions { get; } = BuildDefinitions();
 
@@ -211,7 +212,13 @@ internal static class GlobalShortcutCatalog
                 "LabsCurrentPaperPassive",
                 "Ctrl+Alt+Shift+P",
                 GlobalShortcutGroup.Labs,
-                ExperimentalKind: ExperimentalShortcutKind.CurrentPaperPassive)
+                ExperimentalKind: ExperimentalShortcutKind.CurrentPaperPassive),
+            new(
+                AllSurfacesPassive,
+                "LabsAllSurfacesPassive",
+                "Ctrl+Alt+Shift+A",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.AllSurfacesPassive)
         };
 
         for (var ordinal = 1; ordinal <= 9; ordinal++)

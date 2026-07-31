@@ -1171,6 +1171,10 @@ public sealed partial class AppController : IDisposable
 
         var paperId = paper.Id;
         var window = new PaperWindow(paper, this, deferShellConstruction);
+        if (_experimentalAllSurfacesPassive)
+        {
+            window.SetExperimentalAllSurfacesPassive(enabled: true);
+        }
         window.Closed += (_, _) =>
         {
             NotifyPaperWindowClosed(window);
@@ -2580,6 +2584,7 @@ public sealed partial class AppController : IDisposable
             {
                 master = new MasterCapsuleWindow(this, edge, monitor);
                 _masterCapsules[key] = master;
+                master.SetExperimentalPassive(_experimentalAllSurfacesPassive);
                 master.ShowPlaced(papers.Count, retracted, animate);
             }
             else

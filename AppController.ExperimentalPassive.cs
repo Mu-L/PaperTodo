@@ -4,6 +4,10 @@ public sealed partial class AppController
 {
     private PaperWindow? _lastActivatedPaperWindow;
     private PaperWindow? _experimentalCurrentPassiveWindow;
+    private bool _experimentalAllSurfacesPassive;
+
+    internal bool IsExperimentalAllSurfacesPassive =>
+        _experimentalAllSurfacesPassive;
 
     internal void NotifyPaperWindowActivated(PaperWindow window)
     {
@@ -38,6 +42,13 @@ public sealed partial class AppController
             case ExperimentalShortcutKind.CurrentPaperPassive:
                 ToggleCurrentPaperExperimentalPassive();
                 break;
+            case ExperimentalShortcutKind.AllSurfacesPassive:
+                if (!HasDeepCapsuleReorderDragInProgress())
+                {
+                    SetAllSurfacesExperimentalPassive(
+                        !_experimentalAllSurfacesPassive);
+                }
+                break;
         }
     }
 
@@ -55,9 +66,11 @@ public sealed partial class AppController
 
         var target = _windows.Values.FirstOrDefault(window =>
                 window.IsActive &&
+                !window.IsExperimentalPassive &&
                 window.CanEnterCurrentExperimentalPassive) ??
             (_lastActivatedPaperWindow is { } lastWindow &&
              _windows.Values.Contains(lastWindow) &&
+             !lastWindow.IsExperimentalPassive &&
              lastWindow.CanEnterCurrentExperimentalPassive
                 ? lastWindow
                 : null);
@@ -85,6 +98,10 @@ public sealed partial class AppController
         if (definition.ExperimentalKind == ExperimentalShortcutKind.CurrentPaperPassive)
         {
             RestoreCurrentPaperExperimentalPassive();
+        }
+        else if (definition.ExperimentalKind == ExperimentalShortcutKind.AllSurfacesPassive)
+        {
+            SetAllSurfacesExperimentalPassive(enabled: false);
         }
     }
 
@@ -114,10 +131,32 @@ public sealed partial class AppController
     }
 
     private bool HasExperimentalPassiveSurfaces =>
-        _experimentalCurrentPassiveWindow != null;
+        _experimentalCurrentPassiveWindow != null ||
+        _experimentalAllSurfacesPassive;
 
     private void RestoreAllExperimentalPassiveSurfaces()
     {
         RestoreCurrentPaperExperimentalPassive();
+        SetAllSurfacesExperimentalPassive(enabled: false);
+    }
+
+    private void SetAllSurfacesExperimentalPassive(bool enabled)
+    {
+        if (_experimentalAllSurfacesPassive == enabled)
+        {
+            return;
+        }
+
+        _experimentalAllSurfacesPassive = enabled;
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.SetExperimentalAllSurfacesPassive(enabled);
+        }
+        foreach (var master in _masterCapsules.Values.ToList())
+        {
+            master.SetExperimentalPassive(enabled);
+        }
+
+        RefreshTrayMenu();
     }
 }

@@ -783,6 +783,12 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
     <value>The shortcut sends the most recently active paper behind other windows and lets clicks pass through. Press it again to restore; turning this switch off also restores immediately.</value>
   </data>
+  <data name="LabsAllSurfacesPassive" xml:space="preserve">
+    <value>Send all papers and capsules behind and make them click-through</value>
+  </data>
+  <data name="TipLabsAllSurfacesPassive" xml:space="preserve">
+    <value>The shortcut affects every paper, ordinary capsule, edge capsule, and master capsule. Press it again to restore. It will not switch while a capsule is being dragged.</value>
+  </data>
   <data name="LabsShortcut" xml:space="preserve">
     <value>Shortcut</value>
   </data>

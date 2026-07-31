@@ -783,6 +783,12 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
     <value>ショートカットを押すと、最後にアクティブだった付箋が他のウィンドウの背面に移動し、クリックが透過します。もう一度押すと復元し、このスイッチをオフにしてもすぐ復元します。</value>
   </data>
+  <data name="LabsAllSurfacesPassive" xml:space="preserve">
+    <value>すべての付箋とカプセルをクリック透過して背面へ</value>
+  </data>
+  <data name="TipLabsAllSurfacesPassive" xml:space="preserve">
+    <value>すべての付箋、通常カプセル、端カプセル、メインカプセルが対象です。もう一度押すと復元します。カプセルのドラッグ中は切り替わりません。</value>
+  </data>
   <data name="LabsShortcut" xml:space="preserve">
     <value>ショートカット</value>
   </data>

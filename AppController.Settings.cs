@@ -1146,6 +1146,12 @@ public sealed partial class AppController
                 currentPassive,
                 "TipLabsCurrentPaperPassive"));
         }
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.AllSurfacesPassive) is { } allPassive)
+        {
+            root.Children.Add(BuildLabsShortcutSetting(
+                allPassive,
+                "TipLabsAllSurfacesPassive"));
+        }
 
         return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
     }

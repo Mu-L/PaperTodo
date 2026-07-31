@@ -20,6 +20,9 @@ public sealed partial class PaperWindow
     internal bool IsExperimentalPassive =>
         _experimentalPassiveReasons != ExperimentalPassiveReason.None;
 
+    private bool IsExperimentalAllSurfacesPassive =>
+        (_experimentalPassiveReasons & ExperimentalPassiveReason.AllSurfaces) != 0;
+
     internal bool CanEnterCurrentExperimentalPassive =>
         !IsClosed &&
         IsVisible &&
@@ -54,6 +57,14 @@ public sealed partial class PaperWindow
 
         ApplyExperimentalPassiveNativeState();
         RefreshEffectiveTopmost();
+    }
+
+    internal void SetExperimentalAllSurfacesPassive(bool enabled)
+    {
+        _edgeCapsuleHost?.SetExperimentalPassive(enabled);
+        SetExperimentalPassiveReason(
+            ExperimentalPassiveReason.AllSurfaces,
+            enabled);
     }
 
     private void ApplyExperimentalPassiveNativeState()

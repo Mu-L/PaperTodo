@@ -35,6 +35,8 @@ public sealed class MasterCapsuleWindow : Window
     private const int WmSettingChange = 0x001A;
     private const int WmDisplayChange = 0x007E;
     private const int WmDpiChanged = 0x02E0;
+    private const int WmNcHitTest = 0x0084;
+    private static readonly IntPtr HtTransparent = new(-1);
     // Compact internal metrics controlling how tightly the glyph + label sit inside the pill.
     // The master owns exactly the width it renders; no full pill is hidden outside its HWND.
     private const double WindowChromeMargin = EdgeCapsuleLayout.WindowChromeMargin;
@@ -65,6 +67,7 @@ public sealed class MasterCapsuleWindow : Window
     private StackPanel _contentStack = null!;
 
     private bool _isHovering;
+    private bool _experimentalPassive;
     private int _count;
     private bool _active;
     private MasterGestureState _gestureState;
@@ -111,6 +114,11 @@ public sealed class MasterCapsuleWindow : Window
         SourceInitialized += (_, _) =>
         {
             WindowNative.ApplyNoActivateStyle(this);
+            if (_experimentalPassive)
+            {
+                WindowNative.SetInputPassthrough(this, enabled: true);
+                WindowNative.ApplyBottomZOrder(this);
+            }
             if (PresentationSource.FromVisual(this) is HwndSource source)
             {
                 source.AddHook(OnWindowMessage);
@@ -349,13 +357,38 @@ public sealed class MasterCapsuleWindow : Window
     {
         var avoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
             _queueMonitorDeviceName);
-        var topmost = avoidanceWindow == IntPtr.Zero &&
+        var topmost = !_experimentalPassive &&
+            avoidanceWindow == IntPtr.Zero &&
             !_controller.SuppressDeepCapsuleTopmostForContextMenu;
         Topmost = topmost;
         if (IsVisible)
         {
-            WindowNative.ApplyTopmostZOrder(this, topmost, avoidanceWindow);
+            if (_experimentalPassive)
+            {
+                WindowNative.ApplyBottomZOrder(this);
+            }
+            else
+            {
+                WindowNative.ApplyTopmostZOrder(this, topmost, avoidanceWindow);
+            }
         }
+    }
+
+    public void SetExperimentalPassive(bool enabled)
+    {
+        if (_isClosingForReal || _experimentalPassive == enabled)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            FinishMasterGesture(commit: false, clearFocus: true);
+        }
+
+        _experimentalPassive = enabled;
+        WindowNative.SetInputPassthrough(this, enabled);
+        RefreshEffectiveTopmost();
     }
 
     // count = number of real capsules behind the master; active = whether they are retracted.
@@ -772,6 +805,12 @@ public sealed class MasterCapsuleWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == WmNcHitTest && _experimentalPassive)
+        {
+            handled = true;
+            return HtTransparent;
+        }
+
         if (msg is WmDpiChanged or WmDisplayChange or WmSettingChange)
         {
             WindowWorkAreaHelper.InvalidateMonitorGeometryCache();

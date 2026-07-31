@@ -783,6 +783,12 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
     <value>단축키를 누르면 마지막으로 활성화한 메모가 다른 창 뒤로 이동하고 클릭이 통과합니다. 다시 누르면 복원되며, 이 스위치를 꺼도 즉시 복원됩니다.</value>
   </data>
+  <data name="LabsAllSurfacesPassive" xml:space="preserve">
+    <value>모든 메모와 캡슐을 클릭 통과 상태로 뒤로 보내기</value>
+  </data>
+  <data name="TipLabsAllSurfacesPassive" xml:space="preserve">
+    <value>모든 메모, 일반 캡슐, 가장자리 캡슐 및 메인 캡슐에 적용됩니다. 다시 누르면 복원됩니다. 캡슐을 드래그하는 동안에는 전환되지 않습니다.</value>
+  </data>
   <data name="LabsShortcut" xml:space="preserve">
     <value>단축키</value>
   </data>
