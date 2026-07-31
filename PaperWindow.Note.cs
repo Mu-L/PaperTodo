@@ -14,6 +14,7 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    internal const int NoteTextMaxLength = 100000;
     private static readonly object PersistentScriptProcessLock = new();
     private static readonly Dictionary<string, Process> PersistentScriptProcesses = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object ActiveScriptProcessLock = new();
@@ -23,7 +24,38 @@ public sealed partial class PaperWindow
     private Action? _cancelNotePresenterInteractions;
     private Action? _settlePendingNoteBodyRebuild;
     private bool _noteContentDirty;
+    private bool _applyingExternalNoteChange;
     private bool _liveIsScriptCapsule;
+
+    internal void RefreshNoteForExternalChange()
+    {
+        if (_paper.Type != PaperTypes.Note || _noteBox == null)
+        {
+            return;
+        }
+
+        var content = _paper.Content ?? "";
+        var caret = Math.Clamp(_noteBox.CaretIndex, 0, content.Length);
+        _applyingExternalNoteChange = true;
+        try
+        {
+            _noteBox.Text = content;
+        }
+        finally
+        {
+            _applyingExternalNoteChange = false;
+        }
+        _noteBox.CaretIndex = caret;
+        _noteContentDirty = false;
+
+        var wasScriptCapsule = _liveIsScriptCapsule;
+        _liveIsScriptCapsule = IsScriptCapsuleDocument(_noteBox);
+        if (wasScriptCapsule != _liveIsScriptCapsule)
+        {
+            RefreshCapsuleLabel();
+            RefreshPaperContextMenus();
+        }
+    }
 
     private int BeginNotePresenterSession()
     {
@@ -230,7 +262,7 @@ public sealed partial class PaperWindow
 
         _noteBox = new MarkdownTextBox
         {
-            MaxLength = 100000,
+            MaxLength = NoteTextMaxLength,
             Text = _paper.Content ?? "",
             AcceptsReturn = true,
             AcceptsTab = true,
@@ -659,6 +691,11 @@ public sealed partial class PaperWindow
 
         box.TextChanged += (_, _) =>
         {
+            if (_applyingExternalNoteChange)
+            {
+                return;
+            }
+
             _noteContentDirty = true;
             var wasScriptCapsule = _liveIsScriptCapsule;
             var isScriptCapsule = IsScriptCapsuleDocument(box);

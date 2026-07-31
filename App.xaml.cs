@@ -39,6 +39,31 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        if (McpBridge.IsRequested(e.Args))
+        {
+            base.OnStartup(e);
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            try
+            {
+                await McpBridge.RunAsync(e.Args);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Console.Error.WriteLine(
+                        $"PaperTodo MCP failed: {ex.GetBaseException().Message}");
+                }
+                catch
+                {
+                    // stderr is optional; never replace an MCP failure with a logging failure.
+                }
+                Environment.ExitCode = 1;
+            }
+            Shutdown();
+            return;
+        }
+
         var startupCommand = StartupCommand.Parse(e.Args);
         ApplyStartupCultureOverride(startupCommand.DefaultLanguage);
 

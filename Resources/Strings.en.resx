@@ -1195,4 +1195,22 @@ When off, open at the docked edge or remembered position.</value>
   <data name="ShortcutExit" xml:space="preserve">
     <value>Exit</value>
   </data>
+  <data name="LabsMcp" xml:space="preserve"><value>Local MCP interface</value></data>
+  <data name="LabsMcpEnable" xml:space="preserve"><value>Enable MCP (read access is always allowed)</value></data>
+  <data name="TipLabsMcpEnable" xml:space="preserve"><value>Lets local AI clients read papers through the same PaperTodo.exe in --mcp mode. Turning this off stops the named-pipe interface immediately.</value></data>
+  <data name="LabsMcpBlankWrites" xml:space="preserve"><value>Allow blank and additive writes</value></data>
+  <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>Allows creating papers, adding todos to an existing paper, filling blank content, and appending notes without overwriting existing text.</value></data>
+  <data name="LabsMcpFullWrites" xml:space="preserve"><value>Allow full writes</value></data>
+  <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>Allows changing existing todo text, replacing notes, and changing completion or reminder state. This also grants blank and additive writes.</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>Allow delete requests</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>Allows AI to request paper or todo deletion. Every deletion still requires manual confirmation in PaperTodo.</value></data>
+  <data name="LabsMcpStatusReady" xml:space="preserve"><value>Local MCP interface is ready</value></data>
+  <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>Local MCP interface is off</value></data>
+  <data name="LabsMcpCopyCodex" xml:space="preserve"><value>Copy Codex config</value></data>
+  <data name="LabsMcpCopyJson" xml:space="preserve"><value>Copy JSON config</value></data>
+  <data name="LabsMcpCopied" xml:space="preserve"><value>Copied</value></data>
+  <data name="LabsMcpCopyFailed" xml:space="preserve"><value>Copy failed</value></data>
+  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI deletion request</value></data>
+  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI requests deletion of: {0}&#xA;&#xA;AI cannot automatically undo this operation. Allow it?</value></data>
+  <data name="McpUntitledTodo" xml:space="preserve"><value>(blank todo)</value></data>
 </root>

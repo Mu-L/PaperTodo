@@ -1190,6 +1190,9 @@ public sealed partial class AppController
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
         root.Children.Add(BuildLabsTodoReminderSettings());
 
+        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsMcp")));
+        root.Children.Add(BuildLabsMcpSettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsPassiveMode")));
         if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperPassive) is { } currentPassive)
         {
@@ -1715,6 +1718,97 @@ public sealed partial class AppController
         return container;
     }
 
+    private UIElement BuildLabsMcpSettings()
+    {
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsMcpEnable"),
+                State.McpEnabled,
+                ToggleMcpEnabled),
+            "TipLabsMcpEnable"));
+        var blankWrites = SettingsToggle(
+            Strings.Get("LabsMcpBlankWrites"),
+            State.McpAllowBlankWrites || State.McpAllowFullWrites,
+            ToggleMcpBlankWrites);
+        blankWrites.IsEnabled = !State.McpAllowFullWrites;
+        content.Children.Add(WrapWithHint(
+            blankWrites,
+            "TipLabsMcpBlankWrites"));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsMcpFullWrites"),
+                State.McpAllowFullWrites,
+                ToggleMcpFullWrites),
+            "TipLabsMcpFullWrites"));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsMcpDeletes"),
+                State.McpAllowDeletes,
+                ToggleMcpDeletes),
+            "TipLabsMcpDeletes"));
+
+        var status = new TextBlock
+        {
+            Text = State.McpEnabled
+                ? Strings.Get("LabsMcpStatusReady")
+                : Strings.Get("LabsMcpStatusDisabled"),
+            Foreground = State.McpEnabled
+                ? Theme.ActiveBrush
+                : TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(11.5),
+            Margin = new Thickness(2, 8, 2, 0)
+        };
+        content.Children.Add(status);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 9, 0, 0)
+        };
+        var copyCodex = SettingsTextButton(
+            Strings.Get("LabsMcpCopyCodex"));
+        var copyJson = SettingsTextButton(
+            Strings.Get("LabsMcpCopyJson"));
+        copyJson.Margin = new Thickness(8, 0, 0, 0);
+        var feedback = new TextBlock
+        {
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(11),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(9, 0, 0, 0)
+        };
+        copyCodex.Click += (_, _) =>
+        {
+            feedback.Text = ClipboardHelper.TrySetText(
+                BuildCodexMcpConfiguration())
+                ? Strings.Get("LabsMcpCopied")
+                : Strings.Get("LabsMcpCopyFailed");
+        };
+        copyJson.Click += (_, _) =>
+        {
+            feedback.Text = ClipboardHelper.TrySetText(
+                BuildJsonMcpConfiguration())
+                ? Strings.Get("LabsMcpCopied")
+                : Strings.Get("LabsMcpCopyFailed");
+        };
+        actions.Children.Add(copyCodex);
+        actions.Children.Add(copyJson);
+        actions.Children.Add(feedback);
+        content.Children.Add(actions);
+        card.Child = content;
+        return card;
+    }
+
     private UIElement CreateLabsPercentageStepper(
         Func<double> getValue,
         Action<double> setValue,
@@ -1797,6 +1891,10 @@ public sealed partial class AppController
         State.ExperimentalTodoReminderShowButton = true;
         State.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.DefaultQuickMinutes;
+        State.McpEnabled = false;
+        State.McpAllowBlankWrites = false;
+        State.McpAllowFullWrites = false;
+        State.McpAllowDeletes = false;
         State.ExperimentalCapsuleMagnetism = false;
         State.ExperimentalCapsuleMagnetScreenEdges = true;
         State.ExperimentalCapsuleMagnetWindowEdges = true;
@@ -1823,6 +1921,7 @@ public sealed partial class AppController
         }
         RefreshExperimentalWindowRuntime();
         RefreshExperimentalVirtualDesktopRuntime();
+        RefreshMcpRuntime();
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);
         RefreshTodoReminderFeature();

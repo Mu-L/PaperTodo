@@ -12,8 +12,8 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private const int TodoTextMaxLength = 5000;
-    private const int MaxPastedTodoLines = 200;
+    internal const int TodoTextMaxLength = 5000;
+    internal const int MaxPastedTodoLines = 200;
 
     private UIElement BuildTodoBody()
     {

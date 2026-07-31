@@ -1195,4 +1195,22 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="ShortcutExit" xml:space="preserve">
     <value>종료</value>
   </data>
+  <data name="LabsMcp" xml:space="preserve"><value>로컬 MCP 인터페이스</value></data>
+  <data name="LabsMcpEnable" xml:space="preserve"><value>MCP 사용（읽기는 항상 허용）</value></data>
+  <data name="TipLabsMcpEnable" xml:space="preserve"><value>동일한 PaperTodo.exe의 --mcp 모드를 통해 로컬 AI 클라이언트가 종이를 읽도록 허용합니다. 끄면 명명된 파이프가 즉시 중지됩니다.</value></data>
+  <data name="LabsMcpBlankWrites" xml:space="preserve"><value>빈칸 및 추가 쓰기 허용</value></data>
+  <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>새 종이 만들기, 기존 할 일 종이에 항목 추가, 빈 내용 채우기 및 메모 추가를 허용하며 기존 텍스트를 덮어쓰지 않습니다.</value></data>
+  <data name="LabsMcpFullWrites" xml:space="preserve"><value>전체 쓰기 허용</value></data>
+  <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>기존 할 일 텍스트, 메모, 완료 상태 및 알림 변경을 허용합니다. 빈칸 및 추가 쓰기 권한도 포함합니다.</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>삭제 요청 허용</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>AI가 종이나 할 일 삭제를 요청할 수 있습니다. 삭제할 때마다 PaperTodo에서 직접 확인해야 합니다.</value></data>
+  <data name="LabsMcpStatusReady" xml:space="preserve"><value>로컬 MCP 인터페이스 준비됨</value></data>
+  <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>로컬 MCP 인터페이스 꺼짐</value></data>
+  <data name="LabsMcpCopyCodex" xml:space="preserve"><value>Codex 설정 복사</value></data>
+  <data name="LabsMcpCopyJson" xml:space="preserve"><value>JSON 설정 복사</value></data>
+  <data name="LabsMcpCopied" xml:space="preserve"><value>복사됨</value></data>
+  <data name="LabsMcpCopyFailed" xml:space="preserve"><value>복사 실패</value></data>
+  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI 삭제 요청</value></data>
+  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI가 다음 항목의 삭제를 요청합니다: {0}&#xA;&#xA;AI가 자동으로 되돌릴 수 없습니다. 허용하시겠습니까?</value></data>
+  <data name="McpUntitledTodo" xml:space="preserve"><value>（빈 할 일）</value></data>
 </root>

@@ -267,6 +267,7 @@ public sealed partial class AppController : IDisposable
                 }
                 SaveNow();
             }
+            RefreshMcpRuntime();
             return;
         }
 
@@ -282,6 +283,7 @@ public sealed partial class AppController : IDisposable
         {
             SaveNow();
         }
+        RefreshMcpRuntime();
     }
 
     private async Task RestorePaperSurfacesAsync(IReadOnlyList<PaperData> papersToRestore)
@@ -3546,6 +3548,7 @@ public sealed partial class AppController : IDisposable
         _deepCapsuleContextMenuOwners.Clear();
         _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
         TryExitCleanup(DisposeGlobalHotkeys);
+        TryExitCleanup(DisposeMcpRuntime);
         TryExitCleanup(DisposeExperimentalWindowRuntime);
         TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);
         TryExitCleanup(DisposeTrayIcon);

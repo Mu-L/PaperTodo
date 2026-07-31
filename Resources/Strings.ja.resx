@@ -1195,4 +1195,22 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="ShortcutExit" xml:space="preserve">
     <value>終了</value>
   </data>
+  <data name="LabsMcp" xml:space="preserve"><value>ローカル MCP インターフェース</value></data>
+  <data name="LabsMcpEnable" xml:space="preserve"><value>MCP を有効化（読み取りは常に許可）</value></data>
+  <data name="TipLabsMcpEnable" xml:space="preserve"><value>同じ PaperTodo.exe の --mcp モードから、ローカル AI クライアントによる紙片の読み取りを許可します。無効にすると名前付きパイプを直ちに停止します。</value></data>
+  <data name="LabsMcpBlankWrites" xml:space="preserve"><value>空欄・追加書き込みを許可</value></data>
+  <data name="TipLabsMcpBlankWrites" xml:space="preserve"><value>紙片の新規作成、既存の ToDo 紙への項目追加、空欄への入力、ノートへの追記を許可します。既存の文字は上書きしません。</value></data>
+  <data name="LabsMcpFullWrites" xml:space="preserve"><value>完全な書き込みを許可</value></data>
+  <data name="TipLabsMcpFullWrites" xml:space="preserve"><value>既存 ToDo の文字、ノート本文、完了状態、リマインダーの変更を許可します。空欄・追加書き込み権限も含みます。</value></data>
+  <data name="LabsMcpDeletes" xml:space="preserve"><value>削除要求を許可</value></data>
+  <data name="TipLabsMcpDeletes" xml:space="preserve"><value>AI による紙片または ToDo の削除要求を許可します。削除ごとに PaperTodo で手動確認が必要です。</value></data>
+  <data name="LabsMcpStatusReady" xml:space="preserve"><value>ローカル MCP は準備完了</value></data>
+  <data name="LabsMcpStatusDisabled" xml:space="preserve"><value>ローカル MCP は無効</value></data>
+  <data name="LabsMcpCopyCodex" xml:space="preserve"><value>Codex 設定をコピー</value></data>
+  <data name="LabsMcpCopyJson" xml:space="preserve"><value>JSON 設定をコピー</value></data>
+  <data name="LabsMcpCopied" xml:space="preserve"><value>コピーしました</value></data>
+  <data name="LabsMcpCopyFailed" xml:space="preserve"><value>コピーに失敗しました</value></data>
+  <data name="McpDeleteConfirmTitle" xml:space="preserve"><value>AI からの削除要求</value></data>
+  <data name="McpDeleteConfirmBody" xml:space="preserve"><value>AI が次の項目の削除を要求しています：{0}&#xA;&#xA;AI から自動的に元に戻せません。許可しますか？</value></data>
+  <data name="McpUntitledTodo" xml:space="preserve"><value>（空の ToDo）</value></data>
 </root>
