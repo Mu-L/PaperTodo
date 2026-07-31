@@ -1,0 +1,527 @@
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
+using PaperTodo.Plugin;
+
+namespace PaperTodo.Plugin.CloudGenshin;
+
+public sealed class CloudGenshinPlugin : IPaperBodyPlugin
+{
+    public string Id => "sample.cloudgenshin.native";
+    public string DisplayName => "云·原神（实验）";
+    public string Description => "在 PaperTodo 纸片中直接打开云·原神网页版。";
+    public Version Version => new(1, 1, 0);
+    public string ApiVersion => "1.1";
+    public int StateVersion => 1;
+    public PaperBodyRuntimeRequirements RuntimeRequirements => PaperBodyRuntimeRequirements.BackgroundUpdates;
+    public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;
+
+    public IPaperBodySession Create(PaperBodyContext context) =>
+        new CloudGenshinSession(context);
+
+    private sealed class CloudGenshinSession : IPaperBodySession
+    {
+        private enum RetryMode
+        {
+            NavigateHome,
+            ReloadWebView,
+            RecreateSession
+        }
+
+        private static readonly Uri StartUri = new("https://ys.mihoyo.com/cloud/#/");
+        private static readonly object EnvironmentGate = new();
+        private static Task<CoreWebView2Environment>? _environmentTask;
+
+        private readonly PaperBodyContext _context;
+        private readonly Grid _root;
+        private readonly WebView2CompositionControl _webView;
+        private readonly Border _status;
+        private readonly TextBlock _statusText;
+        private readonly Button _retryButton;
+        private readonly CancellationTokenSource _lifetime = new();
+        private readonly HashSet<ulong> _externallyOpenedNavigationIds = [];
+
+        private bool _initializationStarted;
+        private bool _initialized;
+        private bool _documentReady;
+        private bool _runtimeVisible;
+        private bool _presentationVisible;
+        private bool _disposed;
+        private RetryMode _retryMode = RetryMode.NavigateHome;
+        private PaperBodyInputClaims _inputClaims;
+
+        public CloudGenshinSession(PaperBodyContext context)
+        {
+            _context = context;
+            _context.SetTitle("云·原神");
+            _context.SetDisplayTitle("云原神 · 加载中");
+
+            _root = new Grid
+            {
+                Background = Brushes.Black,
+                ClipToBounds = true
+            };
+
+            _webView = new WebView2CompositionControl
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                IsHitTestVisible = false
+            };
+            _webView.SetValue(UIElement.OpacityProperty, 0.0);
+
+            _statusText = new TextBlock
+            {
+                Text = "正在启动云·原神…",
+                Foreground = Brushes.White,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+
+            _retryButton = new Button
+            {
+                Content = "重新加载",
+                Padding = new Thickness(14, 6, 14, 6),
+                Margin = new Thickness(0, 14, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+            _retryButton.Click += OnRetryClick;
+
+            var statusPanel = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = 420,
+                Margin = new Thickness(24)
+            };
+            statusPanel.Children.Add(_statusText);
+            statusPanel.Children.Add(_retryButton);
+
+            _status = new Border
+            {
+                Background = Brushes.Black,
+                Child = statusPanel
+            };
+
+            _root.Children.Add(_webView);
+            _root.Children.Add(_status);
+            _root.Loaded += OnRootLoaded;
+            _root.SizeChanged += OnRootSizeChanged;
+        }
+
+        public FrameworkElement View => _root;
+
+        private void OnRootLoaded(object sender, RoutedEventArgs e)
+        {
+            TryStartInitialization();
+        }
+
+        private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            TryStartInitialization();
+        }
+
+        private void TryStartInitialization()
+        {
+            if (_initializationStarted ||
+                !_runtimeVisible ||
+                _disposed ||
+                !_root.IsLoaded ||
+                _root.ActualWidth <= 0 ||
+                _root.ActualHeight <= 0)
+            {
+                return;
+            }
+
+            _initializationStarted = true;
+            _root.SizeChanged -= OnRootSizeChanged;
+            _ = InitializeAsync(_lifetime.Token);
+        }
+
+        private async Task InitializeAsync(CancellationToken token)
+        {
+            try
+            {
+                ShowStatus("正在初始化 WebView2…");
+                var environment = await GetEnvironmentAsync();
+                token.ThrowIfCancellationRequested();
+
+                await _webView.EnsureCoreWebView2Async(environment);
+                token.ThrowIfCancellationRequested();
+
+                var core = _webView.CoreWebView2
+                    ?? throw new InvalidOperationException("WebView2 初始化后未返回 CoreWebView2。 ");
+
+                core.Settings.AreDefaultContextMenusEnabled = true;
+#if DEBUG
+                core.Settings.AreDevToolsEnabled = true;
+#else
+                core.Settings.AreDevToolsEnabled = false;
+#endif
+                core.Settings.AreBrowserAcceleratorKeysEnabled = true;
+                core.Settings.IsStatusBarEnabled = false;
+                core.Settings.IsZoomControlEnabled = true;
+
+                core.NavigationStarting += OnNavigationStarting;
+                core.NavigationCompleted += OnNavigationCompleted;
+                core.NewWindowRequested += OnNewWindowRequested;
+                core.ProcessFailed += OnProcessFailed;
+
+                _initialized = true;
+                NavigateHome();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _initializationStarted = false;
+                ShowFailure(ex.GetBaseException().Message, RetryMode.RecreateSession);
+            }
+        }
+
+        private static async Task<CoreWebView2Environment> GetEnvironmentAsync()
+        {
+            Task<CoreWebView2Environment> task;
+            lock (EnvironmentGate)
+            {
+                task = _environmentTask ??= CreateEnvironmentAsync();
+            }
+
+            try
+            {
+                return await task;
+            }
+            catch
+            {
+                lock (EnvironmentGate)
+                {
+                    if (ReferenceEquals(_environmentTask, task))
+                    {
+                        _environmentTask = null;
+                    }
+                }
+                throw;
+            }
+        }
+
+        private static Task<CoreWebView2Environment> CreateEnvironmentAsync()
+        {
+            var pluginDirectory = Path.GetDirectoryName(typeof(CloudGenshinPlugin).Assembly.Location)
+                ?? AppContext.BaseDirectory;
+            var userDataFolder = Path.Combine(pluginDirectory, ".runtime", "webview2");
+            Directory.CreateDirectory(userDataFolder);
+            return CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: userDataFolder,
+                options: null);
+        }
+
+        private void NavigateHome()
+        {
+            if (_disposed || !_initialized || _webView.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            _documentReady = false;
+            _retryMode = RetryMode.NavigateHome;
+            UpdatePresentation();
+            ShowStatus("正在加载云·原神…");
+            _context.SetDisplayTitle("云原神 · 加载中");
+            _webView.CoreWebView2.Navigate(StartUri.AbsoluteUri);
+        }
+
+        private void OnNavigationStarting(
+            object? sender,
+            CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (!IsAllowedNavigation(e.Uri))
+            {
+                e.Cancel = true;
+                _externallyOpenedNavigationIds.Add(e.NavigationId);
+                OpenExternal(e.Uri);
+                return;
+            }
+
+            _documentReady = false;
+            UpdatePresentation();
+            ShowStatus("正在加载云·原神…");
+        }
+
+        private void OnNavigationCompleted(
+            object? sender,
+            CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (_externallyOpenedNavigationIds.Remove(e.NavigationId))
+            {
+                return;
+            }
+
+            if (!e.IsSuccess)
+            {
+                ShowFailure($"网页加载失败：{e.WebErrorStatus}");
+                return;
+            }
+
+            _documentReady = true;
+            _retryMode = RetryMode.NavigateHome;
+            _status.Visibility = Visibility.Collapsed;
+            _context.SetDisplayTitle("云原神");
+            UpdatePresentation();
+            if (_presentationVisible)
+            {
+                _webView.Focus();
+            }
+        }
+
+        private void OnNewWindowRequested(
+            object? sender,
+            CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+            if (IsAllowedNavigation(e.Uri) && _webView.CoreWebView2 != null)
+            {
+                _webView.CoreWebView2.Navigate(e.Uri);
+                return;
+            }
+
+            OpenExternal(e.Uri);
+        }
+
+        private void OnProcessFailed(
+            object? sender,
+            CoreWebView2ProcessFailedEventArgs e)
+        {
+            switch (e.ProcessFailedKind)
+            {
+                case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                    _documentReady = false;
+                    UpdatePresentation();
+                    ShowStatus("WebView2 浏览器进程已退出，正在重建…");
+                    _context.SetDisplayTitle("云原神 · 正在重启");
+                    _context.RequestReload();
+                    break;
+
+                case CoreWebView2ProcessFailedKind.RenderProcessExited:
+                    ShowFailure(
+                        "WebView2 渲染进程异常退出。",
+                        RetryMode.ReloadWebView);
+                    break;
+
+                default:
+                    // GPU、Utility、子框架及短暂无响应等故障由 WebView2 自行恢复。
+                    Debug.WriteLine(
+                        $"CloudGenshin WebView2 process event: {e.ProcessFailedKind}, " +
+                        $"reason={e.Reason}, exitCode={e.ExitCode}");
+                    break;
+            }
+        }
+
+        private static bool IsAllowedNavigation(string? value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            if (string.Equals(uri.Scheme, "about", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return IsDomain(uri.Host, "mihoyo.com") ||
+                   IsDomain(uri.Host, "hoyoverse.com") ||
+                   IsDomain(uri.Host, "hoyolab.com");
+        }
+
+        private static bool IsDomain(string host, string domain) =>
+            string.Equals(host, domain, StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith('.' + domain, StringComparison.OrdinalIgnoreCase);
+
+        private static void OpenExternal(string? value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+                uri.Scheme is not ("http" or "https" or "mailto"))
+            {
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = uri.AbsoluteUri,
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        private void ShowStatus(string message)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _statusText.Text = message;
+            _retryButton.Visibility = Visibility.Collapsed;
+            _status.Visibility = Visibility.Visible;
+        }
+
+        private void ShowFailure(
+            string message,
+            RetryMode retryMode = RetryMode.NavigateHome)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _documentReady = false;
+            _retryMode = retryMode;
+            UpdatePresentation();
+            _statusText.Text = $"云·原神加载失败\n\n{message}";
+            _retryButton.Visibility = Visibility.Visible;
+            _status.Visibility = Visibility.Visible;
+            _context.SetDisplayTitle("云原神 · 错误");
+        }
+
+        private void UpdatePresentation()
+        {
+            var show = _runtimeVisible &&
+                _presentationVisible &&
+                _documentReady &&
+                !_disposed;
+            _webView.SetValue(UIElement.OpacityProperty, show ? 1.0 : 0.0);
+            _webView.IsHitTestVisible = show;
+            SetInputClaims(show
+                ? PaperBodyInputClaims.EscapeKey | PaperBodyInputClaims.ContextMenu
+                : PaperBodyInputClaims.None);
+        }
+
+        private void SetInputClaims(PaperBodyInputClaims claims)
+        {
+            if (_inputClaims == claims)
+            {
+                return;
+            }
+
+            _inputClaims = claims;
+            _context.SetInputClaims(claims);
+        }
+
+        private void OnRetryClick(object sender, RoutedEventArgs e)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            try
+            {
+                switch (_retryMode)
+                {
+                    case RetryMode.NavigateHome when _webView.CoreWebView2 != null:
+                        NavigateHome();
+                        break;
+
+                    case RetryMode.ReloadWebView when _webView.CoreWebView2 != null:
+                        _documentReady = false;
+                        UpdatePresentation();
+                        ShowStatus("正在重新加载云·原神…");
+                        _context.SetDisplayTitle("云原神 · 加载中");
+                        _webView.CoreWebView2.Reload();
+                        break;
+
+                    default:
+                        _context.RequestReload();
+                        break;
+                }
+            }
+            catch
+            {
+                _context.RequestReload();
+            }
+        }
+
+        public void OnActivated()
+        {
+            if (_documentReady && _runtimeVisible && _presentationVisible)
+            {
+                _webView.Focus();
+            }
+        }
+
+        public void OnVisibilityChanged(bool visible)
+        {
+            _runtimeVisible = visible;
+            if (visible)
+            {
+                TryStartInitialization();
+            }
+            UpdatePresentation();
+        }
+
+        public void OnPresentationChanged(bool visible)
+        {
+            _presentationVisible = visible;
+            UpdatePresentation();
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            SetInputClaims(PaperBodyInputClaims.None);
+            _disposed = true;
+            _lifetime.Cancel();
+            _root.Loaded -= OnRootLoaded;
+            _root.SizeChanged -= OnRootSizeChanged;
+            _retryButton.Click -= OnRetryClick;
+
+            if (_webView.CoreWebView2 is { } core)
+            {
+                core.NavigationStarting -= OnNavigationStarting;
+                core.NavigationCompleted -= OnNavigationCompleted;
+                core.NewWindowRequested -= OnNewWindowRequested;
+                core.ProcessFailed -= OnProcessFailed;
+                try
+                {
+                    core.Stop();
+                }
+                catch
+                {
+                }
+            }
+
+            try
+            {
+                _webView.Dispose();
+            }
+            catch
+            {
+            }
+
+            _lifetime.Dispose();
+        }
+    }
+}
