@@ -623,6 +623,17 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         private static readonly string AbstractionsAssemblyName =
             typeof(IPaperBodyPlugin).Assembly.GetName().Name ??
             "PaperTodo.Plugin.Abstractions";
+
+        private static readonly HashSet<string> SharedHostAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            AbstractionsAssemblyName,
+            "WinRT.Runtime",
+            "Microsoft.Windows.SDK.NET",
+            "Microsoft.Web.WebView2.Core",
+            "Microsoft.Web.WebView2.Wpf",
+            "Microsoft.Web.WebView2.WinForms"
+        };
+
         private readonly AssemblyDependencyResolver _resolver;
 
         public NativePluginLoadContext(string pluginAssemblyPath)
@@ -633,12 +644,16 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            if (string.Equals(
-                    assemblyName.Name,
-                    AbstractionsAssemblyName,
-                    StringComparison.OrdinalIgnoreCase))
+            if (assemblyName.Name != null && SharedHostAssemblyNames.Contains(assemblyName.Name))
             {
-                return typeof(IPaperBodyPlugin).Assembly;
+                if (string.Equals(
+                        assemblyName.Name,
+                        AbstractionsAssemblyName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return typeof(IPaperBodyPlugin).Assembly;
+                }
+                return null;
             }
 
             var dependencyPath = _resolver.ResolveAssemblyToPath(assemblyName);
