@@ -99,6 +99,12 @@ public sealed partial class AppController
 
         _ = Application.Current.Dispatcher.InvokeAsync(() =>
         {
+            if (definition.ExperimentalKind != ExperimentalShortcutKind.None)
+            {
+                ExecuteExperimentalShortcut(definition);
+                return;
+            }
+
             if (definition.IsEdgeCapsule)
             {
                 ActivateEdgeCapsuleShortcut(
@@ -113,7 +119,7 @@ public sealed partial class AppController
 
     private bool TryRecordRegisteredGlobalHotkey(string commandId)
     {
-        if (_settingsPage != SettingsPage.Shortcuts ||
+        if (!SupportsShortcutRecording(_settingsPage) ||
             _shortcutRecordingCommandId is not { Length: > 0 } recordingCommandId)
         {
             return false;
@@ -183,7 +189,10 @@ public sealed partial class AppController
         else
         {
             _shortcutDraft![commandId] = gesture.ToStorageString();
-            _shortcutEnabledDraft![commandId] = true;
+            if (definition.Group != GlobalShortcutGroup.Labs)
+            {
+                _shortcutEnabledDraft![commandId] = true;
+            }
         }
 
         return true;
@@ -250,7 +259,7 @@ public sealed partial class AppController
 
     private void OnSettingsWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_settingsPage != SettingsPage.Shortcuts ||
+        if (!SupportsShortcutRecording(_settingsPage) ||
             string.IsNullOrEmpty(_shortcutRecordingCommandId))
         {
             return;
@@ -296,7 +305,7 @@ public sealed partial class AppController
 
     private void OnSettingsWindowPreviewKeyUp(object sender, KeyEventArgs e)
     {
-        if (_settingsPage != SettingsPage.Shortcuts ||
+        if (!SupportsShortcutRecording(_settingsPage) ||
             _shortcutRecordingCommandId is not { Length: > 0 } commandId ||
             GlobalShortcutCatalog.Find(commandId) is not { IsEdgeCapsule: true } definition)
         {
@@ -351,7 +360,8 @@ public sealed partial class AppController
         resetAll.Click += (_, _) =>
         {
             EnsureShortcutDraft();
-            foreach (var definition in GlobalShortcutCatalog.Definitions)
+            foreach (var definition in GlobalShortcutCatalog.Definitions
+                         .Where(item => item.Group != GlobalShortcutGroup.Labs))
             {
                 _shortcutDraft![definition.Id] = definition.DefaultGesture;
                 _shortcutEnabledDraft![definition.Id] = definition.DefaultEnabled;
@@ -420,6 +430,88 @@ public sealed partial class AppController
         root.Children.Add(rows);
 
         return root;
+    }
+
+    private static bool SupportsShortcutRecording(SettingsPage page)
+    {
+        return page is SettingsPage.Shortcuts or SettingsPage.Labs;
+    }
+
+    private UIElement BuildLabsShortcutSetting(
+        GlobalShortcutDefinition definition,
+        string tipKey)
+    {
+        EnsureShortcutDraft();
+
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        var enabled = _shortcutEnabledDraft!.GetValueOrDefault(definition.Id);
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get(definition.LabelKey),
+                enabled,
+                () => SetShortcutEnabledImmediately(definition, !enabled)),
+            tipKey));
+
+        var shortcutRow = new Grid
+        {
+            Margin = new Thickness(0, 7, 0, 0)
+        };
+        shortcutRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        shortcutRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        shortcutRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var label = new TextBlock
+        {
+            Text = Strings.Get("LabsShortcut"),
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(11.5),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 10, 0)
+        };
+        Grid.SetColumn(label, 0);
+        shortcutRow.Children.Add(label);
+
+        var isRecording = _shortcutRecordingCommandId == definition.Id;
+        var keyButton = SettingsTextButton(isRecording
+            ? Strings.Get("ShortcutRecording")
+            : DisplayShortcut(_shortcutDraft![definition.Id]));
+        keyButton.MinWidth = 150;
+        keyButton.HorizontalAlignment = HorizontalAlignment.Left;
+        keyButton.Focusable = true;
+        keyButton.Click += (_, _) =>
+        {
+            _shortcutRecordingCommandId = definition.Id;
+            ClearShortcutApplyFailure();
+            RefreshSettingsWindowContent();
+            FocusShortcutRecorder();
+        };
+        Grid.SetColumn(keyButton, 1);
+        shortcutRow.Children.Add(keyButton);
+
+        var status = ShortcutStatusFor(definition);
+        var statusText = new TextBlock
+        {
+            Text = Strings.Get(StatusResourceKey(status)),
+            Foreground = StatusBrush(status),
+            FontSize = AppTypography.Scale(11.5),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 2, 0)
+        };
+        Grid.SetColumn(statusText, 2);
+        shortcutRow.Children.Add(statusText);
+
+        content.Children.Add(shortcutRow);
+        card.Child = content;
+        return card;
     }
 
     private void ToggleOpenEdgeCapsuleShortcutAtCursor()
@@ -1014,6 +1106,7 @@ public sealed partial class AppController
             _shortcutEnabledDraft![definition.Id] = enabled;
         }
 
+        HandleExperimentalShortcutFeatureChanged(definition, enabled);
         ClearShortcutApplyFailure();
         SaveNow();
         RefreshSettingsWindowContent();
@@ -1067,6 +1160,44 @@ public sealed partial class AppController
         ClearShortcutApplyFailure();
         SaveNow();
         RefreshSettingsWindowContent();
+    }
+
+    private void RestoreLabsShortcutDefaults()
+    {
+        EnsureShortcutDraft();
+        var labDefinitions = GlobalShortcutCatalog.DefinitionsInGroup(GlobalShortcutGroup.Labs);
+        var desiredBindings = GlobalShortcutCatalog.NormalizeBindings(State.GlobalHotkeys);
+        var desiredEnabled = GlobalShortcutCatalog.NormalizeEnabled(State.GlobalHotkeyEnabled);
+        foreach (var definition in labDefinitions)
+        {
+            desiredBindings[definition.Id] = definition.DefaultGesture;
+            desiredEnabled[definition.Id] = definition.DefaultEnabled;
+        }
+
+        var enabledCommandIds = GlobalShortcutCatalog.ExecutableIds
+            .Where(id => desiredEnabled.GetValueOrDefault(id))
+            .ToArray();
+        var manager = EnsureGlobalHotkeyManager();
+        if (!manager.TryApply(
+                desiredBindings,
+                enabledCommandIds,
+                out var failedCommandId,
+                out var registrationFailure))
+        {
+            RollbackShortcutDraftAfterFailure(failedCommandId, registrationFailure);
+            return;
+        }
+
+        State.GlobalHotkeys = desiredBindings;
+        State.GlobalHotkeyEnabled = desiredEnabled;
+        _shortcutDraft = new Dictionary<string, string>(desiredBindings, StringComparer.Ordinal);
+        _shortcutEnabledDraft = new Dictionary<string, bool>(desiredEnabled, StringComparer.Ordinal);
+        _shortcutRecordingCommandId = null;
+        foreach (var definition in labDefinitions)
+        {
+            HandleExperimentalShortcutFeatureChanged(definition, enabled: false);
+        }
+        ClearShortcutApplyFailure();
     }
 
     private void ActivateEdgeCapsuleShortcut(string preferredSide, int ordinal)

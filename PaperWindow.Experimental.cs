@@ -2,9 +2,91 @@ using System.Windows;
 
 namespace PaperTodo;
 
+[Flags]
+internal enum ExperimentalPassiveReason
+{
+    None = 0,
+    CurrentPaper = 1,
+    AllSurfaces = 2
+}
+
 public sealed partial class PaperWindow
 {
     private const int ExperimentalOpacityTransitionMilliseconds = 120;
+    private ExperimentalPassiveReason _experimentalPassiveReasons;
+    private bool _experimentalPassiveNativeApplied;
+    private bool _experimentalPassiveHadNoActivateStyle;
+
+    internal bool IsExperimentalPassive =>
+        _experimentalPassiveReasons != ExperimentalPassiveReason.None;
+
+    internal bool CanEnterCurrentExperimentalPassive =>
+        !IsClosed &&
+        IsVisible &&
+        WindowState != WindowState.Minimized;
+
+    internal void SetExperimentalPassiveReason(
+        ExperimentalPassiveReason reason,
+        bool enabled)
+    {
+        if (reason == ExperimentalPassiveReason.None)
+        {
+            return;
+        }
+
+        var previous = _experimentalPassiveReasons;
+        _experimentalPassiveReasons = enabled
+            ? previous | reason
+            : previous & ~reason;
+        if (previous == _experimentalPassiveReasons)
+        {
+            return;
+        }
+
+        if (_experimentalPassiveReasons != ExperimentalPassiveReason.None)
+        {
+            AbortAllInteractions(InteractionAbortReason.Deactivated);
+            if (IsActive)
+            {
+                WindowNative.ClearCurrentThreadKeyboardFocus();
+            }
+        }
+
+        ApplyExperimentalPassiveNativeState();
+        RefreshEffectiveTopmost();
+    }
+
+    private void ApplyExperimentalPassiveNativeState()
+    {
+        var passive = _experimentalPassiveReasons != ExperimentalPassiveReason.None;
+        if (passive)
+        {
+            if (!_experimentalPassiveNativeApplied)
+            {
+                _experimentalPassiveHadNoActivateStyle =
+                    WindowNative.HasNoActivateStyle(this);
+            }
+
+            WindowNative.SetNoActivateStyle(this, enabled: true);
+            WindowNative.SetInputPassthrough(this, enabled: true);
+            _experimentalPassiveNativeApplied = true;
+            return;
+        }
+
+        if (!_experimentalPassiveNativeApplied)
+        {
+            return;
+        }
+
+        WindowNative.SetInputPassthrough(this, enabled: false);
+        if (!_experimentalPassiveHadNoActivateStyle)
+        {
+            WindowNative.SetNoActivateStyle(this, enabled: false);
+        }
+
+        _experimentalPassiveNativeApplied = false;
+        _experimentalPassiveHadNoActivateStyle = false;
+    }
 
     internal void UpdateExperimentalOpacitySettings(bool animate = true)
     {

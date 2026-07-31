@@ -774,6 +774,21 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>대기 중 불투명도</value>
   </data>
+  <data name="LabsPassiveMode" xml:space="preserve">
+    <value>단축키로 뒤로 보내기</value>
+  </data>
+  <data name="LabsCurrentPaperPassive" xml:space="preserve">
+    <value>현재 메모를 클릭 통과 상태로 뒤로 보내기</value>
+  </data>
+  <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
+    <value>단축키를 누르면 마지막으로 활성화한 메모가 다른 창 뒤로 이동하고 클릭이 통과합니다. 다시 누르면 복원되며, 이 스위치를 꺼도 즉시 복원됩니다.</value>
+  </data>
+  <data name="LabsShortcut" xml:space="preserve">
+    <value>단축키</value>
+  </data>
+  <data name="TrayRestoreInteraction" xml:space="preserve">
+    <value>메모 및 캡슐 상호 작용 복원</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>전체 글꼴 크기</value>
   </data>

@@ -13,12 +13,14 @@ internal static class WindowNative
     private const int GwlpHwndParent = -8;
     private const int WsExNoActivate = 0x08000000;
     private const int WsExTopmost = 0x00000008;
+    private const int WsExTransparent = 0x00000020;
     private const int WsExToolWindow = 0x00000080;
     private const int WsExAppWindow = 0x00040000;
     private const int WmNcLButtonDown = 0x00A1;
     private const int HtCaption = 0x0002;
     private static readonly IntPtr DpiAwarenessContextSystemAware = new(-2);
     private static readonly IntPtr HwndTop = IntPtr.Zero;
+    private static readonly IntPtr HwndBottom = new(1);
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
     private const uint SwpNoSize = 0x0001;
@@ -65,6 +67,66 @@ internal static class WindowNative
 
         var exStyle = GetWindowLong(handle, GwlExStyle);
         SetWindowLong(handle, GwlExStyle, exStyle | WsExNoActivate);
+    }
+
+    public static bool HasNoActivateStyle(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return (GetWindowLong(handle, GwlExStyle) & WsExNoActivate) != 0;
+    }
+
+    public static void SetNoActivateStyle(Window window, bool enabled)
+    {
+        SetExtendedStyleFlag(window, WsExNoActivate, enabled);
+    }
+
+    public static void SetInputPassthrough(Window window, bool enabled)
+    {
+        SetExtendedStyleFlag(window, WsExTransparent, enabled);
+    }
+
+    private static void SetExtendedStyleFlag(Window window, int flag, bool enabled)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var exStyle = GetWindowLong(handle, GwlExStyle);
+        var updated = enabled ? exStyle | flag : exStyle & ~flag;
+        if (updated == exStyle)
+        {
+            return;
+        }
+
+        SetWindowLong(handle, GwlExStyle, updated);
+        SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate |
+            SwpFrameChanged | SwpNoOwnerZOrder);
+    }
+
+    public static void ApplyBottomZOrder(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowPos(
+            handle,
+            HwndBottom,
+            0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
     }
 
     public static void ApplyWindowSwitcherVisibility(

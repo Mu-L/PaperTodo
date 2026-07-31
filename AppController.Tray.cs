@@ -494,6 +494,14 @@ public sealed partial class AppController
         }
 
         menu.Items.Add(TraySeparator());
+        if (HasExperimentalPassiveSurfaces)
+        {
+            menu.Items.Add(TrayItem(
+                menu,
+                Strings.Get("TrayRestoreInteraction"),
+                RestoreAllExperimentalPassiveSurfaces));
+            menu.Items.Add(TraySeparator());
+        }
         menu.Items.Add(TrayItem(
             menu,
             Strings.Get("TrayExit"),

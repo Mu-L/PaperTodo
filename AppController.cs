@@ -1173,6 +1173,7 @@ public sealed partial class AppController : IDisposable
         var window = new PaperWindow(paper, this, deferShellConstruction);
         window.Closed += (_, _) =>
         {
+            NotifyPaperWindowClosed(window);
             if (_windows.TryGetValue(paperId, out var current) && ReferenceEquals(current, window))
             {
                 _windows.Remove(paperId);
@@ -1705,6 +1706,10 @@ public sealed partial class AppController : IDisposable
     public void HidePaper(PaperData paper)
     {
         _windows.TryGetValue(paper.Id, out var window);
+        if (window != null)
+        {
+            RestoreExperimentalPassiveForWindow(window);
+        }
         window?.PrepareForHide();
         paper.IsVisible = false;
         var visibilityVersion = NextVisibilityAnimationVersion(paper.Id);
@@ -1788,6 +1793,7 @@ public sealed partial class AppController : IDisposable
 
         foreach (var window in _windows.Values)
         {
+            RestoreExperimentalPassiveForWindow(window);
             window.PrepareForHide();
         }
 
@@ -1828,6 +1834,7 @@ public sealed partial class AppController : IDisposable
 
         if (_windows.TryGetValue(paper.Id, out var window))
         {
+            RestoreExperimentalPassiveForWindow(window);
             window.CloseForReal(saveBeforeClose: false);
             _windows.Remove(paper.Id);
         }

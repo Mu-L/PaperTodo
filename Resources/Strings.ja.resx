@@ -774,6 +774,21 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>待機中の不透明度</value>
   </data>
+  <data name="LabsPassiveMode" xml:space="preserve">
+    <value>ショートカットで背面化</value>
+  </data>
+  <data name="LabsCurrentPaperPassive" xml:space="preserve">
+    <value>現在の付箋をクリック透過して背面へ</value>
+  </data>
+  <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
+    <value>ショートカットを押すと、最後にアクティブだった付箋が他のウィンドウの背面に移動し、クリックが透過します。もう一度押すと復元し、このスイッチをオフにしてもすぐ復元します。</value>
+  </data>
+  <data name="LabsShortcut" xml:space="preserve">
+    <value>ショートカット</value>
+  </data>
+  <data name="TrayRestoreInteraction" xml:space="preserve">
+    <value>付箋とカプセルの操作を復元</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>全体の文字サイズ</value>
   </data>

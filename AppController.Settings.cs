@@ -778,13 +778,14 @@ public sealed partial class AppController
 
         var previousPage = _settingsPage;
         _settingsPage = page;
-        if (previousPage == SettingsPage.Shortcuts && page != SettingsPage.Shortcuts)
+        if (previousPage != page && SupportsShortcutRecording(previousPage))
         {
             // A rejected auto-save remains visible long enough to explain the rollback, then clears
-            // when the user leaves the shortcut page or starts the next shortcut interaction.
+            // when the user leaves a shortcut-bearing page or starts the next interaction.
+            _shortcutRecordingCommandId = null;
             ClearShortcutApplyFailure();
         }
-        if (page == SettingsPage.Shortcuts)
+        if (SupportsShortcutRecording(page))
         {
             EnsureShortcutDraft();
         }
@@ -1138,6 +1139,14 @@ public sealed partial class AppController
         columns.Children.Add(rightColumn);
         root.Children.Add(columns);
 
+        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsPassiveMode")));
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperPassive) is { } currentPassive)
+        {
+            root.Children.Add(BuildLabsShortcutSetting(
+                currentPassive,
+                "TipLabsCurrentPaperPassive"));
+        }
+
         return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
     }
 
@@ -1219,6 +1228,7 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacity = false;
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
+        RestoreLabsShortcutDefaults();
 
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);

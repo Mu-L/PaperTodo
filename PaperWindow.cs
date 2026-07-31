@@ -608,10 +608,12 @@ public sealed partial class PaperWindow : Window
                 source.AddHook(OnWindowMessage);
             }
 
+            ApplyExperimentalPassiveNativeState();
             RefreshEffectiveTopmost();
         };
         Activated += (_, _) =>
         {
+            _controller.NotifyPaperWindowActivated(this);
             _controller.RefreshFloatingSurfaceZOrder();
             RefreshExperimentalOpacity();
         };
@@ -820,6 +822,12 @@ public sealed partial class PaperWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == WmNcHitTest && IsExperimentalPassive)
+        {
+            handled = true;
+            return new IntPtr(HtTransparent);
+        }
+
         // Keep restore/maximize on the default system path; only native minimization is blocked.
         if (msg == WmSysCommand && (wParam.ToInt64() & SystemCommandMask) == ScMinimize)
         {
@@ -2532,12 +2540,17 @@ public sealed partial class PaperWindow : Window
 
     internal void RefreshEffectiveTopmost()
     {
-        var shouldBeTopmost = _paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed);
+        var shouldBeTopmost = !IsExperimentalPassive &&
+            (_paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed));
         var avoidanceWindow = _controller.FullscreenAvoidanceWindowFor(this);
         _mainWindowFullscreenAvoidanceWindow = avoidanceWindow;
         var effectiveTopmost = shouldBeTopmost && avoidanceWindow == IntPtr.Zero;
         Topmost = effectiveTopmost;
-        if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
+        if (IsExperimentalPassive && IsVisible)
+        {
+            WindowNative.ApplyBottomZOrder(this);
+        }
+        else if (IsVisible && (shouldBeTopmost || WindowNative.IsTopmost(this)))
         {
             WindowNative.ApplyTopmostZOrder(this, effectiveTopmost, avoidanceWindow);
         }

@@ -8,8 +8,16 @@ namespace PaperTodo;
 internal enum GlobalShortcutGroup
 {
     General,
+    Labs,
     EdgeLeft,
     EdgeRight
+}
+
+internal enum ExperimentalShortcutKind
+{
+    None,
+    CurrentPaperPassive,
+    AllSurfacesPassive
 }
 
 internal sealed record GlobalShortcutDefinition(
@@ -20,14 +28,17 @@ internal sealed record GlobalShortcutDefinition(
     StartupCommandKind StartupCommandKind = StartupCommandKind.None,
     string PreferredCapsuleSide = "",
     int EdgeOrdinal = 0,
-    bool DefaultEnabled = false)
+    bool DefaultEnabled = false,
+    ExperimentalShortcutKind ExperimentalKind = ExperimentalShortcutKind.None)
 {
     public bool IsEdgeCapsule =>
         EdgeOrdinal is >= 1 and <= 9 &&
         PreferredCapsuleSide is DeepCapsuleSides.Left or DeepCapsuleSides.Right;
 
     public bool IsExecutable =>
-        StartupCommandKind != StartupCommandKind.None || IsEdgeCapsule;
+        StartupCommandKind != StartupCommandKind.None ||
+        IsEdgeCapsule ||
+        ExperimentalKind != ExperimentalShortcutKind.None;
 }
 
 internal static class GlobalShortcutCatalog
@@ -38,6 +49,7 @@ internal static class GlobalShortcutCatalog
     public const string NewTodo = "startup.newTodo";
     public const string NewNote = "startup.newNote";
     public const string Exit = "startup.exit";
+    public const string CurrentPaperPassive = "labs.passiveCurrent";
 
     public static IReadOnlyList<GlobalShortcutDefinition> Definitions { get; } = BuildDefinitions();
 
@@ -53,7 +65,7 @@ internal static class GlobalShortcutCatalog
     {
         source ??= new Dictionary<string, string>();
         var normalized = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var definition in Definitions.Where(item => item.Group == GlobalShortcutGroup.General))
+        foreach (var definition in Definitions.Where(item => !item.IsEdgeCapsule))
         {
             if (!source.TryGetValue(definition.Id, out var configured))
             {
@@ -96,7 +108,7 @@ internal static class GlobalShortcutCatalog
     {
         source ??= new Dictionary<string, bool>();
         var normalized = new Dictionary<string, bool>(StringComparer.Ordinal);
-        foreach (var definition in Definitions.Where(item => item.Group == GlobalShortcutGroup.General))
+        foreach (var definition in Definitions.Where(item => !item.IsEdgeCapsule))
         {
             normalized[definition.Id] = source.TryGetValue(definition.Id, out var enabled)
                 ? enabled
@@ -193,7 +205,13 @@ internal static class GlobalShortcutCatalog
             new(Toggle, "ShortcutToggleVisibility", "", GlobalShortcutGroup.General, StartupCommandKind.Toggle),
             new(NewTodo, "ShortcutNewTodo", "", GlobalShortcutGroup.General, StartupCommandKind.NewTodo),
             new(NewNote, "ShortcutNewNote", "", GlobalShortcutGroup.General, StartupCommandKind.NewNote),
-            new(Exit, "ShortcutExit", "", GlobalShortcutGroup.General, StartupCommandKind.Exit)
+            new(Exit, "ShortcutExit", "", GlobalShortcutGroup.General, StartupCommandKind.Exit),
+            new(
+                CurrentPaperPassive,
+                "LabsCurrentPaperPassive",
+                "Ctrl+Alt+Shift+P",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.CurrentPaperPassive)
         };
 
         for (var ordinal = 1; ordinal <= 9; ordinal++)

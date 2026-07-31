@@ -774,6 +774,21 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>Resting opacity</value>
   </data>
+  <data name="LabsPassiveMode" xml:space="preserve">
+    <value>Shortcut pass-through</value>
+  </data>
+  <data name="LabsCurrentPaperPassive" xml:space="preserve">
+    <value>Send current paper behind and make it click-through</value>
+  </data>
+  <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
+    <value>The shortcut sends the most recently active paper behind other windows and lets clicks pass through. Press it again to restore; turning this switch off also restores immediately.</value>
+  </data>
+  <data name="LabsShortcut" xml:space="preserve">
+    <value>Shortcut</value>
+  </data>
+  <data name="TrayRestoreInteraction" xml:space="preserve">
+    <value>Restore paper and capsule interaction</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>Overall font size</value>
   </data>

@@ -787,6 +787,21 @@
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>静止透明度</value>
   </data>
+  <data name="LabsPassiveMode" xml:space="preserve">
+    <value>快捷键置底</value>
+  </data>
+  <data name="LabsCurrentPaperPassive" xml:space="preserve">
+    <value>当前纸片不可选中并置底</value>
+  </data>
+  <data name="TipLabsCurrentPaperPassive" xml:space="preserve">
+    <value>按快捷键后，最近激活的纸片会穿透鼠标点击并置于其他窗口之后；再次按下即可恢复。关闭此开关也会立即恢复。</value>
+  </data>
+  <data name="LabsShortcut" xml:space="preserve">
+    <value>快捷键</value>
+  </data>
+  <data name="TrayRestoreInteraction" xml:space="preserve">
+    <value>恢复纸片与胶囊交互</value>
+  </data>
   <data name="SettingsOverallFontScale" xml:space="preserve">
     <value>整体字体大小</value>
   </data>

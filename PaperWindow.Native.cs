@@ -51,6 +51,7 @@ public sealed partial class PaperWindow
     private const int HtBottom = 15;
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
+    private const int HtTransparent = -1;
     private const int ScMinimize = 0xF020;
     private const int SystemCommandMask = 0xFFF0;
     private const int VkEscape = 0x1B;
