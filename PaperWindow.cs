@@ -340,21 +340,103 @@ public sealed partial class PaperWindow : Window
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
         style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0.0));
 
+        var rootGrid = new FrameworkElementFactory(typeof(Grid));
+
         var border = new FrameworkElementFactory(typeof(Border));
         border.Name = "Bd";
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusControl));
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
+        var itemGrid = new FrameworkElementFactory(typeof(Grid));
+
+        var checkColumn = new FrameworkElementFactory(typeof(ColumnDefinition));
+        checkColumn.SetValue(ColumnDefinition.WidthProperty, GridLength.Auto);
+        itemGrid.AppendChild(checkColumn);
+
+        var contentColumn = new FrameworkElementFactory(typeof(ColumnDefinition));
+        contentColumn.SetValue(
+            ColumnDefinition.WidthProperty,
+            new GridLength(1, GridUnitType.Star));
+        itemGrid.AppendChild(contentColumn);
+
+        var arrowColumn = new FrameworkElementFactory(typeof(ColumnDefinition));
+        arrowColumn.SetValue(ColumnDefinition.WidthProperty, GridLength.Auto);
+        itemGrid.AppendChild(arrowColumn);
+
+        var checkHost = new FrameworkElementFactory(typeof(Border));
+        checkHost.Name = "CheckHost";
+        checkHost.SetValue(FrameworkElement.WidthProperty, AppTypography.Scale(13));
+        checkHost.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 6, 0));
+        checkHost.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+        checkHost.SetValue(Grid.ColumnProperty, 0);
+
+        var checkMark = new FrameworkElementFactory(typeof(TextBlock));
+        checkMark.Name = "CheckMark";
+        checkMark.SetValue(TextBlock.TextProperty, "✓");
+        checkMark.SetValue(TextBlock.FontSizeProperty, AppTypography.Scale(11));
+        checkMark.SetValue(UIElement.OpacityProperty, 0.0);
+        checkMark.SetValue(
+            FrameworkElement.HorizontalAlignmentProperty,
+            HorizontalAlignment.Center);
+        checkMark.SetValue(
+            FrameworkElement.VerticalAlignmentProperty,
+            VerticalAlignment.Center);
+        checkHost.AppendChild(checkMark);
+        itemGrid.AppendChild(checkHost);
+
         var content = new FrameworkElementFactory(typeof(ContentPresenter));
         content.SetValue(ContentPresenter.ContentSourceProperty, "Header");
         content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
         content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(content);
+        content.SetValue(Grid.ColumnProperty, 1);
+        itemGrid.AppendChild(content);
+
+        var arrow = new FrameworkElementFactory(typeof(TextBlock));
+        arrow.Name = "SubMenuArrow";
+        arrow.SetValue(TextBlock.TextProperty, "›");
+        arrow.SetValue(TextBlock.FontSizeProperty, AppTypography.Scale(14));
+        arrow.SetValue(FrameworkElement.MarginProperty, new Thickness(12, 0, 0, 0));
+        arrow.SetValue(
+            FrameworkElement.VerticalAlignmentProperty,
+            VerticalAlignment.Center);
+        arrow.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+        arrow.SetValue(Grid.ColumnProperty, 2);
+        itemGrid.AppendChild(arrow);
+
+        border.AppendChild(itemGrid);
+        rootGrid.AppendChild(border);
+
+        var popup = new FrameworkElementFactory(typeof(Popup));
+        popup.Name = "PART_Popup";
+        popup.SetValue(
+            Popup.IsOpenProperty,
+            new TemplateBindingExtension(WpfMenuItem.IsSubmenuOpenProperty));
+        popup.SetValue(Popup.PlacementProperty, PlacementMode.Right);
+        popup.SetValue(Popup.AllowsTransparencyProperty, true);
+        popup.SetValue(Popup.FocusableProperty, false);
+        popup.SetValue(Popup.PopupAnimationProperty, PopupAnimation.Fade);
+
+        var popupBorder = new FrameworkElementFactory(typeof(Border));
+        popupBorder.SetValue(
+            Border.BackgroundProperty,
+            new DynamicResourceExtension("PaperBrushKey"));
+        popupBorder.SetValue(
+            Border.BorderBrushProperty,
+            new DynamicResourceExtension("PaperBorderBrushKey"));
+        popupBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        popupBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(RadiusBlock));
+        popupBorder.SetValue(Border.PaddingProperty, new Thickness(4));
+
+        var itemsPresenter = new FrameworkElementFactory(typeof(ItemsPresenter));
+        itemsPresenter.Name = "ItemsPresenter";
+        popupBorder.AppendChild(itemsPresenter);
+        popup.AppendChild(popupBorder);
+        rootGrid.AppendChild(popup);
 
         var template = new ControlTemplate(typeof(MenuItem))
         {
-            VisualTree = border
+            VisualTree = rootGrid
         };
 
         var hover = new Trigger
@@ -364,6 +446,33 @@ public sealed partial class PaperWindow : Window
         };
         hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("HoverBrushKey"), "Bd"));
 
+        var checkable = new Trigger
+        {
+            Property = WpfMenuItem.IsCheckableProperty,
+            Value = true
+        };
+        checkable.Setters.Add(new Setter(
+            UIElement.VisibilityProperty,
+            Visibility.Visible,
+            "CheckHost"));
+
+        var isChecked = new Trigger
+        {
+            Property = WpfMenuItem.IsCheckedProperty,
+            Value = true
+        };
+        isChecked.Setters.Add(new Setter(UIElement.OpacityProperty, 1.0, "CheckMark"));
+
+        var hasItems = new Trigger
+        {
+            Property = WpfMenuItem.HasItemsProperty,
+            Value = true
+        };
+        hasItems.Setters.Add(new Setter(
+            UIElement.VisibilityProperty,
+            Visibility.Visible,
+            "SubMenuArrow"));
+
         var disabled = new Trigger
         {
             Property = UIElement.IsEnabledProperty,
@@ -372,6 +481,9 @@ public sealed partial class PaperWindow : Window
         disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.72));
 
         template.Triggers.Add(hover);
+        template.Triggers.Add(checkable);
+        template.Triggers.Add(isChecked);
+        template.Triggers.Add(hasItems);
         template.Triggers.Add(disabled);
 
         style.Setters.Add(new Setter(Control.TemplateProperty, template));

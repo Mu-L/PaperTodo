@@ -50,11 +50,13 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Visibility = Visibility.Collapsed
+            IsHitTestVisible = false
         };
+        _webView.SetValue(UIElement.OpacityProperty, 0.0);
         _root.Children.Add(BuildStatusView(Strings.Get("PluginsWebLoading")));
         _root.Children.Add(_webView);
         _root.Loaded += OnRootLoaded;
+        _root.SizeChanged += OnRootSizeChanged;
     }
 
     public FrameworkElement View => _root;
@@ -65,13 +67,22 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         TryStartInitialization();
     }
 
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e) =>
+        TryStartInitialization();
+
     private void TryStartInitialization()
     {
-        if (_initializationStarted || !_visible || _disposed || !_root.IsLoaded)
+        if (_initializationStarted ||
+            !_visible ||
+            _disposed ||
+            !_root.IsLoaded ||
+            _root.ActualWidth <= 0 ||
+            _root.ActualHeight <= 0)
         {
             return;
         }
         _initializationStarted = true;
+        _root.SizeChanged -= OnRootSizeChanged;
         _ = InitializeAsync(_lifetime.Token);
     }
 
@@ -269,7 +280,14 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 _root.Children.RemoveAt(index);
             }
         }
-        _webView.Visibility = _visible ? Visibility.Visible : Visibility.Collapsed;
+        UpdateWebViewPresentation();
+    }
+
+    private void UpdateWebViewPresentation()
+    {
+        var show = _visible && _documentReady && !_disposed;
+        _webView.SetValue(UIElement.OpacityProperty, show ? 1.0 : 0.0);
+        _webView.IsHitTestVisible = show;
     }
 
     private void SendInitialize()
@@ -397,7 +415,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
 
         _documentReady = false;
-        _webView.Visibility = Visibility.Collapsed;
+        UpdateWebViewPresentation();
         _context.SetCapsuleText("");
         for (var index = _root.Children.Count - 1; index >= 0; index--)
         {
@@ -543,9 +561,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         {
             TryStartInitialization();
         }
-        _webView.Visibility = visible && _documentReady
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        UpdateWebViewPresentation();
         Send(new { type = "visibilityChanged", visible });
     }
 
@@ -581,6 +597,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         _disposed = true;
         _lifetime.Cancel();
         _root.Loaded -= OnRootLoaded;
+        _root.SizeChanged -= OnRootSizeChanged;
         if (_webView.CoreWebView2 is { } core)
         {
             core.WebMessageReceived -= OnWebMessageReceived;
