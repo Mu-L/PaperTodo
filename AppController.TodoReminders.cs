@@ -94,7 +94,48 @@ public sealed partial class AppController
             return;
         }
 
+        CheckTodoRemindersNow();
+    }
+
+    private void RequestImmediateTodoReminderCheck()
+    {
+        if (IsExiting || !State.ExperimentalTodoReminders)
+        {
+            return;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null)
+        {
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(
+            (Action)CheckTodoRemindersNow,
+            DispatcherPriority.Background);
+    }
+
+    private void OnSystemTimeChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (IsExiting || !State.ExperimentalTodoReminders)
+        {
+            return;
+        }
+
+        TimeZoneInfo.ClearCachedData();
+        RequestImmediateTodoReminderCheck();
+    }
+
+    private void CheckTodoRemindersNow()
+    {
         StopTodoReminderTimer();
+        if (IsExiting || !State.ExperimentalTodoReminders)
+        {
+            return;
+        }
+
         var now = DateTimeOffset.Now;
         foreach (var window in _windows.Values)
         {
@@ -141,6 +182,15 @@ public sealed partial class AppController
         SaveNow();
         try
         {
+            OpenTodoReminderTarget(due[0].Paper, due[0].Item);
+        }
+        catch
+        {
+            // A stale paper surface must not suppress the tray notification
+            // or stop future reminder scheduling.
+        }
+        try
+        {
             ShowTodoReminderBalloon(due);
         }
         catch
@@ -148,6 +198,17 @@ public sealed partial class AppController
             // A stale shell notification area must not break future reminder scheduling.
         }
         RefreshTodoReminderSchedule();
+    }
+
+    private void OpenTodoReminderTarget(
+        PaperData paper,
+        PaperItem item)
+    {
+        ShowPaper(paper, activate: false);
+        if (_windows.TryGetValue(paper.Id, out var window))
+        {
+            window.OpenTodoReminderItem(item.Id);
+        }
     }
 
     private void ShowTodoReminderBalloon(

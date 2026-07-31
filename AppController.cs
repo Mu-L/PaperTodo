@@ -214,6 +214,7 @@ public sealed partial class AppController : IDisposable
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         SystemEvents.SessionSwitch += OnSessionSwitch;
+        SystemEvents.TimeChanged += OnSystemTimeChanged;
     }
 
     private bool StripInternalImageRenderMarkersFromState()
@@ -1647,6 +1648,10 @@ public sealed partial class AppController : IDisposable
         {
             RefreshTopmostAfterSystemResume();
         }
+        if (e.Mode == PowerModes.Resume)
+        {
+            RequestImmediateTodoReminderCheck();
+        }
     }
 
     private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
@@ -1654,6 +1659,7 @@ public sealed partial class AppController : IDisposable
         if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.ConsoleConnect or SessionSwitchReason.RemoteConnect)
         {
             RefreshTopmostAfterSystemResume();
+            RequestImmediateTodoReminderCheck();
         }
     }
 
@@ -3530,6 +3536,7 @@ public sealed partial class AppController : IDisposable
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.SessionSwitch -= OnSessionSwitch;
+        SystemEvents.TimeChanged -= OnSystemTimeChanged;
         _saveTimer.Stop();
         _forceSaveTimer.Stop();
         _topmostRefreshTimer.Stop();

@@ -34,6 +34,29 @@ public sealed partial class PaperWindow
         }
     }
 
+    internal void OpenTodoReminderItem(string itemId)
+    {
+        if (_paper.Type != PaperTypes.Todo ||
+            !_paper.Items.Any(item =>
+                string.Equals(
+                    item.Id,
+                    itemId,
+                    StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _pendingFocusItemId = itemId;
+        if (_paper.IsCollapsed)
+        {
+            OpenCapsuleForEditing();
+            return;
+        }
+
+        RebuildTodoRows(itemId);
+        _controller.BringPaperToFront(_paper);
+    }
+
     internal void RefreshTodoReminderCountdowns(DateTimeOffset now)
     {
         if (_paper.Type != PaperTypes.Todo ||

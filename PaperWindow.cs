@@ -1804,7 +1804,22 @@ public sealed partial class PaperWindow : Window
         }
 
         EndTitleBarDragGesture();
-        _titleBarDragSession = new TitleBarDragSession(dragSource, e.GetPosition(this));
+        var startPosition = e.GetPosition(this);
+        var tetherAnchor = CaptureExperimentalTetherDragAnchor();
+        var startScreenPosition = default(DeviceScreenPoint);
+        if (tetherAnchor.HasValue)
+        {
+            startScreenPosition =
+                WindowNative.TryGetCursorScreenPosition(out var cursor)
+                    ? cursor
+                    : DeviceScreenPoint.FromPoint(
+                        PointToScreen(startPosition));
+        }
+        _titleBarDragSession = new TitleBarDragSession(
+            dragSource,
+            startPosition,
+            startScreenPosition,
+            tetherAnchor);
         dragSource.CaptureMouse();
         e.Handled = true;
     }
@@ -1821,6 +1836,38 @@ public sealed partial class PaperWindow : Window
         {
             EndTitleBarDragGesture(dragSource);
             return;
+        }
+
+        if (session.TetherAnchor is { } tetherAnchor &&
+            WindowNative.TryGetCursorScreenPosition(
+                out var currentScreenPosition))
+        {
+            var tetherUpdate = UpdateExperimentalTetherDrag(
+                tetherAnchor,
+                session.StartScreenPosition,
+                currentScreenPosition);
+            if (tetherUpdate is
+                ExperimentalTetherDragUpdate.Pending or
+                ExperimentalTetherDragUpdate.Sliding)
+            {
+                session.TetherMoved |=
+                    tetherUpdate ==
+                    ExperimentalTetherDragUpdate.Sliding;
+                e.Handled = true;
+                return;
+            }
+
+            if (tetherUpdate ==
+                ExperimentalTetherDragUpdate.Detach)
+            {
+                EndTitleBarDragGesture(dragSource);
+                DetachExperimentalAttachmentBeforeUserDrag();
+                _ = WindowNative.TryBeginWindowCaptionDrag(
+                    this,
+                    currentScreenPosition);
+                e.Handled = true;
+                return;
+            }
         }
 
         var current = e.GetPosition(this);
@@ -1853,6 +1900,10 @@ public sealed partial class PaperWindow : Window
         if (session?.Source.IsMouseCaptured == true)
         {
             session.Source.ReleaseMouseCapture();
+        }
+        if (session?.TetherMoved == true)
+        {
+            SaveGeometryForCurrentPresentation();
         }
     }
 
@@ -2328,11 +2379,15 @@ public sealed partial class PaperWindow : Window
     {
         var shouldBeTopmost = !IsExperimentalPassive &&
             (_paper.AlwaysOnTop || (_controller.State.UseCapsuleMode && _paper.IsCollapsed));
-        var avoidanceWindow = _controller.FullscreenAvoidanceWindowFor(this);
-        _mainWindowFullscreenAvoidanceWindow = avoidanceWindow;
+        var fullscreenAvoidanceWindow =
+            _controller.FullscreenAvoidanceWindowFor(this);
+        var avoidanceWindow = ResolveExperimentalCapsuleFollowZOrderTarget(
+            fullscreenAvoidanceWindow);
+        _mainWindowFullscreenAvoidanceWindow =
+            fullscreenAvoidanceWindow;
         var effectiveTopmost = shouldBeTopmost &&
             (avoidanceWindow == IntPtr.Zero ||
-             ShouldKeepExperimentalCapsulePeekAboveTarget);
+             ShouldKeepExperimentalCapsuleFollowAboveTarget);
         Topmost = effectiveTopmost;
         if (IsExperimentalPassive && IsVisible)
         {

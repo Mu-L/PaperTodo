@@ -965,7 +965,7 @@
     <value>自定义待办提醒</value>
   </data>
   <data name="TodoReminderCustomHint" xml:space="preserve">
-    <value>直接输入日期，或用按钮快速微调。</value>
+    <value>直接输入日期和时间；按钮可逐日、逐分钟微调。</value>
   </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>日期</value>
@@ -981,6 +981,9 @@
   </data>
   <data name="TodoReminderInvalidDate" xml:space="preserve">
     <value>请输入有效日期，例如 2026-08-01。</value>
+  </data>
+  <data name="TodoReminderInvalidTime" xml:space="preserve">
+    <value>请输入有效时间，例如 09:30。</value>
   </data>
   <data name="TodoReminderSelectionFormat" xml:space="preserve">
     <value>{0} · {1:00}:{2:00}</value>

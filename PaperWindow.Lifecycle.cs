@@ -32,14 +32,23 @@ public sealed partial class PaperWindow
 
     private sealed class TitleBarDragSession
     {
-        public TitleBarDragSession(FrameworkElement source, Point startPosition)
+        public TitleBarDragSession(
+            FrameworkElement source,
+            Point startPosition,
+            DeviceScreenPoint startScreenPosition,
+            ExperimentalTetherDragAnchor? tetherAnchor)
         {
             Source = source;
             StartPosition = startPosition;
+            StartScreenPosition = startScreenPosition;
+            TetherAnchor = tetherAnchor;
         }
 
         public FrameworkElement Source { get; }
         public Point StartPosition { get; }
+        public DeviceScreenPoint StartScreenPosition { get; }
+        public ExperimentalTetherDragAnchor? TetherAnchor { get; }
+        public bool TetherMoved { get; set; }
     }
 
     private PaperWindowLifecycleState _windowLifecycle = PaperWindowLifecycleState.Alive;

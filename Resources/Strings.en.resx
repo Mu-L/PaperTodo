@@ -952,7 +952,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Custom todo reminder</value>
   </data>
   <data name="TodoReminderCustomHint" xml:space="preserve">
-    <value>Type a date directly, or use the buttons for quick adjustments.</value>
+    <value>Type the date and time; buttons adjust by one day or minute.</value>
   </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>Date</value>
@@ -968,6 +968,9 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="TodoReminderInvalidDate" xml:space="preserve">
     <value>Enter a valid date, for example 2026-08-01.</value>
+  </data>
+  <data name="TodoReminderInvalidTime" xml:space="preserve">
+    <value>Enter a valid time, for example 09:30.</value>
   </data>
   <data name="TodoReminderSelectionFormat" xml:space="preserve">
     <value>{0} · {1:00}:{2:00}</value>

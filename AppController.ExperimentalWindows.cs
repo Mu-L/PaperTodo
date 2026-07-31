@@ -93,6 +93,14 @@ public sealed partial class AppController
         _experimentalFollowRendering = true;
     }
 
+    internal void RequestExperimentalWindowFrames()
+    {
+        if (NeedsExternalWindowTracker)
+        {
+            BeginExperimentalFollowFrames();
+        }
+    }
+
     private void OnExperimentalFollowRendering(
         object? sender,
         EventArgs e)

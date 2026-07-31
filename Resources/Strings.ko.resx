@@ -952,7 +952,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>할 일 알림 사용자 지정</value>
   </data>
   <data name="TodoReminderCustomHint" xml:space="preserve">
-    <value>날짜를 직접 입력하거나 버튼으로 빠르게 조정하세요.</value>
+    <value>날짜와 시간을 입력하고 버튼으로 하루·1분씩 조정하세요.</value>
   </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>날짜</value>
@@ -968,6 +968,9 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   </data>
   <data name="TodoReminderInvalidDate" xml:space="preserve">
     <value>2026-08-01과 같은 올바른 날짜를 입력하세요.</value>
+  </data>
+  <data name="TodoReminderInvalidTime" xml:space="preserve">
+    <value>09:30과 같은 올바른 시간을 입력하세요.</value>
   </data>
   <data name="TodoReminderSelectionFormat" xml:space="preserve">
     <value>{0} · {1:00}:{2:00}</value>

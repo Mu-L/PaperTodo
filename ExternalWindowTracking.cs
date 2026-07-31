@@ -275,6 +275,12 @@ internal static class ExternalWindowNative
         int maximumCount = 24)
     {
         var results = new List<ExternalWindowSnapshot>();
+        var occluders = new List<DeviceScreenRect>();
+        var visibleAreas = WindowWorkAreaHelper
+            .ConnectedMonitorGeometries()
+            .Select(monitor => monitor.WorkArea)
+            .Where(area => !area.IsEmpty)
+            .ToArray();
         var shellWindow = GetShellWindow();
         _ = EnumWindows((hwnd, _) =>
         {
@@ -283,12 +289,26 @@ internal static class ExternalWindowNative
                 return false;
             }
 
-            if (hwnd != shellWindow &&
-                TryGetSelectableTarget(hwnd, out var snapshot))
+            if (hwnd == shellWindow ||
+                !TryGetSnapshot(hwnd, out var snapshot) ||
+                !snapshot.IsUsableTarget)
+            {
+                return true;
+            }
+
+            if (IsSelectableTarget(hwnd, snapshot) &&
+                HasExposedArea(
+                    snapshot.Bounds,
+                    visibleAreas,
+                    occluders))
             {
                 results.Add(snapshot);
             }
 
+            // EnumWindows is ordered from top to bottom. Every usable external
+            // window already visited therefore hides the rectangular area it
+            // covers from candidates below it.
+            occluders.Add(snapshot.Bounds);
             return true;
         }, IntPtr.Zero);
         return results;
@@ -305,7 +325,8 @@ internal static class ExternalWindowNative
         _ = EnumWindows((hwnd, _) =>
         {
             if (hwnd == shellWindow ||
-                !TryGetSelectableTarget(hwnd, out var candidate) ||
+                !TryGetSnapshot(hwnd, out var candidate) ||
+                !candidate.IsUsableTarget ||
                 x < candidate.Bounds.Left ||
                 x >= candidate.Bounds.Right ||
                 y < candidate.Bounds.Top ||
@@ -314,9 +335,12 @@ internal static class ExternalWindowNative
                 return true;
             }
 
-            // EnumWindows walks top-level windows in z-order, so the first usable
-            // external window under the pointer is the one the user can see.
-            match = candidate;
+            // Do not bind through a visible tool/dialog/overlay to a selectable
+            // window hidden below it.
+            if (IsSelectableTarget(hwnd, candidate))
+            {
+                match = candidate;
+            }
             return false;
         }, IntPtr.Zero);
 
@@ -449,16 +473,123 @@ internal static class ExternalWindowNative
     private static bool IsToolWindow(IntPtr hwnd) =>
         (GetWindowLong(hwnd, GwlExStyle) & WsExToolWindow) != 0;
 
-    private static bool TryGetSelectableTarget(
+    private static bool IsSelectableTarget(
         IntPtr hwnd,
-        out ExternalWindowSnapshot snapshot)
+        ExternalWindowSnapshot snapshot)
     {
-        return TryGetSnapshot(hwnd, out snapshot) &&
-            snapshot.IsUsableTarget &&
+        return snapshot.IsUsableTarget &&
             !IsToolWindow(hwnd) &&
             snapshot.Title.Length > 0 &&
             snapshot.Bounds.Width >= MinimumTargetWidth &&
             snapshot.Bounds.Height >= MinimumTargetHeight;
+    }
+
+    private static bool HasExposedArea(
+        DeviceScreenRect target,
+        IReadOnlyList<DeviceScreenRect> visibleAreas,
+        IReadOnlyList<DeviceScreenRect> occluders)
+    {
+        var exposed = new List<DeviceScreenRect>();
+        if (visibleAreas.Count == 0)
+        {
+            exposed.Add(target);
+        }
+        else
+        {
+            foreach (var visibleArea in visibleAreas)
+            {
+                if (TryIntersect(
+                        target,
+                        visibleArea,
+                        out var onScreen))
+                {
+                    exposed.Add(onScreen);
+                }
+            }
+        }
+
+        if (exposed.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var occluder in occluders)
+        {
+            if (!TryIntersect(target, occluder, out _))
+            {
+                continue;
+            }
+
+            var remainder = new List<DeviceScreenRect>();
+            foreach (var area in exposed)
+            {
+                Subtract(area, occluder, remainder);
+            }
+
+            if (remainder.Count == 0)
+            {
+                return false;
+            }
+            exposed = remainder;
+        }
+
+        return exposed.Count > 0;
+    }
+
+    private static void Subtract(
+        DeviceScreenRect source,
+        DeviceScreenRect cover,
+        ICollection<DeviceScreenRect> remainder)
+    {
+        if (!TryIntersect(source, cover, out var overlap))
+        {
+            remainder.Add(source);
+            return;
+        }
+
+        AddIfVisible(remainder, new DeviceScreenRect(
+            source.Left,
+            source.Top,
+            source.Right,
+            overlap.Top));
+        AddIfVisible(remainder, new DeviceScreenRect(
+            source.Left,
+            overlap.Bottom,
+            source.Right,
+            source.Bottom));
+        AddIfVisible(remainder, new DeviceScreenRect(
+            source.Left,
+            overlap.Top,
+            overlap.Left,
+            overlap.Bottom));
+        AddIfVisible(remainder, new DeviceScreenRect(
+            overlap.Right,
+            overlap.Top,
+            source.Right,
+            overlap.Bottom));
+    }
+
+    private static bool TryIntersect(
+        DeviceScreenRect first,
+        DeviceScreenRect second,
+        out DeviceScreenRect intersection)
+    {
+        intersection = new DeviceScreenRect(
+            Math.Max(first.Left, second.Left),
+            Math.Max(first.Top, second.Top),
+            Math.Min(first.Right, second.Right),
+            Math.Min(first.Bottom, second.Bottom));
+        return !intersection.IsEmpty;
+    }
+
+    private static void AddIfVisible(
+        ICollection<DeviceScreenRect> areas,
+        DeviceScreenRect area)
+    {
+        if (!area.IsEmpty)
+        {
+            areas.Add(area);
+        }
     }
 
     private static bool IsCloaked(IntPtr hwnd) =>

@@ -39,13 +39,11 @@ internal readonly record struct ExperimentalAttachmentPlan(
     DeviceScreenRect WindowBounds,
     double ScoreDip);
 
-internal static class ExperimentalWindowAttachmentGeometry
+internal static partial class ExperimentalWindowAttachmentGeometry
 {
     private const double MinimumTetherHandleWidthDip = 48;
     private const double MinimumTetherHandleHeightDip = 12;
     private const double TetherTitleBarHeightDip = 34;
-    private const double CapsulePeekWidthDip = 26;
-    private const double CapsulePeekHeightDip = 12;
 
     public static bool TryPlanCapsuleMagnet(
         DeviceScreenRect capsuleBounds,
@@ -300,87 +298,6 @@ internal static class ExperimentalWindowAttachmentGeometry
             top + bounds.Height);
     }
 
-    public static DeviceScreenRect ResolveCapsuleFollow(
-        ExperimentalWindowAttachmentSession session,
-        DeviceScreenRect targetBounds,
-        DeviceScreenRect currentWindowBounds,
-        MonitorGeometry monitor,
-        IReadOnlyList<MonitorGeometry> connectedMonitors,
-        out bool usesPeek)
-    {
-        usesPeek = false;
-        var edgeScale = session.Edge is
-            ExperimentalAttachmentEdge.Left or
-            ExperimentalAttachmentEdge.Right
-                ? monitor.DpiScaleX
-                : monitor.DpiScaleY;
-        var desired = Resolve(
-            session,
-            targetBounds,
-            currentWindowBounds,
-            edgeScale);
-        if (desired.IsEmpty ||
-            session.TargetKind !=
-                ExperimentalAttachmentTargetKind.ExternalWindow)
-        {
-            return desired;
-        }
-
-        var targetCoversMonitor =
-            TargetCoversWorkArea(
-                targetBounds,
-                monitor.WorkArea,
-                Math.Max(
-                    monitor.DpiScaleX,
-                    monitor.DpiScaleY));
-        if (targetCoversMonitor)
-        {
-            var outsideSession = session with
-            {
-                InsideTarget = false
-            };
-            desired = Resolve(
-                outsideSession,
-                targetBounds,
-                currentWindowBounds,
-                edgeScale);
-            usesPeek = true;
-            return PlaceCapsulePeek(
-                desired,
-                monitor.WorkArea,
-                session.Edge,
-                monitor.DpiScaleX,
-                monitor.DpiScaleY,
-                forceExactPeek: true);
-        }
-
-        if (session.InsideTarget ||
-            IsContainedByAnyMonitor(
-                desired,
-                connectedMonitors))
-        {
-            return desired;
-        }
-
-        if (HasCapsulePeekOnAnyMonitor(
-                desired,
-                connectedMonitors,
-                session.Edge))
-        {
-            usesPeek = true;
-            return desired;
-        }
-
-        usesPeek = true;
-        return PlaceCapsulePeek(
-            desired,
-            monitor.WorkArea,
-            session.Edge,
-            monitor.DpiScaleX,
-            monitor.DpiScaleY,
-            forceExactPeek: false);
-    }
-
     private static void AddScreenCandidates(
         ICollection<ExperimentalAttachmentPlan> candidates,
         DeviceScreenRect capsuleBounds,
@@ -625,142 +542,6 @@ internal static class ExperimentalWindowAttachmentGeometry
                   window.Left <= target.Right + tolerance;
     }
 
-    private static bool IsContainedBy(
-        DeviceScreenRect inner,
-        DeviceScreenRect outer) =>
-        inner.Left >= outer.Left &&
-        inner.Top >= outer.Top &&
-        inner.Right <= outer.Right &&
-        inner.Bottom <= outer.Bottom;
-
-    private static bool TargetCoversWorkArea(
-        DeviceScreenRect target,
-        DeviceScreenRect workArea,
-        double dpiScale)
-    {
-        var tolerance = Math.Max(
-            2,
-            RoundDevice(2 * Math.Max(1, dpiScale)));
-        return target.Left <= workArea.Left + tolerance &&
-            target.Top <= workArea.Top + tolerance &&
-            target.Right >= workArea.Right - tolerance &&
-            target.Bottom >= workArea.Bottom - tolerance;
-    }
-
-    private static bool HasCapsulePeekOnAnyMonitor(
-        DeviceScreenRect bounds,
-        IReadOnlyList<MonitorGeometry> monitors,
-        ExperimentalAttachmentEdge edge)
-    {
-        foreach (var monitor in monitors)
-        {
-            var area = monitor.WorkArea;
-            var visibleWidth = Math.Max(
-                0,
-                Math.Min(bounds.Right, area.Right) -
-                Math.Max(bounds.Left, area.Left));
-            var visibleHeight = Math.Max(
-                0,
-                Math.Min(bounds.Bottom, area.Bottom) -
-                Math.Max(bounds.Top, area.Top));
-            var peekWidth = Math.Min(
-                bounds.Width,
-                RoundDevice(
-                    CapsulePeekWidthDip *
-                    Math.Max(1, monitor.DpiScaleX)));
-            var peekHeight = Math.Min(
-                bounds.Height,
-                RoundDevice(
-                    CapsulePeekHeightDip *
-                    Math.Max(1, monitor.DpiScaleY)));
-            if (edge is
-                ExperimentalAttachmentEdge.Left or
-                ExperimentalAttachmentEdge.Right)
-            {
-                if (visibleWidth >= peekWidth &&
-                    visibleHeight >= Math.Min(
-                        bounds.Height,
-                        peekHeight))
-                {
-                    return true;
-                }
-            }
-            else if (visibleHeight >= peekHeight &&
-                visibleWidth >= Math.Min(bounds.Width, peekWidth))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsContainedByAnyMonitor(
-        DeviceScreenRect bounds,
-        IReadOnlyList<MonitorGeometry> monitors) =>
-        monitors.Any(monitor =>
-            IsContainedBy(bounds, monitor.WorkArea));
-
-    private static DeviceScreenRect PlaceCapsulePeek(
-        DeviceScreenRect desired,
-        DeviceScreenRect workArea,
-        ExperimentalAttachmentEdge edge,
-        double dpiScaleX,
-        double dpiScaleY,
-        bool forceExactPeek)
-    {
-        var peekX = Math.Min(
-            desired.Width,
-            RoundDevice(
-                CapsulePeekWidthDip *
-                Math.Max(1, dpiScaleX)));
-        var peekY = Math.Min(
-            desired.Height,
-            RoundDevice(
-                CapsulePeekHeightDip *
-                Math.Max(1, dpiScaleY)));
-        var left = desired.Left;
-        var top = desired.Top;
-
-        switch (edge)
-        {
-            case ExperimentalAttachmentEdge.Left:
-                if (forceExactPeek ||
-                    desired.Right < workArea.Left + peekX)
-                {
-                    left = workArea.Left + peekX - desired.Width;
-                }
-                break;
-            case ExperimentalAttachmentEdge.Right:
-                if (forceExactPeek ||
-                    desired.Left > workArea.Right - peekX)
-                {
-                    left = workArea.Right - peekX;
-                }
-                break;
-            case ExperimentalAttachmentEdge.Top:
-                if (forceExactPeek ||
-                    desired.Bottom < workArea.Top + peekY)
-                {
-                    top = workArea.Top + peekY - desired.Height;
-                }
-                break;
-            case ExperimentalAttachmentEdge.Bottom:
-                if (forceExactPeek ||
-                    desired.Top > workArea.Bottom - peekY)
-                {
-                    top = workArea.Bottom - peekY;
-                }
-                break;
-        }
-
-        return new DeviceScreenRect(
-            left,
-            top,
-            left + desired.Width,
-            top + desired.Height);
-    }
-
     private static double ClampOffset(
         double offset,
         int targetLength,
@@ -787,8 +568,6 @@ public sealed partial class PaperWindow
     private ExperimentalTetherCapsuleWindow? _experimentalTetherCapsule;
     private bool _experimentalTetherPresentationSuppressed;
     private bool _experimentalTetherReplanPending;
-    private ExperimentalAttachmentEdge?
-        _experimentalCapsuleFollowPeekEdge;
     private ExperimentalAttachmentPreviewWindow?
         _experimentalCapsuleMagnetPreview;
     private ExperimentalAttachmentPlan?
@@ -812,29 +591,6 @@ public sealed partial class PaperWindow
     private bool HasExperimentalWindowTether =>
         _experimentalWindowAttachment?.Owner ==
         ExperimentalAttachmentOwner.WindowTether;
-
-    private bool ShouldKeepExperimentalCapsulePeekAboveTarget
-    {
-        get
-        {
-            var session = _experimentalWindowAttachment;
-            if (!_experimentalCapsuleFollowPeekEdge.HasValue ||
-                !_paper.IsCollapsed ||
-                session?.Owner !=
-                    ExperimentalAttachmentOwner.CapsuleMagnet ||
-                session.TargetKind !=
-                    ExperimentalAttachmentTargetKind.ExternalWindow)
-            {
-                return false;
-            }
-
-            var foreground = ExternalWindowNative.ForegroundWindow;
-            return foreground == session.ExternalWindow.Handle ||
-                ExternalWindowNative.IsSameProcess(
-                    session.ExternalWindow,
-                    foreground);
-        }
-    }
 
     internal bool SuppressesExpandedDeepCapsuleSlot =>
         HasExperimentalWindowTether && !_paper.IsCollapsed;
@@ -863,27 +619,39 @@ public sealed partial class PaperWindow
         }
 
         targetHandle = session.ExternalWindow.Handle;
-        if (!ExternalWindowNative.TryGetSnapshot(
+        var targetAvailable =
+            ExternalWindowNative.TryGetSnapshot(
                 session.ExternalWindow,
-                out var snapshot) ||
-            snapshot.IsMinimized ||
-            snapshot.IsCloaked ||
-            !snapshot.IsVisible)
+                out var snapshot) &&
+            snapshot.IsUsableTarget;
+        if (!targetAvailable)
         {
+            if (session.Owner ==
+                ExperimentalAttachmentOwner.CapsuleMagnet)
+            {
+                DetachExperimentalWindowAttachment(
+                    savePosition: true);
+                changed = true;
+                return false;
+            }
+
             return true;
         }
 
-        if (snapshot.Bounds == session.LastTargetBounds &&
-            string.Equals(
+        var targetChanged =
+            snapshot.Bounds != session.LastTargetBounds ||
+            !string.Equals(
                 snapshot.Title,
                 session.TargetTitle,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal);
+        if (targetChanged)
         {
-            return true;
+            ReconcileExperimentalWindowAttachment(snapshot);
         }
 
-        ReconcileExperimentalWindowAttachment(snapshot);
-        changed = true;
+        changed =
+            targetChanged ||
+            AdvanceExperimentalCapsuleFollowTransition();
         return _experimentalWindowAttachment != null;
     }
 
@@ -1017,11 +785,13 @@ public sealed partial class PaperWindow
                 plan.Session.ExternalWindow,
                 out var target))
         {
-            ReconcileExperimentalWindowAttachment(target);
+            ReconcileExperimentalWindowAttachment(
+                target,
+                animateCapsulePresentation: true);
         }
         else
         {
-            SetExperimentalCapsuleFollowPeek(null);
+            ClearExperimentalCapsuleFollowPresentation();
             ApplyExperimentalAttachmentBounds(plan.WindowBounds);
         }
         SaveGeometryForCurrentPresentation();
@@ -1337,11 +1107,16 @@ public sealed partial class PaperWindow
             session.Owner == ExperimentalAttachmentOwner.WindowTether;
         if (wasWindowTether)
         {
+            EndTitleBarDragGesture();
             RestoreExperimentalTetherPresentation();
+        }
+        else
+        {
+            PrepareExperimentalCapsuleFollowForDetach();
         }
         _experimentalWindowAttachment = null;
         _experimentalTetherReplanPending = false;
-        SetExperimentalCapsuleFollowPeek(null);
+        ClearExperimentalCapsuleFollowPresentation();
         if (savePosition &&
             !HasDeepCapsuleSlotPlacement &&
             IsVisible)
@@ -1366,7 +1141,7 @@ public sealed partial class PaperWindow
         CancelExperimentalTetherPresentation(showMain: false);
         _experimentalWindowAttachment = null;
         _experimentalTetherReplanPending = false;
-        SetExperimentalCapsuleFollowPeek(null);
+        ClearExperimentalCapsuleFollowPresentation();
     }
 
     internal void RestoreExperimentalTetherPresentationForExplicitShow()
@@ -1375,7 +1150,8 @@ public sealed partial class PaperWindow
     }
 
     private void ReconcileExperimentalWindowAttachment(
-        ExternalWindowSnapshot snapshot)
+        ExternalWindowSnapshot snapshot,
+        bool animateCapsulePresentation = false)
     {
         var session = _experimentalWindowAttachment;
         if (session == null ||
@@ -1421,13 +1197,13 @@ public sealed partial class PaperWindow
                             monitor.WorkArea,
                             snapshot.DpiScale);
             }
-            SetExperimentalCapsuleFollowPeek(null);
+            ClearExperimentalCapsuleFollowPresentation();
         }
         else if (session.Owner ==
                 ExperimentalAttachmentOwner.CapsuleMagnet &&
             TryGetTargetMonitor(snapshot, out var capsuleMonitor))
         {
-            desired =
+            var followPlan =
                 ExperimentalWindowAttachmentGeometry
                     .ResolveCapsuleFollow(
                         session,
@@ -1436,20 +1212,27 @@ public sealed partial class PaperWindow
                         capsuleMonitor,
                         WindowWorkAreaHelper
                             .ConnectedMonitorGeometries(),
-                        out var usesPeek);
-            SetExperimentalCapsuleFollowPeek(
-                usesPeek ? session.Edge : null);
+                        reveal:
+                            _capsuleShell?.IsMouseOver == true);
+            desired = followPlan.Bounds;
+            SetExperimentalCapsuleFollowPresentation(
+                followPlan,
+                animateCapsulePresentation);
         }
         else
         {
-            SetExperimentalCapsuleFollowPeek(null);
+            ClearExperimentalCapsuleFollowPresentation();
         }
         _experimentalWindowAttachment = session with
         {
             LastTargetBounds = snapshot.Bounds,
             TargetTitle = snapshot.Title
         };
-        ApplyExperimentalAttachmentBounds(desired);
+        if (session.Owner !=
+            ExperimentalAttachmentOwner.CapsuleMagnet)
+        {
+            ApplyExperimentalAttachmentBounds(desired);
+        }
     }
 
     private bool TryGetTargetMonitor(
@@ -1463,19 +1246,6 @@ public sealed partial class PaperWindow
             center,
             this,
             out monitor);
-    }
-
-    private void SetExperimentalCapsuleFollowPeek(
-        ExperimentalAttachmentEdge? edge)
-    {
-        if (_experimentalCapsuleFollowPeekEdge == edge)
-        {
-            return;
-        }
-
-        _experimentalCapsuleFollowPeekEdge = edge;
-        RefreshExperimentalCapsuleFollowPeekVisual();
-        RefreshEffectiveTopmost();
     }
 
     private void ApplyExperimentalAttachmentBounds(DeviceScreenRect bounds)

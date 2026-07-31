@@ -141,7 +141,7 @@ public sealed partial class PaperWindow
             _capsuleShell.Width = CapsuleShellLayoutWidth();
         }
         UpdateCapsuleClosePlacement();
-        RefreshExperimentalCapsuleFollowPeekVisual();
+        RefreshExperimentalCapsuleFollowVisual();
         RefreshDeepCapsuleSlotLabel();
     }
 
@@ -236,6 +236,10 @@ public sealed partial class PaperWindow
             Height = 30,
             Background = Brushes.Transparent
         };
+        _capsuleShell.MouseEnter += (_, _) =>
+            OnExperimentalCapsuleFollowHoverChanged(reveal: true);
+        _capsuleShell.MouseLeave += (_, _) =>
+            OnExperimentalCapsuleFollowHoverChanged(reveal: false);
         _capsuleShell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _capsuleShell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -418,8 +422,7 @@ public sealed partial class PaperWindow
         capsuleClose.MouseLeftButtonUp += (_, e) =>
         {
             capsuleClose.Opacity = 1.0;
-            if (_experimentalCapsuleFollowPeekEdge ==
-                ExperimentalAttachmentEdge.Left)
+            if (ExperimentalCapsuleFollowCloseActivates)
             {
                 try
                 {
@@ -440,10 +443,10 @@ public sealed partial class PaperWindow
 
         Grid.SetColumn(capsuleClose, 1);
         _capsuleShell.Children.Add(capsuleClose);
-        RefreshExperimentalCapsuleFollowPeekVisual();
+        RefreshExperimentalCapsuleFollowVisual();
     }
 
-    private void RefreshExperimentalCapsuleFollowPeekVisual()
+    private void RefreshExperimentalCapsuleFollowVisual()
     {
         if (_capsuleCloseGlyph == null ||
             _capsuleCloseArea == null)
@@ -451,8 +454,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (_experimentalCapsuleFollowPeekEdge ==
-            ExperimentalAttachmentEdge.Left)
+        if (ExperimentalCapsuleFollowCloseActivates)
         {
             _capsuleCloseGlyph.Text = CapsuleIconText();
             _capsuleCloseGlyph.FontSize =
