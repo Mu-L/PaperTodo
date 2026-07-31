@@ -389,6 +389,7 @@ public sealed partial class PaperWindow
                         !TodoReminderDialog.TryShow(
                             this,
                             customInitial,
+                            _controller.State.EnableAnimations,
                             out var customReminder))
                     {
                         return;

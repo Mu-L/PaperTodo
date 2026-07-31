@@ -1046,7 +1046,9 @@ public sealed partial class PaperWindow
 
         if (!_controller.State.EnableTodoNoteLinks)
         {
-            EndNoteLinkMouseGesture(commit: false);
+            EndTopBarDragGesture(
+                commit: false,
+                TopBarDragKind.NoteLink);
             SetNoteLinkDropTarget(null);
         }
 
@@ -2040,7 +2042,7 @@ public sealed partial class PaperWindow
     private bool TryCollapseExpandedPaperFromEscape()
     {
         if (_todoDrag != null ||
-            _noteLinkDrag != null ||
+            _topBarDrag != null ||
             IsDeepCapsuleReordering ||
             IsDeepCapsuleSlotPendingClick ||
             _titleBarDragSession != null)

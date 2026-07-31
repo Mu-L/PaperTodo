@@ -15,7 +15,9 @@ internal enum ExternalWindowEventKind
     Destroyed = 16,
     Cloaked = 32,
     Uncloaked = 64,
-    DesktopSwitched = 128
+    DesktopSwitched = 128,
+    MoveSizeStarted = 256,
+    MoveSizeEnded = 512
 }
 
 internal readonly record struct ExternalWindowIdentity(
@@ -139,8 +141,12 @@ internal sealed class ExternalWindowTracker : IDisposable
         return eventType switch
         {
             EventSystemForeground => ExternalWindowEventKind.Foreground,
-            EventSystemMoveSizeStart or EventSystemMoveSizeEnd =>
-                ExternalWindowEventKind.Location,
+            EventSystemMoveSizeStart =>
+                ExternalWindowEventKind.Location |
+                ExternalWindowEventKind.MoveSizeStarted,
+            EventSystemMoveSizeEnd =>
+                ExternalWindowEventKind.Location |
+                ExternalWindowEventKind.MoveSizeEnded,
             EventSystemMinimizeStart => ExternalWindowEventKind.MinimizeStarted,
             EventSystemMinimizeEnd => ExternalWindowEventKind.MinimizeEnded,
             EventSystemDesktopSwitch => ExternalWindowEventKind.DesktopSwitched,
@@ -163,7 +169,7 @@ internal sealed class ExternalWindowTracker : IDisposable
 
         _ = _dispatcher.BeginInvoke(
             (Action)(() => QueueOnDispatcher(hwnd, kind, generation)),
-            DispatcherPriority.Background);
+            DispatcherPriority.Render);
     }
 
     private void QueueOnDispatcher(
@@ -184,7 +190,7 @@ internal sealed class ExternalWindowTracker : IDisposable
 
         _pendingFlush = _dispatcher.BeginInvoke(
             (Action)(() => Flush(generation)),
-            DispatcherPriority.Background);
+            DispatcherPriority.Render);
     }
 
     private void Flush(int generation)

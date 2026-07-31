@@ -3416,10 +3416,16 @@ public sealed partial class AppController
     {
         foreach (var paper in State.Papers.ToList())
         {
+            // A newly assigned edge slot can be between target planning and its first applied
+            // frame. It already owns the paper's presentation even though its HWND is not visible
+            // yet; restoring the main window here would detach every real slot and leave only the
+            // independently hosted master capsule.
             if (!paper.IsVisible ||
                 !_windows.TryGetValue(paper.Id, out var window) ||
                 window.WindowState == WindowState.Minimized ||
                 window.IsExperimentalTetherPresentationSuppressed ||
+                (State.UseDeepCapsuleMode &&
+                 window.OccupiesDeepCapsuleSlot) ||
                 window.HasVisibleSurface)
             {
                 continue;

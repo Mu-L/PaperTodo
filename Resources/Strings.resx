@@ -964,11 +964,26 @@
   <data name="TodoReminderCustomTitle" xml:space="preserve">
     <value>自定义待办提醒</value>
   </data>
+  <data name="TodoReminderCustomHint" xml:space="preserve">
+    <value>直接输入日期，或用按钮快速微调。</value>
+  </data>
   <data name="TodoReminderDate" xml:space="preserve">
     <value>日期</value>
   </data>
   <data name="TodoReminderTime" xml:space="preserve">
     <value>时间</value>
+  </data>
+  <data name="TodoReminderToday" xml:space="preserve">
+    <value>今天</value>
+  </data>
+  <data name="TodoReminderTomorrow" xml:space="preserve">
+    <value>明天</value>
+  </data>
+  <data name="TodoReminderInvalidDate" xml:space="preserve">
+    <value>请输入有效日期，例如 2026-08-01。</value>
+  </data>
+  <data name="TodoReminderSelectionFormat" xml:space="preserve">
+    <value>{0} · {1:00}:{2:00}</value>
   </data>
   <data name="TodoReminderFutureRequired" xml:space="preserve">
     <value>请选择一个晚于当前时间的提醒。</value>

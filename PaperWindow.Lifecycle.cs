@@ -239,15 +239,7 @@ public sealed partial class PaperWindow
             EndTodoMouseDrag(commit: false);
         }
 
-        if (_noteLinkDrag != null)
-        {
-            EndNoteLinkMouseGesture(commit: false);
-        }
-
-        if (_windowBindingDrag != null)
-        {
-            EndWindowBindingMouseGesture(commit: false);
-        }
+        EndTopBarDragGesture(commit: false);
 
         CancelDeepCapsuleReorderDrag();
         _suppressTodoBackspaceUntilKeyUp = false;

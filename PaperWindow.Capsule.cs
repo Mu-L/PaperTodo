@@ -141,6 +141,7 @@ public sealed partial class PaperWindow
             _capsuleShell.Width = CapsuleShellLayoutWidth();
         }
         UpdateCapsuleClosePlacement();
+        RefreshExperimentalCapsuleFollowPeekVisual();
         RefreshDeepCapsuleSlotLabel();
     }
 
@@ -417,13 +418,58 @@ public sealed partial class PaperWindow
         capsuleClose.MouseLeftButtonUp += (_, e) =>
         {
             capsuleClose.Opacity = 1.0;
-            _controller.HidePaper(_paper);
-            ClearCapsuleInteractionKeyboardFocus();
+            if (_experimentalCapsuleFollowPeekEdge ==
+                ExperimentalAttachmentEdge.Left)
+            {
+                try
+                {
+                    ActivateFromCollapsedCapsule();
+                }
+                finally
+                {
+                    ClearCapsuleInteractionKeyboardFocus();
+                }
+            }
+            else
+            {
+                _controller.HidePaper(_paper);
+                ClearCapsuleInteractionKeyboardFocus();
+            }
             e.Handled = true;
         };
 
         Grid.SetColumn(capsuleClose, 1);
         _capsuleShell.Children.Add(capsuleClose);
+        RefreshExperimentalCapsuleFollowPeekVisual();
+    }
+
+    private void RefreshExperimentalCapsuleFollowPeekVisual()
+    {
+        if (_capsuleCloseGlyph == null ||
+            _capsuleCloseArea == null)
+        {
+            return;
+        }
+
+        if (_experimentalCapsuleFollowPeekEdge ==
+            ExperimentalAttachmentEdge.Left)
+        {
+            _capsuleCloseGlyph.Text = CapsuleIconText();
+            _capsuleCloseGlyph.FontSize =
+                CapsuleIconFontSizeForCurrentPaper();
+            _capsuleCloseArea.ToolTip =
+                _controller.PaperTitleText(_paper);
+            _capsuleCloseArea.ContextMenu =
+                BuildPaperContextMenu();
+            return;
+        }
+
+        _capsuleCloseGlyph.Text = "×";
+        _capsuleCloseGlyph.FontSize =
+            AppTypography.Scale(18);
+        _capsuleCloseArea.ToolTip =
+            Strings.Get("ToolTipHideThisPaper");
+        _capsuleCloseArea.ContextMenu = null;
     }
 
     public void SetCollapsedState(

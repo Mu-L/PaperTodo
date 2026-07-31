@@ -151,7 +151,7 @@ public sealed partial class PaperWindow
             ownMenuOpen ||
             _titleBarDragSession != null ||
             _todoDrag?.IsDragging == true ||
-            _noteLinkDrag?.IsDragging == true;
+            _topBarDrag?.IsDragging == true;
         var paperOpacity =
             !_controller.State.ExperimentalInactivePaperOpacity ||
             _paper.IsCollapsed ||
