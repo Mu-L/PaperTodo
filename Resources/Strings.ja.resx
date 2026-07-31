@@ -774,6 +774,30 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>待機中の不透明度</value>
   </data>
+  <data name="LabsCapsuleMagnetism" xml:space="preserve">
+    <value>通常カプセルのスナップ</value>
+  </data>
+  <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
+    <value>通常カプセルのスナップを有効にする</value>
+  </data>
+  <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
+    <value>通常カプセルを画面または他のアプリのウィンドウ端付近で離すと吸着して追従します。もう一度ドラッグするか、対象が失われるか、機能をオフにすると解除されます。端のキューとメインカプセルには影響しません。</value>
+  </data>
+  <data name="LabsMagnetScreenEdges" xml:space="preserve">
+    <value>画面の端</value>
+  </data>
+  <data name="LabsMagnetWindowEdges" xml:space="preserve">
+    <value>ウィンドウの端</value>
+  </data>
+  <data name="LabsMagnetDistance" xml:space="preserve">
+    <value>吸着距離</value>
+  </data>
+  <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
+    <value>{0} px</value>
+  </data>
+  <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
+    <value>カプセルの吸着を解除</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>ToDo リマインダー</value>
   </data>

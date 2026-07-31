@@ -774,6 +774,30 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>Resting opacity</value>
   </data>
+  <data name="LabsCapsuleMagnetism" xml:space="preserve">
+    <value>Ordinary capsule magnetism</value>
+  </data>
+  <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
+    <value>Enable ordinary capsule magnetism</value>
+  </data>
+  <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
+    <value>Dropping an ordinary capsule near a screen or application-window edge attaches it to that target. Dragging it again, losing the target, or turning this off detaches it. Edge queues and master capsules are unaffected.</value>
+  </data>
+  <data name="LabsMagnetScreenEdges" xml:space="preserve">
+    <value>Screen edges</value>
+  </data>
+  <data name="LabsMagnetWindowEdges" xml:space="preserve">
+    <value>Window edges</value>
+  </data>
+  <data name="LabsMagnetDistance" xml:space="preserve">
+    <value>Attraction distance</value>
+  </data>
+  <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
+    <value>{0} px</value>
+  </data>
+  <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
+    <value>Detach capsule</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>Todo reminders</value>
   </data>

@@ -2524,6 +2524,13 @@ public sealed partial class PaperWindow : Window
             }
         }
 
+        if (HasExperimentalCapsuleMagnet)
+        {
+            menu.Items.Add(MenuItem(
+                Strings.Get("LabsCapsuleMagnetDetach"),
+                (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
+        }
+
         menu.Items.Add(MenuItem(Strings.Get("MenuHide"), (_, _) => _controller.HidePaper(_paper)));
         menu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => DeletePaperFromPaperMenu()));
 

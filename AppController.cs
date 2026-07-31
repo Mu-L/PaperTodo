@@ -250,6 +250,7 @@ public sealed partial class AppController : IDisposable
         RefreshTopmostForForegroundWindow();
         _topmostRefreshTimer.Start();
         RefreshTodoReminderSchedule();
+        RefreshExperimentalWindowRuntime();
 
         if (State.Papers.Count == 0)
         {
@@ -1545,6 +1546,7 @@ public sealed partial class AppController : IDisposable
             {
                 window.InvalidateEdgeCapsuleDisplayMetrics();
             }
+            RefreshExperimentalAttachmentsAfterDisplayMetrics();
             ArrangeDeepCapsules(animate: false);
         }
         foreach (var window in _windows.Values)
@@ -3521,6 +3523,7 @@ public sealed partial class AppController : IDisposable
         _deepCapsuleContextMenuOwners.Clear();
         _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;
         TryExitCleanup(DisposeGlobalHotkeys);
+        TryExitCleanup(DisposeExperimentalWindowRuntime);
         TryExitCleanup(DisposeTrayIcon);
         TryExitCleanup(() => _settingsWindow?.Close());
         _settingsWindow = null;

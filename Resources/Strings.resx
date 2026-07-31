@@ -787,6 +787,30 @@
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>静止透明度</value>
   </data>
+  <data name="LabsCapsuleMagnetism" xml:space="preserve">
+    <value>普通胶囊磁吸</value>
+  </data>
+  <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
+    <value>启用普通胶囊磁吸</value>
+  </data>
+  <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
+    <value>普通胶囊拖到屏幕或其他软件窗口边缘附近时会吸附并跟随；再次拖动、目标失效或关闭功能时自动解除。贴边队列和主胶囊不受影响。</value>
+  </data>
+  <data name="LabsMagnetScreenEdges" xml:space="preserve">
+    <value>屏幕边缘</value>
+  </data>
+  <data name="LabsMagnetWindowEdges" xml:space="preserve">
+    <value>窗口边缘</value>
+  </data>
+  <data name="LabsMagnetDistance" xml:space="preserve">
+    <value>磁吸距离</value>
+  </data>
+  <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
+    <value>{0} 像素</value>
+  </data>
+  <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
+    <value>解除胶囊磁吸</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>待办提醒</value>
   </data>

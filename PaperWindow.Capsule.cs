@@ -308,6 +308,7 @@ public sealed partial class PaperWindow
                     currentScreenPos,
                     this))
             {
+                DetachExperimentalAttachmentBeforeUserDrag();
                 SetCapsulePointerState(CapsulePointerState.NativeMoving);
 
                 leftArea.ReleaseMouseCapture();
@@ -325,6 +326,7 @@ public sealed partial class PaperWindow
                 }
                 finally
                 {
+                    TryAttachExperimentalCapsuleMagnetAfterDrag();
                     SetCapsulePointerState(CapsulePointerState.Idle);
                     leftArea.Cursor = Cursors.Hand;
                     ClearCapsuleInteractionKeyboardFocus();
@@ -466,6 +468,8 @@ public sealed partial class PaperWindow
         {
             return;
         }
+
+        DetachExperimentalWindowAttachment(savePosition: false);
 
         double? interruptedVisualWidth = null;
         double? interruptedVisualHeight = null;

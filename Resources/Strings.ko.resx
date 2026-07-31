@@ -774,6 +774,30 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>대기 중 불투명도</value>
   </data>
+  <data name="LabsCapsuleMagnetism" xml:space="preserve">
+    <value>일반 캡슐 자석 맞춤</value>
+  </data>
+  <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
+    <value>일반 캡슐 자석 맞춤 사용</value>
+  </data>
+  <data name="TipLabsCapsuleMagnetism" xml:space="preserve">
+    <value>일반 캡슐을 화면 또는 다른 앱 창 가장자리 근처에 놓으면 붙어서 따라갑니다. 다시 드래그하거나 대상이 사라지거나 기능을 끄면 자동으로 해제됩니다. 가장자리 대기열과 메인 캡슐에는 영향을 주지 않습니다.</value>
+  </data>
+  <data name="LabsMagnetScreenEdges" xml:space="preserve">
+    <value>화면 가장자리</value>
+  </data>
+  <data name="LabsMagnetWindowEdges" xml:space="preserve">
+    <value>창 가장자리</value>
+  </data>
+  <data name="LabsMagnetDistance" xml:space="preserve">
+    <value>흡착 거리</value>
+  </data>
+  <data name="LabsMagnetDistanceValueFormat" xml:space="preserve">
+    <value>{0}px</value>
+  </data>
+  <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
+    <value>캡슐 흡착 해제</value>
+  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>할 일 알림</value>
   </data>

@@ -477,6 +477,9 @@ public sealed class StateStore
         state.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.NormalizeQuickMinutes(
                 state.ExperimentalTodoReminderQuickMinutes);
+        state.ExperimentalCapsuleMagnetDistance =
+            ExperimentalWindowAttachmentOptions.NormalizeSnapDistance(
+                state.ExperimentalCapsuleMagnetDistance);
         state.TopBarHeight = 0;
 
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)

@@ -1161,6 +1161,10 @@ public sealed partial class AppController
         columns.Children.Add(rightColumn);
         root.Children.Add(columns);
 
+        root.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsCapsuleMagnetism")));
+        root.Children.Add(BuildLabsCapsuleMagnetSettings());
+
         root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
         root.Children.Add(BuildLabsTodoReminderSettings());
 
@@ -1179,6 +1183,139 @@ public sealed partial class AppController
         }
 
         return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
+    }
+
+    private UIElement BuildLabsCapsuleMagnetSettings()
+    {
+        var enabled = State.ExperimentalCapsuleMagnetism;
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableCapsuleMagnetism"),
+                enabled,
+                ToggleExperimentalCapsuleMagnetism),
+            "TipLabsCapsuleMagnetism"));
+
+        var targets = new Grid
+        {
+            Margin = new Thickness(0, 7, 0, 0),
+            IsEnabled = enabled,
+            Opacity = enabled ? 1.0 : 0.55
+        };
+        targets.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        targets.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        var screenEdges = SettingsToggle(
+            Strings.Get("LabsMagnetScreenEdges"),
+            State.ExperimentalCapsuleMagnetScreenEdges,
+            ToggleExperimentalCapsuleMagnetScreenEdges);
+        var windowEdges = SettingsToggle(
+            Strings.Get("LabsMagnetWindowEdges"),
+            State.ExperimentalCapsuleMagnetWindowEdges,
+            ToggleExperimentalCapsuleMagnetWindowEdges);
+        Grid.SetColumn(screenEdges, 0);
+        Grid.SetColumn(windowEdges, 1);
+        targets.Children.Add(screenEdges);
+        targets.Children.Add(windowEdges);
+        content.Children.Add(targets);
+
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsMagnetDistance"),
+            topMargin: 8));
+        content.Children.Add(CreateLabsMagnetDistanceStepper(enabled));
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement CreateLabsMagnetDistanceStepper(bool isEnabled)
+    {
+        var container = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 0),
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEnabled = isEnabled,
+            Opacity = isEnabled ? 1.0 : 0.55
+        };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var valueText = new TextBlock
+        {
+            Text = Strings.Format(
+                "LabsMagnetDistanceValueFormat",
+                State.ExperimentalCapsuleMagnetDistance),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TrayTextBrush
+        };
+        Grid.SetColumn(valueText, 1);
+
+        Border StepButton(string glyph, int column, int delta)
+        {
+            var glyphText = new TextBlock
+            {
+                Text = glyph,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(15),
+                Foreground = TrayTextBrush
+            };
+            var button = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = glyphText
+            };
+            button.MouseEnter += (_, _) => button.Background = TrayHoverBrush;
+            button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
+            button.MouseLeftButtonDown += (_, e) =>
+            {
+                SetExperimentalCapsuleMagnetDistance(
+                    State.ExperimentalCapsuleMagnetDistance + delta);
+                e.Handled = true;
+            };
+            Grid.SetColumn(button, column);
+            return button;
+        }
+
+        grid.Children.Add(StepButton(
+            "−",
+            0,
+            -ExperimentalWindowAttachmentOptions.SnapDistanceStep));
+        grid.Children.Add(valueText);
+        grid.Children.Add(StepButton(
+            "＋",
+            2,
+            ExperimentalWindowAttachmentOptions.SnapDistanceStep));
+        container.Child = grid;
+        return container;
     }
 
     private UIElement BuildLabsTodoReminderSettings()
@@ -1365,8 +1502,18 @@ public sealed partial class AppController
         State.ExperimentalTodoReminders = false;
         State.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.DefaultQuickMinutes;
+        State.ExperimentalCapsuleMagnetism = false;
+        State.ExperimentalCapsuleMagnetScreenEdges = true;
+        State.ExperimentalCapsuleMagnetWindowEdges = true;
+        State.ExperimentalCapsuleMagnetDistance =
+            ExperimentalWindowAttachmentOptions.DefaultSnapDistance;
         RestoreLabsShortcutDefaults();
 
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.DisableExperimentalCapsuleMagnet();
+        }
+        RefreshExperimentalWindowRuntime();
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);
         RefreshTodoReminderFeature();

@@ -250,6 +250,26 @@ public static class ExperimentalTodoReminderOptions
     }
 }
 
+public static class ExperimentalWindowAttachmentOptions
+{
+    public const int MinimumSnapDistance = 6;
+    public const int MaximumSnapDistance = 48;
+    public const int SnapDistanceStep = 2;
+    public const int DefaultSnapDistance = 18;
+    public const double DefaultWindowGap = 6;
+
+    public static int NormalizeSnapDistance(int distance)
+    {
+        var clamped = Math.Clamp(
+            distance,
+            MinimumSnapDistance,
+            MaximumSnapDistance);
+        return (int)Math.Round(
+            clamped / (double)SnapDistanceStep,
+            MidpointRounding.AwayFromZero) * SnapDistanceStep;
+    }
+}
+
 public static class UiFontPresets
 {
     public const string Default = "default";
@@ -345,6 +365,11 @@ public sealed class AppState
     public bool ExperimentalTodoReminders { get; set; }
     public int ExperimentalTodoReminderQuickMinutes { get; set; } =
         ExperimentalTodoReminderOptions.DefaultQuickMinutes;
+    public bool ExperimentalCapsuleMagnetism { get; set; }
+    public bool ExperimentalCapsuleMagnetScreenEdges { get; set; } = true;
+    public bool ExperimentalCapsuleMagnetWindowEdges { get; set; } = true;
+    public int ExperimentalCapsuleMagnetDistance { get; set; } =
+        ExperimentalWindowAttachmentOptions.DefaultSnapDistance;
     /// <summary>
     /// Paper ResizeGrip: standard / soft (50% transparent) / hidden (no dots; all edges resize).
     /// Dot color is Windows ControlDark with a light scheme tint.

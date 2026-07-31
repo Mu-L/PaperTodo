@@ -118,6 +118,7 @@ public sealed partial class PaperWindow
     internal void PrepareForHide()
     {
         CommitPendingEditsForSave();
+        DetachExperimentalWindowAttachment(savePosition: false);
         SettlePaperFormPresentation();
         AbortAllInteractions(InteractionAbortReason.Hiding);
     }
@@ -213,6 +214,7 @@ public sealed partial class PaperWindow
 
     private void CompletePaperWindowClose()
     {
+        DetachExperimentalWindowAttachment(savePosition: false);
         WindowNative.ReleaseWindowSwitcherOwner(ref _windowSwitcherHiddenOwner);
         _windowSwitcherHiddenOwnerApplied = false;
         ReleaseHiddenNoteImages();
