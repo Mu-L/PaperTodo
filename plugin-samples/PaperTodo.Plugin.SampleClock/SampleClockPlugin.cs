@@ -11,9 +11,12 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string Id => "sample.clock.native";
     public string DisplayName => "原生时钟示例";
     public string Description => "用于验证 PaperTodo 原生 DLL 正文插件加载。";
-    public Version Version => new(1, 0, 0);
+    public Version Version => new(1, 1, 0);
+    public string ApiVersion => "1.1";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;
+    public PaperBodyRuntimeRequirements RuntimeRequirements =>
+        PaperBodyRuntimeRequirements.BackgroundUpdates;
 
     public IPaperBodySession Create(PaperBodyContext context)
         => new ClockSession(context);
@@ -70,7 +73,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             var now = DateTime.Now;
             _time.Text = now.ToString("HH:mm:ss");
             _date.Text = now.ToString("yyyy-MM-dd dddd");
-            _context.SetCapsuleText(now.ToString("HH:mm"));
+            _context.SetDisplayTitle(now.ToString("HH:mm"));
         }
 
         private void ApplyTheme(PaperBodyTheme theme)

@@ -2088,6 +2088,7 @@ public sealed partial class PaperWindow
     {
         if (e.Key == Key.Escape &&
             Keyboard.Modifiers == ModifierKeys.None &&
+            !BodyClaimsInput(PaperBodyInputClaims.EscapeKey) &&
             TryCollapseExpandedPaperFromEscape())
         {
             e.Handled = true;

@@ -10,6 +10,21 @@ public enum PaperBodyCapabilities
     NoteLinks = 1 << 1
 }
 
+[Flags]
+public enum PaperBodyInputClaims
+{
+    None = 0,
+    EscapeKey = 1 << 0,
+    ContextMenu = 1 << 1
+}
+
+[Flags]
+public enum PaperBodyRuntimeRequirements
+{
+    None = 0,
+    BackgroundUpdates = 1 << 0
+}
+
 public sealed record PaperBodyTheme(
     bool IsDark,
     string PaperColor,
@@ -28,14 +43,19 @@ public sealed class PaperBodyContext
 {
     public required string PaperId { get; init; }
     public required string ProviderId { get; init; }
+    public required string ApiVersion { get; init; }
     public required string StateJson { get; init; }
     public required int StateVersion { get; init; }
     public required int TargetStateVersion { get; init; }
     public required PaperBodyTheme Theme { get; init; }
     public required Action<string> SaveStateJson { get; init; }
     public required Action<string> SetTitle { get; init; }
-    public required Action<string> SetCapsuleText { get; init; }
+    public required Action<string> SetDisplayTitle { get; init; }
+    public required Action<PaperBodyInputClaims> SetInputClaims { get; init; }
     public required Action MarkDirty { get; init; }
+
+    [Obsolete("Use SetDisplayTitle. Protocol 1.1 display titles apply to both paper and capsule.")]
+    public void SetCapsuleText(string text) => SetDisplayTitle(text);
     public required Action<string> OpenExternal { get; init; }
     public required Action RequestReload { get; init; }
 }
@@ -52,7 +72,9 @@ public interface IPaperBodyPlugin
     string DisplayName { get; }
     string Description => string.Empty;
     Version Version => new(1, 0);
+    string ApiVersion { get; }
     int StateVersion => 1;
+    PaperBodyRuntimeRequirements RuntimeRequirements { get; }
     PaperBodyCapabilities Capabilities { get; }
 
     /// <summary>
@@ -77,7 +99,13 @@ public interface IPaperBodySession : IDisposable
     void CancelInteractions() { }
     void OnActivated() { }
     void OnDeactivated() { }
+
+    // Protocol 1.1: whether the paper/plugin remains available at all. A visible capsule keeps
+    // this true even while its full body is folded away.
     void OnVisibilityChanged(bool visible) { }
+
+    // Protocol 1.1: whether the full paper body is currently presented and interactive.
+    void OnPresentationChanged(bool visible) { }
     void OnThemeChanged(PaperBodyTheme theme) { }
     void OnTypographyChanged(PaperBodyTheme theme) { }
     void OnDpiChanged() { }

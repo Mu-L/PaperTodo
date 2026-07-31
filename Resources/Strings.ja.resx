@@ -1216,6 +1216,12 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="SettingsPlugins" xml:space="preserve">
     <value>プラグイン</value>
   </data>
+  <data name="PluginsCurrentProtocolFormat" xml:space="preserve">
+    <value>現在のプラグインプロトコル：{0}</value>
+  </data>
+  <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
+    <value>{0} · プラグイン v{1} · プロトコル {2} · 状態 {3}</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
     <value>ノート本文には内蔵 Markdown、ネイティブ DLL、またはローカル Web プラグインを使用できます。プラグインは完全に信頼されたコードとして動作し、サンドボックスはありません。ネイティブプラグインは現在のユーザー権限を持ち、Web プラグインはネットワークを利用できます。PaperTodo が Web の外部ナビゲーション、フレーム、ポップアップ、ダウンロード、権限要求に行うのは軽い誤操作防止だけで、セキュリティ隔離ではありません。信頼できるプラグインだけを導入してください。</value>
   </data>

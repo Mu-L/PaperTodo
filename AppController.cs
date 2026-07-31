@@ -155,6 +155,7 @@ public sealed partial class AppController : IDisposable
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         _imageStore.Load();
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();
+        var strippedLegacyPluginTitles = StripLegacyPluginDisplayTitlesFromState();
         var protectedImageIdsForReuse = TryCollectUnprotectedImages();
         // Only rebuild free numbers when the same protection scan that gates GC succeeded.
         // A failed scan leaves reuse disabled so missing-but-referenced ids are never reissued.
@@ -190,7 +191,7 @@ public sealed partial class AppController : IDisposable
             SaveNow();
         };
 
-        if (strippedInternalImageMarkers)
+        if (strippedInternalImageMarkers || strippedLegacyPluginTitles)
         {
             MarkDirty();
         }
@@ -234,6 +235,23 @@ public sealed partial class AppController : IDisposable
                 paper.Content = cleaned;
                 changed = true;
             }
+        }
+
+        return changed;
+    }
+
+    private bool StripLegacyPluginDisplayTitlesFromState()
+    {
+        var changed = false;
+        foreach (var paper in State.Papers)
+        {
+            if (string.IsNullOrEmpty(paper.BodyCapsuleText))
+            {
+                continue;
+            }
+
+            paper.BodyCapsuleText = "";
+            changed = true;
         }
 
         return changed;
@@ -735,15 +753,22 @@ public sealed partial class AppController : IDisposable
         return PaperTitles.EffectiveTitle(paper, TitleNumberFor(paper));
     }
 
+    public string PaperDisplayTitle(PaperData paper)
+    {
+        if (_windows.TryGetValue(paper.Id, out var window) &&
+            window.TryGetPluginDisplayTitle(out var displayTitle))
+        {
+            return displayTitle;
+        }
+
+        return PaperTitleText(paper);
+    }
+
     public string PaperCapsuleTitle(PaperData paper)
     {
-        if (paper.Type == PaperTypes.Note &&
-            !string.IsNullOrWhiteSpace(paper.BodyCapsuleText))
-        {
-            return paper.BodyCapsuleText.Trim();
-        }
-        return PaperTitles.CapsuleText(paper, TitleNumberFor(paper));
+        return PaperDisplayTitle(paper);
     }
+
 
     public void UpdatePaperTitle(PaperData paper, string title)
     {

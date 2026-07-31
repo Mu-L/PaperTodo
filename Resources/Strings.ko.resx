@@ -1216,6 +1216,12 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="SettingsPlugins" xml:space="preserve">
     <value>플러그인</value>
   </data>
+  <data name="PluginsCurrentProtocolFormat" xml:space="preserve">
+    <value>현재 플러그인 프로토콜: {0}</value>
+  </data>
+  <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
+    <value>{0} · 플러그인 v{1} · 프로토콜 {2} · 상태 {3}</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
     <value>노트 본문은 기본 Markdown, 네이티브 DLL 또는 로컬 Web 플러그인을 사용할 수 있습니다. 플러그인은 샌드박스 없이 완전히 신뢰된 코드로 실행됩니다. 네이티브 플러그인은 현재 사용자 권한을 가지며 Web 플러그인은 네트워크를 사용할 수 있습니다. PaperTodo는 Web 외부 탐색, 프레임, 팝업, 다운로드 및 권한 요청에 가벼운 오용 방지만 적용하며 이는 보안 격리가 아닙니다. 신뢰할 수 있는 플러그인만 설치하세요.</value>
   </data>

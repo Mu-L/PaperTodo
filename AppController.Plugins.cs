@@ -21,12 +21,22 @@ public sealed partial class AppController
         };
         root.Children.Add(new TextBlock
         {
+            Text = Strings.Format(
+                "PluginsCurrentProtocolFormat",
+                PaperBodyPluginRegistry.SupportedPluginApiVersion),
+            Foreground = TrayTextBrush,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
             Text = Strings.Get("PluginsIntro"),
             Foreground = TrayWeakTextBrush,
             FontSize = AppTypography.Scale(12),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 560,
-            LineHeight = AppTypography.Scale(19)
+            LineHeight = AppTypography.Scale(19),
+            Margin = new Thickness(0, 5, 0, 0)
         });
 
         var toolbar = new Grid
@@ -152,7 +162,12 @@ public sealed partial class AppController
             VerticalAlignment = VerticalAlignment.Top,
             Child = new TextBlock
             {
-                Text = $"{PluginKindText(descriptor.Kind)} · v{descriptor.Version} · state {descriptor.StateVersion}",
+                Text = Strings.Format(
+                    "PluginsDescriptorVersionFormat",
+                    PluginKindText(descriptor.Kind),
+                    descriptor.Version,
+                    descriptor.ApiVersion,
+                    descriptor.StateVersion),
                 Foreground = TrayTextBrush,
                 FontSize = AppTypography.Scale(10.5),
                 FontWeight = FontWeights.Medium

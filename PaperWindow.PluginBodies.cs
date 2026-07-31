@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using PaperTodo.Plugin;
 
@@ -13,6 +14,9 @@ public sealed partial class PaperWindow
     private IPaperBodySession? _bodySession;
     private PaperBodyPluginDescriptor? _bodyDescriptor;
     private UIElement? _bodyElement;
+    private FrameworkElement? _pluginBodyClipHost;
+    private string _pluginDisplayTitle = "";
+    private PaperBodyInputClaims _bodyInputClaims;
     private MarkdownPaperBodySession? _markdownBodySession;
     private int _bodySessionGeneration;
     private bool _bodyFailed;
@@ -125,6 +129,22 @@ public sealed partial class PaperWindow
 
     private bool BodySupports(PaperBodyCapabilities capability) =>
         (CurrentBodyCapabilities & capability) == capability;
+
+    internal bool TryGetPluginDisplayTitle(out string title)
+    {
+        title = _pluginDisplayTitle;
+        return !IsCurrentBodyProviderMarkdown &&
+            !_bodyFailed &&
+            !string.IsNullOrWhiteSpace(title);
+    }
+
+    private bool BodyClaimsInput(PaperBodyInputClaims claim) =>
+        !IsCurrentBodyProviderMarkdown &&
+        (_bodyInputClaims & claim) == claim;
+
+    private bool BodyRequires(PaperBodyRuntimeRequirements requirement) =>
+        _bodyDescriptor != null &&
+        (_bodyDescriptor.RuntimeRequirements & requirement) == requirement;
 
     private UIElement CreateAndAttachInitialPaperBody()
     {
@@ -242,7 +262,7 @@ public sealed partial class PaperWindow
                     "Plugin body View must be an unparented FrameworkElement, not a Window or a reused control.");
             }
             _bodyFailed = session is FailedPaperBodySession;
-            return view;
+            return WrapPluginBodyView(view);
         }
         catch (Exception ex)
         {
@@ -254,9 +274,133 @@ public sealed partial class PaperWindow
                 this,
                 pluginName,
                 ex.GetBaseException().Message);
-            return session.View;
+            return WrapPluginBodyView(session.View);
         }
     }
+
+    private UIElement WrapPluginBodyView(FrameworkElement view)
+    {
+        if (IsCurrentBodyProviderMarkdown)
+        {
+            _pluginBodyClipHost = null;
+            return view;
+        }
+
+        var host = new Grid
+        {
+            Background = Brushes.Transparent,
+            ClipToBounds = true
+        };
+        host.Children.Add(view);
+        host.SizeChanged += (_, _) => RefreshPluginBodyClip();
+        _pluginBodyClipHost = host;
+        RefreshPluginBodyClip();
+        return host;
+    }
+
+    private void OnPaperChromeContextMenuOpening(
+        object sender,
+        ContextMenuEventArgs e)
+    {
+        var host = _pluginBodyClipHost;
+        if (host == null ||
+            !BodyClaimsInput(PaperBodyInputClaims.ContextMenu))
+        {
+            return;
+        }
+
+        var source = e.OriginalSource as DependencyObject;
+        var insidePluginBody = source != null && IsDescendantOf(source, host);
+        if (!insidePluginBody)
+        {
+            var pointer = Mouse.GetPosition(host);
+            insidePluginBody =
+                pointer.X >= 0 &&
+                pointer.Y >= 0 &&
+                pointer.X < host.ActualWidth &&
+                pointer.Y < host.ActualHeight;
+            if (insidePluginBody)
+            {
+                source = host.InputHitTest(pointer) as DependencyObject ?? source;
+            }
+        }
+        if (!insidePluginBody)
+        {
+            return;
+        }
+
+        var current = source;
+        while (current != null &&
+               !ReferenceEquals(current, host))
+        {
+            var menu = ContextMenuService.GetContextMenu(current);
+            if (menu != null &&
+                !ReferenceEquals(menu, _paperChrome.ContextMenu))
+            {
+                // A native plugin supplied its own menu, directly or through a style.
+                return;
+            }
+
+            current = GetSafeParent(current);
+        }
+
+        // Suppress only the PaperTodo menu inherited from the paper chrome. The original
+        // right-click remains unhandled and continues to the plugin/WebView.
+        e.Handled = true;
+    }
+
+    private void RefreshPluginBodyClip()
+    {
+        var host = _pluginBodyClipHost;
+        if (host == null)
+        {
+            return;
+        }
+
+        var width = host.ActualWidth;
+        var height = host.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            host.Clip = null;
+            return;
+        }
+
+        var chromeRadius = _paperChrome?.CornerRadius.BottomLeft ?? ExpandedChromeCornerRadius;
+        var radius = Math.Min(
+            Math.Max(0, chromeRadius - 1),
+            Math.Min(width, height) / 2);
+        if (radius <= 0)
+        {
+            host.Clip = new RectangleGeometry(new Rect(0, 0, width, height));
+            return;
+        }
+
+        var figure = new PathFigure
+        {
+            StartPoint = new Point(0, 0),
+            IsClosed = true,
+            IsFilled = true
+        };
+        figure.Segments.Add(new LineSegment(new Point(width, 0), true));
+        figure.Segments.Add(new LineSegment(new Point(width, height - radius), true));
+        figure.Segments.Add(new ArcSegment(
+            new Point(width - radius, height),
+            new Size(radius, radius),
+            0,
+            false,
+            SweepDirection.Clockwise,
+            true));
+        figure.Segments.Add(new LineSegment(new Point(radius, height), true));
+        figure.Segments.Add(new ArcSegment(
+            new Point(0, height - radius),
+            new Size(radius, radius),
+            0,
+            false,
+            SweepDirection.Clockwise,
+            true));
+        host.Clip = new PathGeometry([figure]);
+    }
+
 
     private PaperBodyContext CreatePluginContext(
         PaperBodyPluginDescriptor descriptor,
@@ -268,6 +412,7 @@ public sealed partial class PaperWindow
         {
             PaperId = _paper.Id,
             ProviderId = providerId,
+            ApiVersion = descriptor.ApiVersion,
             StateJson = storedState.Json ?? "{}",
             StateVersion = storedState.Version,
             TargetStateVersion = descriptor.StateVersion,
@@ -281,10 +426,15 @@ public sealed partial class PaperWindow
                 generation,
                 providerId,
                 () => _controller.UpdatePaperTitle(_paper, title)),
-            SetCapsuleText = text => InvokePluginContext(
+            SetDisplayTitle = text => InvokePluginContext(
                 generation,
                 providerId,
-                () => SetPluginCapsuleText(text)),
+                () => SetPluginDisplayTitle(text)),
+            SetInputClaims = claims => InvokePluginContext(
+                generation,
+                providerId,
+                () => SetPluginInputClaims(claims),
+                System.Windows.Threading.DispatcherPriority.Input),
             MarkDirty = () => InvokePluginContext(
                 generation,
                 providerId,
@@ -303,11 +453,14 @@ public sealed partial class PaperWindow
     private void InvokePluginContext(
         int generation,
         string providerId,
-        Action callback)
+        Action callback,
+        System.Windows.Threading.DispatcherPriority priority =
+            System.Windows.Threading.DispatcherPriority.Background)
     {
         void Invoke()
         {
             if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+                _bodyFailed ||
                 generation != _bodySessionGeneration ||
                 !string.Equals(
                     NormalizeBodyProviderId(_paper.BodyProviderId),
@@ -334,7 +487,7 @@ public sealed partial class PaperWindow
                     ReplaceBodyWithFailure(ex.GetBaseException().Message);
                 }
             }
-        }), System.Windows.Threading.DispatcherPriority.Background);
+        }), priority);
     }
 
     private void QueuePluginStateSave(
@@ -438,6 +591,9 @@ public sealed partial class PaperWindow
         {
             SavePluginStateValidated(providerId, pending.Version, pending.Json);
         }
+
+        ResetPluginRuntimeState(
+            refreshTitle: _windowLifecycle == PaperWindowLifecycleState.Alive);
     }
 
     private PaperBodyStoredState ReadPluginState(string providerId)
@@ -556,7 +712,7 @@ public sealed partial class PaperWindow
         _controller.MarkDirty();
     }
 
-    private void SetPluginCapsuleText(string? text)
+    private void SetPluginDisplayTitle(string? text)
     {
         var normalized = string.Join(
             " ",
@@ -568,14 +724,32 @@ public sealed partial class PaperWindow
         {
             normalized = normalized[..119] + "…";
         }
-        if (string.Equals(_paper.BodyCapsuleText, normalized, StringComparison.Ordinal))
+        if (string.Equals(_pluginDisplayTitle, normalized, StringComparison.Ordinal))
         {
             return;
         }
 
-        _paper.BodyCapsuleText = normalized;
+        _pluginDisplayTitle = normalized;
         RefreshPaperTitle();
-        _controller.MarkDirty();
+    }
+
+    private void SetPluginInputClaims(PaperBodyInputClaims claims)
+    {
+        const PaperBodyInputClaims supportedClaims =
+            PaperBodyInputClaims.EscapeKey |
+            PaperBodyInputClaims.ContextMenu;
+        _bodyInputClaims = claims & supportedClaims;
+    }
+
+    private void ResetPluginRuntimeState(bool refreshTitle)
+    {
+        var hadDisplayTitle = !string.IsNullOrEmpty(_pluginDisplayTitle);
+        _pluginDisplayTitle = "";
+        _bodyInputClaims = PaperBodyInputClaims.None;
+        if (refreshTitle && hadDisplayTitle && _isShellBuilt)
+        {
+            RefreshPaperTitle();
+        }
     }
 
     private static void OpenPluginExternal(string? value)
@@ -668,8 +842,8 @@ public sealed partial class PaperWindow
         Grid.SetRow(body, 1);
         Panel.SetZIndex(body, 1);
         _shell.Children.Add(body);
-        InvokeBodySession(item => item.OnVisibilityChanged(
-            _paper.IsVisible && !_paper.IsCollapsed && WindowState != WindowState.Minimized));
+        NotifyCurrentPaperBodyVisibility(
+            _paper.IsVisible && !_paper.IsCollapsed && WindowState != WindowState.Minimized);
     }
 
     private void RemoveCurrentPaperBody()
@@ -682,6 +856,7 @@ public sealed partial class PaperWindow
         _bodySession = null;
         _bodyDescriptor = null;
         _bodyElement = null;
+        _pluginBodyClipHost = null;
         _bodyFailed = false;
         RemoveTextZoomOverlay();
     }
@@ -760,11 +935,17 @@ public sealed partial class PaperWindow
         _bodySession = new FailedPaperBodySession(this, providerName, message);
         _bodyDescriptor = null;
         _bodyFailed = true;
-        _bodyElement = _bodySession.View;
+        _bodyElement = WrapPluginBodyView(_bodySession.View);
         Grid.SetRow(_bodyElement, 1);
         Panel.SetZIndex(_bodyElement, 1);
         _shell.Children.Add(_bodyElement);
         RefreshPaperBodyChrome();
+    }
+
+    private void ClearPluginCapsuleTextOnFailure()
+    {
+        _paper.BodyCapsuleText = "";
+        RefreshCapsuleLabel();
     }
 
     internal void CommitCurrentPaperBody()
@@ -779,7 +960,22 @@ public sealed partial class PaperWindow
 
     internal void NotifyCurrentPaperBodyVisibility(bool visible)
     {
-        InvokeBodySession(item => item.OnVisibilityChanged(visible));
+        if (IsCurrentBodyProviderMarkdown)
+        {
+            InvokeBodySession(item => item.OnVisibilityChanged(visible));
+            return;
+        }
+
+        var runtimeVisible = _paper.IsVisible &&
+            (visible ||
+             BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
+        InvokeBodySession(item =>
+        {
+            // Presentation first avoids briefly starting a cold background controller when a
+            // folded paper is being expanded in the same dispatcher turn.
+            item.OnPresentationChanged(visible);
+            item.OnVisibilityChanged(runtimeVisible);
+        });
     }
 
     internal void NotifyCurrentPaperBodyActivated()
@@ -818,6 +1014,7 @@ public sealed partial class PaperWindow
         _bodySession = null;
         _bodyDescriptor = null;
         _bodyElement = null;
+        _pluginBodyClipHost = null;
         _bodyFailed = false;
     }
 
@@ -957,18 +1154,9 @@ public sealed partial class PaperWindow
         }
     }
 
-    private void ClearPluginCapsuleTextOnFailure()
+    private void ClearPluginRuntimeStateOnFailure()
     {
-        if (IsCurrentBodyProviderMarkdown || string.IsNullOrEmpty(_paper.BodyCapsuleText))
-        {
-            return;
-        }
-        _paper.BodyCapsuleText = "";
-        if (_isShellBuilt)
-        {
-            RefreshPaperTitle();
-        }
-        _controller.MarkDirty();
+        ResetPluginRuntimeState(refreshTitle: true);
     }
 
     private sealed class FailedPaperBodySession : IPaperBodySession
@@ -977,7 +1165,7 @@ public sealed partial class PaperWindow
         public FailedPaperBodySession(PaperWindow owner, string pluginName, string message)
         {
             _owner = owner;
-            owner.ClearPluginCapsuleTextOnFailure();
+            owner.ClearPluginRuntimeStateOnFailure();
             var layout = new StackPanel
             {
                 HorizontalAlignment = HorizontalAlignment.Center,

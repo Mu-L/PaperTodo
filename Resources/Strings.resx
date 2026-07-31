@@ -1229,6 +1229,12 @@
   <data name="SettingsPlugins" xml:space="preserve">
     <value>插件</value>
   </data>
+  <data name="PluginsCurrentProtocolFormat" xml:space="preserve">
+    <value>当前插件协议：{0}</value>
+  </data>
+  <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
+    <value>{0} · 插件 v{1} · 协议 {2} · 状态数据 {3}</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
     <value>笔记正文可使用内置 Markdown、原生 DLL 或本地 Web 插件。插件按完全信任代码运行，不提供沙箱：原生插件拥有当前用户权限，Web 插件可以联网。PaperTodo 仅对 Web 外部导航、框架、弹窗、下载和权限请求做轻度防误用限制，不构成安全隔离；请只安装可信插件。</value>
   </data>

@@ -64,7 +64,7 @@
       dateElement.textContent = new Intl.DateTimeFormat(undefined, {
         year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
       }).format(now);
-      window.papertodo?.setCapsuleText(`${two(now.getHours())}:${two(now.getMinutes())}`);
+      window.papertodo?.setDisplayTitle(`${two(now.getHours())}:${two(now.getMinutes())}`);
     }
 
     function updateTimer() {

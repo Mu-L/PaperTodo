@@ -1216,6 +1216,12 @@ When off, open at the docked edge or remembered position.</value>
   <data name="SettingsPlugins" xml:space="preserve">
     <value>Plugins</value>
   </data>
+  <data name="PluginsCurrentProtocolFormat" xml:space="preserve">
+    <value>Current plugin protocol: {0}</value>
+  </data>
+  <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
+    <value>{0} · plugin v{1} · protocol {2} · state {3}</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
     <value>Note bodies can use built-in Markdown, native DLLs, or local Web plugins. Plugins run as fully trusted code with no sandbox: native plugins have the current user's permissions, and Web plugins may use the network. PaperTodo only applies light misuse guards to Web navigation, frames, popups, downloads, and permission requests; these are not security isolation. Install trusted plugins only.</value>
   </data>

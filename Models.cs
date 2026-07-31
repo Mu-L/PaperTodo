@@ -487,7 +487,18 @@ public sealed class PaperData
     public string BodyProviderId { get; set; } = PaperBodyProviderIds.Markdown;
     public Dictionary<string, PaperBodyStoredState> BodyStates { get; set; } =
         new(StringComparer.Ordinal);
+    // Runtime-only holder for the retired protocol 1.0 field.
+    [JsonIgnore]
     public string BodyCapsuleText { get; set; } = "";
+
+    // Reads legacy JSON but always writes null, so protocol 1.1 saves remove the field.
+    [JsonPropertyName("bodyCapsuleText")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyBodyCapsuleText
+    {
+        get => null;
+        set => BodyCapsuleText = value ?? "";
+    }
 
     // Which edge-queue this paper's capsule belongs to. A queue is identified by
     // (CapsuleMonitorDeviceName, CapsuleSide): every docked capsule sharing the same pair

@@ -939,6 +939,7 @@ public sealed partial class PaperWindow : Window
         if (msg == WmKeyDown &&
             wParam.ToInt32() == VkEscape &&
             Keyboard.Modifiers == ModifierKeys.None &&
+            !BodyClaimsInput(PaperBodyInputClaims.EscapeKey) &&
             TryCollapseExpandedPaperFromEscape())
         {
             handled = true;
@@ -1089,6 +1090,7 @@ public sealed partial class PaperWindow : Window
             _paperChrome.BeginAnimation(Border.MarginProperty, null);
             _paperChrome.Margin = new Thickness(0);
             _paperChrome.CornerRadius = new CornerRadius(0);
+            RefreshPluginBodyClip();
             return;
         }
 
@@ -1101,6 +1103,7 @@ public sealed partial class PaperWindow : Window
         _paperChrome.Effect = isCapsule
             ? CreatePaperChromeShadow(blurRadius: 8, opacity: 0.08)
             : CreatePaperChromeShadow();
+        RefreshPluginBodyClip();
     }
 
     private bool LooksSnappedNow()
@@ -1782,6 +1785,7 @@ public sealed partial class PaperWindow : Window
             }
         };
         _paperChrome.LostMouseCapture += (_, _) => EndTitleBarDragGesture(_paperChrome);
+        _paperChrome.ContextMenuOpening += OnPaperChromeContextMenuOpening;
 
         _windowHost.Children.Add(_paperChrome);
 
@@ -2565,7 +2569,7 @@ public sealed partial class PaperWindow : Window
 
     public void RefreshPaperTitle()
     {
-        var title = _controller.PaperTitleText(_paper);
+        var title = _controller.PaperDisplayTitle(_paper);
         Title = title;
 
         if (_titleText != null)

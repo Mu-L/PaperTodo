@@ -26,9 +26,11 @@ internal sealed record PaperBodyPluginDescriptor(
     string DisplayName,
     string Description,
     Version Version,
+    string ApiVersion,
     int StateVersion,
     PaperBodyPluginKind Kind,
     PaperBodyCapabilities Capabilities,
+    PaperBodyRuntimeRequirements RuntimeRequirements,
     string PluginDirectory,
     string SourcePath,
     string Fingerprint,
@@ -51,8 +53,9 @@ internal sealed class PaperBodyPluginManifest
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string Version { get; set; } = "1.0.0";
-    public int ApiVersion { get; set; } = 1;
+    public string ApiVersion { get; set; } = "";
     public int StateVersion { get; set; } = 1;
+    public string[] Requires { get; set; } = [];
     public string Entry { get; set; } = "index.html";
     public string[] Capabilities { get; set; } = [];
 
@@ -67,7 +70,7 @@ internal sealed class PaperBodyPluginManifest
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    private const int SupportedPluginApiVersion = 1;
+    internal const string SupportedPluginApiVersion = "1.1";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -169,9 +172,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             Strings.Get("BodyProviderMarkdown"),
             Strings.Get("BodyProviderMarkdownDescription"),
             typeof(PaperWindow).Assembly.GetName().Version ?? new Version(1, 0),
+            SupportedPluginApiVersion,
             1,
             PaperBodyPluginKind.BuiltIn,
             PaperBodyCapabilities.TextZoom | PaperBodyCapabilities.NoteLinks,
+            PaperBodyRuntimeRequirements.None,
             AppContext.BaseDirectory,
             typeof(PaperWindow).Assembly.Location,
             "builtin");
@@ -261,7 +266,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException(
                 $"Plugin folder name must match plugin id '{id}'.");
         }
-        if (manifest.ApiVersion != SupportedPluginApiVersion)
+        manifest.ApiVersion = NormalizeApiVersion(manifest.ApiVersion);
+        if (!string.Equals(
+                manifest.ApiVersion,
+                SupportedPluginApiVersion,
+                StringComparison.Ordinal))
         {
             throw new InvalidDataException(
                 $"Unsupported plugin API version {manifest.ApiVersion}; expected {SupportedPluginApiVersion}.");
@@ -301,9 +310,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             string.IsNullOrWhiteSpace(manifest.Name) ? manifest.Id.Trim() : manifest.Name.Trim(),
             manifest.Description?.Trim() ?? "",
             ParseVersion(manifest.Version),
+            manifest.ApiVersion,
             manifest.StateVersion,
             PaperBodyPluginKind.Web,
             ParseCapabilities(manifest.Capabilities),
+            ParseRuntimeRequirements(manifest.Requires),
             manifest.DirectoryPath,
             manifestPath,
             fingerprint,
@@ -347,9 +358,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 : manifest.Name.Trim(),
             manifest.Description?.Trim() ?? "",
             ParseVersion(manifest.Version),
+            manifest.ApiVersion,
             manifest.StateVersion,
             PaperBodyPluginKind.Native,
             ParseCapabilities(manifest.Capabilities),
+            ParseRuntimeRequirements(manifest.Requires),
             directory,
             manifestPath,
             DiscoveryFingerprint(manifestPath, manifest.EntryPath),
@@ -385,6 +398,24 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 throw new InvalidDataException(
                     $"Native plugin id '{plugin.Id}' does not match manifest id '{manifest.Id}'.");
             }
+            var pluginApiVersion = NormalizeApiVersion(plugin.ApiVersion);
+            if (!string.Equals(pluginApiVersion, manifest.ApiVersion, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Native plugin API version {pluginApiVersion} must match manifest apiVersion {manifest.ApiVersion}.");
+            }
+            if (plugin.Version != discoveredDescriptor.Version)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin version {plugin.Version} must match manifest version {discoveredDescriptor.Version}.");
+            }
+            var manifestRuntimeRequirements =
+                ParseRuntimeRequirements(manifest.Requires);
+            if (plugin.RuntimeRequirements != manifestRuntimeRequirements)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin runtime requirements {plugin.RuntimeRequirements} must match manifest requirements {manifestRuntimeRequirements}.");
+            }
             if (plugin.StateVersion < 1 ||
                 plugin.StateVersion != manifest.StateVersion)
             {
@@ -402,10 +433,12 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 string.IsNullOrWhiteSpace(manifest.Description)
                     ? plugin.Description?.Trim() ?? ""
                     : manifest.Description.Trim(),
-                ParseVersion(manifest.Version, plugin.Version),
+                discoveredDescriptor.Version,
+                pluginApiVersion,
                 plugin.StateVersion,
                 PaperBodyPluginKind.Native,
                 plugin.Capabilities,
+                plugin.RuntimeRequirements,
                 directory,
                 discoveredDescriptor.SourcePath,
                 fingerprint,
@@ -491,7 +524,9 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             if (!previous.TryGetValue(id, out var before) ||
                 !next.TryGetValue(id, out var after) ||
                 before.Kind != after.Kind ||
+                !string.Equals(before.ApiVersion, after.ApiVersion, StringComparison.Ordinal) ||
                 before.StateVersion != after.StateVersion ||
+                before.RuntimeRequirements != after.RuntimeRequirements ||
                 !string.Equals(before.Fingerprint, after.Fingerprint, StringComparison.Ordinal))
             {
                 changed.Add(id);
@@ -552,10 +587,50 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         return result;
     }
 
-    private static Version ParseVersion(string? value, Version? fallback = null) =>
-        Version.TryParse(value, out var parsed)
-            ? parsed
-            : fallback ?? new Version(1, 0);
+    private static PaperBodyRuntimeRequirements ParseRuntimeRequirements(
+        IEnumerable<string>? values)
+    {
+        var result = PaperBodyRuntimeRequirements.None;
+        foreach (var value in values ?? [])
+        {
+            result |= value?.Trim() switch
+            {
+                "backgroundUpdates" =>
+                    PaperBodyRuntimeRequirements.BackgroundUpdates,
+                null or "" => PaperBodyRuntimeRequirements.None,
+                _ => throw new InvalidDataException(
+                    $"Unknown required plugin feature '{value}'.")
+            };
+        }
+        return result;
+    }
+
+    private static string NormalizeApiVersion(string? value)
+    {
+        value = value?.Trim();
+        var parts = value?.Split('.', StringSplitOptions.None);
+        if (parts is not { Length: 2 } ||
+            !int.TryParse(parts[0], out var major) ||
+            !int.TryParse(parts[1], out var minor) ||
+            major < 0 ||
+            minor < 0)
+        {
+            throw new InvalidDataException(
+                "apiVersion must be a quoted major.minor string such as \"1.1\".");
+        }
+
+        return $"{major}.{minor}";
+    }
+
+    private static Version ParseVersion(string? value)
+    {
+        if (!Version.TryParse(value, out var parsed))
+        {
+            throw new InvalidDataException(
+                $"Plugin version '{value}' is not a valid version.");
+        }
+        return parsed;
+    }
 
     private static string PluginFolderFingerprint(string directory)
     {
