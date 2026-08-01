@@ -8,6 +8,20 @@
 
 最终原生插件目录只保留 `plugin.json`、入口 DLL、必要的 `.deps.json`、插件私有依赖和原生库。不要放入 PDB、XML 文档、重复 DLL 或 PaperTodo 宿主已经提供的共享程序集。
 
+## 原生插件构建与安装
+
+所有原生 DLL 插件共用 `plugin-samples/Build-And-Install-NativePlugin.ps1`。脚本从项目同目录读取 `plugin.json`，执行 Release 发布，清理宿主共享程序集，并保留目标插件原有的 `.runtime` 数据。
+
+```powershell
+.\plugin-samples\Build-And-Install-NativePlugin.ps1 `
+  -ProjectPath .\plugin-samples\PaperTodo.Plugin.SampleClock\PaperTodo.Plugin.SampleClock.csproj
+
+.\plugin-samples\Build-And-Install-NativePlugin.ps1 `
+  -ProjectPath .\plugin-samples\PaperTodo.Plugin.CloudGenshin\PaperTodo.Plugin.CloudGenshin.csproj
+```
+
+纯 Web 插件不需要编译，直接将清单和 `web/` 静态文件复制到对应的 `plugins/<插件 ID>/` 目录。
+
 ## 部署目录
 
 > **信任边界：PaperTodo 不为插件提供沙箱。** 原生插件以当前用户权限在主进程中运行，Web 插件允许联网；宿主仅拦截 Web 外部导航、远程 iframe、弹窗、下载和权限请求等轻度防误用行为，这些限制不构成安全隔离。只安装你完全信任的插件及其远程依赖。

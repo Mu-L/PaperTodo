@@ -43,21 +43,25 @@ PaperTodo.Plugin.Abstractions\PaperTodo.Plugin.Abstractions.csproj
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File `
-  .\plugin-samples\PaperTodo.Plugin.CloudGenshin\Build-And-Install.ps1
+  .\plugin-samples\Build-And-Install-NativePlugin.ps1 `
+  -ProjectPath .\plugin-samples\PaperTodo.Plugin.CloudGenshin\PaperTodo.Plugin.CloudGenshin.csproj
 ```
 
 脚本会：
 
-1. 使用 .NET 10 和 `win-x64` 构建插件；
-2. 在系统临时目录完成构建并删除中间产物；
-3. 只复制清单、入口 DLL 和 `.deps.json`；
+1. 读取插件旁边的 `plugin.json`；
+2. 使用 .NET 10 和 `win-x64` 构建插件；
+3. 清理 PDB、文档文件和宿主已提供的共享程序集；
 4. 安装到 `plugins\sample.cloudgenshin.native`；
 5. 保留旧的 `.runtime`，不清除登录状态。
 
 也可以显式指定仓库目录：
 
 ```powershell
-.\Build-And-Install.ps1 -PaperTodoRoot "D:\Code\PaperTodo"
+powershell -ExecutionPolicy Bypass -File `
+  D:\Code\PaperTodo\plugin-samples\Build-And-Install-NativePlugin.ps1 `
+  -PaperTodoRoot "D:\Code\PaperTodo" `
+  -ProjectPath .\plugin-samples\PaperTodo.Plugin.CloudGenshin\PaperTodo.Plugin.CloudGenshin.csproj
 ```
 
 ## 在 PaperTodo 中启用
