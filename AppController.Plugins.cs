@@ -61,20 +61,6 @@ public sealed partial class AppController
             Margin = new Thickness(0, 7, 0, 0)
         });
 
-        var compatibility = SettingsToggle(
-            Strings.Get("PluginsForceLegacy"),
-            State.ForceLegacyPluginCompatibility,
-            ToggleForceLegacyPluginCompatibility);
-        compatibility.Margin = new Thickness(0, 10, 0, 0);
-        root.Children.Add(compatibility);
-        root.Children.Add(new TextBlock
-        {
-            Text = Strings.Get("PluginsForceLegacyWarning"),
-            Foreground = TrayWeakTextBrush,
-            FontSize = AppTypography.Scale(10.5),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(24, 3, 0, 7)
-        });
 
         var descriptors = _paperBodyPlugins.Descriptors;
         root.Children.Add(SettingsSectionLabel(
@@ -546,13 +532,6 @@ public sealed partial class AppController
         return version.ToString(2);
     }
 
-    private void ToggleForceLegacyPluginCompatibility()
-    {
-        State.ForceLegacyPluginCompatibility = !State.ForceLegacyPluginCompatibility;
-        SaveNow();
-        ReloadPaperBodyPlugins();
-    }
-
     private void OpenPluginFolder()
     {
         try
@@ -584,6 +563,7 @@ public sealed partial class AppController
 
     private void DisposePaperBodyPlugins()
     {
+        DisposePaperPluginHostRuntime();
         _paperBodyPlugins.Dispose();
     }
 }

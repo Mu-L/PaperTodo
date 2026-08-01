@@ -1908,7 +1908,7 @@ public sealed partial class AppController : IDisposable
         }
 
         State.Papers.RemoveAll(p => p.Id == paper.Id);
-        _paperBodyPlugins.DataStore.RemovePaperStateEverywhere(paper.Id);
+        QueuePluginPaperStateDeletion(paper.Id);
         _visibilityAnimationVersions.Remove(paper.Id);
         NotifyTodoReminderCollectionChanged();
 
@@ -2846,6 +2846,7 @@ public sealed partial class AppController : IDisposable
             {
                 _store.SaveJsonSync(json, version);
                 TryReleaseUnreferencedImageCache();
+                TryFlushPendingPluginPaperStateDeletes();
                 _hasShownSaveFailure = false;
             }
             else
@@ -2861,6 +2862,7 @@ public sealed partial class AppController : IDisposable
                                 stateRevision == Interlocked.Read(ref _stateRevision))
                             {
                                 TryReleaseUnreferencedImageCache();
+                                TryFlushPendingPluginPaperStateDeletes();
                             }
                             _hasShownSaveFailure = false;
                         }));

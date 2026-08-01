@@ -84,9 +84,9 @@ internal sealed partial class PaperBodyPluginRegistry
                 }
             }
 
-            if (setting.Default.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null)
+            if (setting.Default.ValueKind != JsonValueKind.Undefined)
             {
-                _ = NormalizeSettingValue(setting, setting.Default);
+                ValidateDeclaredDefault(setting);
             }
         }
     }

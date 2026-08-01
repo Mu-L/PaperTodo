@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -17,6 +18,11 @@ internal sealed class WebPaperBodySession : IPaperBodySession
     private static readonly object EnvironmentGate = new();
     private static readonly Dictionary<string, Task<CoreWebView2Environment>> EnvironmentTasks =
         new(StringComparer.OrdinalIgnoreCase);
+    private static readonly JsonSerializerOptions BridgeJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
 
     // A dedicated, non-activating runtime surface is used only for Web plugins that explicitly
     // require background updates and have never been presented. The real PaperWindow is never
@@ -132,6 +138,9 @@ internal sealed class WebPaperBodySession : IPaperBodySession
     private bool _presentationVisible;
     private bool _everPresented;
     private bool _webViewFailed;
+    private int _documentGeneration;
+    private readonly Dictionary<string, IDisposable> _hostSubscriptions =
+        new(StringComparer.Ordinal);
 
     public WebPaperBodySession(
         PaperBodyContext context,
@@ -292,6 +301,9 @@ internal sealed class WebPaperBodySession : IPaperBodySession
               const expectedOrigin = {{originJson}};
               if (window !== window.top || location.origin !== expectedOrigin || window.papertodo) return;
               const listeners = new Set();
+              const hostEventListeners = new Map();
+              const pending = new Map();
+              let sequence = 0;
               let stateProvider = null;
               const post = (type, payload = null) => {
                 window.chrome.webview.postMessage({ type, payload });
@@ -301,8 +313,20 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
               };
+              const request = (method, params = {}) => {
+                const requestId = `r${++sequence}`;
+                return new Promise((resolve, reject) => {
+                  pending.set(requestId, { resolve, reject });
+                  post('hostRequest', {
+                    requestId,
+                    method: String(method ?? ''),
+                    params: params ?? {}
+                  });
+                });
+              };
               window.papertodo = Object.freeze({
                 post,
+                request,
                 saveState,
                 flushState,
                 registerStateProvider(provider) {
@@ -320,6 +344,27 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 },
                 markDirty() { post('markDirty'); },
                 openExternal(url) { post('openExternal', String(url ?? '')); },
+                onHostEvent(types, listener, options = {}) {
+                  if (typeof listener !== 'function') return () => {};
+                  const values = Array.isArray(types)
+                    ? types.map(value => String(value ?? '')).filter(Boolean)
+                    : [];
+                  if (values.length === 0) return () => {};
+                  const subscriptionId = `s${++sequence}`;
+                  hostEventListeners.set(subscriptionId, listener);
+                  post('subscribeHostEvents', {
+                    subscriptionId,
+                    types: values,
+                    paperIds: Array.isArray(options.paperIds)
+                      ? options.paperIds.map(value => String(value ?? '')).filter(Boolean)
+                      : null,
+                    excludeOwnOperations: options.excludeOwnOperations !== false
+                  });
+                  return () => {
+                    if (!hostEventListeners.delete(subscriptionId)) return;
+                    post('unsubscribeHostEvents', { subscriptionId });
+                  };
+                },
                 onEvent(listener) {
                   if (typeof listener !== 'function') return () => {};
                   listeners.add(listener);
@@ -327,11 +372,31 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 }
               });
               window.chrome.webview.addEventListener('message', event => {
-                if (event.data?.type === 'commitRequested') flushState();
-                for (const listener of [...listeners]) {
-                  try { listener(event.data); } catch { }
+                const message = event.data;
+                if (message?.type === 'commitRequested') flushState();
+                if (message?.type === 'hostResponse') {
+                  const waiter = pending.get(message.requestId);
+                  if (waiter) {
+                    pending.delete(message.requestId);
+                    if (message.ok) waiter.resolve(message.result);
+                    else {
+                      const error = new Error(message.error?.message ?? 'PaperTodo host request failed.');
+                      error.code = message.error?.code ?? 'host_error';
+                      waiter.reject(error);
+                    }
+                  }
+                } else if (message?.type === 'hostEvent') {
+                  const listener = hostEventListeners.get(message.subscriptionId);
+                  if (listener) {
+                    try { listener(message.event); } catch { }
+                  }
+                } else if (message?.type === 'hostSubscriptionError') {
+                  hostEventListeners.delete(message.subscriptionId);
                 }
-                window.dispatchEvent(new CustomEvent('papertodo', { detail: event.data }));
+                for (const listener of [...listeners]) {
+                  try { listener(message); } catch { }
+                }
+                window.dispatchEvent(new CustomEvent('papertodo', { detail: message }));
               });
               window.addEventListener('beforeunload', flushState);
               document.addEventListener('visibilitychange', () => {
@@ -340,7 +405,6 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             })();
             """;
     }
-
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         if (!ReferenceEquals(sender, _webView.CoreWebView2))
@@ -348,6 +412,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _documentGeneration++;
+        ClearHostSubscriptions();
         _documentReady = false;
         _pluginDocumentReady = false;
     }
@@ -536,6 +602,11 @@ internal sealed class WebPaperBodySession : IPaperBodySession
 
     private void DisposeWebView(WebView2CompositionControl webView)
     {
+        if (ReferenceEquals(webView, _webView))
+        {
+            _documentGeneration++;
+            ClearHostSubscriptions();
+        }
         webView.Loaded -= OnWebViewLoaded;
         webView.SizeChanged -= OnWebViewSizeChanged;
         BackgroundWebViewHost.Detach(webView);
@@ -567,6 +638,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             stateVersion = _context.StateVersion,
             targetStateVersion = _context.TargetStateVersion,
             settings = ParseState(_settingsJson),
+            permissions = _context.GrantedPermissions.OrderBy(value => value).ToArray(),
             theme = ThemePayload(_theme),
             visible = _runtimeVisible,
             presentationVisible = _presentationVisible
@@ -620,12 +692,263 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 case "openExternal":
                     _context.OpenExternal(ReadPayloadString(payload));
                     break;
+                case "hostRequest":
+                    HandleHostRequest(payload);
+                    break;
+                case "subscribeHostEvents":
+                    HandleSubscribeHostEvents(payload);
+                    break;
+                case "unsubscribeHostEvents":
+                    HandleUnsubscribeHostEvents(payload);
+                    break;
             }
         }
         catch
         {
             // A malformed plugin message is isolated to the plugin body.
         }
+    }
+
+    private void HandleHostRequest(JsonElement payload)
+    {
+        var requestId = PayloadString(payload, "requestId");
+        var documentGeneration = _documentGeneration;
+        try
+        {
+            var method = PayloadString(payload, "method");
+            var parameters = payload.ValueKind == JsonValueKind.Object &&
+                             payload.TryGetProperty("params", out var paramsValue)
+                ? paramsValue
+                : JsonSerializer.SerializeToElement(new { });
+            var result = ExecuteHostRequest(method, parameters);
+            if (documentGeneration != _documentGeneration) return;
+            Send(new { type = "hostResponse", requestId, ok = true, result });
+        }
+        catch (PaperTodoPluginException ex)
+        {
+            if (documentGeneration != _documentGeneration) return;
+            Send(new
+            {
+                type = "hostResponse",
+                requestId,
+                ok = false,
+                error = new { code = ex.Code, message = ex.Message }
+            });
+        }
+        catch
+        {
+            if (documentGeneration != _documentGeneration) return;
+            Send(new
+            {
+                type = "hostResponse",
+                requestId,
+                ok = false,
+                error = new
+                {
+                    code = "host_error",
+                    message = "PaperTodo could not complete the plugin request."
+                }
+            });
+        }
+    }
+
+    private object? ExecuteHostRequest(string method, JsonElement parameters) => method switch
+    {
+        "papers.list" => _context.Host.ListPapers(OptionalPayloadString(parameters, "type")),
+        "papers.get" => _context.Host.GetPaper(PayloadString(parameters, "paperId")),
+        "todos.list" => _context.Host.ListTodos(
+            OptionalPayloadString(parameters, "paperId"),
+            OptionalPayloadBoolean(parameters, "includeBlank") ?? false),
+        "notes.get" => _context.Host.GetNote(PayloadString(parameters, "paperId")),
+        "papers.create" => _context.Host.CreatePaper(
+            DeserializePayload<CreatePaperRequest>(parameters)),
+        "todos.append" => _context.Host.AppendTodos(
+            DeserializePayload<AppendTodosRequest>(parameters)),
+        "todos.update" => _context.Host.UpdateTodo(
+            DeserializePayload<UpdateTodoRequest>(parameters)),
+        "todos.setReminder" => _context.Host.SetTodoReminder(
+            DeserializePayload<SetTodoReminderRequest>(parameters)),
+        "notes.write" => _context.Host.WriteNote(
+            DeserializePayload<WriteNoteRequest>(parameters)),
+        "todos.delete" => _context.Host.DeleteTodo(
+            DeserializePayload<DeleteTodoRequest>(parameters)),
+        "papers.delete" => _context.Host.DeletePaper(
+            PayloadString(parameters, "paperId")),
+        _ => throw new PaperTodoPluginException(
+            "method_not_found",
+            $"Unknown PaperTodo plugin host method: {method}")
+    };
+
+    private void HandleSubscribeHostEvents(JsonElement payload)
+    {
+        var subscriptionId = PayloadString(payload, "subscriptionId");
+        var documentGeneration = _documentGeneration;
+        try
+        {
+            if (_hostSubscriptions.Remove(subscriptionId, out var existing))
+            {
+                existing.Dispose();
+            }
+            _hostSubscriptions[subscriptionId] = _context.Host.Subscribe(
+                new PaperTodoEventFilter
+                {
+                    Kinds = ReadEventKinds(payload),
+                    PaperIds = ReadStringSet(payload, "paperIds"),
+                    ExcludeOwnOperations = OptionalPayloadBoolean(
+                        payload,
+                        "excludeOwnOperations") ?? true
+                },
+                value =>
+                {
+                    if (documentGeneration != _documentGeneration) return;
+                    var eventJson = JsonSerializer.SerializeToElement(
+                        value,
+                        value.GetType(),
+                        BridgeJsonOptions);
+                    Send(new
+                    {
+                        type = "hostEvent",
+                        subscriptionId,
+                        @event = eventJson
+                    });
+                });
+        }
+        catch (PaperTodoPluginException ex)
+        {
+            Send(new
+            {
+                type = "hostSubscriptionError",
+                subscriptionId,
+                error = new { code = ex.Code, message = ex.Message }
+            });
+        }
+    }
+
+    private void HandleUnsubscribeHostEvents(JsonElement payload)
+    {
+        var subscriptionId = PayloadString(payload, "subscriptionId");
+        if (_hostSubscriptions.Remove(subscriptionId, out var subscription))
+        {
+            subscription.Dispose();
+        }
+    }
+
+    private void ClearHostSubscriptions()
+    {
+        foreach (var subscription in _hostSubscriptions.Values)
+        {
+            try { subscription.Dispose(); } catch { }
+        }
+        _hostSubscriptions.Clear();
+    }
+
+    private static HashSet<PaperTodoEventKind> ReadEventKinds(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty("types", out var values) ||
+            values.ValueKind != JsonValueKind.Array)
+        {
+            throw new PaperTodoPluginException("invalid_params", "types must be an array.");
+        }
+        var result = new HashSet<PaperTodoEventKind>();
+        foreach (var value in values.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.String) continue;
+            result.Add(value.GetString() switch
+            {
+                "paper.created" => PaperTodoEventKind.PaperCreated,
+                "paper.changed" => PaperTodoEventKind.PaperChanged,
+                "paper.deleted" => PaperTodoEventKind.PaperDeleted,
+                "todo.created" => PaperTodoEventKind.TodoCreated,
+                "todo.changed" => PaperTodoEventKind.TodoChanged,
+                "todo.deleted" => PaperTodoEventKind.TodoDeleted,
+                "note.changed" => PaperTodoEventKind.NoteChanged,
+                var unknown => throw new PaperTodoPluginException(
+                    "invalid_params",
+                    $"Unknown event type: {unknown}")
+            });
+        }
+        if (result.Count == 0)
+        {
+            throw new PaperTodoPluginException(
+                "invalid_params",
+                "types must contain at least one event type.");
+        }
+        return result;
+    }
+
+    private static HashSet<string>? ReadStringSet(JsonElement payload, string name)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(name, out var values) ||
+            values.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        if (values.ValueKind != JsonValueKind.Array)
+        {
+            throw new PaperTodoPluginException("invalid_params", $"{name} must be an array.");
+        }
+        return values.EnumerateArray()
+            .Where(value => value.ValueKind == JsonValueKind.String)
+            .Select(value => value.GetString()?.Trim() ?? "")
+            .Where(value => value.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static T DeserializePayload<T>(JsonElement payload)
+    {
+        try
+        {
+            return payload.Deserialize<T>(BridgeJsonOptions)
+                ?? throw new JsonException("Payload deserialized to null.");
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            throw new PaperTodoPluginException(
+                "invalid_params",
+                ex.GetBaseException().Message);
+        }
+    }
+
+    private static string PayloadString(JsonElement payload, string name)
+    {
+        var value = OptionalPayloadString(payload, name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new PaperTodoPluginException("invalid_params", $"{name} is required.");
+        }
+        return value;
+    }
+
+    private static string? OptionalPayloadString(JsonElement payload, string name)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(name, out var value) ||
+            value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw new PaperTodoPluginException("invalid_params", $"{name} must be a string.");
+        }
+        return value.GetString();
+    }
+
+    private static bool? OptionalPayloadBoolean(JsonElement payload, string name)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(name, out var value) ||
+            value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        if (value.ValueKind is not JsonValueKind.True and not JsonValueKind.False)
+        {
+            throw new PaperTodoPluginException("invalid_params", $"{name} must be a boolean.");
+        }
+        return value.GetBoolean();
     }
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
@@ -635,6 +958,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _documentGeneration++;
+        ClearHostSubscriptions();
         ShowFailure(Strings.Format("PluginsWebProcessFailedFormat", e.ProcessFailedKind));
     }
 
@@ -706,7 +1031,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
         try
         {
-            _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(value));
+            _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(value, BridgeJsonOptions));
         }
         catch
         {
@@ -721,6 +1046,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _documentGeneration++;
+        ClearHostSubscriptions();
         _documentReady = false;
         _pluginDocumentReady = false;
         _webViewFailed = true;
@@ -923,6 +1250,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
         Commit();
         _disposed = true;
+        _documentGeneration++;
+        ClearHostSubscriptions();
         _lifetime.Cancel();
         _webViewGeneration++;
         DisposeWebView(_webView);

@@ -48,6 +48,9 @@ public sealed class PaperBodyContext
     public required int StateVersion { get; init; }
     public required int TargetStateVersion { get; init; }
     public string SettingsJson { get; init; } = "{}";
+    public IReadOnlySet<string> GrantedPermissions { get; init; } =
+        PaperTodoPermissionNames.None;
+    public required IPaperTodoHostApi Host { get; init; }
     public required PaperBodyTheme Theme { get; init; }
     public required Action<string> SaveStateJson { get; init; }
     public required Action<string> SetTitle { get; init; }

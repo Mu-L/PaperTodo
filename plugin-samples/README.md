@@ -45,7 +45,7 @@ plugins\
    └─ .runtime\                     # WebView2 Profile、缓存和临时运行数据
 ```
 
-当前 PaperTodo 插件协议为 **1.2**。`plugin.json` 必须包含 `kind`（`web` 或 `native`）、`id`、`entry`、`apiVersion` 和 `stateVersion`；`apiVersion` 必须精确声明为 `"1.2"`。旧协议默认拒绝加载；用户可以在插件页开启“强制加载旧版插件”，仅跳过同一主版本的旧协议检查，插件仍可能无法运行。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+当前 PaperTodo 插件协议为 **1.3**。同一主版本内向后兼容：插件声明的小版本不高于宿主即可加载；使用 `permissions` 必须声明 1.3。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -101,6 +101,13 @@ plugins\
 
 原生插件通过 `PaperBodyContext.SettingsJson` 获取初始设置，并通过 `IPaperBodySession.OnSettingsChanged` 接收更新。
 
+## 协议 1.3 数据能力
+
+插件通过 `permissions` 声明 Paper、Todo 与 Note 的读取、动态监听和受控写入。监听只在纸片插件会话存活时注册；未使用插件时不启动事件扫描，隐藏时暂停事件投递，切换正文或销毁会话后订阅自动释放。折叠胶囊是否继续接收仍由 `backgroundUpdates` 决定。
+
+支持：`papers.read/observe/create/delete`、`todos.read/observe/append/update/delete`、`notes.read/observe/append/replace`。写入结果只返回 ID 或内容长度，不会绕过独立的读取权限。
+
+原生插件使用 `PaperBodyContext.Host`；Web 插件使用 `papertodo.request()` 与 `papertodo.onHostEvent()`。
 ## Web 插件
 
 Web 插件的 `entry` 所在目录会成为本地静态根；建议固定使用 `web/`，使同一插件目录下的 `.runtime/` 不会被网页映射。插件自己的本地顶层页面运行在 `https://<id>.papertodo.local/`，只有该本地顶层页面会获得 `window.papertodo` 桥接。外部顶层导航、远程 iframe、弹窗和浏览器权限请求使用 WebView2 默认行为。

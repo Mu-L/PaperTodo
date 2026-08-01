@@ -15,6 +15,8 @@ public sealed partial class PaperWindow
     private FrameworkElement? _pluginBodyClipHost;
     private string _pluginDisplayTitle = "";
     private PaperBodyInputClaims _bodyInputClaims;
+    private PaperBodyPluginHostApi? _bodyHostApi;
+    private bool _bodyRuntimeVisible;
     private MarkdownPaperBodySession? _markdownBodySession;
     private int _bodySessionGeneration;
     private bool _bodyFailed;
@@ -236,6 +238,9 @@ public sealed partial class PaperWindow
         }
         catch (Exception ex)
         {
+            _bodyHostApi?.Dispose();
+            _bodyHostApi = null;
+            _bodyRuntimeVisible = false;
             _bodyDescriptor = null;
             _bodyFailed = true;
             return new FailedPaperBodySession(
@@ -265,6 +270,9 @@ public sealed partial class PaperWindow
         catch (Exception ex)
         {
             try { session.Dispose(); } catch { }
+            _bodyHostApi?.Dispose();
+            _bodyHostApi = null;
+            _bodyRuntimeVisible = false;
             var pluginName = _bodyDescriptor?.DisplayName ?? _paper.BodyProviderId;
             _bodyDescriptor = null;
             _bodyFailed = true;
@@ -406,6 +414,22 @@ public sealed partial class PaperWindow
         PaperBodyStoredState storedState)
     {
         var providerId = descriptor.Id;
+        _bodyHostApi?.Dispose();
+        var hostApi = new PaperBodyPluginHostApi(
+            _controller,
+            _controller.PaperCommands,
+            _paper.Id,
+            providerId,
+            descriptor.Permissions,
+            () => _windowLifecycle == PaperWindowLifecycleState.Alive &&
+                  !_bodyFailed &&
+                  generation == _bodySessionGeneration &&
+                  string.Equals(
+                      NormalizeBodyProviderId(_paper.BodyProviderId),
+                      providerId,
+                      StringComparison.Ordinal),
+            () => _bodyRuntimeVisible);
+        _bodyHostApi = hostApi;
         return new PaperBodyContext
         {
             PaperId = _paper.Id,
@@ -415,6 +439,8 @@ public sealed partial class PaperWindow
             StateVersion = storedState.Version,
             TargetStateVersion = descriptor.StateVersion,
             SettingsJson = _controller.PaperBodyPlugins.DataStore.GetSettingsJson(descriptor),
+            GrantedPermissions = hostApi.GrantedPermissions,
+            Host = hostApi,
             Theme = CurrentPaperBodyTheme(),
             SaveStateJson = json => QueuePluginStateSave(
                 generation,
@@ -424,7 +450,10 @@ public sealed partial class PaperWindow
             SetTitle = title => InvokePluginContext(
                 generation,
                 providerId,
-                () => _controller.UpdatePaperTitle(_paper, title)),
+                () => _controller.UpdatePaperTitleFromPlugin(
+                    _paper,
+                    title,
+                    providerId)),
             SetDisplayTitle = text => InvokePluginContext(
                 generation,
                 providerId,
@@ -584,6 +613,9 @@ public sealed partial class PaperWindow
             }
             try { session.Dispose(); } catch { }
         }
+        _bodyHostApi?.Dispose();
+        _bodyHostApi = null;
+        _bodyRuntimeVisible = false;
 
         var pending = InvalidateBodySessionAndTakePending(generation, providerId);
         if (pending != null)
@@ -671,6 +703,7 @@ public sealed partial class PaperWindow
         var hadDisplayTitle = !string.IsNullOrEmpty(_pluginDisplayTitle);
         _pluginDisplayTitle = "";
         _bodyInputClaims = PaperBodyInputClaims.None;
+        _bodyRuntimeVisible = false;
         if (refreshTitle && hadDisplayTitle && _isShellBuilt)
         {
             RefreshPaperTitle();
@@ -894,6 +927,7 @@ public sealed partial class PaperWindow
         var runtimeVisible = _paper.IsVisible &&
             (visible ||
              BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
+        _bodyRuntimeVisible = runtimeVisible;
         InvokeBodySession(item =>
         {
             // Presentation first avoids briefly starting a cold background controller when a

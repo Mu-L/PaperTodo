@@ -30,6 +30,7 @@ internal sealed record PaperBodyPluginDescriptor(
     int StateVersion,
     PaperBodyPluginKind Kind,
     PaperBodyCapabilities Capabilities,
+    IReadOnlySet<string> Permissions,
     PaperBodyRuntimeRequirements RuntimeRequirements,
     string PluginDirectory,
     string SourcePath,
@@ -56,6 +57,7 @@ internal sealed class PaperBodyPluginManifest
     public string ApiVersion { get; set; } = "";
     public int StateVersion { get; set; } = 1;
     public string[] Requires { get; set; } = [];
+    public string[] Permissions { get; set; } = [];
     public string Entry { get; set; } = "index.html";
     public string[] Capabilities { get; set; } = [];
     public PaperBodyPluginSettingManifest[] Settings { get; set; } = [];
@@ -71,7 +73,7 @@ internal sealed class PaperBodyPluginManifest
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    internal const string SupportedPluginApiVersion = "1.2";
+    internal const string SupportedPluginApiVersion = "1.3";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -177,6 +179,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             1,
             PaperBodyPluginKind.BuiltIn,
             PaperBodyCapabilities.TextZoom | PaperBodyCapabilities.NoteLinks,
+            PaperTodoPermissionNames.None,
             PaperBodyRuntimeRequirements.None,
             AppContext.BaseDirectory,
             typeof(PaperWindow).Assembly.Location,
@@ -278,6 +281,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException("stateVersion must be at least 1.");
         }
         ValidateSettings(manifest);
+        ValidateProtocolFeatures(manifest);
 
         manifest.DirectoryPath = Path.GetFullPath(directory);
         manifest.EntryPath = ResolveContainedPath(directory, manifest.Entry);
@@ -313,6 +317,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             manifest.StateVersion,
             PaperBodyPluginKind.Web,
             ParseCapabilities(manifest.Capabilities),
+            ParsePermissions(manifest.Permissions),
             ParseRuntimeRequirements(manifest.Requires),
             manifest.DirectoryPath,
             manifestPath,
@@ -361,6 +366,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             manifest.StateVersion,
             PaperBodyPluginKind.Native,
             ParseCapabilities(manifest.Capabilities),
+            ParsePermissions(manifest.Permissions),
             ParseRuntimeRequirements(manifest.Requires),
             directory,
             manifestPath,
@@ -437,6 +443,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 plugin.StateVersion,
                 PaperBodyPluginKind.Native,
                 plugin.Capabilities,
+                discoveredDescriptor.Permissions,
                 plugin.RuntimeRequirements,
                 directory,
                 discoveredDescriptor.SourcePath,
@@ -526,6 +533,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 !string.Equals(before.ApiVersion, after.ApiVersion, StringComparison.Ordinal) ||
                 before.StateVersion != after.StateVersion ||
                 before.RuntimeRequirements != after.RuntimeRequirements ||
+                !before.Permissions.SetEquals(after.Permissions) ||
                 !string.Equals(before.Fingerprint, after.Fingerprint, StringComparison.Ordinal))
             {
                 changed.Add(id);
@@ -624,29 +632,17 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
     private static void ValidateManifestApiVersion(string pluginApiVersion)
     {
-        if (string.Equals(
-                pluginApiVersion,
-                SupportedPluginApiVersion,
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
         var host = SupportedPluginApiVersion.Split('.');
         var plugin = pluginApiVersion.Split('.');
-        var allowLegacy = AppController.Current != null &&
-            AppController.Current.State.ForceLegacyPluginCompatibility;
-        if (allowLegacy &&
-            plugin[0] == host[0] &&
-            int.Parse(plugin[1]) < int.Parse(host[1]))
+        if (plugin[0] == host[0] &&
+            int.Parse(plugin[1]) <= int.Parse(host[1]))
         {
             return;
         }
 
         throw new InvalidDataException(
-            $"Unsupported plugin API version {pluginApiVersion}; expected {SupportedPluginApiVersion}.");
+            $"Unsupported plugin API version {pluginApiVersion}; host supports compatible 1.x plugins up to {SupportedPluginApiVersion}.");
     }
-
     private static Version ParseVersion(string? value)
     {
         if (!Version.TryParse(value, out var parsed))

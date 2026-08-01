@@ -18,7 +18,7 @@ public sealed partial class AppController
             return;
         }
 
-        _mcpCommands ??= new McpCommandService(this);
+        _mcpCommands ??= new McpCommandService(this, PaperCommands);
         _mcpApiHost ??= new McpApiHost(
             Application.Current.Dispatcher,
             _mcpCommands);
@@ -75,8 +75,6 @@ public sealed partial class AppController
         }
         catch
         {
-            // Persistence is already committed. Retry UI reconciliation once without
-            // turning a successful MCP mutation into an error that may be replayed.
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null || IsExiting)
             {
@@ -88,11 +86,7 @@ public sealed partial class AppController
                 _ = dispatcher.BeginInvoke(
                     (Action)(() =>
                     {
-                        if (IsExiting)
-                        {
-                            return;
-                        }
-
+                        if (IsExiting) return;
                         try
                         {
                             update();
@@ -104,18 +98,12 @@ public sealed partial class AppController
                                 ArrangeDeepCapsules(animate: false);
                                 RefreshTrayMenu();
                             }
-                            catch
-                            {
-                                // The persisted state remains authoritative.
-                            }
+                            catch { }
                         }
                     }),
                     DispatcherPriority.ContextIdle);
             }
-            catch
-            {
-                // Dispatcher shutdown cannot invalidate the committed data.
-            }
+            catch { }
         }
     }
 
@@ -124,31 +112,21 @@ public sealed partial class AppController
         State.Papers.Remove(paper);
         if (_windows.TryGetValue(paper.Id, out var window))
         {
-            TryExitCleanup(() =>
-                window.CloseForReal(saveBeforeClose: false));
+            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
             _windows.Remove(paper.Id);
         }
-
         _visibilityAnimationVersions.Remove(paper.Id);
         TryExitCleanup(NotifyTodoReminderCollectionChanged);
         TryExitCleanup(() => ArrangeDeepCapsules(animate: false));
         TryExitCleanup(RefreshTrayMenu);
     }
 
-    internal void FinalizeMcpPaperCreated(
-        PaperData paper,
-        bool show)
+    internal void FinalizeMcpPaperCreated(PaperData paper, bool show)
     {
         paper.IsVisible = show;
         RefreshTrayMenu();
-        if (show)
-        {
-            ShowPaper(paper);
-        }
-        else
-        {
-            ArrangeDeepCapsules(animate: false);
-        }
+        if (show) ShowPaper(paper);
+        else ArrangeDeepCapsules(animate: false);
     }
 
     internal void RefreshMcpTodoPaper(PaperData paper)
@@ -189,8 +167,7 @@ public sealed partial class AppController
 
         if (refreshLinkedTodos)
         {
-            foreach (var todo in State.Papers.Where(
-                         paper => paper.Type == PaperTypes.Todo))
+            foreach (var todo in State.Papers.Where(paper => paper.Type == PaperTypes.Todo))
             {
                 if (_windows.TryGetValue(todo.Id, out var todoWindow))
                 {
@@ -205,7 +182,6 @@ public sealed partial class AppController
             replacement.IsVisible = true;
             ShowPaper(replacement);
         }
-
         ArrangeDeepCapsules(animate: false);
         RefreshTrayMenu();
     }
