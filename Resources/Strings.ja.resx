@@ -1222,8 +1222,32 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
     <value>{0} · プラグイン v{1} · プロトコル {2} · 状態 {3}</value>
   </data>
+  <data name="PluginsPageTitle" xml:space="preserve">
+    <value>本文プラグイン</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>ノート本文には内蔵 Markdown、ネイティブ DLL、またはローカル Web プラグインを使用できます。プラグインは完全に信頼されたコードとして動作し、サンドボックスはありません。ネイティブプラグインは現在のユーザー権限を持ち、Web プラグインはネットワークを利用できます。PaperTodo が Web の外部ナビゲーション、フレーム、ポップアップ、ダウンロード、権限要求に行うのは軽い誤操作防止だけで、セキュリティ隔離ではありません。信頼できるプラグインだけを導入してください。</value>
+    <value>プラグインは現在のユーザー権限で動作します。信頼できる提供元のものだけを導入してください。</value>
+  </data>
+  <data name="PluginsForceLegacy" xml:space="preserve">
+    <value>旧版プラグインを強制読み込み</value>
+  </data>
+  <data name="PluginsForceLegacyWarning" xml:space="preserve">
+    <value>同じメジャー版の旧プロトコル検査だけを省略します。正常に動作しない場合があります。</value>
+  </data>
+  <data name="PluginsMoreSettings" xml:space="preserve">
+    <value>その他の設定</value>
+  </data>
+  <data name="PluginsLessSettings" xml:space="preserve">
+    <value>設定を閉じる</value>
+  </data>
+  <data name="PluginsProtocolTooltipFormat" xml:space="preserve">
+    <value>プラグインプロトコル {0}</value>
+  </data>
+  <data name="PluginsDataRecoveryPending" xml:space="preserve">
+    <value>データを読み取れないため空の状態で実行しています。新しいデータは復旧ファイルに保存されます。</value>
+  </data>
+  <data name="PluginsDataRecoveryActive" xml:space="preserve">
+    <value>元のデータを読み取れないため、復旧データファイルを使用しています。</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>フォルダーを開く</value>

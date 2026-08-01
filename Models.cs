@@ -407,6 +407,7 @@ public sealed class AppState
     public bool McpAllowBlankWrites { get; set; }
     public bool McpAllowFullWrites { get; set; }
     public bool McpAllowDeletes { get; set; }
+    public bool ForceLegacyPluginCompatibility { get; set; }
     public bool ExperimentalCapsuleMagnetism { get; set; }
     public bool ExperimentalCapsuleMagnetScreenEdges { get; set; } = true;
     public bool ExperimentalCapsuleMagnetWindowEdges { get; set; } = true;
@@ -485,6 +486,9 @@ public sealed class PaperData
 
     // Note body provider. Older data files omit these fields and therefore remain Markdown.
     public string BodyProviderId { get; set; } = PaperBodyProviderIds.Markdown;
+    // Protocol 1.2 stores plugin data under plugins/data. Keep the old property only so source
+    // code compiled against PaperData still builds; old bodyStates JSON is intentionally ignored.
+    [JsonIgnore]
     public Dictionary<string, PaperBodyStoredState> BodyStates { get; set; } =
         new(StringComparer.Ordinal);
     // Runtime-only holder for the retired protocol 1.0 field.

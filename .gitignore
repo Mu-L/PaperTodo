@@ -17,3 +17,4 @@ PaperTodo.crash.log
 extract_code.py
 rollout-*.jsonl
 plugins/**/.runtime/
+plugins/data/

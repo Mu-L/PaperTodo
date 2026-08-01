@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,8 +12,8 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string Id => "sample.clock.native";
     public string DisplayName => "原生时钟示例";
     public string Description => "用于验证 PaperTodo 原生 DLL 正文插件加载。";
-    public Version Version => new(1, 1, 0);
-    public string ApiVersion => "1.1";
+    public Version Version => new(1, 2, 0);
+    public string ApiVersion => "1.2";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -27,10 +28,12 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         private readonly TextBlock _time;
         private readonly TextBlock _date;
         private readonly DispatcherTimer _timer;
+        private bool _showSeconds;
 
         public ClockSession(PaperBodyContext context)
         {
             _context = context;
+            _showSeconds = ReadShowSeconds(context.SettingsJson);
             _time = new TextBlock
             {
                 FontSize = 42,
@@ -71,7 +74,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         private void Refresh()
         {
             var now = DateTime.Now;
-            _time.Text = now.ToString("HH:mm:ss");
+            _time.Text = now.ToString(_showSeconds ? "HH:mm:ss" : "HH:mm");
             _date.Text = now.ToString("yyyy-MM-dd dddd");
             _context.SetDisplayTitle(now.ToString("HH:mm"));
         }
@@ -89,8 +92,30 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             return new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
         }
 
+        private static bool ReadShowSeconds(string json)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(
+                    string.IsNullOrWhiteSpace(json) ? "{}" : json);
+                return document.RootElement.TryGetProperty("showSeconds", out var value) &&
+                    value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? value.GetBoolean()
+                        : true;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
         public void OnThemeChanged(PaperBodyTheme theme) => ApplyTheme(theme);
         public void OnTypographyChanged(PaperBodyTheme theme) => ApplyTheme(theme);
+        public void OnSettingsChanged(string settingsJson)
+        {
+            _showSeconds = ReadShowSeconds(settingsJson);
+            Refresh();
+        }
         public void OnVisibilityChanged(bool visible)
         {
             if (visible) _timer.Start(); else _timer.Stop();

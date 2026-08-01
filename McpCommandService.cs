@@ -471,6 +471,8 @@ internal sealed class McpCommandService
             throw SaveFailed();
         }
 
+        _controller.PaperBodyPlugins.DataStore.RemovePaperStateEverywhere(paper.Id);
+
         _controller.RunMcpPostCommitUi(
             () => _controller.FinalizeMcpPaperDeletion(
                 paper,
@@ -635,6 +637,19 @@ internal sealed class McpCommandService
     {
         if (paper.Type == PaperTypes.Note)
         {
+            PaperBodyStoredState? bodyState = null;
+            if (!string.Equals(
+                    paper.BodyProviderId,
+                    PaperBodyProviderIds.Markdown,
+                    StringComparison.Ordinal) &&
+                _controller.PaperBodyPlugins.DataStore.TryReadPaperState(
+                    paper.BodyProviderId,
+                    paper.Id,
+                    out var storedBodyState))
+            {
+                bodyState = storedBodyState;
+            }
+
             return new
             {
                 id = paper.Id,
@@ -642,20 +657,13 @@ internal sealed class McpCommandService
                 title = _controller.PaperTitleText(paper),
                 is_visible = paper.IsVisible,
                 body_provider_id = paper.BodyProviderId,
-                body_state = !string.Equals(
-                        paper.BodyProviderId,
-                        PaperBodyProviderIds.Markdown,
-                        StringComparison.Ordinal) &&
-                    paper.BodyStates.TryGetValue(
-                        paper.BodyProviderId,
-                        out var bodyState) &&
-                    bodyState != null
-                        ? new
-                        {
-                            version = bodyState.Version,
-                            json = bodyState.Json
-                        }
-                        : null,
+                body_state = bodyState == null
+                    ? null
+                    : new
+                    {
+                        version = bodyState.Version,
+                        json = bodyState.Json
+                    },
                 content = string.Equals(
                         paper.BodyProviderId,
                         PaperBodyProviderIds.Markdown,

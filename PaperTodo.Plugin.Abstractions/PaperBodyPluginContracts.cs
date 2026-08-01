@@ -47,6 +47,7 @@ public sealed class PaperBodyContext
     public required string StateJson { get; init; }
     public required int StateVersion { get; init; }
     public required int TargetStateVersion { get; init; }
+    public string SettingsJson { get; init; } = "{}";
     public required PaperBodyTheme Theme { get; init; }
     public required Action<string> SaveStateJson { get; init; }
     public required Action<string> SetTitle { get; init; }
@@ -109,4 +110,7 @@ public interface IPaperBodySession : IDisposable
     void OnThemeChanged(PaperBodyTheme theme) { }
     void OnTypographyChanged(PaperBodyTheme theme) { }
     void OnDpiChanged() { }
+
+    // Protocol 1.2: host-rendered global settings changed for this plugin.
+    void OnSettingsChanged(string settingsJson) { }
 }

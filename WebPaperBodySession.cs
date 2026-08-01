@@ -10,8 +10,8 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
-// Web plugins are trusted and may use the network. The navigation, frame, popup, download and
-// permission handlers below are light misuse guards, not a sandbox or a security boundary.
+// Web plugins are trusted. WebView2 keeps its normal navigation, frame, popup and permission
+// behavior; only PaperTodo's host bridge remains restricted to the plugin's local top-level origin.
 internal sealed class WebPaperBodySession : IPaperBodySession
 {
     private static readonly object EnvironmentGate = new();
@@ -120,11 +120,13 @@ internal sealed class WebPaperBodySession : IPaperBodySession
     private int _webViewGeneration;
     private PaperBodyTheme _theme;
     private string _stateJson;
+    private string _settingsJson;
     private string _expectedOrigin = "";
     private Uri? _entryUri;
     private bool _initializationStarted;
     private bool _initialized;
     private bool _documentReady;
+    private bool _pluginDocumentReady;
     private bool _disposed;
     private bool _runtimeVisible;
     private bool _presentationVisible;
@@ -139,6 +141,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         _manifest = manifest;
         _theme = context.Theme;
         _stateJson = context.StateJson;
+        _settingsJson = context.SettingsJson;
         _root = new Grid
         {
             Background = Brushes.Transparent,
@@ -238,10 +241,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             core.WebMessageReceived += OnWebMessageReceived;
             core.ProcessFailed += OnProcessFailed;
             core.NavigationStarting += OnNavigationStarting;
-            core.FrameNavigationStarting += OnFrameNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
-            core.NewWindowRequested += OnNewWindowRequested;
-            core.PermissionRequested += OnPermissionRequested;
             core.DownloadStarting += OnDownloadStarting;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 BuildBridgeScript(_expectedOrigin));
@@ -349,28 +349,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
 
         _documentReady = false;
-        if (IsAllowedDocumentUri(e.Uri))
-        {
-            return;
-        }
-
-        e.Cancel = true;
-        OpenExternalNavigation(e.Uri);
-    }
-
-    private void OnFrameNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
-    {
-        if (!ReferenceEquals(sender, _webView.CoreWebView2))
-        {
-            return;
-        }
-
-        if (IsAllowedDocumentUri(e.Uri) ||
-            string.Equals(e.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-        e.Cancel = true;
+        _pluginDocumentReady = false;
     }
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -380,7 +359,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             return;
         }
 
-        if (!e.IsSuccess || _webView.Source == null || !IsAllowedDocumentUri(_webView.Source.AbsoluteUri))
+        if (!e.IsSuccess)
         {
             ShowFailure(
                 $"{Strings.Get("PluginsWebNavigationFailed")} ({e.WebErrorStatus})");
@@ -388,44 +367,44 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
 
         _documentReady = true;
+        _pluginDocumentReady = IsAllowedDocumentUri(_webView.Source?.AbsoluteUri);
         ShowWebView();
-        SendInitialize();
-    }
-
-    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
-    {
-        e.Handled = true;
-        OpenExternalNavigation(e.Uri);
-    }
-
-    private static void OnPermissionRequested(
-        object? sender,
-        CoreWebView2PermissionRequestedEventArgs e)
-    {
-        e.State = CoreWebView2PermissionState.Deny;
-        e.SavesInProfile = false;
+        if (_pluginDocumentReady)
+        {
+            SendInitialize();
+        }
     }
 
     private static void OnDownloadStarting(
         object? sender,
         CoreWebView2DownloadStartingEventArgs e)
     {
-        e.Cancel = true;
+        var value = e.DownloadOperation.Uri;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https"))
+        {
+            // blob:, data: and other session-local downloads stay inside WebView2.
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri)
+            {
+                UseShellExecute = true
+            });
+            e.Cancel = true;
+        }
+        catch
+        {
+            // If the default browser could not be launched, keep WebView2's normal download.
+        }
     }
 
     private bool IsAllowedDocumentUri(string? value)
     {
         return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
             string.Equals(uri.GetLeftPart(UriPartial.Authority), _expectedOrigin, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void OpenExternalNavigation(string? value)
-    {
-        if (Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-            uri.Scheme is "http" or "https" or "mailto")
-        {
-            _context.OpenExternal(uri.AbsoluteUri);
-        }
     }
 
     private void ShowWebView()
@@ -494,6 +473,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         _initializationStarted = false;
         _initialized = false;
         _documentReady = false;
+        _pluginDocumentReady = false;
         _webViewFailed = false;
         EnsureLoadingView();
         AttachWebViewToRoot();
@@ -569,10 +549,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             core.WebMessageReceived -= OnWebMessageReceived;
             core.ProcessFailed -= OnProcessFailed;
             core.NavigationStarting -= OnNavigationStarting;
-            core.FrameNavigationStarting -= OnFrameNavigationStarting;
             core.NavigationCompleted -= OnNavigationCompleted;
-            core.NewWindowRequested -= OnNewWindowRequested;
-            core.PermissionRequested -= OnPermissionRequested;
             core.DownloadStarting -= OnDownloadStarting;
         }
         try { webView.Dispose(); } catch { }
@@ -589,6 +566,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             state = ParseState(_stateJson),
             stateVersion = _context.StateVersion,
             targetStateVersion = _context.TargetStateVersion,
+            settings = ParseState(_settingsJson),
             theme = ThemePayload(_theme),
             visible = _runtimeVisible,
             presentationVisible = _presentationVisible
@@ -718,7 +696,11 @@ internal sealed class WebPaperBodySession : IPaperBodySession
 
     private void Send(object value)
     {
-        if (!_initialized || !_documentReady || _disposed || _webView.CoreWebView2 == null)
+        if (!_initialized ||
+            !_documentReady ||
+            !_pluginDocumentReady ||
+            _disposed ||
+            _webView.CoreWebView2 == null)
         {
             return;
         }
@@ -740,6 +722,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
 
         _documentReady = false;
+        _pluginDocumentReady = false;
         _webViewFailed = true;
         UpdateWebViewPresentation();
         _context.SetDisplayTitle("");
@@ -910,6 +893,16 @@ internal sealed class WebPaperBodySession : IPaperBodySession
     {
         _theme = theme;
         Send(new { type = "typographyChanged", theme = ThemePayload(theme) });
+    }
+
+    public void OnSettingsChanged(string settingsJson)
+    {
+        _settingsJson = string.IsNullOrWhiteSpace(settingsJson) ? "{}" : settingsJson;
+        Send(new
+        {
+            type = "settingsChanged",
+            settings = ParseState(_settingsJson)
+        });
     }
 
     public void Commit()

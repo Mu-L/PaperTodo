@@ -1235,8 +1235,32 @@
   <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
     <value>{0} · 插件 v{1} · 协议 {2} · 状态数据 {3}</value>
   </data>
+  <data name="PluginsPageTitle" xml:space="preserve">
+    <value>正文插件</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>笔记正文可使用内置 Markdown、原生 DLL 或本地 Web 插件。插件按完全信任代码运行，不提供沙箱：原生插件拥有当前用户权限，Web 插件可以联网。PaperTodo 仅对 Web 外部导航、框架、弹窗、下载和权限请求做轻度防误用限制，不构成安全隔离；请只安装可信插件。</value>
+    <value>插件拥有与当前用户相同的权限，请仅安装可信来源的插件。</value>
+  </data>
+  <data name="PluginsForceLegacy" xml:space="preserve">
+    <value>强制加载旧版插件</value>
+  </data>
+  <data name="PluginsForceLegacyWarning" xml:space="preserve">
+    <value>仅跳过同一主版本的旧协议检查，插件仍可能无法运行。</value>
+  </data>
+  <data name="PluginsMoreSettings" xml:space="preserve">
+    <value>更多设置</value>
+  </data>
+  <data name="PluginsLessSettings" xml:space="preserve">
+    <value>收起设置</value>
+  </data>
+  <data name="PluginsProtocolTooltipFormat" xml:space="preserve">
+    <value>插件协议 {0}</value>
+  </data>
+  <data name="PluginsDataRecoveryPending" xml:space="preserve">
+    <value>数据读取失败，当前使用空数据；新数据将写入恢复文件。</value>
+  </data>
+  <data name="PluginsDataRecoveryActive" xml:space="preserve">
+    <value>原数据读取失败，当前使用恢复数据文件。</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>打开目录</value>

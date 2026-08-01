@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,7 +9,6 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private const int MaximumPluginStateCharacters = 1_000_000;
     private IPaperBodySession? _bodySession;
     private PaperBodyPluginDescriptor? _bodyDescriptor;
     private UIElement? _bodyElement;
@@ -416,6 +414,7 @@ public sealed partial class PaperWindow
             StateJson = storedState.Json ?? "{}",
             StateVersion = storedState.Version,
             TargetStateVersion = descriptor.StateVersion,
+            SettingsJson = _controller.PaperBodyPlugins.DataStore.GetSettingsJson(descriptor),
             Theme = CurrentPaperBodyTheme(),
             SaveStateJson = json => QueuePluginStateSave(
                 generation,
@@ -596,60 +595,8 @@ public sealed partial class PaperWindow
             refreshTitle: _windowLifecycle == PaperWindowLifecycleState.Alive);
     }
 
-    private PaperBodyStoredState ReadPluginState(string providerId)
-    {
-        _paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
-        if (!_paper.BodyStates.TryGetValue(providerId, out var state))
-        {
-            return new PaperBodyStoredState();
-        }
-        if (state == null)
-        {
-            throw new InvalidOperationException(
-                $"Saved state for plugin '{providerId}' is null.");
-        }
-        if (state.Version < 1)
-        {
-            throw new InvalidOperationException(
-                $"Saved state version {state.Version} for plugin '{providerId}' is invalid.");
-        }
-
-        return new PaperBodyStoredState
-        {
-            Version = state.Version,
-            Json = ValidateStoredPluginStateJson(providerId, state.Json)
-        };
-    }
-
-    private static string ValidateStoredPluginStateJson(
-        string providerId,
-        string? json)
-    {
-        if (json == null)
-        {
-            throw new InvalidOperationException(
-                $"Saved state for plugin '{providerId}' has no JSON payload.");
-        }
-        if (json.Length > MaximumPluginStateCharacters)
-        {
-            throw new InvalidOperationException(
-                $"Saved state for plugin '{providerId}' exceeds {MaximumPluginStateCharacters} characters.");
-        }
-
-        try
-        {
-            using (JsonDocument.Parse(json))
-            {
-            }
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidOperationException(
-                $"Saved state for plugin '{providerId}' is not valid JSON.",
-                ex);
-        }
-        return json;
-    }
+    private PaperBodyStoredState ReadPluginState(string providerId) =>
+        _controller.PaperBodyPlugins.DataStore.ReadPaperState(providerId, _paper.Id);
 
     private PaperBodyStoredState MigrateNativePluginState(
         IPaperBodyPlugin plugin,
@@ -675,41 +622,19 @@ public sealed partial class PaperWindow
         };
     }
 
-    private static string NormalizePluginStateJson(string? json)
-    {
-        var normalized = string.IsNullOrWhiteSpace(json) ? "{}" : json.Trim();
-        if (normalized.Length > MaximumPluginStateCharacters)
-        {
-            throw new InvalidOperationException(
-                $"Plugin state cannot exceed {MaximumPluginStateCharacters} characters.");
-        }
-        using (JsonDocument.Parse(normalized))
-        {
-        }
-        return normalized;
-    }
+    private static string NormalizePluginStateJson(string? json) =>
+        PaperBodyPluginDataStore.NormalizeStateJson(json);
 
     private void SavePluginStateValidated(
         string providerId,
         int stateVersion,
         string normalized)
     {
-        _paper.BodyStates ??= new Dictionary<string, PaperBodyStoredState>(StringComparer.Ordinal);
-        stateVersion = Math.Max(1, stateVersion);
-        if (_paper.BodyStates.TryGetValue(providerId, out var existing) &&
-            existing != null &&
-            existing.Version == stateVersion &&
-            string.Equals(existing.Json, normalized, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _paper.BodyStates[providerId] = new PaperBodyStoredState
-        {
-            Version = stateVersion,
-            Json = normalized
-        };
-        _controller.MarkDirty();
+        _controller.PaperBodyPlugins.DataStore.SavePaperState(
+            providerId,
+            _paper.Id,
+            stateVersion,
+            normalized);
     }
 
     private void SetPluginDisplayTitle(string? text)
@@ -1001,6 +926,24 @@ public sealed partial class PaperWindow
     internal void NotifyCurrentPaperBodyDpiChanged()
     {
         InvokeBodySession(item => item.OnDpiChanged());
+    }
+
+    internal void NotifyPaperBodyPluginSettingsChanged(
+        string providerId,
+        string settingsJson)
+    {
+        if (_paper.Type != PaperTypes.Note ||
+            IsClosed ||
+            IsCurrentBodyProviderMarkdown ||
+            !string.Equals(
+                NormalizeBodyProviderId(_paper.BodyProviderId),
+                providerId,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        InvokeBodySession(item => item.OnSettingsChanged(settingsJson));
     }
 
     internal void RefreshCurrentPaperBodyFromModel()

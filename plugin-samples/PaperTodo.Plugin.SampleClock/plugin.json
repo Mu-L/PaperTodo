@@ -3,10 +3,19 @@
   "id": "sample.clock.native",
   "name": "原生时钟示例",
   "description": "用于验证 PaperTodo 原生 DLL 正文插件加载。",
-  "version": "1.1.0",
-  "apiVersion": "1.1",
+  "version": "1.2.0",
+  "apiVersion": "1.2",
   "stateVersion": 1,
   "entry": "PaperTodo.Plugin.SampleClock.dll",
   "capabilities": [],
-  "requires": ["backgroundUpdates"]
+  "requires": ["backgroundUpdates"],
+  "settings": [
+    {
+      "id": "showSeconds",
+      "type": "boolean",
+      "name": "显示秒数",
+      "default": true,
+      "quick": true
+    }
+  ]
 }

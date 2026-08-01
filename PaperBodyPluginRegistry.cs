@@ -58,6 +58,7 @@ internal sealed class PaperBodyPluginManifest
     public string[] Requires { get; set; } = [];
     public string Entry { get; set; } = "index.html";
     public string[] Capabilities { get; set; } = [];
+    public PaperBodyPluginSettingManifest[] Settings { get; set; } = [];
 
     public string DirectoryPath { get; internal set; } = "";
     public string EntryPath { get; internal set; } = "";
@@ -70,7 +71,7 @@ internal sealed class PaperBodyPluginManifest
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    internal const string SupportedPluginApiVersion = "1.1";
+    internal const string SupportedPluginApiVersion = "1.2";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -182,6 +183,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             "builtin");
 
         var discoveredNativeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var discoveredManifestDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pluginDirectories = Directory.Exists(PluginRoot)
             ? EnumeratePluginDirectories()
             : Array.Empty<string>();
@@ -192,6 +194,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             {
                 continue;
             }
+            discoveredManifestDirectories.Add(directory);
 
             try
             {
@@ -221,7 +224,8 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
         foreach (var loaded in _loadedNativeByDirectory.Values)
         {
-            if (discoveredNativeDirectories.Contains(loaded.DirectoryPath))
+            if (discoveredManifestDirectories.Contains(loaded.DirectoryPath) ||
+                discoveredNativeDirectories.Contains(loaded.DirectoryPath))
             {
                 continue;
             }
@@ -248,7 +252,8 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             {
                 var name = Path.GetFileName(directory);
                 return !string.IsNullOrEmpty(name) &&
-                    name[0] is not '.' and not '_';
+                    name[0] is not '.' and not '_' &&
+                    !string.Equals(name, "data", StringComparison.OrdinalIgnoreCase);
             })
             .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase);
     }
@@ -267,18 +272,12 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 $"Plugin folder name must match plugin id '{id}'.");
         }
         manifest.ApiVersion = NormalizeApiVersion(manifest.ApiVersion);
-        if (!string.Equals(
-                manifest.ApiVersion,
-                SupportedPluginApiVersion,
-                StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(
-                $"Unsupported plugin API version {manifest.ApiVersion}; expected {SupportedPluginApiVersion}.");
-        }
+        ValidateManifestApiVersion(manifest.ApiVersion);
         if (manifest.StateVersion < 1)
         {
             throw new InvalidDataException("stateVersion must be at least 1.");
         }
+        ValidateSettings(manifest);
 
         manifest.DirectoryPath = Path.GetFullPath(directory);
         manifest.EntryPath = ResolveContainedPath(directory, manifest.Entry);
@@ -553,9 +552,10 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException(
                 "Plugin id must contain 3-120 ASCII letters, digits, '.', '_' or '-'.");
         }
-        if (string.Equals(id.Trim(), PaperBodyProviderIds.Markdown, StringComparison.Ordinal))
+        if (string.Equals(id.Trim(), PaperBodyProviderIds.Markdown, StringComparison.Ordinal) ||
+            string.Equals(id.Trim(), "data", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException("The built-in Markdown id is reserved.");
+            throw new InvalidDataException("The plugin id is reserved by PaperTodo.");
         }
     }
 
@@ -616,10 +616,35 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             minor < 0)
         {
             throw new InvalidDataException(
-                "apiVersion must be a quoted major.minor string such as \"1.1\".");
+                "apiVersion must be a quoted major.minor string such as \"1.2\".");
         }
 
         return $"{major}.{minor}";
+    }
+
+    private static void ValidateManifestApiVersion(string pluginApiVersion)
+    {
+        if (string.Equals(
+                pluginApiVersion,
+                SupportedPluginApiVersion,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var host = SupportedPluginApiVersion.Split('.');
+        var plugin = pluginApiVersion.Split('.');
+        var allowLegacy = AppController.Current != null &&
+            AppController.Current.State.ForceLegacyPluginCompatibility;
+        if (allowLegacy &&
+            plugin[0] == host[0] &&
+            int.Parse(plugin[1]) < int.Parse(host[1]))
+        {
+            return;
+        }
+
+        throw new InvalidDataException(
+            $"Unsupported plugin API version {pluginApiVersion}; expected {SupportedPluginApiVersion}.");
     }
 
     private static Version ParseVersion(string? value)
@@ -688,6 +713,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         }
         _loadedNativeByDirectory.Clear();
         _lastChangedProviderIds.Clear();
+        _dataStore.Dispose();
     }
 
     [GeneratedRegex("^[A-Za-z0-9._-]{3,120}$", RegexOptions.CultureInvariant)]

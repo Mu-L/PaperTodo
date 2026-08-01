@@ -12,8 +12,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
     public string Description => "完全使用 WPF 控件实现，支持折叠后台计时和状态恢复。";
-    public Version Version => new(1, 0, 0);
-    public string ApiVersion => "1.1";
+    public Version Version => new(1, 1, 0);
+    public string ApiVersion => "1.2";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>

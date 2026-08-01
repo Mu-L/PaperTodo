@@ -38,6 +38,7 @@
   </main>
   <script>
     let visible = true;
+    let showSeconds = true;
     let timer = 0;
     const hoursElement = document.getElementById('hours');
     const minutesElement = document.getElementById('minutes');
@@ -55,12 +56,16 @@
       root.setProperty('--scale', String(theme.fontScale || 1));
     }
 
+    function applySettings(settings) {
+      showSeconds = settings?.showSeconds !== false;
+    }
+
     function render() {
       const now = new Date();
       const two = value => String(value).padStart(2, '0');
       hoursElement.textContent = two(now.getHours());
       minutesElement.textContent = two(now.getMinutes());
-      secondsElement.textContent = ':' + two(now.getSeconds());
+      secondsElement.textContent = showSeconds ? ':' + two(now.getSeconds()) : '';
       dateElement.textContent = new Intl.DateTimeFormat(undefined, {
         year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
       }).format(now);
@@ -78,7 +83,11 @@
       if (message.type === 'initialize') {
         visible = message.visible !== false;
         applyTheme(message.theme);
+        applySettings(message.settings);
         updateTimer();
+      } else if (message.type === 'settingsChanged') {
+        applySettings(message.settings);
+        render();
       } else if (message.type === 'themeChanged' || message.type === 'typographyChanged') {
         applyTheme(message.theme);
       } else if (message.type === 'visibilityChanged') {

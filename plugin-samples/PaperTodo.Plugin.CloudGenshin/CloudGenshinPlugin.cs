@@ -14,8 +14,8 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
     public string Id => "sample.cloudgenshin.native";
     public string DisplayName => "云·原神（实验）";
     public string Description => "在 PaperTodo 纸片中直接打开云·原神网页版。";
-    public Version Version => new(1, 1, 0);
-    public string ApiVersion => "1.1";
+    public Version Version => new(1, 2, 0);
+    public string ApiVersion => "1.2";
     public int StateVersion => 1;
     public PaperBodyRuntimeRequirements RuntimeRequirements => PaperBodyRuntimeRequirements.BackgroundUpdates;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;

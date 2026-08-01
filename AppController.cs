@@ -1908,6 +1908,7 @@ public sealed partial class AppController : IDisposable
         }
 
         State.Papers.RemoveAll(p => p.Id == paper.Id);
+        _paperBodyPlugins.DataStore.RemovePaperStateEverywhere(paper.Id);
         _visibilityAnimationVersions.Remove(paper.Id);
         NotifyTodoReminderCollectionChanged();
 

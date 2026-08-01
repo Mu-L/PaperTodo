@@ -1222,8 +1222,32 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="PluginsDescriptorVersionFormat" xml:space="preserve">
     <value>{0} · 플러그인 v{1} · 프로토콜 {2} · 상태 {3}</value>
   </data>
+  <data name="PluginsPageTitle" xml:space="preserve">
+    <value>본문 플러그인</value>
+  </data>
   <data name="PluginsIntro" xml:space="preserve">
-    <value>노트 본문은 기본 Markdown, 네이티브 DLL 또는 로컬 Web 플러그인을 사용할 수 있습니다. 플러그인은 샌드박스 없이 완전히 신뢰된 코드로 실행됩니다. 네이티브 플러그인은 현재 사용자 권한을 가지며 Web 플러그인은 네트워크를 사용할 수 있습니다. PaperTodo는 Web 외부 탐색, 프레임, 팝업, 다운로드 및 권한 요청에 가벼운 오용 방지만 적용하며 이는 보안 격리가 아닙니다. 신뢰할 수 있는 플러그인만 설치하세요.</value>
+    <value>플러그인은 현재 사용자와 같은 권한으로 실행됩니다. 신뢰할 수 있는 출처의 플러그인만 설치하세요.</value>
+  </data>
+  <data name="PluginsForceLegacy" xml:space="preserve">
+    <value>이전 버전 플러그인 강제 로드</value>
+  </data>
+  <data name="PluginsForceLegacyWarning" xml:space="preserve">
+    <value>같은 주 버전의 이전 프로토콜 검사만 건너뜁니다. 플러그인이 여전히 실행되지 않을 수 있습니다.</value>
+  </data>
+  <data name="PluginsMoreSettings" xml:space="preserve">
+    <value>추가 설정</value>
+  </data>
+  <data name="PluginsLessSettings" xml:space="preserve">
+    <value>설정 접기</value>
+  </data>
+  <data name="PluginsProtocolTooltipFormat" xml:space="preserve">
+    <value>플러그인 프로토콜 {0}</value>
+  </data>
+  <data name="PluginsDataRecoveryPending" xml:space="preserve">
+    <value>데이터를 읽지 못해 빈 상태를 사용 중입니다. 새 데이터는 복구 파일에 저장됩니다.</value>
+  </data>
+  <data name="PluginsDataRecoveryActive" xml:space="preserve">
+    <value>원본 데이터를 읽지 못해 복구 데이터 파일을 사용 중입니다.</value>
   </data>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>폴더 열기</value>
