@@ -5,7 +5,7 @@
   "description": "完整的 WPF 番茄钟示例，支持自动轮转、声音、每日目标和折叠后台计时。",
   "version": "1.2.0",
   "apiVersion": "1.2",
-  "stateVersion": 1,
+  "stateVersion": 2,
   "entry": "PaperTodo.Plugin.FocusTimer.dll",
   "capabilities": ["textZoom"],
   "requires": ["backgroundUpdates"],

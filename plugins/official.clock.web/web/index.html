@@ -101,6 +101,22 @@
       font-size: .68em;
     }
     [hidden] { display: none !important; }
+    @media (max-width: 230px) {
+      main { padding: 12px 8px; }
+      #time { font-size: calc(clamp(34px, 19vw, 58px) * var(--clock-scale)); }
+      .zone { padding: 3px 7px; }
+      .progress { margin-top: 13px; }
+    }
+    @media (max-width: 175px) {
+      main { padding: 8px 5px; }
+      #time {
+        font-size: calc(clamp(28px, 20vw, 44px) * min(var(--clock-scale), 1.15));
+        letter-spacing: 0;
+      }
+      #meridiem { margin-left: 4px; }
+      .zone { display: none; }
+      .meta { font-size: .62em; }
+    }
   </style>
 </head>
 <body>
@@ -112,7 +128,7 @@
     </div>
     <div id="date"></div>
     <div id="progressTrack" class="progress"><div id="progress"></div></div>
-    <div class="meta">
+    <div id="meta" class="meta">
       <span id="week"></span>
       <span id="dayPercent"></span>
     </div>
@@ -184,7 +200,9 @@
       settings.clockScale = Math.min(1.6, Math.max(.75, Number(settings.clockScale) || 1));
       document.documentElement.style.setProperty('--clock-scale', String(settings.clockScale));
       progressTrack.hidden = !settings.showDayProgress;
+      dayPercentElement.hidden = !settings.showDayProgress;
       weekElement.hidden = !settings.showWeekNumber;
+      metaElement.hidden = !settings.showDayProgress && !settings.showWeekNumber;
     }
 
     function zonedParts(date) {
