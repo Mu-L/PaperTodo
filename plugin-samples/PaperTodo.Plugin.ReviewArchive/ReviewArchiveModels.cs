@@ -24,7 +24,7 @@ internal sealed class ReviewArchiveViewState
 
 internal sealed class ReviewArchiveDocument
 {
-    public int StorageVersion { get; set; } = 1;
+    public int StorageVersion { get; set; } = 2;
     public Dictionary<string, ReviewArchiveRecord> Records { get; set; } =
         new(StringComparer.Ordinal);
 }
@@ -43,5 +43,14 @@ internal sealed class ReviewArchiveRecord
     public DateTimeOffset LastChangedAt { get; set; }
     public bool CreatedAtEstimated { get; set; }
     public bool CompletedAtEstimated { get; set; }
+    public string Origin { get; set; } = "user";
+    public List<ReviewArchiveEvent> Events { get; set; } = [];
+}
+
+internal sealed class ReviewArchiveEvent
+{
+    public string Kind { get; set; } = "";
+    public DateTimeOffset At { get; set; }
+    public bool Estimated { get; set; }
     public string Origin { get; set; } = "user";
 }

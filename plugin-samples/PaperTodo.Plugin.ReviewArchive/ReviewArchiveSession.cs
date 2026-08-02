@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using PaperTodo.Plugin;
 using static PaperTodo.Plugin.ReviewArchive.ReviewArchiveSettingsReader;
@@ -27,6 +28,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private readonly Button _clearButton;
     private readonly List<Button> _buttons;
     private readonly IDisposable _subscription;
+    private readonly DispatcherTimer _refreshTimer;
 
     private ReviewArchiveSettings _settings;
     private ReviewArchiveViewState _viewState;
@@ -99,9 +101,8 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             Refresh();
         };
 
-        var filters = new StackPanel
+        var filters = new WrapPanel
         {
-            Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 12, 0, 10)
         };
         filters.Children.Add(_filterBox);
@@ -131,9 +132,8 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _exportButton.Click += OnExport;
         _clearButton.Click += OnClear;
 
-        var actions = new StackPanel
+        var actions = new WrapPanel
         {
-            Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 10, 0, 0)
         };
@@ -158,6 +158,22 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _root.Children.Add(filters);
         _root.Children.Add(scroll);
         _root.Children.Add(actions);
+        _root.SizeChanged += (_, e) =>
+        {
+            _root.Margin = e.NewSize.Width < 290
+                ? new Thickness(8, 8, 8, 10)
+                : new Thickness(16, 13, 16, 14);
+        };
+
+        _refreshTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _refreshTimer.Tick += (_, _) =>
+        {
+            _refreshTimer.Stop();
+            if (!_disposed) Refresh();
+        };
 
         _subscription = context.Host.Subscribe(
             new PaperTodoEventFilter
@@ -182,6 +198,20 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
     public FrameworkElement View => _root;
 
+    private static DateTimeOffset LastActivityAt(ReviewArchiveRecord record) =>
+        record.Events.Count > 0
+            ? record.Events.Max(value => value.At)
+            : record.CompletedAt ?? record.DeletedAt ?? record.LastChangedAt;
+
+    private static bool HasCompletionSince(ReviewArchiveRecord record, DateTimeOffset since) =>
+        record.Events.Any(value => value.Kind == "completed" && value.At >= since);
+
+    private static DateTimeOffset? LastEventAt(ReviewArchiveRecord record, string kind) =>
+        record.Events
+            .Where(value => value.Kind == kind)
+            .Select(value => (DateTimeOffset?)value.At)
+            .Max();
+
     private sealed record FilterOption(string Id, string Name);
 
     private static Button MakeButton(string text) => new()
@@ -200,23 +230,31 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         {
             return;
         }
-        Refresh();
+        _refreshTimer.Stop();
+        _refreshTimer.Start();
     }
 
     private void Refresh()
     {
         var all = ReviewArchiveStore.Snapshot();
         var today = DateTimeOffset.Now.Date;
-        var completed = all.Where(item => item.Done && item.CompletedAt.HasValue).ToArray();
-        var todayCount = completed.Count(item => item.CompletedAt!.Value.ToLocalTime().Date == today);
-        var weekCount = completed.Count(item => item.CompletedAt >= DateTimeOffset.Now.AddDays(-7));
-        _summaryText.Text = $"已完成 {completed.Length} · 今日 {todayCount} · 近 7 天 {weekCount}";
+        var completionEvents = all
+            .SelectMany(item => item.Events.Where(value => value.Kind == "completed"))
+            .ToArray();
+        var completedRecords = all.Count(item =>
+            item.Events.Any(value => value.Kind == "completed"));
+        var todayCount = completionEvents.Count(value =>
+            value.At.ToLocalTime().Date == today);
+        var weekCount = completionEvents.Count(value =>
+            value.At >= DateTimeOffset.Now.AddDays(-7));
+        _summaryText.Text =
+            $"完成记录 {completedRecords} · 今日 {todayCount} · 近 7 天 {weekCount}";
         _hintText.Text = string.IsNullOrWhiteSpace(ReviewArchiveStore.LastSaveError)
             ? "记录池独立保存在插件 .runtime 中；删除原待办纸片后仍可复盘和导出。"
             : "记录池暂时无法写入：" + ReviewArchiveStore.LastSaveError;
 
         var filtered = Filter(all)
-            .OrderByDescending(item => item.CompletedAt ?? item.LastChangedAt)
+            .OrderByDescending(LastActivityAt)
             .Take(300)
             .ToArray();
         _listPanel.Children.Clear();
@@ -238,7 +276,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             "fixed" => string.IsNullOrWhiteSpace(_settings.FixedTitle)
                 ? "复盘记录"
                 : _settings.FixedTitle,
-            _ => $"复盘 · {completed.Length} 条"
+            _ => $"复盘 · {completedRecords} 条"
         };
         SetDisplayTitle(title);
         ApplyTheme(_theme);
@@ -250,18 +288,22 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         var filter = _viewState.Filter;
         var result = records.Where(item => filter switch
         {
-            "today" => item.Done && item.CompletedAt?.ToLocalTime().Date == now.Date,
-            "week" => item.Done && item.CompletedAt >= now.AddDays(-7),
-            "month" => item.Done && item.CompletedAt >= now.AddDays(-30),
+            "today" => item.Events.Any(value =>
+                value.Kind == "completed" &&
+                value.At.ToLocalTime().Date == now.Date),
+            "week" => HasCompletionSince(item, now.AddDays(-7)),
+            "month" => HasCompletionSince(item, now.AddDays(-30)),
             "open" => !item.Done,
             "deleted" => item.SourceDeleted,
             "all" => true,
-            _ => item.Done
+            _ => item.Events.Any(value => value.Kind == "completed")
         });
 
         if (!_settings.ShowOpenItems && filter == "all")
         {
-            result = result.Where(item => item.Done || item.SourceDeleted);
+            result = result.Where(item =>
+                item.Events.Any(value => value.Kind == "completed") ||
+                item.SourceDeleted);
         }
 
         var search = _viewState.Search;
@@ -288,10 +330,19 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         {
             metadata.Add(record.PaperTitle);
         }
-        metadata.Add(record.Done
-            ? "完成 " + FormatDate(record.CompletedAt ?? record.LastChangedAt)
-            : "创建 " + FormatDate(record.CreatedAt));
-        if (record.CreatedAtEstimated || record.CompletedAtEstimated)
+        var lastCompleted = LastEventAt(record, "completed");
+        var lastReopened = LastEventAt(record, "reopened");
+        metadata.Add(record.Done && lastCompleted.HasValue
+            ? "完成 " + FormatDate(lastCompleted.Value)
+            : lastReopened.HasValue
+                ? "重新打开 " + FormatDate(lastReopened.Value)
+                : "创建 " + FormatDate(record.CreatedAt));
+        var completionCount = record.Events.Count(value => value.Kind == "completed");
+        if (completionCount > 1)
+        {
+            metadata.Add($"完成 {completionCount} 次");
+        }
+        if (record.Events.Any(value => value.Estimated))
         {
             metadata.Add("时间为首次观察值");
         }
@@ -338,7 +389,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private void OnExport(object sender, RoutedEventArgs e)
     {
         var records = Filter(ReviewArchiveStore.Snapshot())
-            .OrderByDescending(item => item.CompletedAt ?? item.LastChangedAt)
+            .OrderByDescending(LastActivityAt)
             .ToArray();
         var dialog = new SaveFileDialog
         {
@@ -394,7 +445,11 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
                 row.Add(record.PaperTitle);
             }
             row.Add(FormatDate(record.CreatedAt));
-            row.Add(record.CompletedAt.HasValue ? FormatDate(record.CompletedAt.Value) : "");
+            var lastCompleted = LastEventAt(record, "completed");
+            var lastReopened = LastEventAt(record, "reopened");
+            row.Add(lastCompleted.HasValue ? FormatDate(lastCompleted.Value) : "");
+            row.Add(record.Events.Count(value => value.Kind == "completed").ToString());
+            row.Add(lastReopened.HasValue ? FormatDate(lastReopened.Value) : "");
             row.Add(record.SourceDeleted ? "是" : "否");
             row.Add(record.CreatedAtEstimated ? "首次观察" : "精确");
             row.Add(record.CompletedAtEstimated ? "首次观察" : record.CompletedAt.HasValue ? "精确" : "");
@@ -521,7 +576,11 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
     public void OnPresentationChanged(bool visible) => _root.IsHitTestVisible = visible;
 
-    public void Commit() => SaveViewState();
+    public void Commit()
+    {
+        SaveViewState();
+        ReviewArchiveStore.Flush();
+    }
 
     public void Dispose()
     {
@@ -530,7 +589,9 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             return;
         }
         _disposed = true;
+        _refreshTimer.Stop();
         ReviewArchiveStore.Changed -= OnArchiveChanged;
         _subscription.Dispose();
+        ReviewArchiveStore.Flush();
     }
 }

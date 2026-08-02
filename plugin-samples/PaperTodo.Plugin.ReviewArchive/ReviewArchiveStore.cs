@@ -13,8 +13,11 @@ internal static class ReviewArchiveStore
     };
     private static readonly HashSet<Guid> SeenEventIds = [];
     private static readonly Queue<Guid> SeenEventOrder = [];
+    private static readonly SemaphoreSlim SaveGate = new(1, 1);
     private static ReviewArchiveDocument? _document;
     private static string? _path;
+    private static CancellationTokenSource? _pendingSave;
+    private static long _saveVersion;
 
     public static event Action? Changed;
     public static string LastSaveError { get; private set; } = "";
@@ -79,7 +82,7 @@ internal static class ReviewArchiveStore
                     continue;
                 }
 
-                _document.Records[key] = FromSnapshot(
+                _document.Records[key] = FromSnapshotWithHistory(
                     todo,
                     now,
                     createdEstimated: true,
@@ -159,11 +162,23 @@ internal static class ReviewArchiveStore
             var key = Key(item.Todo.PaperId, item.Todo.Id);
             if (_document!.Records.TryGetValue(key, out var existing))
             {
+                var restored = existing.SourceDeleted;
                 UpdateFromSnapshot(existing, item.Todo, item.Metadata.OccurredAt);
+                if (restored)
+                {
+                    existing.SourceDeleted = false;
+                    existing.DeletedAt = null;
+                    AddEvent(
+                        existing,
+                        "restored",
+                        item.Metadata.OccurredAt,
+                        estimated: false,
+                        OriginText(item.Metadata));
+                }
                 return true;
             }
 
-            _document.Records[key] = FromSnapshot(
+            _document.Records[key] = FromSnapshotWithHistory(
                 item.Todo,
                 item.Metadata.OccurredAt,
                 createdEstimated: false,
@@ -184,7 +199,7 @@ internal static class ReviewArchiveStore
                 {
                     return false;
                 }
-                record = FromSnapshot(
+                record = FromSnapshotWithHistory(
                     item.Before,
                     item.Metadata.OccurredAt,
                     createdEstimated: true,
@@ -200,11 +215,23 @@ internal static class ReviewArchiveStore
                 {
                     record.CompletedAt = item.Metadata.OccurredAt;
                     record.CompletedAtEstimated = false;
+                    AddEvent(
+                        record,
+                        "completed",
+                        item.Metadata.OccurredAt,
+                        estimated: false,
+                        OriginText(item.Metadata));
                 }
                 else
                 {
                     record.CompletedAt = null;
                     record.CompletedAtEstimated = false;
+                    AddEvent(
+                        record,
+                        "reopened",
+                        item.Metadata.OccurredAt,
+                        estimated: false,
+                        OriginText(item.Metadata));
                 }
             }
             return true;
@@ -222,7 +249,7 @@ internal static class ReviewArchiveStore
                 {
                     return false;
                 }
-                record = FromSnapshot(
+                record = FromSnapshotWithHistory(
                     item.Todo,
                     item.Metadata.OccurredAt,
                     createdEstimated: true,
@@ -239,6 +266,12 @@ internal static class ReviewArchiveStore
             UpdateFromSnapshot(record, item.Todo, item.Metadata.OccurredAt);
             record.SourceDeleted = true;
             record.DeletedAt = item.Metadata.OccurredAt;
+            AddEvent(
+                record,
+                "deleted",
+                item.Metadata.OccurredAt,
+                estimated: false,
+                OriginText(item.Metadata));
             return true;
         }
     }
@@ -290,6 +323,16 @@ internal static class ReviewArchiveStore
                 pair.Value.SourceDeleted = true;
                 pair.Value.DeletedAt ??= item.Metadata.OccurredAt;
                 pair.Value.LastChangedAt = item.Metadata.OccurredAt;
+                if (!pair.Value.Events.Any(value => value.Kind == "deleted" &&
+                        value.At == item.Metadata.OccurredAt))
+                {
+                    AddEvent(
+                        pair.Value,
+                        "deleted",
+                        item.Metadata.OccurredAt,
+                        estimated: false,
+                        OriginText(item.Metadata));
+                }
                 changed = true;
             }
         }
@@ -313,8 +356,38 @@ internal static class ReviewArchiveStore
         LastChangedAt = observedAt,
         CreatedAtEstimated = createdEstimated,
         CompletedAtEstimated = completedEstimated,
-        Origin = origin
+        Origin = origin,
+        Events =
+        [
+            new ReviewArchiveEvent
+            {
+                Kind = "created",
+                At = observedAt,
+                Estimated = createdEstimated,
+                Origin = origin
+            }
+        ]
     };
+
+    private static ReviewArchiveRecord FromSnapshotWithHistory(
+        TodoSnapshot todo,
+        DateTimeOffset observedAt,
+        bool createdEstimated,
+        bool completedEstimated,
+        string origin)
+    {
+        var record = FromSnapshot(
+            todo,
+            observedAt,
+            createdEstimated,
+            completedEstimated,
+            origin);
+        if (todo.Done)
+        {
+            AddEvent(record, "completed", observedAt, completedEstimated, origin);
+        }
+        return record;
+    }
 
     private static void UpdateFromSnapshot(
         ReviewArchiveRecord record,
@@ -355,6 +428,15 @@ internal static class ReviewArchiveStore
         LastChangedAt = value.LastChangedAt,
         CreatedAtEstimated = value.CreatedAtEstimated,
         CompletedAtEstimated = value.CompletedAtEstimated,
+        Origin = value.Origin,
+        Events = value.Events.Select(Clone).ToList()
+    };
+
+    private static ReviewArchiveEvent Clone(ReviewArchiveEvent value) => new()
+    {
+        Kind = value.Kind,
+        At = value.At,
+        Estimated = value.Estimated,
         Origin = value.Origin
     };
 
@@ -385,10 +467,49 @@ internal static class ReviewArchiveStore
     private static void NormalizeDocument(ReviewArchiveDocument document)
     {
         document.Records ??= new Dictionary<string, ReviewArchiveRecord>(StringComparer.Ordinal);
-        if (document.StorageVersion != 1)
+        if (document.StorageVersion == 1)
+        {
+            foreach (var record in document.Records.Values)
+            {
+                record.Events ??= [];
+                if (record.Events.Count == 0)
+                {
+                    AddEvent(
+                        record,
+                        "created",
+                        record.CreatedAt,
+                        record.CreatedAtEstimated,
+                        record.Origin);
+                    if (record.CompletedAt.HasValue)
+                    {
+                        AddEvent(
+                            record,
+                            "completed",
+                            record.CompletedAt.Value,
+                            record.CompletedAtEstimated,
+                            record.Origin);
+                    }
+                    if (record.DeletedAt.HasValue)
+                    {
+                        AddEvent(
+                            record,
+                            "deleted",
+                            record.DeletedAt.Value,
+                            estimated: false,
+                            record.Origin);
+                    }
+                }
+            }
+            document.StorageVersion = 2;
+        }
+        if (document.StorageVersion != 2)
         {
             throw new InvalidDataException(
                 $"Unsupported review archive version {document.StorageVersion}.");
+        }
+        foreach (var record in document.Records.Values)
+        {
+            record.Events ??= [];
         }
     }
 
@@ -437,7 +558,74 @@ internal static class ReviewArchiveStore
         {
             _ = Prune(settings);
         }
+        Changed?.Invoke();
+        ScheduleSave();
+    }
 
+    private static void ScheduleSave()
+    {
+        CancellationTokenSource cancellation;
+        long version;
+        lock (Gate)
+        {
+            _pendingSave?.Cancel();
+            _pendingSave?.Dispose();
+            cancellation = new CancellationTokenSource();
+            _pendingSave = cancellation;
+            version = ++_saveVersion;
+        }
+        _ = SaveAfterDelayAsync(version, cancellation.Token);
+    }
+
+    private static async Task SaveAfterDelayAsync(
+        long version,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+            await SaveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (version != Volatile.Read(ref _saveVersion))
+                {
+                    return;
+                }
+                WriteCurrentDocument();
+            }
+            finally
+            {
+                SaveGate.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public static void Flush()
+    {
+        EnsureLoaded();
+        lock (Gate)
+        {
+            _pendingSave?.Cancel();
+            _pendingSave?.Dispose();
+            _pendingSave = null;
+            _saveVersion++;
+        }
+        SaveGate.Wait();
+        try
+        {
+            WriteCurrentDocument();
+        }
+        finally
+        {
+            SaveGate.Release();
+        }
+    }
+
+    private static void WriteCurrentDocument()
+    {
         string json;
         string path;
         lock (Gate)
@@ -462,6 +650,22 @@ internal static class ReviewArchiveStore
         {
             LastSaveError = ex.GetBaseException().Message;
         }
-        Changed?.Invoke();
+    }
+
+    private static void AddEvent(
+        ReviewArchiveRecord record,
+        string kind,
+        DateTimeOffset at,
+        bool estimated,
+        string origin)
+    {
+        record.Events ??= [];
+        record.Events.Add(new ReviewArchiveEvent
+        {
+            Kind = kind,
+            At = at,
+            Estimated = estimated,
+            Origin = origin
+        });
     }
 }

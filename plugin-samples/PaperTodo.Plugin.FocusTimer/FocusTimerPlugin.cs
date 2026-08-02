@@ -1,5 +1,6 @@
 using System.Media;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -147,9 +148,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             };
             _plusButton = MakeButton("+");
 
-            var durationRow = new StackPanel
+            var durationRow = new WrapPanel
             {
-                Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 10)
             };
@@ -164,9 +164,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _resetButton = MakeButton("重置");
             _resetButton.MinWidth = 68;
 
-            var actionRow = new StackPanel
+            var actionRow = new WrapPanel
             {
-                Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center
             };
             actionRow.Children.Add(_startButton);

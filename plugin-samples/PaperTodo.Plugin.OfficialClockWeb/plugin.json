@@ -9,7 +9,15 @@
   "entry": "web/index.html",
   "capabilities": ["textZoom"],
   "requires": ["backgroundUpdates"],
+  "startupPaper": {
+    "enabledSetting": "autoStartCapsule",
+    "instanceKey": "main",
+    "presentation": "capsule",
+    "title": "Web 时钟",
+    "delayMs": 1200
+  },
   "settings": [
+    { "id": "autoStartCapsule", "type": "boolean", "name": "启动后自动创建时钟胶囊", "description": "PaperTodo 启动稳定后创建或恢复同一个时钟胶囊，不会重复创建。", "default": false },
     { "id": "showSeconds", "type": "boolean", "name": "显示秒数", "default": true, "quick": true },
     { "id": "showDate", "type": "boolean", "name": "显示日期", "default": true, "quick": true },
     { "id": "showDayProgress", "type": "boolean", "name": "显示日进度", "description": "在底部显示今天已经过去的比例。", "default": true, "quick": true },
