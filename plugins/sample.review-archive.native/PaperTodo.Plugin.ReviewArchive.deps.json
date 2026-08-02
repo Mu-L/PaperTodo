@@ -7,12 +7,12 @@
   "targets": {
     ".NETCoreApp,Version=v10.0": {},
     ".NETCoreApp,Version=v10.0/win-x64": {
-      "PaperTodo.Plugin.SampleClock/1.3.0": {
+      "PaperTodo.Plugin.ReviewArchive/1.0.0": {
         "dependencies": {
           "PaperTodo.Plugin.Abstractions": "1.0.0"
         },
         "runtime": {
-          "PaperTodo.Plugin.SampleClock.dll": {}
+          "PaperTodo.Plugin.ReviewArchive.dll": {}
         }
       },
       "PaperTodo.Plugin.Abstractions/1.0.0": {
@@ -26,7 +26,7 @@
     }
   },
   "libraries": {
-    "PaperTodo.Plugin.SampleClock/1.3.0": {
+    "PaperTodo.Plugin.ReviewArchive/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
