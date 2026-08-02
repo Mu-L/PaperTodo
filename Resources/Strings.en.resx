@@ -77,10 +77,16 @@ Error: {0}</value>
     <value>Link</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>Drag onto a todo item to link this note</value>
+    <value>Drag onto a todo item to link this paper</value>
+  </data>
+  <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
+    <value>Drag onto a todo item or another window to link this paper</value>
+  </data>
+  <data name="AssociationDropTodo" xml:space="preserve">
+    <value>Release to link to this todo</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
-    <value>Open linked note: {0}</value>
+    <value>Open linked paper: {0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
     <value>Run linked script: {0}</value>
@@ -242,13 +248,13 @@ Error: {0}</value>
     <value>The image store has reached its total limit ({0} MB).</value>
   </data>
   <data name="MenuOpenLinkedNote" xml:space="preserve">
-    <value>Open linked note: {0}</value>
+    <value>Open linked paper: {0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>Edit linked script: {0}</value>
   </data>
   <data name="MenuUnlinkNote" xml:space="preserve">
-    <value>Unlink note</value>
+    <value>Unlink paper</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>Italic</value>
@@ -555,10 +561,10 @@ Enhanced: nicer headings, lists, and emphasis.</value>
     <value>Todo text, row height, and spacing.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>Drag a note onto a todo to link it, then open the note from that item.</value>
+    <value>Drag any paper onto a todo item to link it, then open the paper from that item.</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>Show the linked note title after the todo.</value>
+    <value>Show the linked paper title after the todo.</value>
   </data>
   <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>Off: compact. On: wider to fit content.
@@ -675,7 +681,7 @@ Off: no compression; over 8 MB is rejected.
 Either way, any side over 4096 px is rejected.</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
-    <value>Enable todo-note links</value>
+    <value>Enable todo-paper links</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
     <value>Auto-clear completed todos</value>
@@ -702,10 +708,10 @@ Either way, any side over 4096 px is rejected.</value>
     <value>Show external open button</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>Show linked note title</value>
+    <value>Show linked paper title</value>
   </data>
   <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
-    <value>Long linked note titles</value>
+    <value>Long linked paper titles</value>
   </data>
   <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
     <value>Linked notes not shown as capsules</value>

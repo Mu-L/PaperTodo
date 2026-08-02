@@ -11,8 +11,8 @@ public static class PaperTypes
 
 public static class PaperLayoutDefaults
 {
-    public const double MinWidth = 220;
-    public const double MinHeight = 160;
+    public const double MinWidth = 160;
+    public const double MinHeight = 120;
     public const double TopBarHeight = 23.5;
 
     public const double CapsuleWidth = 92; // 包含阴影边框边距
@@ -490,18 +490,17 @@ public sealed class PaperData
     [JsonIgnore]
     public Dictionary<string, PaperBodyStoredState> BodyStates { get; set; } =
         new(StringComparer.Ordinal);
-    // Runtime-only holder for the retired protocol 1.0 field.
-    [JsonIgnore]
+    // Last plugin-provided display title. Persisting this lightweight cache lets linked todo
+    // badges and capsules show the last known plugin title before the body session is recreated.
+    [JsonPropertyName("bodyCapsuleText")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string BodyCapsuleText { get; set; } = "";
 
-    // Reads legacy JSON but always writes null, so protocol 1.1 saves remove the field.
-    [JsonPropertyName("bodyCapsuleText")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? LegacyBodyCapsuleText
-    {
-        get => null;
-        set => BodyCapsuleText = value ?? "";
-    }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string StartupOwnerPluginId { get; set; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string StartupInstanceKey { get; set; } = "";
 
     // Which edge-queue this paper's capsule belongs to. A queue is identified by
     // (CapsuleMonitorDeviceName, CapsuleSide): every docked capsule sharing the same pair

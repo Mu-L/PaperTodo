@@ -95,6 +95,9 @@ public sealed partial class AppController : IDisposable
     public AppState State { get; private set; }
     public NoteImageStore ImageStore => _imageStore;
     internal bool IsRunning => _lifecycleState == AppLifecycleState.Running;
+    internal bool HasNoteLinkDropTarget =>
+        _noteLinkTargetWindow != null &&
+        !string.IsNullOrWhiteSpace(_noteLinkTargetItemId);
     public bool SuppressDeepCapsuleTopmostForContextMenu => _deepCapsuleContextMenuOwners.Count > 0;
     private bool ShouldAvoidFullscreenTopmost => FullscreenTopmostModes.Normalize(State.FullscreenTopmostMode) == FullscreenTopmostModes.Avoid;
     private bool IsExiting => _lifecycleState != AppLifecycleState.Running;
@@ -155,7 +158,6 @@ public sealed partial class AppController : IDisposable
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         _imageStore.Load();
         var strippedInternalImageMarkers = StripInternalImageRenderMarkersFromState();
-        var strippedLegacyPluginTitles = StripLegacyPluginDisplayTitlesFromState();
         var protectedImageIdsForReuse = TryCollectUnprotectedImages();
         // Only rebuild free numbers when the same protection scan that gates GC succeeded.
         // A failed scan leaves reuse disabled so missing-but-referenced ids are never reissued.
@@ -191,7 +193,7 @@ public sealed partial class AppController : IDisposable
             SaveNow();
         };
 
-        if (strippedInternalImageMarkers || strippedLegacyPluginTitles)
+        if (strippedInternalImageMarkers)
         {
             MarkDirty();
         }
@@ -287,6 +289,7 @@ public sealed partial class AppController : IDisposable
                 SaveNow();
             }
             RefreshMcpRuntime();
+            SchedulePluginStartupPapers(initialVisibilityCommand);
             return;
         }
 
@@ -303,6 +306,7 @@ public sealed partial class AppController : IDisposable
             SaveNow();
         }
         RefreshMcpRuntime();
+        SchedulePluginStartupPapers(initialVisibilityCommand);
     }
 
     private async Task RestorePaperSurfacesAsync(IReadOnlyList<PaperData> papersToRestore)
@@ -760,6 +764,16 @@ public sealed partial class AppController : IDisposable
         {
             return displayTitle;
         }
+        if (paper.Type == PaperTypes.Note &&
+            !string.Equals(
+                paper.BodyProviderId,
+                PaperBodyProviderIds.Markdown,
+                StringComparison.Ordinal) &&
+            PaperBodyPlugins.TryGet(paper.BodyProviderId, out _) &&
+            !string.IsNullOrWhiteSpace(paper.BodyCapsuleText))
+        {
+            return paper.BodyCapsuleText;
+        }
 
         return PaperTitleText(paper);
     }
@@ -783,10 +797,7 @@ public sealed partial class AppController : IDisposable
         {
             window.RefreshPaperTitle();
         }
-        if (paper.Type == PaperTypes.Note)
-        {
-            RefreshTodoRowsForLinkedNote(paper.Id);
-        }
+        NotifyPaperDisplayTitleChanged(paper.Id);
         RefreshTrayMenu();
         MarkDirty();
     }
@@ -829,22 +840,27 @@ public sealed partial class AppController : IDisposable
         return FindNote(noteId) != null;
     }
 
+    public bool IsExistingPaper(string? paperId)
+    {
+        return FindPaper(paperId) != null;
+    }
+
     public bool TryGetLinkedNoteTitle(string? noteId, out string title)
     {
-        var note = FindNote(noteId);
-        if (note == null)
+        var paper = FindPaper(noteId);
+        if (paper == null)
         {
             title = "";
             return false;
         }
 
-        title = PaperTitleText(note);
+        title = PaperDisplayTitle(paper);
         return true;
     }
 
     public bool IsLinkedNoteShown(string? noteId)
     {
-        var note = FindNote(noteId);
+        var note = FindPaper(noteId);
         return note != null &&
             _windows.TryGetValue(note.Id, out var window) &&
             note.IsVisible &&
@@ -888,6 +904,19 @@ public sealed partial class AppController : IDisposable
         return _windows.TryGetValue(note.Id, out var window)
             ? window.IsCurrentScriptCapsule()
             : PaperWindow.IsScriptCapsuleContent(note.Content);
+    }
+
+    public void NotifyPaperDisplayTitleChanged(string? paperId)
+    {
+        if (string.IsNullOrWhiteSpace(paperId))
+        {
+            return;
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshLinkedPaperTitle(paperId);
+        }
     }
 
     public void RefreshTodoRowsForLinkedNote(string? noteId)
@@ -952,7 +981,7 @@ public sealed partial class AppController : IDisposable
 
     public void OpenLinkedNote(string? noteId, Window? anchorWindow = null)
     {
-        var note = FindNote(noteId);
+        var note = FindPaper(noteId);
         if (note == null)
         {
             return;
@@ -1012,7 +1041,7 @@ public sealed partial class AppController : IDisposable
 
     public void BeginNoteLinkDrag(PaperData sourceNote)
     {
-        if (!State.EnableTodoNoteLinks || sourceNote.Type != PaperTypes.Note)
+        if (!State.EnableTodoNoteLinks || !IsExistingPaper(sourceNote.Id))
         {
             return;
         }
@@ -1022,7 +1051,7 @@ public sealed partial class AppController : IDisposable
 
     public void UpdateNoteLinkDrag(PaperData sourceNote, Point screenPoint)
     {
-        if (!State.EnableTodoNoteLinks || sourceNote.Type != PaperTypes.Note)
+        if (!State.EnableTodoNoteLinks || !IsExistingPaper(sourceNote.Id))
         {
             ClearNoteLinkDropTarget();
             return;
@@ -1033,6 +1062,11 @@ public sealed partial class AppController : IDisposable
 
         foreach (var window in _windows.Values)
         {
+            if (string.Equals(window.PaperId, sourceNote.Id, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (window.TryHitTodoRow(screenPoint, out var itemId))
             {
                 targetWindow = window;
@@ -1056,18 +1090,22 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    public void EndNoteLinkDrag(PaperData sourceNote, bool commit)
+    public bool EndNoteLinkDrag(PaperData sourceNote, bool commit)
     {
+        var linked = false;
         if (State.EnableTodoNoteLinks &&
-            sourceNote.Type == PaperTypes.Note &&
+            IsExistingPaper(sourceNote.Id) &&
             commit &&
             _noteLinkTargetWindow != null &&
             !string.IsNullOrWhiteSpace(_noteLinkTargetItemId))
         {
-            _noteLinkTargetWindow.LinkNoteToTodo(_noteLinkTargetItemId, sourceNote.Id);
+            linked = _noteLinkTargetWindow.LinkNoteToTodo(
+                _noteLinkTargetItemId,
+                sourceNote.Id);
         }
 
         ClearNoteLinkDropTarget();
+        return linked;
     }
 
     private static PaperWindow.ProgrammaticPaperExpansionOrigin? PlaceLinkedNoteBesideAnchor(
@@ -1134,14 +1172,20 @@ public sealed partial class AppController : IDisposable
         _noteLinkTargetItemId = null;
     }
 
-    private PaperData? FindNote(string? noteId)
+    private PaperData? FindPaper(string? paperId)
     {
-        if (string.IsNullOrWhiteSpace(noteId))
+        if (string.IsNullOrWhiteSpace(paperId))
         {
             return null;
         }
 
-        return State.Papers.FirstOrDefault(p => p.Id == noteId && p.Type == PaperTypes.Note);
+        return State.Papers.FirstOrDefault(p => p.Id == paperId);
+    }
+
+    private PaperData? FindNote(string? noteId)
+    {
+        var paper = FindPaper(noteId);
+        return paper?.Type == PaperTypes.Note ? paper : null;
     }
 
     public void ExecuteStartupCommand(StartupCommand command)
@@ -1386,10 +1430,7 @@ public sealed partial class AppController : IDisposable
             ScheduleDeferredShellPrewarm(paper, window);
         }
         RefreshTrayMenu();
-        if (!_suppressDirty && paper.Type == PaperTypes.Note)
-        {
-            RefreshTodoRowsForLinkedNote(paper.Id);
-        }
+        if (!_suppressDirty) RefreshTodoRowsForLinkedNote(paper.Id);
         MarkDirty();
     }
 
@@ -1826,10 +1867,7 @@ public sealed partial class AppController : IDisposable
 
         ArrangeDeepCapsules(animate: State.EnableAnimations);
         RefreshTrayMenu();
-        if (paper.Type == PaperTypes.Note)
-        {
-            RefreshTodoRowsForLinkedNote(paper.Id);
-        }
+        RefreshTodoRowsForLinkedNote(paper.Id);
         MarkDirty();
     }
 
@@ -1896,7 +1934,6 @@ public sealed partial class AppController : IDisposable
 
     public void DeletePaper(PaperData paper)
     {
-        var deletedNoteId = paper.Type == PaperTypes.Note ? paper.Id : null;
         paper.IsVisible = false;
         NextVisibilityAnimationVersion(paper.Id);
 
@@ -1912,10 +1949,7 @@ public sealed partial class AppController : IDisposable
         _visibilityAnimationVersions.Remove(paper.Id);
         NotifyTodoReminderCollectionChanged();
 
-        if (!string.IsNullOrWhiteSpace(deletedNoteId))
-        {
-            ClearTodoLinksToNote(deletedNoteId);
-        }
+        ClearTodoLinksToPaper(paper.Id);
 
         if (State.Papers.Count == 0)
         {
@@ -1935,7 +1969,7 @@ public sealed partial class AppController : IDisposable
         SaveNow();
     }
 
-    private void ClearTodoLinksToNote(string noteId)
+    private void ClearTodoLinksToPaper(string linkedPaperId)
     {
         var affectedPaperIds = new HashSet<string>();
 
@@ -1943,7 +1977,7 @@ public sealed partial class AppController : IDisposable
         {
             foreach (var item in paper.Items)
             {
-                if (!string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+                if (!string.Equals(item.LinkedNoteId, linkedPaperId, StringComparison.Ordinal))
                 {
                     continue;
                 }

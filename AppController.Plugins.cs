@@ -4,7 +4,9 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -410,29 +412,227 @@ public sealed partial class AppController
         var selected = current.ValueKind == JsonValueKind.String
             ? current.GetString() ?? ""
             : "";
-        var editor = new ComboBox
+
+        string SelectedName() =>
+            setting.Options.FirstOrDefault(option =>
+                string.Equals(option.Value, selected, StringComparison.Ordinal))?.Name
+            ?? selected;
+
+        var valueText = new TextBlock
+        {
+            Text = SelectedName(),
+            Foreground = TrayTextBrush,
+            FontSize = AppTypography.Scale(11.5),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var arrow = new TextBlock
+        {
+            Text = "⌄",
+            Foreground = TrayWeakTextBrush,
+            FontFamily = AppTypography.SymbolFontFamily,
+            FontSize = AppTypography.Scale(11),
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.Children.Add(valueText);
+        Grid.SetColumn(arrow, 1);
+        content.Children.Add(arrow);
+
+        var editor = new Border
         {
             Width = 125,
             MinHeight = 27,
-            Foreground = TrayTextBrush,
-            Background = TrayPaperBrush,
+            Padding = new Thickness(8, 3, 7, 3),
+            CornerRadius = new CornerRadius(6),
             BorderBrush = TrayBorderBrush,
-            FontSize = AppTypography.Scale(11.5),
-            Padding = new Thickness(5, 2, 5, 2),
-            ItemsSource = setting.Options,
-            DisplayMemberPath = nameof(PaperBodyPluginSettingOptionManifest.Name),
-            SelectedValuePath = nameof(PaperBodyPluginSettingOptionManifest.Value),
-            SelectedValue = selected
+            BorderThickness = new Thickness(1),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            Focusable = true,
+            Child = content
         };
-        editor.SelectionChanged += (_, _) =>
+
+        var popup = new System.Windows.Controls.Primitives.Popup
         {
-            if (editor.SelectedValue is string value)
+            PlacementTarget = editor,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            HorizontalOffset = 0,
+            VerticalOffset = 3
+        };
+        var optionsPanel = new StackPanel();
+        var optionRows = new List<(string Value, Border Row, TextBlock Label)>();
+
+        void RefreshOptionRows()
+        {
+            foreach (var (value, row, label) in optionRows)
             {
-                CommitPluginSetting(
+                var active = string.Equals(value, selected, StringComparison.Ordinal);
+                row.Background = active
+                    ? Theme.Tint((byte)(Theme.IsDark ? 45 : 28))
+                    : Brushes.Transparent;
+                label.Foreground = active ? Theme.ActiveBrush : TrayTextBrush;
+                label.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+        }
+
+        foreach (var option in setting.Options)
+        {
+            var optionLabel = new TextBlock
+            {
+                Text = option.Name,
+                Foreground = TrayTextBrush,
+                FontSize = AppTypography.Scale(11.5),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var optionRow = new Border
+            {
+                MinHeight = 28,
+                Padding = new Thickness(9, 4, 9, 4),
+                CornerRadius = new CornerRadius(5),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Child = optionLabel
+            };
+            optionRow.MouseEnter += (_, _) =>
+                optionRow.Background = Theme.Tint((byte)(Theme.IsDark ? 34 : 22));
+            optionRow.MouseLeave += (_, _) => RefreshOptionRows();
+            optionRow.MouseLeftButtonUp += (_, e) =>
+            {
+                var normalized = CommitPluginSetting(
                     descriptor,
                     setting,
-                    JsonSerializer.SerializeToElement(value));
+                    JsonSerializer.SerializeToElement(option.Value));
+                selected = normalized.ValueKind == JsonValueKind.String
+                    ? normalized.GetString() ?? option.Value
+                    : option.Value;
+                valueText.Text = SelectedName();
+                RefreshOptionRows();
+                popup.IsOpen = false;
+                editor.Focus();
+                e.Handled = true;
+            };
+            optionRows.Add((option.Value, optionRow, optionLabel));
+            optionsPanel.Children.Add(optionRow);
+        }
+
+        RefreshOptionRows();
+        var scroll = new ScrollViewer
+        {
+            Content = optionsPanel,
+            MaxHeight = 230,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        popup.Child = new Border
+        {
+            Width = 125,
+            Padding = new Thickness(4),
+            CornerRadius = new CornerRadius(7),
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Background = TrayPaperBrush,
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 16,
+                ShadowDepth = 2,
+                Opacity = 0.22
+            },
+            Child = scroll
+        };
+
+        void OpenPopup()
+        {
+            RefreshOptionRows();
+            arrow.Text = "⌃";
+            editor.Background = TrayHoverBrush;
+            popup.IsOpen = true;
+        }
+
+        void SelectByOffset(int offset)
+        {
+            if (setting.Options.Length == 0)
+            {
+                return;
             }
+            var index = Array.FindIndex(
+                setting.Options,
+                option => string.Equals(
+                    option.Value,
+                    selected,
+                    StringComparison.Ordinal));
+            index = index < 0 ? 0 : index;
+            index = (index + offset + setting.Options.Length) %
+                setting.Options.Length;
+            var option = setting.Options[index];
+            var normalized = CommitPluginSetting(
+                descriptor,
+                setting,
+                JsonSerializer.SerializeToElement(option.Value));
+            selected = normalized.ValueKind == JsonValueKind.String
+                ? normalized.GetString() ?? option.Value
+                : option.Value;
+            valueText.Text = SelectedName();
+            RefreshOptionRows();
+        }
+
+        editor.MouseEnter += (_, _) =>
+        {
+            if (!popup.IsOpen) editor.Background = TrayHoverBrush;
+        };
+        editor.MouseLeave += (_, _) =>
+        {
+            if (!popup.IsOpen) editor.Background = Brushes.Transparent;
+        };
+        editor.MouseLeftButtonDown += (_, e) =>
+        {
+            if (popup.IsOpen)
+            {
+                popup.IsOpen = false;
+            }
+            else
+            {
+                OpenPopup();
+            }
+            e.Handled = true;
+        };
+        editor.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Down)
+            {
+                SelectByOffset(1);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Up)
+            {
+                SelectByOffset(-1);
+                e.Handled = true;
+            }
+            else if (e.Key is Key.Enter or Key.Space)
+            {
+                if (popup.IsOpen) popup.IsOpen = false;
+                else OpenPopup();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && popup.IsOpen)
+            {
+                popup.IsOpen = false;
+                e.Handled = true;
+            }
+        };
+        popup.Closed += (_, _) =>
+        {
+            arrow.Text = "⌄";
+            editor.Background = Brushes.Transparent;
         };
         return editor;
     }

@@ -14,6 +14,7 @@ public sealed partial class PaperWindow
 
     private sealed record WindowBindingDragFeedback(
         Border Chrome,
+        TextBlock Icon,
         TextBlock Label);
 
     private Button? _windowBindingButton;
@@ -67,26 +68,36 @@ public sealed partial class PaperWindow
             new TopBarDragBehavior
             {
                 Kind = TopBarDragKind.WindowBinding,
-                CanBegin = CanBeginWindowBindingDrag,
+                CanBegin = CanBeginAssociationDrag,
                 Started = () =>
                 {
                     _windowBindingDragTarget = null;
                     _windowBindingTargetSampleTimestamp = 0;
                     ExitNoteEditor();
+                    if (CanBeginPaperLinkDrag())
+                    {
+                        _controller.BeginNoteLinkDrag(_paper);
+                    }
                 },
                 CreateFeedback = CreateWindowBindingDragFeedback,
-                Moved = UpdateWindowBindingDragTarget,
-                Completed = CompleteWindowBindingDrag,
+                Moved = UpdateAssociationDragTarget,
+                Completed = CompleteAssociationDrag,
                 GhostPlacement = TopBarDragGhostPlacement.PointerOffset,
                 DraggingOpacity = 0.72
             });
         RefreshWindowBindingButton();
     }
 
-    private bool CanBeginWindowBindingDrag() =>
-        _controller.State.ExperimentalWindowTethering &&
+    private bool CanBeginAssociationDrag() =>
         !_paper.IsCollapsed &&
         !IsPaperFormTransitioning &&
+        (CanBeginPaperLinkDrag() || CanBeginWindowBindingDrag());
+
+    private bool CanBeginPaperLinkDrag() =>
+        _controller.State.EnableTodoNoteLinks;
+
+    private bool CanBeginWindowBindingDrag() =>
+        _controller.State.ExperimentalWindowTethering &&
         WindowState == System.Windows.WindowState.Normal &&
         !_isSnappedPresentation;
 
@@ -97,10 +108,14 @@ public sealed partial class PaperWindow
             return;
         }
 
-        var enabled = _controller.State.ExperimentalWindowTethering;
+        var enabled =
+            _controller.State.EnableTodoNoteLinks ||
+            _controller.State.ExperimentalWindowTethering;
         var isBound = HasExperimentalWindowTether;
         _windowBindingButton.Visibility =
-            enabled ? Visibility.Visible : Visibility.Collapsed;
+            enabled && !_hideTopBarAssociationForWidth
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         _windowBindingButton.Content = isBound ? "◉" : "◎";
         _windowBindingButton.Cursor =
             isBound ? Cursors.Hand : Cursors.Cross;
@@ -119,7 +134,75 @@ public sealed partial class PaperWindow
                 ? Strings.Format(
                     "ToolTipWindowBindingActiveFormat",
                     session.TargetTitle)
-                : Strings.Get("ToolTipDragPaperToWindow");
+                : AssociationDragHint();
+    }
+
+    private string AssociationDragHint()
+    {
+        var todoEnabled = _controller.State.EnableTodoNoteLinks;
+        var windowEnabled = CanBeginWindowBindingDrag();
+        if (todoEnabled && windowEnabled)
+        {
+            return Strings.Get("ToolTipDragPaperToAssociation");
+        }
+        return todoEnabled
+            ? Strings.Get("ToolTipDragNoteToTodo")
+            : Strings.Get("ToolTipDragPaperToWindow");
+    }
+
+    private void UpdateAssociationDragTarget(
+        TopBarDragFeedback feedback,
+        DeviceScreenPoint point)
+    {
+        _controller.UpdateNoteLinkDrag(_paper, point.ToPoint());
+        if (_controller.HasNoteLinkDropTarget)
+        {
+            _windowBindingDragTarget = null;
+            if (feedback.Context is WindowBindingDragFeedback todoVisual)
+            {
+                todoVisual.Chrome.BorderBrush = NoteLinkTargetBorderBrush;
+                todoVisual.Chrome.Background = NoteLinkTargetBgBrush;
+                todoVisual.Icon.Text = "⌖";
+                todoVisual.Label.Foreground = TextBrush;
+                todoVisual.Label.Text = Strings.Get("AssociationDropTodo");
+            }
+            return;
+        }
+
+        if (!CanBeginWindowBindingDrag())
+        {
+            _windowBindingDragTarget = null;
+            ResetAssociationDragFeedback(feedback);
+            return;
+        }
+
+        UpdateWindowBindingDragTarget(feedback, point);
+    }
+
+    private void CompleteAssociationDrag(bool commit)
+    {
+        if (commit && WindowNative.TryGetCursorScreenPosition(out var cursor))
+        {
+            _controller.UpdateNoteLinkDrag(_paper, cursor.ToPoint());
+        }
+
+        var linkedTodo = _controller.EndNoteLinkDrag(_paper, commit);
+        if (linkedTodo)
+        {
+            _windowBindingDragTarget = null;
+            _windowBindingTargetSampleTimestamp = 0;
+            if (_controller.State.EnableAnimations && _windowBindingButton != null)
+            {
+                AnimationHelper.QuickBounce(
+                    _windowBindingButton,
+                    scale: 1.16,
+                    duration: 90);
+            }
+            RefreshWindowBindingButton();
+            return;
+        }
+
+        CompleteWindowBindingDrag(commit);
     }
 
     private void OpenWindowBindingButtonMenu(
@@ -193,6 +276,7 @@ public sealed partial class PaperWindow
             visual.Chrome.BorderBrush = Theme.ActiveBrush;
             visual.Chrome.Background = Theme.Tint(
                 (byte)(Theme.IsDark ? 52 : 34));
+            visual.Icon.Text = "◎";
             visual.Label.Foreground = TextBrush;
             visual.Label.Text = Strings.Format(
                 "WindowBindingDropTargetFormat",
@@ -200,10 +284,20 @@ public sealed partial class PaperWindow
             return;
         }
 
+        ResetAssociationDragFeedback(feedback);
+    }
+
+    private void ResetAssociationDragFeedback(TopBarDragFeedback feedback)
+    {
+        if (feedback.Context is not WindowBindingDragFeedback visual)
+        {
+            return;
+        }
         visual.Chrome.BorderBrush = PaperBorderBrush;
         visual.Chrome.Background = PaperBrush;
+        visual.Icon.Text = "◎";
         visual.Label.Foreground = WeakTextBrush;
-        visual.Label.Text = Strings.Get("WindowBindingDragHint");
+        visual.Label.Text = AssociationDragHint();
     }
 
     private void CompleteWindowBindingDrag(bool commit)
@@ -243,7 +337,7 @@ public sealed partial class PaperWindow
     {
         var label = new TextBlock
         {
-            Text = Strings.Get("WindowBindingDragHint"),
+            Text = AssociationDragHint(),
             Foreground = WeakTextBrush,
             FontFamily = AppTypography.UiFontFamily,
             FontSize = AppTypography.Scale(12),
@@ -289,7 +383,7 @@ public sealed partial class PaperWindow
         };
         return new TopBarDragFeedback(
             CreateTopBarDragFeedbackWindow(chrome),
-            new WindowBindingDragFeedback(chrome, label));
+            new WindowBindingDragFeedback(chrome, icon, label));
     }
 
     private static string EllipsizeWindowBindingTarget(string title) =>

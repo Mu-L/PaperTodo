@@ -84,10 +84,16 @@
     <value>链接</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>拖到待办项上关联笔记</value>
+    <value>拖到待办项上关联纸片</value>
+  </data>
+  <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
+    <value>拖到待办项或其他窗口建立关联</value>
+  </data>
+  <data name="AssociationDropTodo" xml:space="preserve">
+    <value>松开以关联到待办</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
-    <value>打开关联笔记：{0}</value>
+    <value>打开关联纸片：{0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
     <value>运行关联脚本：{0}</value>
@@ -252,13 +258,13 @@
     <value>图片总容量已达到上限（{0} MB）。</value>
   </data>
   <data name="MenuOpenLinkedNote" xml:space="preserve">
-    <value>打开关联笔记：{0}</value>
+    <value>打开关联纸片：{0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>编辑关联脚本：{0}</value>
   </data>
   <data name="MenuUnlinkNote" xml:space="preserve">
-    <value>取消关联笔记</value>
+    <value>取消关联纸片</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>斜体</value>
@@ -581,10 +587,10 @@
     <value>调整待办文字、行高与间距。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>把笔记拖到待办项上建立关联，再从该项打开笔记。</value>
+    <value>把任意纸片拖到待办项上建立关联，再从该项打开纸片。</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>在待办项后显示已关联笔记的标题。</value>
+    <value>在待办项后显示已关联纸片的标题。</value>
   </data>
   <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>关闭时紧凑显示；开启后按内容加宽。
@@ -701,7 +707,7 @@
 !p / !power 会等待结束并捕获错误；!pf / !powerf 只投递到常驻进程。</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
-    <value>启用待办关联笔记</value>
+    <value>启用待办关联纸片</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
     <value>完成后自动清除待办</value>
@@ -728,10 +734,10 @@
     <value>显示外部打开按钮</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>显示关联笔记标题</value>
+    <value>显示关联纸片标题</value>
   </data>
   <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
-    <value>关联笔记显示长标题</value>
+    <value>关联纸片显示长标题</value>
   </data>
   <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
     <value>关联笔记不显示为胶囊</value>

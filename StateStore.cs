@@ -671,17 +671,20 @@ public sealed class StateStore
 
     private static void NormalizeLinks(AppState state)
     {
-        var noteIds = state.Papers
-            .Where(p => p.Type == PaperTypes.Note)
+        var paperIds = state.Papers
             .Select(p => p.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var item in state.Papers.SelectMany(p => p.Items))
+        foreach (var paper in state.Papers)
         {
-            if (string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
-                !noteIds.Contains(item.LinkedNoteId))
+            foreach (var item in paper.Items)
             {
-                item.LinkedNoteId = null;
+                if (string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
+                    !paperIds.Contains(item.LinkedNoteId) ||
+                    string.Equals(item.LinkedNoteId, paper.Id, StringComparison.Ordinal))
+                {
+                    item.LinkedNoteId = null;
+                }
             }
         }
 

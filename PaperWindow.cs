@@ -65,6 +65,7 @@ public sealed partial class PaperWindow : Window
     private Button? _openMarkdownButton;
     private Button? _linkNoteButton;
     private Grid? _topBar;
+    private Border? _topBarTitleHost;
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
@@ -83,6 +84,11 @@ public sealed partial class PaperWindow : Window
     private TodoDragState? _todoDrag;
     private readonly List<WeakReference<ContextMenu>> _themedContextMenus = new();
     private readonly List<List<PaperItem>> _undoStack = new();
+    private readonly Dictionary<string, List<Action>> _linkedPaperTitleRefreshers =
+        new(StringComparer.Ordinal);
+    private bool _hideTopBarNewButtonsForWidth;
+    private bool _hideTopBarAssociationForWidth;
+    private bool _hideTopBarTitleForWidth;
     private readonly List<List<PaperItem>> _redoStack = new();
     private const int MaxUndoDepth = 100;
     private string? _activeOriginalItemId;
@@ -211,6 +217,7 @@ public sealed partial class PaperWindow : Window
     public bool IsDeepCapsuleReorderDragInProgress =>
         IsDeepCapsuleReordering || IsDeepCapsuleDockingReveal;
     public bool SuppressGeometrySave => _suppressGeometrySave;
+    internal string PaperId => _paper.Id;
     // Ordinary collapsed capsules are the main PaperWindow and should still save X/Y.
     // Deep capsules use the slot-host window for docked geometry, so the hidden/parked
     // main window must not overwrite ordinary paper geometry.
@@ -668,7 +675,11 @@ public sealed partial class PaperWindow : Window
                 System.Windows.Threading.DispatcherPriority.Normal);
         };
         LocationChanged += (_, _) => HandleWindowGeometryChanged();
-        SizeChanged += (_, _) => HandleWindowGeometryChanged();
+        SizeChanged += (_, _) =>
+        {
+            HandleWindowGeometryChanged();
+            UpdateTopBarResponsiveLayout();
+        };
         DpiChanged += (_, _) => NotifyCurrentPaperBodyDpiChanged();
         StateChanged += (_, _) =>
         {
@@ -1604,11 +1615,6 @@ public sealed partial class PaperWindow : Window
             _openMarkdownButton.FontSize = AppTypography.Scale(10.5);
         }
 
-        if (_linkNoteButton != null)
-        {
-            _linkNoteButton.FontSize = AppTypography.Scale(13);
-        }
-
         if (_windowBindingButton != null)
         {
             _windowBindingButton.FontSize = AppTypography.Scale(13);
@@ -1673,6 +1679,7 @@ public sealed partial class PaperWindow : Window
         RefreshThemedContextMenus();
 
         RefreshPaperTitle();
+        UpdateTopBarResponsiveLayout();
         ApplyCurrentCollapsedCapsuleWidth();
     }
 
@@ -2079,7 +2086,7 @@ public sealed partial class PaperWindow : Window
         Grid.SetColumn(_paperIconButton, 0);
         titleArea.Children.Add(_paperIconButton);
 
-        var titleHost = new Border
+        var titleHost = _topBarTitleHost = new Border
         {
             Margin = new Thickness(0, 1, 8, 1),
             Padding = new Thickness(4, 0, 5, 0),
@@ -2200,20 +2207,12 @@ public sealed partial class PaperWindow : Window
 
         var windowBindingButton = IconButton(
             "◎",
-            Strings.Get("ToolTipDragPaperToWindow"));
+            AssociationDragHint());
         ConfigureWindowBindingButton(windowBindingButton);
         buttons.Children.Add(windowBindingButton);
 
         if (_paper.Type == PaperTypes.Note)
         {
-            _linkNoteButton = IconButton("⌖", Strings.Get("ToolTipDragNoteToTodo"));
-            _linkNoteButton.Width = 24;
-            _linkNoteButton.FontSize = AppTypography.Scale(13);
-            _linkNoteButton.Cursor = Cursors.Cross;
-            _linkNoteButton.Visibility = _controller.State.EnableTodoNoteLinks ? Visibility.Visible : Visibility.Collapsed;
-            ConfigureNoteLinkDragButton(_linkNoteButton);
-            buttons.Children.Add(_linkNoteButton);
-
             _openMarkdownButton = IconButton(ExternalOpenButtonLabel(), OpenMarkdownEditorToolTip());
             _openMarkdownButton.FontFamily = AppTypography.UiFontFamily;
             _openMarkdownButton.FontSize = AppTypography.Scale(10.5);
@@ -2260,6 +2259,43 @@ public sealed partial class PaperWindow : Window
 
         Grid.SetRow(topHost, 0);
         _shell.Children.Add(topHost);
+        Dispatcher.BeginInvoke(
+            (Action)UpdateTopBarResponsiveLayout,
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void UpdateTopBarResponsiveLayout()
+    {
+        if (_topBar == null || _paper.IsCollapsed)
+        {
+            return;
+        }
+
+        var width = ActualWidth > 1 ? ActualWidth : Width;
+        if (!double.IsFinite(width) || width <= 0)
+        {
+            return;
+        }
+
+        var contentWidth = Math.Max(0, width - WindowChromeInset);
+        _hideTopBarNewButtonsForWidth = contentWidth < AppTypography.Scale(250);
+        _hideTopBarAssociationForWidth = contentWidth < AppTypography.Scale(205);
+        _hideTopBarTitleForWidth = contentWidth < AppTypography.Scale(175);
+
+        if (_hideTopBarTitleForWidth && _isEditingTitle)
+        {
+            CommitTitleEdit();
+        }
+
+        if (_topBarTitleHost != null)
+        {
+            _topBarTitleHost.Visibility = _hideTopBarTitleForWidth
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        UpdateTopBarNewPaperButtons();
+        RefreshWindowBindingButton();
     }
 
     private void ConfigureNoteLinkDragButton(Button button)
@@ -2720,11 +2756,17 @@ public sealed partial class PaperWindow : Window
     {
         if (_newTodoButton != null)
         {
-            _newTodoButton.Visibility = _controller.State.ShowTopBarNewTodoButton ? Visibility.Visible : Visibility.Collapsed;
+            _newTodoButton.Visibility =
+                _controller.State.ShowTopBarNewTodoButton && !_hideTopBarNewButtonsForWidth
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
         }
         if (_newNoteButton != null)
         {
-            _newNoteButton.Visibility = _controller.State.ShowTopBarNewNoteButton ? Visibility.Visible : Visibility.Collapsed;
+            _newNoteButton.Visibility =
+                _controller.State.ShowTopBarNewNoteButton && !_hideTopBarNewButtonsForWidth
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
         }
         if (_openMarkdownButton != null)
         {

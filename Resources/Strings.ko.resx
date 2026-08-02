@@ -77,10 +77,16 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
     <value>링크</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>할 일 항목 위로 끌어 메모 연결</value>
+    <value>할 일 항목 위로 끌어 종이 연결</value>
+  </data>
+  <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
+    <value>할 일 항목이나 다른 창으로 끌어 종이 연결</value>
+  </data>
+  <data name="AssociationDropTodo" xml:space="preserve">
+    <value>놓아서 이 할 일에 연결</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
-    <value>연결된 메모 열기: {0}</value>
+    <value>연결된 종이 열기: {0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
     <value>연결된 스크립트 실행: {0}</value>
@@ -242,13 +248,13 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
     <value>이미지 저장 용량 한도({0}MB)에 도달했습니다.</value>
   </data>
   <data name="MenuOpenLinkedNote" xml:space="preserve">
-    <value>연결된 메모 열기: {0}</value>
+    <value>연결된 종이 열기: {0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>연결된 스크립트 편집: {0}</value>
   </data>
   <data name="MenuUnlinkNote" xml:space="preserve">
-    <value>메모 연결 해제</value>
+    <value>종이 연결 해제</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>기울임</value>
@@ -568,10 +574,10 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>할 일 글자, 행 높이, 간격.</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>메모를 할 일 항목으로 드래그해 연결한 뒤, 해당 항목에서 메모를 엽니다.</value>
+    <value>아무 종이나 할 일 항목으로 드래그해 연결한 뒤, 해당 항목에서 종이를 엽니다.</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>할 일 항목 뒤에 연결된 메모 제목을 표시합니다.</value>
+    <value>할 일 항목 뒤에 연결된 종이 제목을 표시합니다.</value>
   </data>
   <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>끔: 간결. 켬: 내용에 맞게 넓힘.
@@ -688,7 +694,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
 설정과 관계없이 한 변이 4096픽셀을 넘으면 거부합니다.</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
-    <value>할 일-메모 연결 사용</value>
+    <value>할 일-종이 연결 사용</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
     <value>완료한 할 일 자동 정리</value>
@@ -715,7 +721,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>외부 열기 버튼 표시</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>연결된 메모 제목 표시</value>
+    <value>연결된 종이 제목 표시</value>
   </data>
   <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>연결 제목 길게 표시</value>

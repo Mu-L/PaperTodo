@@ -77,10 +77,16 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
     <value>リンク</value>
   </data>
   <data name="ToolTipDragNoteToTodo" xml:space="preserve">
-    <value>ToDo項目の上へドラッグしてメモを関連付け</value>
+    <value>ToDo項目の上へドラッグして紙片を関連付け</value>
+  </data>
+  <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
+    <value>ToDo項目または別のウィンドウへドラッグして紙片を関連付け</value>
+  </data>
+  <data name="AssociationDropTodo" xml:space="preserve">
+    <value>離してこのToDoに関連付け</value>
   </data>
   <data name="ToolTipOpenLinkedNote" xml:space="preserve">
-    <value>関連メモを開く: {0}</value>
+    <value>関連紙片を開く: {0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
     <value>関連スクリプトを実行: {0}</value>
@@ -242,13 +248,13 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
     <value>画像保存容量の上限（{0} MB）に達しました。</value>
   </data>
   <data name="MenuOpenLinkedNote" xml:space="preserve">
-    <value>関連メモを開く: {0}</value>
+    <value>関連紙片を開く: {0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>関連スクリプトを編集: {0}</value>
   </data>
   <data name="MenuUnlinkNote" xml:space="preserve">
-    <value>メモの関連付けを解除</value>
+    <value>紙片の関連付けを解除</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
     <value>斜体</value>
@@ -568,10 +574,10 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ToDo の文字、行高、間隔を調整します。</value>
   </data>
   <data name="TipEnableTodoNoteLinks" xml:space="preserve">
-    <value>ノートを ToDo にドラッグして関連付け、その項目からノートを開けます。</value>
+    <value>任意の紙片を ToDo 項目へドラッグして関連付け、その項目から紙片を開けます。</value>
   </data>
   <data name="TipShowLinkedNoteName" xml:space="preserve">
-    <value>ToDo の後ろに関連ノートのタイトルを表示します。</value>
+    <value>ToDo の後ろに関連紙片のタイトルを表示します。</value>
   </data>
   <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>オフ：コンパクト。オン：内容に合わせて広げます。
@@ -688,7 +694,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
 設定に関係なく、いずれかの辺が 4096 ピクセル超なら拒否します。</value>
   </data>
   <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
-    <value>ToDo とメモの関連付けを有効化</value>
+    <value>ToDo と紙片の関連付けを有効化</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
     <value>完了した ToDo を自動クリア</value>
@@ -715,7 +721,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>外部で開くボタンを表示</value>
   </data>
   <data name="SettingsShowLinkedNoteName" xml:space="preserve">
-    <value>関連ノートのタイトルを表示</value>
+    <value>関連紙片のタイトルを表示</value>
   </data>
   <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
     <value>関連タイトルを長く表示</value>

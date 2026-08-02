@@ -438,17 +438,15 @@ internal sealed class PaperCommandService
         var paper = RequirePaper(RequiredId(paperId, "paperId"));
         var papers = _controller.State.Papers;
         var originalIndex = papers.IndexOf(paper);
-        var affectedLinks = paper.Type == PaperTypes.Note
-            ? papers
-                .Where(candidate => candidate.Type == PaperTypes.Todo)
-                .SelectMany(candidate => candidate.Items)
-                .Where(item => string.Equals(
-                    item.LinkedNoteId,
-                    paper.Id,
-                    StringComparison.Ordinal))
-                .Select(item => (Item: item, Link: item.LinkedNoteId))
-                .ToList()
-            : [];
+        var affectedLinks = papers
+            .Where(candidate => candidate.Type == PaperTypes.Todo)
+            .SelectMany(candidate => candidate.Items)
+            .Where(item => string.Equals(
+                item.LinkedNoteId,
+                paper.Id,
+                StringComparison.Ordinal))
+            .Select(item => (Item: item, Link: item.LinkedNoteId))
+            .ToList();
         PaperData? replacement = null;
 
         using (_controller.SuppressPaperPluginEventScans())
@@ -548,7 +546,7 @@ internal sealed class PaperCommandService
         var added = new List<PaperItem>(inputs.Count);
         foreach (var input in inputs)
         {
-            var linkedNoteId = NormalizeLinkedNote(input.LinkedNoteId);
+            var linkedNoteId = NormalizeLinkedPaper(input.LinkedNoteId, paper.Id);
             var item = new PaperItem
             {
                 Text = input.Text,
@@ -593,16 +591,18 @@ internal sealed class PaperCommandService
                     "A completed todo cannot start with a reminder.");
             }
             ValidateReminder(input.ReminderAt);
-            _ = NormalizeLinkedNote(input.LinkedNoteId);
+            _ = NormalizeLinkedPaper(input.LinkedNoteId);
         }
     }
 
     private string? NormalizeLinkedNoteUpdate(UpdateTodoRequest request) =>
         request.UpdateLinkedNote
-            ? NormalizeLinkedNote(request.LinkedNoteId)
+            ? NormalizeLinkedPaper(request.LinkedNoteId, request.PaperId)
             : null;
 
-    private string? NormalizeLinkedNote(string? value)
+    private string? NormalizeLinkedPaper(
+        string? value,
+        string? sourcePaperId = null)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -612,14 +612,20 @@ internal sealed class PaperCommandService
         {
             throw Error(
                 "note_links_disabled",
-                "Todo-note links are disabled in PaperTodo Settings.");
+                "Todo-paper links are disabled in PaperTodo Settings.");
         }
         var id = RequiredId(value, "linkedNoteId");
+        if (!string.IsNullOrWhiteSpace(sourcePaperId) &&
+            string.Equals(id, sourcePaperId.Trim(), StringComparison.Ordinal))
+        {
+            throw Error(
+                "self_link_not_allowed",
+                "A todo item cannot link to its own paper.");
+        }
         if (_controller.State.Papers.All(paper =>
-                paper.Type != PaperTypes.Note ||
                 !string.Equals(paper.Id, id, StringComparison.Ordinal)))
         {
-            throw Error("note_not_found", "The linked note does not exist.");
+            throw Error("paper_not_found", "The linked paper does not exist.");
         }
         return id;
     }

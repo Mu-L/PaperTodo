@@ -132,7 +132,9 @@ public sealed partial class PaperWindow
 
     internal bool TryGetPluginDisplayTitle(out string title)
     {
-        title = _pluginDisplayTitle;
+        title = !string.IsNullOrWhiteSpace(_pluginDisplayTitle)
+            ? _pluginDisplayTitle
+            : _paper.BodyCapsuleText;
         return !IsCurrentBodyProviderMarkdown &&
             !_bodyFailed &&
             !string.IsNullOrWhiteSpace(title);
@@ -687,7 +689,9 @@ public sealed partial class PaperWindow
         }
 
         _pluginDisplayTitle = normalized;
+        _paper.BodyCapsuleText = normalized;
         RefreshPaperTitle();
+        _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
     }
 
     private void SetPluginInputClaims(PaperBodyInputClaims claims)
@@ -707,6 +711,10 @@ public sealed partial class PaperWindow
         if (refreshTitle && hadDisplayTitle && _isShellBuilt)
         {
             RefreshPaperTitle();
+        }
+        if (hadDisplayTitle)
+        {
+            _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
         }
     }
 

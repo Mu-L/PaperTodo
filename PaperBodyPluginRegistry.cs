@@ -61,6 +61,7 @@ internal sealed class PaperBodyPluginManifest
     public string Entry { get; set; } = "index.html";
     public string[] Capabilities { get; set; } = [];
     public PaperBodyPluginSettingManifest[] Settings { get; set; } = [];
+    public PaperBodyPluginStartupManifest? StartupPaper { get; set; }
 
     public string DirectoryPath { get; internal set; } = "";
     public string EntryPath { get; internal set; } = "";
@@ -281,6 +282,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException("stateVersion must be at least 1.");
         }
         ValidateSettings(manifest);
+        ValidateStartupPaper(manifest);
         ValidateProtocolFeatures(manifest);
 
         manifest.DirectoryPath = Path.GetFullPath(directory);

@@ -81,6 +81,7 @@ public sealed partial class PaperWindow
         _todoEditors.Clear();
         _todoReminderCountdowns.Clear();
         _todoRows.Clear();
+        _linkedPaperTitleRefreshers.Clear();
         _linkedNoteDropRow = null;
 
         foreach (var item in OrderedItems())
@@ -733,6 +734,39 @@ public sealed partial class PaperWindow
                 QueueLinkedNoteNameLayoutUpdate();
             }
 
+            void RefreshLinkedPaperPresentation()
+            {
+                if (!_controller.TryGetLinkedNoteTitle(
+                        item.LinkedNoteId,
+                        out var refreshedTitle))
+                {
+                    return;
+                }
+
+                linkedNoteTitle = refreshedTitle;
+                linkedNoteButtonText = showLinkedNoteName
+                    ? LinkedNoteButtonLabel(isTodoMultiline: false)
+                    : runLinkedScriptOnClick ? "⚡" : "\uE71B";
+                multilineLinkedNoteButtonText = showLinkedNoteName
+                    ? LinkedNoteButtonLabel(isTodoMultiline: true)
+                    : linkedNoteButtonText;
+                linkedNoteButtonWidth = showLinkedNoteName
+                    ? Math.Max(
+                        LinkedNoteButtonWidth(false, linkedNoteButtonText),
+                        LinkedNoteButtonWidth(true, multilineLinkedNoteButtonText))
+                    : Math.Max(23, metrics.CheckColumnWidth);
+                linkButton.Width = linkedNoteButtonWidth;
+                linkButton.ToolTip = runLinkedScriptOnClick
+                    ? Strings.Format("ToolTipRunLinkedScriptCapsule", linkedNoteTitle)
+                    : Strings.Format("ToolTipOpenLinkedNote", linkedNoteTitle);
+                lastLinkedNoteNameMultiline = null;
+                UpdateLinkedNoteNameLayout();
+            }
+
+            RegisterLinkedPaperTitleRefresher(
+                item.LinkedNoteId,
+                RefreshLinkedPaperPresentation);
+
             linkButton.MouseEnter += (_, _) =>
             {
                 linkButton.Background = linkedNoteActive ? LinkedNoteMediumBgBrush : LinkedNoteLightBgBrush;
@@ -1040,21 +1074,20 @@ public sealed partial class PaperWindow
 
     public void UpdateTodoLinkFeature()
     {
-        if (_linkNoteButton != null)
-        {
-            _linkNoteButton.Visibility =
-                _controller.State.EnableTodoNoteLinks &&
-                BodySupports(PaperBodyCapabilities.NoteLinks)
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-        }
+        RefreshWindowBindingButton();
 
         if (!_controller.State.EnableTodoNoteLinks)
         {
+            _controller.EndNoteLinkDrag(_paper, commit: false);
+            SetNoteLinkDropTarget(null);
+        }
+
+        if (!_controller.State.EnableTodoNoteLinks &&
+            !_controller.State.ExperimentalWindowTethering)
+        {
             EndTopBarDragGesture(
                 commit: false,
-                TopBarDragKind.NoteLink);
-            SetNoteLinkDropTarget(null);
+                TopBarDragKind.WindowBinding);
         }
 
         RefreshTodoRowsForExternalChange();
@@ -1361,7 +1394,8 @@ public sealed partial class PaperWindow
 
     public bool LinkNoteToTodo(string itemId, string noteId)
     {
-        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo || !_controller.IsExistingNote(noteId))
+        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo ||
+            !_controller.IsExistingPaper(noteId) || string.Equals(_paper.Id, noteId, StringComparison.Ordinal))
         {
             return false;
         }
@@ -1419,6 +1453,36 @@ public sealed partial class PaperWindow
         if (!Equals(_activeDropRow, row))
         {
             row.Background = row.IsMouseOver ? HoverBrush : Brushes.Transparent;
+        }
+    }
+
+    private void RegisterLinkedPaperTitleRefresher(
+        string? paperId,
+        Action refresher)
+    {
+        if (string.IsNullOrWhiteSpace(paperId))
+        {
+            return;
+        }
+
+        if (!_linkedPaperTitleRefreshers.TryGetValue(paperId, out var refreshers))
+        {
+            refreshers = [];
+            _linkedPaperTitleRefreshers[paperId] = refreshers;
+        }
+        refreshers.Add(refresher);
+    }
+
+    public void RefreshLinkedPaperTitle(string paperId)
+    {
+        if (!_linkedPaperTitleRefreshers.TryGetValue(paperId, out var refreshers))
+        {
+            return;
+        }
+
+        foreach (var refresher in refreshers.ToArray())
+        {
+            refresher();
         }
     }
 
