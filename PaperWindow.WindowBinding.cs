@@ -88,6 +88,11 @@ public sealed partial class PaperWindow
         RefreshWindowBindingButton();
     }
 
+    internal void RefreshAssociationButton()
+    {
+        RefreshWindowBindingButton();
+    }
+
     private bool CanBeginAssociationDrag() =>
         !_paper.IsCollapsed &&
         !IsPaperFormTransitioning &&
@@ -111,15 +116,19 @@ public sealed partial class PaperWindow
         var enabled =
             _controller.State.EnableTodoNoteLinks ||
             _controller.State.ExperimentalWindowTethering;
-        var isBound = HasExperimentalWindowTether;
+        var isWindowBound = HasExperimentalWindowTether;
+        var isTodoLinked =
+            _controller.State.EnableTodoNoteLinks &&
+            _controller.IsPaperLinkedToAnyTodo(_paper);
+        var isAssociated = isWindowBound || isTodoLinked;
         _windowBindingButton.Visibility =
             enabled ? Visibility.Visible : Visibility.Collapsed;
-        _windowBindingButton.Content = isBound ? "○" : "⌖";
+        _windowBindingButton.Content = isAssociated ? "○" : "⌖";
         _windowBindingButton.Cursor =
-            isBound ? Cursors.Hand : Cursors.Cross;
+            isWindowBound ? Cursors.Hand : Cursors.Cross;
         _windowBindingButton.FontWeight =
-            isBound ? FontWeights.Bold : FontWeights.SemiBold;
-        if (isBound)
+            isAssociated ? FontWeights.Bold : FontWeights.SemiBold;
+        if (isAssociated)
         {
             _windowBindingButton.Foreground = Theme.ActiveBrush;
         }
@@ -127,7 +136,7 @@ public sealed partial class PaperWindow
         {
             _windowBindingButton.ClearValue(Control.ForegroundProperty);
         }
-        _windowBindingButton.ToolTip = isBound &&
+        _windowBindingButton.ToolTip = isWindowBound &&
             _experimentalWindowAttachment is { } session
                 ? Strings.Format(
                     "ToolTipWindowBindingActiveFormat",

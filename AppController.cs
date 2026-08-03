@@ -940,14 +940,9 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    public bool IsNoteLinkedToAnyTodo(PaperData paper)
+    public bool IsPaperLinkedToAnyTodo(PaperData paper)
     {
-        if (paper.Type != PaperTypes.Note)
-        {
-            return false;
-        }
-
-        var noteId = paper.Id;
+        var paperId = paper.Id;
         foreach (var sourcePaper in State.Papers)
         {
             if (sourcePaper.Type != PaperTypes.Todo)
@@ -957,7 +952,7 @@ public sealed partial class AppController : IDisposable
 
             foreach (var item in sourcePaper.Items)
             {
-                if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+                if (string.Equals(item.LinkedNoteId, paperId, StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -965,6 +960,12 @@ public sealed partial class AppController : IDisposable
         }
 
         return false;
+    }
+
+    public bool IsNoteLinkedToAnyTodo(PaperData paper)
+    {
+        return paper.Type == PaperTypes.Note &&
+            IsPaperLinkedToAnyTodo(paper);
     }
 
     public bool CanPaperDisplayAsCapsule(PaperData paper)
@@ -2002,6 +2003,7 @@ public sealed partial class AppController : IDisposable
     {
         foreach (var window in _windows.Values)
         {
+            window.RefreshAssociationButton();
             window.RefreshCapsuleEligibility();
         }
 
@@ -2014,6 +2016,20 @@ public sealed partial class AppController : IDisposable
 
     public void RefreshCapsuleEligibilityForLinkedNotes(IEnumerable<string?> noteIds)
     {
+        var linkedPaperIds = noteIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        foreach (var paperId in linkedPaperIds)
+        {
+            if (_windows.TryGetValue(paperId, out var paperWindow))
+            {
+                paperWindow.RefreshAssociationButton();
+            }
+        }
+
         if (!State.EnableTodoNoteLinks ||
             !State.HideLinkedNotesFromCapsules ||
             !State.UseCapsuleMode)
@@ -2022,9 +2038,7 @@ public sealed partial class AppController : IDisposable
         }
 
         var refreshedAny = false;
-        foreach (var noteId in noteIds
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.Ordinal))
+        foreach (var noteId in linkedPaperIds)
         {
             var note = FindNote(noteId);
             if (note == null)
