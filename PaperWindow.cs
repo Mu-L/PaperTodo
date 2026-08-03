@@ -1621,22 +1621,26 @@ public sealed partial class PaperWindow : Window
         if (_windowBindingButton != null)
         {
             _windowBindingButton.FontSize = AppTypography.Scale(13);
+            RefreshAssociationButton();
         }
 
         if (_newTodoButton != null)
         {
             _newTodoButton.FontSize = AppTypography.Scale(13);
+            _newTodoButton.Content = CreateTopBarNewTodoIcon(_newTodoButton);
         }
 
         if (_newNoteButton != null)
         {
             _newNoteButton.FontSize = AppTypography.Scale(13);
+            _newNoteButton.Content = CreateTopBarNewNoteIcon(_newNoteButton);
         }
 
         if (_closeButton != null)
         {
             _closeButton.FontSize = AppTypography.Scale(16);
             _closeButton.Margin = new Thickness(AppTypography.Scale(1), -AppTypography.Scale(0.6), AppTypography.Scale(1), AppTypography.Scale(0.6));
+            RefreshCloseButton();
         }
 
         if (_textZoomIndicator != null)
@@ -2209,14 +2213,16 @@ public sealed partial class PaperWindow : Window
         };
         buttons.Children.Add(actionButtons);
 
-        _newTodoButton = IconButton("＋✓", Strings.Get("ToolTipNewTodoPaper"));
+        _newTodoButton = IconButton("", Strings.Get("ToolTipNewTodoPaper"));
+        _newTodoButton.Content = CreateTopBarNewTodoIcon(_newTodoButton);
         _newTodoButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Todo, show: true, _paper);
 
-        _newNoteButton = IconButton("＋✎", Strings.Get("ToolTipNewNotePaper"));
+        _newNoteButton = IconButton("", Strings.Get("ToolTipNewNotePaper"));
+        _newNoteButton.Content = CreateTopBarNewNoteIcon(_newNoteButton);
         _newNoteButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper);
 
         var windowBindingButton = IconButton(
-            "⌖",
+            "",
             AssociationDragHint());
         ConfigureWindowBindingButton(windowBindingButton);
         actionButtons.Children.Add(windowBindingButton);
@@ -2231,7 +2237,7 @@ public sealed partial class PaperWindow : Window
             actionButtons.Children.Add(_openMarkdownButton);
         }
 
-        _closeButton = IconButton("×", Strings.Get("ToolTipHideThisPaper"));
+        _closeButton = IconButton("", Strings.Get("ToolTipHideThisPaper"));
         _closeButton.FontSize = AppTypography.Scale(16);
         _closeButton.Margin = new Thickness(AppTypography.Scale(1), -AppTypography.Scale(0.6), AppTypography.Scale(1), AppTypography.Scale(0.6));
         _closeButton.Click += (_, _) =>

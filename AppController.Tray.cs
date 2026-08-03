@@ -866,33 +866,7 @@ public sealed partial class AppController
 
     private FrameworkElement CreateTrayAddIcon(string glyph)
     {
-        var icon = new Grid
-        {
-            Width = 17,
-            Height = 17
-        };
-        icon.Children.Add(new TextBlock
-        {
-            Text = glyph,
-            Foreground = TrayTextBrush,
-            FontFamily = new FontFamily("Segoe UI Symbol"),
-            FontSize = AppTypography.Scale(12),
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 4, 3),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-        icon.Children.Add(new TextBlock
-        {
-            Text = "+",
-            Foreground = TrayTextBrush,
-            FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = AppTypography.Scale(9),
-            FontWeight = FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Bottom
-        });
-        return icon;
+        return CreateTrayAddVectorIcon(glyph);
     }
 
     private MenuItem TrayPaperItem(ContextMenu menu, PaperData paper)
@@ -948,18 +922,8 @@ public sealed partial class AppController
             Child = checkBoxHost
         };
 
-        var iconText = new TextBlock
-        {
-            Text = PaperTypeIcon(paper),
-            Foreground = TrayTextBrush,
-            Opacity = 0.82,
-            FontFamily = new FontFamily("Segoe UI Symbol"),
-            FontSize = PaperTypeIconFontSize(paper),
-            FontWeight = FontWeights.SemiBold,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var iconText = CreateTrayPaperTypeVectorIcon(paper);
+        iconText.Opacity = 0.82;
 
         var normalLabelText = PaperLabel(paper);
         var label = new TextBlock

@@ -123,7 +123,7 @@ public sealed partial class PaperWindow
         var isAssociated = isWindowBound || isTodoLinked;
         _windowBindingButton.Visibility =
             enabled ? Visibility.Visible : Visibility.Collapsed;
-        _windowBindingButton.Content = isAssociated ? "○" : "⌖";
+        _windowBindingButton.Content = CreateTopBarAssociationIcon(_windowBindingButton, isAssociated);
         _windowBindingButton.Cursor =
             isWindowBound ? Cursors.Hand : Cursors.Cross;
         _windowBindingButton.FontWeight =

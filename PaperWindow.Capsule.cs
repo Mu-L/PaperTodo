@@ -60,13 +60,13 @@ public sealed partial class PaperWindow
 
         if (CanDisplayAsCapsule())
         {
-            _closeButton.Content = "─";
+            _closeButton.Content = CreateTopBarCloseIcon(_closeButton, collapse: true);
             _closeButton.ToolTip = Strings.Get("ToolTipCollapseToCapsule");
             _closeButton.Cursor = Cursors.Hand;
         }
         else
         {
-            _closeButton.Content = "×";
+            _closeButton.Content = CreateTopBarCloseIcon(_closeButton, collapse: false);
             _closeButton.ToolTip = Strings.Get("ToolTipHideThisPaper");
             _closeButton.Cursor = Cursors.Hand;
         }
