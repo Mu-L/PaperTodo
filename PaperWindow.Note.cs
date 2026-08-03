@@ -1645,18 +1645,6 @@ public sealed partial class PaperWindow
             MessageBoxImage.Warning);
     }
 
-    private void RefreshPaperContextMenus()
-    {
-        if (_capsuleLeftArea != null)
-        {
-            _capsuleLeftArea.ContextMenu = BuildPaperContextMenu();
-        }
-        _edgeCapsuleHost?.SetContextMenu(BuildDeepCapsuleSlotContextMenu());
-        if (_paperChrome != null)
-        {
-            _paperChrome.ContextMenu = BuildPaperContextMenu();
-        }
-    }
 
     internal static void StopPersistentScriptProcesses()
     {
