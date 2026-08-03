@@ -100,9 +100,13 @@ public sealed partial class PaperWindow
             _edgeCapsuleHost.SetContextMenu(BuildDeepCapsuleSlotContextMenu());
         }
 
-        if (_noteBox?.IsPreviewMode == true)
+        if (_noteBox != null)
         {
-            _noteBox.ContextMenu = BuildPaperContextMenu();
+            _notePreviewContextMenu = BuildPaperContextMenu();
+            if (_noteBox.IsPreviewMode)
+            {
+                _noteBox.ContextMenu = _notePreviewContextMenu;
+            }
         }
     }
 

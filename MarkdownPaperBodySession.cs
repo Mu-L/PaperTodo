@@ -35,6 +35,7 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
 
     internal MarkdownTextBox? NoteBox { get; set; }
     internal UIElement? CurrentPresenter { get; set; }
+    internal ContextMenu? PreviewContextMenu { get; set; }
     internal Action? ShowPreview { get; set; }
     internal int PresenterGeneration { get; set; }
     internal int DeferredWorkGeneration { get; set; }
@@ -71,6 +72,7 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
         DeferredWorkGeneration++;
         NoteBox = null;
         CurrentPresenter = null;
+        PreviewContextMenu = null;
         ShowPreview = null;
         CancelPresenterInteractions = null;
         SettlePendingBodyRebuild = null;

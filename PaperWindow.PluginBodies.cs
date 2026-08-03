@@ -38,6 +38,11 @@ public sealed partial class PaperWindow
         get => _markdownBodySession?.CurrentPresenter;
         set => RequireMarkdownBodySession().CurrentPresenter = value;
     }
+    private ContextMenu? _notePreviewContextMenu
+    {
+        get => _markdownBodySession?.PreviewContextMenu;
+        set => RequireMarkdownBodySession().PreviewContextMenu = value;
+    }
     private Action? _showNotePreview
     {
         get => _markdownBodySession?.ShowPreview;
@@ -829,14 +834,6 @@ public sealed partial class PaperWindow
 
     private void RefreshPaperBodyChrome()
     {
-        if (_linkNoteButton != null)
-        {
-            _linkNoteButton.Visibility =
-                _controller.State.EnableTodoNoteLinks &&
-                BodySupports(PaperBodyCapabilities.NoteLinks)
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-        }
         if (_openMarkdownButton != null)
         {
             _openMarkdownButton.Visibility =

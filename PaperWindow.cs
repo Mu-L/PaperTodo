@@ -63,7 +63,6 @@ public sealed partial class PaperWindow : Window
     private Button? _newTodoButton;
     private Button? _newNoteButton;
     private Button? _openMarkdownButton;
-    private Button? _linkNoteButton;
     private Grid? _topBar;
     private Grid? _topBarTitleArea;
     private Border? _topBarTitleHost;
