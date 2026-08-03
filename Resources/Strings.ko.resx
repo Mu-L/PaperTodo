@@ -265,6 +265,9 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
   <data name="MenuNew" xml:space="preserve">
     <value>새로 만들기</value>
   </data>
+  <data name="MenuQuick" xml:space="preserve">
+    <value>빠른 작업</value>
+  </data>
   <data name="MenuNewNotePaper" xml:space="preserve">
     <value>＋ 메모 종이</value>
   </data>
@@ -278,7 +281,7 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
     <value>제목 이름 바꾸기</value>
   </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
-    <value>창 복원</value>
+    <value>종이로 펼치기</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>취소선</value>
@@ -401,7 +404,7 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
     <value>클릭하여 제목 편집</value>
   </data>
   <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
-    <value>기본 {0} 편집기로 열기</value>
+    <value>{0} 편집기로 열기</value>
   </data>
   <data name="ToolTipResetTextZoom" xml:space="preserve">
     <value>클릭하여 100%로 복원</value>

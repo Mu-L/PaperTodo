@@ -795,6 +795,11 @@ public sealed partial class AppController
         }
     }
 
+    internal void OpenSettingsWindow()
+    {
+        ShowSettingsWindow();
+    }
+
     private void ShowSettingsWindow()
     {
         ShowSettingsWindow(SettingsPage.General);

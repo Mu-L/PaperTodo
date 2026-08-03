@@ -11,7 +11,7 @@ public static class PaperTypes
 
 public static class PaperLayoutDefaults
 {
-    public const double MinWidth = 160;
+    public const double MinWidth = 96;
     public const double MinHeight = 120;
     public const double TopBarHeight = 23.5;
 

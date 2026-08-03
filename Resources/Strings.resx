@@ -275,6 +275,9 @@
   <data name="MenuNew" xml:space="preserve">
     <value>新建</value>
   </data>
+  <data name="MenuQuick" xml:space="preserve">
+    <value>快捷</value>
+  </data>
   <data name="MenuNewNotePaper" xml:space="preserve">
     <value>＋ 笔记纸</value>
   </data>
@@ -288,7 +291,7 @@
     <value>重命名标题</value>
   </data>
   <data name="MenuRestoreWindow" xml:space="preserve">
-    <value>恢复窗口</value>
+    <value>展开为纸片</value>
   </data>
   <data name="MenuStrikethrough" xml:space="preserve">
     <value>删除线</value>
@@ -414,7 +417,7 @@
     <value>点击修改标题</value>
   </data>
   <data name="ToolTipOpenMarkdownEditor" xml:space="preserve">
-    <value>用默认 {0} 编辑器打开</value>
+    <value>用{0}编辑器打开</value>
   </data>
   <data name="ToolTipResetTextZoom" xml:space="preserve">
     <value>点击恢复为 100%</value>

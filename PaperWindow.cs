@@ -65,7 +65,10 @@ public sealed partial class PaperWindow : Window
     private Button? _openMarkdownButton;
     private Button? _linkNoteButton;
     private Grid? _topBar;
+    private Grid? _topBarTitleArea;
     private Border? _topBarTitleHost;
+    private StackPanel? _topBarButtonsHost;
+    private StackPanel? _topBarActionButtonsHost;
     private TextBlock? _titleText;
     private TextBox? _titleEditBox;
     private TextBlock? _textZoomIndicator;
@@ -86,9 +89,7 @@ public sealed partial class PaperWindow : Window
     private readonly List<List<PaperItem>> _undoStack = new();
     private readonly Dictionary<string, List<Action>> _linkedPaperTitleRefreshers =
         new(StringComparer.Ordinal);
-    private bool _hideTopBarNewButtonsForWidth;
-    private bool _hideTopBarAssociationForWidth;
-    private bool _hideTopBarTitleForWidth;
+    private bool _updatingTopBarResponsiveLayout;
     private readonly List<List<PaperItem>> _redoStack = new();
     private const int MaxUndoDepth = 100;
     private string? _activeOriginalItemId;
@@ -176,6 +177,7 @@ public sealed partial class PaperWindow : Window
     private FontWeight TitleFontWeight =>
         AppTypography.FontWeightFor(_controller.State.TitleTextBold);
     private double TitleLineHeight => Math.Ceiling(TitleFontSize + 2);
+    private const double TopBarCollisionGap = 2.0;
     private const double TitleBarDragThreshold = 1.0;
     private const double CapsuleCloseGlyphNormalOffset = -1;
     private const double DeepCapsuleSlotOutlineThickness = 2;
@@ -2066,7 +2068,7 @@ public sealed partial class PaperWindow : Window
         top.PreviewMouseLeftButtonUp += (_, _) => EndTitleBarDragGesture(top);
         top.LostMouseCapture += (_, _) => EndTitleBarDragGesture(top);
 
-        var titleArea = new Grid
+        var titleArea = _topBarTitleArea = new Grid
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
@@ -2192,12 +2194,18 @@ public sealed partial class PaperWindow : Window
         Grid.SetColumn(titleArea, 0);
         top.Children.Add(titleArea);
 
-        var buttons = new StackPanel
+        var buttons = _topBarButtonsHost = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
         };
+        var actionButtons = _topBarActionButtonsHost = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        buttons.Children.Add(actionButtons);
 
         _newTodoButton = IconButton("＋✓", Strings.Get("ToolTipNewTodoPaper"));
         _newTodoButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Todo, show: true, _paper);
@@ -2206,10 +2214,10 @@ public sealed partial class PaperWindow : Window
         _newNoteButton.Click += (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper);
 
         var windowBindingButton = IconButton(
-            "◎",
+            "⌖",
             AssociationDragHint());
         ConfigureWindowBindingButton(windowBindingButton);
-        buttons.Children.Add(windowBindingButton);
+        actionButtons.Children.Add(windowBindingButton);
 
         if (_paper.Type == PaperTypes.Note)
         {
@@ -2217,7 +2225,7 @@ public sealed partial class PaperWindow : Window
             _openMarkdownButton.FontFamily = AppTypography.UiFontFamily;
             _openMarkdownButton.FontSize = AppTypography.Scale(10.5);
             _openMarkdownButton.Click += (_, _) => OpenMarkdownInDefaultEditor();
-            buttons.Children.Add(_openMarkdownButton);
+            actionButtons.Children.Add(_openMarkdownButton);
         }
 
         _closeButton = IconButton("×", Strings.Get("ToolTipHideThisPaper"));
@@ -2235,8 +2243,8 @@ public sealed partial class PaperWindow : Window
         };
         RefreshCloseButton();
 
-        buttons.Children.Add(_newTodoButton);
-        buttons.Children.Add(_newNoteButton);
+        actionButtons.Children.Add(_newTodoButton);
+        actionButtons.Children.Add(_newNoteButton);
         buttons.Children.Add(_closeButton);
         UpdateTopBarNewPaperButtons();
 
@@ -2266,36 +2274,117 @@ public sealed partial class PaperWindow : Window
 
     private void UpdateTopBarResponsiveLayout()
     {
-        if (_topBar == null || _paper.IsCollapsed)
+        if (_updatingTopBarResponsiveLayout ||
+            _topBar == null ||
+            _topBarTitleArea == null ||
+            _topBarTitleHost == null ||
+            _topBarButtonsHost == null ||
+            _topBarActionButtonsHost == null ||
+            _paperIconButton == null ||
+            _closeButton == null ||
+            _paper.IsCollapsed)
         {
             return;
         }
 
-        var width = ActualWidth > 1 ? ActualWidth : Width;
-        if (!double.IsFinite(width) || width <= 0)
+        var availableWidth = _topBar.ActualWidth;
+        if (!double.IsFinite(availableWidth) || availableWidth <= 0)
         {
             return;
         }
 
-        var contentWidth = Math.Max(0, width - WindowChromeInset);
-        _hideTopBarNewButtonsForWidth = contentWidth < AppTypography.Scale(250);
-        _hideTopBarAssociationForWidth = contentWidth < AppTypography.Scale(205);
-        _hideTopBarTitleForWidth = contentWidth < AppTypography.Scale(175);
-
-        if (_hideTopBarTitleForWidth && _isEditingTitle)
+        _updatingTopBarResponsiveLayout = true;
+        try
         {
-            CommitTitleEdit();
-        }
+            // Use only stable, explicit layout sizes. Do not temporarily reveal collapsed
+            // controls or call Measure on the live visual tree: that can trigger extra
+            // SizeChanged passes and makes the decision depend on the previous state.
+            var leftButtonWidth = TopBarOuterWidth(_paperIconButton);
+            var titleChildMinimumWidth =
+                (_topBarTitleHost.Child as FrameworkElement)?.MinWidth ?? 0;
+            var titleMinimumWidth =
+                Math.Max(
+                    Math.Max(0, _topBarTitleHost.MinWidth),
+                    Math.Max(0, titleChildMinimumWidth) +
+                    _topBarTitleHost.Padding.Left +
+                    _topBarTitleHost.Padding.Right) +
+                _topBarTitleHost.Margin.Left +
+                _topBarTitleHost.Margin.Right;
+            var actionButtonsWidth = VisibleTopBarActionButtonsWidth();
+            var persistentButtonsWidth = TopBarOuterWidth(_closeButton);
 
-        if (_topBarTitleHost != null)
-        {
-            _topBarTitleHost.Visibility = _hideTopBarTitleForWidth
+            // Stage 1: keep the left button, the title at its minimum width and a 2-DIP
+            // draggable gap. Collapse the complete right action group only when those
+            // stable minimum requirements would collide with it.
+            var hideRightButtons =
+                leftButtonWidth +
+                titleMinimumWidth +
+                TopBarCollisionGap +
+                actionButtonsWidth +
+                persistentButtonsWidth >
+                availableWidth;
+
+            // Stage 2: after the right group has yielded, hide the title only when even its
+            // minimum width collides with the fixed left button and the 2-DIP gap.
+            var hideTitle =
+                hideRightButtons &&
+                leftButtonWidth +
+                titleMinimumWidth +
+                TopBarCollisionGap +
+                persistentButtonsWidth >
+                availableWidth;
+
+            if (hideTitle && _isEditingTitle)
+            {
+                CommitTitleEdit();
+            }
+
+            _topBarActionButtonsHost.Visibility = hideRightButtons
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            _topBarTitleHost.Visibility = hideTitle
                 ? Visibility.Collapsed
                 : Visibility.Visible;
         }
+        finally
+        {
+            _updatingTopBarResponsiveLayout = false;
+        }
+    }
 
-        UpdateTopBarNewPaperButtons();
-        RefreshWindowBindingButton();
+    private double VisibleTopBarActionButtonsWidth()
+    {
+        if (_topBarActionButtonsHost == null)
+        {
+            return 0;
+        }
+
+        var width = 0.0;
+        foreach (var child in _topBarActionButtonsHost.Children)
+        {
+            if (child is FrameworkElement element &&
+                element.Visibility == Visibility.Visible)
+            {
+                width += TopBarOuterWidth(element);
+            }
+        }
+        return width;
+    }
+
+    private static double TopBarOuterWidth(FrameworkElement element)
+    {
+        var width = element.Width;
+        if (!double.IsFinite(width) || width < 0)
+        {
+            width = element.ActualWidth;
+        }
+        if (!double.IsFinite(width) || width < 0)
+        {
+            width = element.MinWidth;
+        }
+        return Math.Max(0, width) +
+            element.Margin.Left +
+            element.Margin.Right;
     }
 
     private void ConfigureNoteLinkDragButton(Button button)
@@ -2449,48 +2538,34 @@ public sealed partial class PaperWindow : Window
     {
         var menu = CreateContextMenu();
 
-        menu.Items.Add(MenuHeader(Strings.Get("MenuNew")));
+        menu.Items.Add(MenuHeader(Strings.Get("MenuQuick")));
         menu.Items.Add(MenuItem(Strings.Get("MenuNewTodoPaper"), (_, _) => _controller.CreatePaper(PaperTypes.Todo, show: true, _paper)));
         menu.Items.Add(MenuItem(Strings.Get("MenuNewNotePaper"), (_, _) => _controller.CreatePaper(PaperTypes.Note, show: true, _paper)));
-
-        if (_paper.Type == PaperTypes.Todo)
-        {
-            menu.Items.Add(MenuSeparator());
-            menu.Items.Add(MenuHeader(Strings.Get("MenuTodo")));
-            menu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
-        }
+        menu.Items.Add(MenuItem(Strings.Get("TraySettings"), (_, _) => _controller.OpenSettingsWindow()));
 
         menu.Items.Add(MenuSeparator());
         menu.Items.Add(MenuHeader(_controller.PaperCapsuleTitle(_paper)));
 
+        if (_paper.Type == PaperTypes.Todo)
+        {
+            menu.Items.Add(MenuItem(Strings.Get("MenuClearDone"), (_, _) => ClearDoneItems()));
+        }
+        else if (_paper.Type == PaperTypes.Note)
+        {
+            menu.Items.Add(BuildPaperBodyProviderMenuItem());
+            if (IsCurrentBodyProviderMarkdown)
+            {
+                menu.Items.Add(MenuItem(
+                    OpenMarkdownEditorToolTip(),
+                    (_, _) => OpenMarkdownInDefaultEditor()));
+            }
+        }
+
         if (CanDisplayAsCapsule())
         {
-            var isScriptCapsule = IsScriptCapsule();
-            if (isScriptCapsule && (_paper.IsCollapsed || forDeepCapsuleSlot))
-            {
-                menu.Items.Add(MenuItem(Strings.Get("ScriptCapsuleEditMenu"), (_, _) => OpenCapsuleForEditing()));
-            }
-            else if (_paper.IsCollapsed)
-            {
-                if (!forDeepCapsuleSlot)
-                {
-                    menu.Items.Add(MenuItem(
-                        Strings.Get("MenuRestoreWindow"),
-                        (_, _) =>
-                        {
-                            _ = _controller.PreparePaperForCurrentVirtualDesktop(
-                                this,
-                                ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
-                            SetCollapsedState(
-                                false,
-                                activateOnExpand: true);
-                        }));
-                }
-            }
-            else
-            {
-                menu.Items.Add(MenuItem(Strings.Get("MenuCollapseToCapsule"), (_, _) => SetCollapsedState(true)));
-            }
+            menu.Items.Add(_paper.IsCollapsed
+                ? MenuItem(Strings.Get("MenuRestoreWindow"), (_, _) => OpenCapsuleForEditing())
+                : MenuItem(Strings.Get("MenuCollapseToCapsule"), (_, _) => SetCollapsedState(true)));
         }
 
         if (HasExperimentalCapsuleMagnet)
@@ -2507,14 +2582,11 @@ public sealed partial class PaperWindow : Window
                 (_, _) => DetachExperimentalWindowAttachment(savePosition: true)));
         }
 
-        if (_paper.Type == PaperTypes.Note)
-        {
-            menu.Items.Add(MenuSeparator());
-            menu.Items.Add(BuildPaperBodyProviderMenuItem());
-        }
-
         menu.Items.Add(MenuItem(Strings.Get("MenuHide"), (_, _) => _controller.HidePaper(_paper)));
-        menu.Items.Add(MenuItem(Strings.Get("MenuDelete"), (_, _) => DeletePaperFromPaperMenu()));
+        menu.Items.Add(MenuItem(
+            Strings.Get("MenuDelete"),
+            (_, _) => DeletePaperFromPaperMenu(),
+            isDanger: true));
 
         return menu;
     }
@@ -2757,14 +2829,14 @@ public sealed partial class PaperWindow : Window
         if (_newTodoButton != null)
         {
             _newTodoButton.Visibility =
-                _controller.State.ShowTopBarNewTodoButton && !_hideTopBarNewButtonsForWidth
+                _controller.State.ShowTopBarNewTodoButton
                     ? Visibility.Visible
                     : Visibility.Collapsed;
         }
         if (_newNoteButton != null)
         {
             _newNoteButton.Visibility =
-                _controller.State.ShowTopBarNewNoteButton && !_hideTopBarNewButtonsForWidth
+                _controller.State.ShowTopBarNewNoteButton
                     ? Visibility.Visible
                     : Visibility.Collapsed;
         }
@@ -2776,6 +2848,8 @@ public sealed partial class PaperWindow : Window
                     ? Visibility.Visible
                     : Visibility.Collapsed;
         }
+
+        UpdateTopBarResponsiveLayout();
     }
 
     private void ConfirmAndDeletePaper()
@@ -3156,6 +3230,7 @@ public sealed partial class PaperWindow : Window
         menu.Resources["WeakTextBrushKey"] = WeakTextBrush;
         menu.Resources["HoverBrushKey"] = HoverBrush;
         menu.Resources["MenuHoverBrushKey"] = MenuHoverBrush;
+        menu.Resources["DangerTextBrushKey"] = TrashTextBrush;
         menu.Background = PaperBrush;
         menu.BorderBrush = PaperBorderBrush;
         menu.Foreground = TextBrush;
@@ -3185,7 +3260,10 @@ public sealed partial class PaperWindow : Window
         return item;
     }
 
-    private static MenuItem MenuItem(string header, RoutedEventHandler click)
+    private static MenuItem MenuItem(
+        string header,
+        RoutedEventHandler click,
+        bool isDanger = false)
     {
         var item = new MenuItem
         {
@@ -3193,7 +3271,9 @@ public sealed partial class PaperWindow : Window
             Padding = new Thickness(8, 4, 10, 4),
             Background = Brushes.Transparent
         };
-        item.SetResourceReference(Control.ForegroundProperty, "TextBrushKey");
+        item.SetResourceReference(
+            Control.ForegroundProperty,
+            isDanger ? "DangerTextBrushKey" : "TextBrushKey");
         item.Click += click;
         return item;
     }

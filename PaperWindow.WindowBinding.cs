@@ -113,10 +113,8 @@ public sealed partial class PaperWindow
             _controller.State.ExperimentalWindowTethering;
         var isBound = HasExperimentalWindowTether;
         _windowBindingButton.Visibility =
-            enabled && !_hideTopBarAssociationForWidth
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        _windowBindingButton.Content = isBound ? "◉" : "◎";
+            enabled ? Visibility.Visible : Visibility.Collapsed;
+        _windowBindingButton.Content = isBound ? "○" : "⌖";
         _windowBindingButton.Cursor =
             isBound ? Cursors.Hand : Cursors.Cross;
         _windowBindingButton.FontWeight =
@@ -135,6 +133,8 @@ public sealed partial class PaperWindow
                     "ToolTipWindowBindingActiveFormat",
                     session.TargetTitle)
                 : AssociationDragHint();
+
+        UpdateTopBarResponsiveLayout();
     }
 
     private string AssociationDragHint()
