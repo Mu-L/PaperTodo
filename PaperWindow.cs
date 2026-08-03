@@ -1615,6 +1615,7 @@ public sealed partial class PaperWindow : Window
         {
             _openMarkdownButton.FontFamily = AppTypography.UiFontFamily;
             _openMarkdownButton.FontSize = AppTypography.Scale(10.5);
+            _openMarkdownButton.Padding = new Thickness(0, AppTypography.Scale(1.4), 0, 0);
         }
 
         if (_windowBindingButton != null)
@@ -1635,6 +1636,7 @@ public sealed partial class PaperWindow : Window
         if (_closeButton != null)
         {
             _closeButton.FontSize = AppTypography.Scale(16);
+            _closeButton.Margin = new Thickness(AppTypography.Scale(1), -AppTypography.Scale(0.6), AppTypography.Scale(1), AppTypography.Scale(0.6));
         }
 
         if (_textZoomIndicator != null)
@@ -2224,12 +2226,14 @@ public sealed partial class PaperWindow : Window
             _openMarkdownButton = IconButton(ExternalOpenButtonLabel(), OpenMarkdownEditorToolTip());
             _openMarkdownButton.FontFamily = AppTypography.UiFontFamily;
             _openMarkdownButton.FontSize = AppTypography.Scale(10.5);
+            _openMarkdownButton.Padding = new Thickness(0, AppTypography.Scale(1.4), 0, 0);
             _openMarkdownButton.Click += (_, _) => OpenMarkdownInDefaultEditor();
             actionButtons.Children.Add(_openMarkdownButton);
         }
 
         _closeButton = IconButton("×", Strings.Get("ToolTipHideThisPaper"));
         _closeButton.FontSize = AppTypography.Scale(16);
+        _closeButton.Margin = new Thickness(AppTypography.Scale(1), -AppTypography.Scale(0.6), AppTypography.Scale(1), AppTypography.Scale(0.6));
         _closeButton.Click += (_, _) =>
         {
             if (CanDisplayAsCapsule())
