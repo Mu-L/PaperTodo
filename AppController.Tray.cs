@@ -21,17 +21,30 @@ public sealed partial class AppController
 {
     private void CreateTrayIcon()
     {
-        _trayMenu = CreateTrayMenu();
+        // Hardcodet already foregrounds and focuses the taskbar menu after opening it.
+        // The extra Opened activation is only for menus launched from NOACTIVATE capsule
+        // surfaces and can race a newly recreated popup HWND after a live DPI change.
+        _trayMenu = CreateTrayMenu(activateOnOpen: false);
 
         var trayIcon = new TaskbarIcon();
         trayIcon.Visibility = Visibility.Hidden;
         trayIcon.ToolTipText = "PaperTodo";
         trayIcon.IconSource = LoadTrayIconSource();
         trayIcon.ContextMenu = _trayMenu;
-        trayIcon.PreviewTrayContextMenuOpen += (_, _) =>
+        trayIcon.PreviewTrayContextMenuOpen += (_, e) =>
         {
             if (IsExiting)
             {
+                return;
+            }
+
+            // Windows can deliver a duplicate tray context-menu request while the first
+            // popup is already open, especially while the shell is settling after a live
+            // DPI change. Rebuilding the same menu a second time clears its live items and
+            // makes WPF dismiss it, returning focus to the previously active paper.
+            if (_trayMenu?.IsOpen == true)
+            {
+                e.Handled = true;
                 return;
             }
 
