@@ -115,7 +115,7 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 dotnet build PaperTodo.csproj -c Release
 ```
 
-`vendor/wpf-notifyicon` 跟踪 `snownico0722/wpf-notifyicon` 的 `develop` 最新提交；本地真实构建和云端 Release 都必须先运行 `Update-WpfNotifyIcon.ps1`。不要把它改回只消费父仓库记录的固定子模块提交。
+`vendor/wpf-notifyicon` 使用父仓库记录的固定子模块提交。更新 fork 后，必须显式更新子模块 gitlink、完成构建与真实托盘手测，再将新的依赖提交一并提交到 PaperTodo。普通本地构建和云端 Release 不得在构建过程中自动拉取 fork 的最新分支。
 
 云端 Release 发布两个 Windows x64 单文件：自包含 .NET Runtime 的 `…-self-contained.exe`，以及不带运行库的 `…-no-runtime.exe`。本地打包只生成 no-runtime 单文件。WPF 版本不要开启 `PublishTrimmed` 或 Native AOT。
 

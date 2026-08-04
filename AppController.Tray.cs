@@ -24,7 +24,7 @@ public sealed partial class AppController
         // The local Hardcodet fork owns taskbar popup activation, focus and DPI conversion.
         // PaperTodo's Opened activation remains only for menus launched from NOACTIVATE
         // capsule surfaces.
-        _trayMenu = CreateTrayMenu(activateOnOpen: false);
+        _trayMenu = CreateTrayMenu();
 
         var trayIcon = new TaskbarIcon();
         trayIcon.Visibility = Visibility.Hidden;
@@ -371,7 +371,7 @@ public sealed partial class AppController
         return style;
     }
 
-    internal ContextMenu CreateTrayMenu(bool activateOnOpen = true, bool registerForLiveRefresh = false)
+    internal ContextMenu CreateTrayMenu(bool registerForLiveRefresh = false)
     {
         var menu = new ContextMenu
         {
@@ -388,10 +388,7 @@ public sealed partial class AppController
         };
         AppTypography.ApplyTextRendering(menu);
         UpdateTrayMenuResources(menu);
-        if (activateOnOpen)
-        {
-            menu.Opened += (_, _) => ActivateTrayContextMenu(menu);
-        }
+        menu.Opened += (_, _) => QueueTrayMenuMaxHeightRefresh(menu);
 
         if (registerForLiveRefresh)
         {
@@ -426,25 +423,35 @@ public sealed partial class AppController
         }
     }
 
-    private static void ActivateTrayContextMenu(ContextMenu menu)
+    private static void QueueTrayMenuMaxHeightRefresh(ContextMenu menu)
     {
-        void Activate()
-        {
-            if (!menu.IsOpen)
+        RefreshTrayMenuMaxHeightFromPopup(menu);
+        _ = menu.Dispatcher.InvokeAsync(
+            () =>
             {
-                return;
-            }
+                if (menu.IsOpen)
+                {
+                    RefreshTrayMenuMaxHeightFromPopup(menu);
+                }
+            },
+            DispatcherPriority.Input);
+    }
 
-            _ = menu.Focus();
-            _ = Keyboard.Focus(menu);
-            if (PresentationSource.FromVisual(menu) is HwndSource source)
-            {
-                WindowNative.TrySetForegroundWindow(source.Handle);
-            }
+    private static void RefreshTrayMenuMaxHeightFromPopup(ContextMenu menu)
+    {
+        if (PresentationSource.FromVisual(menu) is not HwndSource source ||
+            source.Handle == IntPtr.Zero ||
+            !WindowWorkAreaHelper.TryGetMonitorGeometryForWindowHandle(
+                source.Handle,
+                out var geometry))
+        {
+            menu.MaxHeight = TrayMenuMaxHeight();
+            return;
         }
 
-        Activate();
-        _ = menu.Dispatcher.InvokeAsync(Activate, DispatcherPriority.Input);
+        menu.MaxHeight = Math.Max(
+            260,
+            geometry.LocalWorkAreaDip.Height - 72);
     }
 
     private static double TrayMenuMaxHeight()
@@ -484,6 +491,10 @@ public sealed partial class AppController
         menu.Language = AppTypography.Language;
         AppTypography.ApplyTextRendering(menu);
         menu.MaxHeight = TrayMenuMaxHeight();
+        if (menu.IsOpen)
+        {
+            RefreshTrayMenuMaxHeightFromPopup(menu);
+        }
 
         menu.Items.Clear();
 

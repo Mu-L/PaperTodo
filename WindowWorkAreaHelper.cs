@@ -309,6 +309,76 @@ internal static class WindowWorkAreaHelper
         out MonitorGeometry geometry)
         => TryGetMonitorGeometryAtDeviceScreenPoint(screenPoint, dpiWindow: null, out geometry);
 
+    public static bool TryGetMonitorGeometryForWindowHandle(
+        IntPtr windowHandle,
+        out MonitorGeometry geometry)
+    {
+        geometry = default;
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            var monitor = MonitorFromWindow(
+                windowHandle,
+                MonitorDefaultToNearest);
+            if (monitor == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var info = new MonitorInfoEx
+            {
+                Size = Marshal.SizeOf<MonitorInfoEx>()
+            };
+            if (!GetMonitorInfoEx(monitor, ref info) ||
+                info.WorkArea.IsEmpty)
+            {
+                return false;
+            }
+
+            var dpi = GetDpiForWindow(windowHandle);
+            double scaleX;
+            double scaleY;
+            if (dpi > 0)
+            {
+                scaleX = ValidScale(dpi / 96.0);
+                scaleY = scaleX;
+            }
+            else if (GetDpiForMonitor(
+                         monitor,
+                         0,
+                         out var dpiX,
+                         out var dpiY) == 0)
+            {
+                scaleX = ValidScale(dpiX / 96.0);
+                scaleY = ValidScale(dpiY / 96.0);
+            }
+            else
+            {
+                (scaleX, scaleY) = SystemDpiScale();
+            }
+
+            geometry = new MonitorGeometry(
+                info.DeviceNameString,
+                new DeviceScreenRect(
+                    info.WorkArea.Left,
+                    info.WorkArea.Top,
+                    info.WorkArea.Right,
+                    info.WorkArea.Bottom),
+                scaleX,
+                scaleY);
+            return true;
+        }
+        catch
+        {
+            geometry = default;
+            return false;
+        }
+    }
+
     public static bool ExceedsDragThreshold(
         DeviceScreenPoint start,
         DeviceScreenPoint current,

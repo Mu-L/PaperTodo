@@ -229,9 +229,9 @@ public sealed class MasterCapsuleWindow : Window
         content.Children.Add(stack);
 
         _pill.Child = content;
-        // Same chrome as the tray menu, but skip tray-style Activate (NOACTIVATE host) and
-        // let DeepCapsuleContextMenuSession own promote / guards / stale-focus cleanup.
-        var contextMenu = _controller.CreateTrayMenu(activateOnOpen: false, registerForLiveRefresh: true);
+        // Same chrome as the tray menu. The NOACTIVATE host delegates promotion,
+        // guards and stale-focus cleanup to DeepCapsuleContextMenuSession.
+        var contextMenu = _controller.CreateTrayMenu(registerForLiveRefresh: true);
         _pill.ContextMenu = contextMenu;
         _pill.ContextMenuOpening += (_, _) => _controller.RebuildTrayMenu(contextMenu);
         contextMenu.Opened += (_, _) => _contextMenuSession.HandleOpened(contextMenu);
