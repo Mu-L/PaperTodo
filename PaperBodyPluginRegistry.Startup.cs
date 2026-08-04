@@ -4,11 +4,11 @@ namespace PaperTodo;
 
 internal sealed class PaperBodyPluginStartupManifest
 {
+    // Startup timing is host-owned; plugins only declare intent and presentation.
     public string EnabledSetting { get; set; } = "";
     public string InstanceKey { get; set; } = "main";
     public string Presentation { get; set; } = "capsule";
     public string Title { get; set; } = "";
-    public int DelayMs { get; set; } = 1200;
 }
 
 internal sealed partial class PaperBodyPluginRegistry
@@ -25,7 +25,6 @@ internal sealed partial class PaperBodyPluginRegistry
         startup.InstanceKey = startup.InstanceKey?.Trim() ?? "";
         startup.Presentation = startup.Presentation?.Trim().ToLowerInvariant() ?? "";
         startup.Title = startup.Title?.Trim() ?? "";
-        startup.DelayMs = Math.Clamp(startup.DelayMs, 500, 5000);
 
         if (startup.InstanceKey.Length is < 1 or > 80 ||
             !startup.InstanceKey.All(character =>

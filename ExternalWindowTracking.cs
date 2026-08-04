@@ -276,8 +276,9 @@ internal static class ExternalWindowNative
     private const int DwmwaExtendedFrameBounds = 9;
     private const int DwmwaCloaked = 14;
     private const int SwRestore = 9;
-    private const int MinimumTargetWidth = 80;
-    private const int MinimumTargetHeight = 40;
+    // Visual-size filter; convert it with the DPI of the monitor actually showing the window.
+    private const double MinimumTargetWidthDip = 80;
+    private const double MinimumTargetHeightDip = 40;
     private const double TargetEnumerationCacheMilliseconds = 64;
     private static readonly object TargetEnumerationCacheGate = new();
     private static IReadOnlyList<ExternalWindowSnapshot>
@@ -540,10 +541,30 @@ internal static class ExternalWindowNative
         IntPtr hwnd,
         ExternalWindowSnapshot snapshot)
     {
-        if (!snapshot.IsUsableTarget ||
-            snapshot.Title.Length == 0 ||
-            snapshot.Bounds.Width < MinimumTargetWidth ||
-            snapshot.Bounds.Height < MinimumTargetHeight)
+        if (!snapshot.IsUsableTarget || snapshot.Title.Length == 0)
+        {
+            return false;
+        }
+
+        var dpiScaleX = Math.Max(1, snapshot.DpiScale);
+        var dpiScaleY = dpiScaleX;
+        var center = new DeviceScreenPoint(
+            snapshot.Bounds.Left + snapshot.Bounds.Width / 2.0,
+            snapshot.Bounds.Top + snapshot.Bounds.Height / 2.0);
+        if (WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                center,
+                out var monitor))
+        {
+            dpiScaleX = Math.Max(1, monitor.DpiScaleX);
+            dpiScaleY = Math.Max(1, monitor.DpiScaleY);
+        }
+
+        var minimumTargetWidth =
+            (int)Math.Ceiling(MinimumTargetWidthDip * dpiScaleX);
+        var minimumTargetHeight =
+            (int)Math.Ceiling(MinimumTargetHeightDip * dpiScaleY);
+        if (snapshot.Bounds.Width < minimumTargetWidth ||
+            snapshot.Bounds.Height < minimumTargetHeight)
         {
             return false;
         }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 
@@ -5,12 +6,16 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private const int ExperimentalFollowStableFrameLimit = 6;
-    private const int ExperimentalFollowMovingIdleFrameLimit = 120;
+    // Preserve the former 6 / 120-frame behavior at 60 Hz without making
+    // follow lifetime depend on the monitor refresh rate.
+    private static readonly TimeSpan ExperimentalFollowStableDuration =
+        TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan ExperimentalFollowMovingIdleDuration =
+        TimeSpan.FromSeconds(2);
     private ExternalWindowTracker? _externalWindowTracker;
     private readonly HashSet<IntPtr> _externalMoveSizeWindows = new();
     private bool _experimentalFollowRendering;
-    private int _experimentalFollowStableFrames;
+    private long _experimentalFollowLastChangeTimestamp;
 
     private bool NeedsExternalWindowTracker =>
         _windows.Values.Any(window =>
@@ -89,7 +94,7 @@ public sealed partial class AppController
 
     private void BeginExperimentalFollowFrames()
     {
-        _experimentalFollowStableFrames = 0;
+        _experimentalFollowLastChangeTimestamp = Stopwatch.GetTimestamp();
         if (_experimentalFollowRendering ||
             IsExiting ||
             !NeedsExternalWindowTracker)
@@ -146,15 +151,27 @@ public sealed partial class AppController
 
         if (changed)
         {
-            _experimentalFollowStableFrames = 0;
+            _experimentalFollowLastChangeTimestamp =
+                Stopwatch.GetTimestamp();
             return;
         }
 
-        _experimentalFollowStableFrames++;
-        var idleFrameLimit = targetMoving
-            ? ExperimentalFollowMovingIdleFrameLimit
-            : ExperimentalFollowStableFrameLimit;
-        if (_experimentalFollowStableFrames >= idleFrameLimit)
+        var now = Stopwatch.GetTimestamp();
+        if (_experimentalFollowLastChangeTimestamp == 0)
+        {
+            _experimentalFollowLastChangeTimestamp = now;
+            return;
+        }
+
+        var idleDuration = targetMoving
+            ? ExperimentalFollowMovingIdleDuration
+            : ExperimentalFollowStableDuration;
+        var idleElapsed = TimeSpan.FromSeconds(
+            Math.Max(
+                0,
+                now - _experimentalFollowLastChangeTimestamp) /
+            (double)Stopwatch.Frequency);
+        if (idleElapsed >= idleDuration)
         {
             // A missed MOVESIZEEND must not leave a render-rate Win32 sampler alive forever.
             // A later location event starts it again if the target resumes moving.
@@ -174,7 +191,7 @@ public sealed partial class AppController
                 OnExperimentalFollowRendering;
             _experimentalFollowRendering = false;
         }
-        _experimentalFollowStableFrames = 0;
+        _experimentalFollowLastChangeTimestamp = 0;
     }
 
     private void ToggleExperimentalCapsuleMagnetism()

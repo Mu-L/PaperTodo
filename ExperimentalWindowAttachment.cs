@@ -43,7 +43,6 @@ internal static partial class ExperimentalWindowAttachmentGeometry
 {
     private const double MinimumTetherHandleWidthDip = 48;
     private const double MinimumTetherHandleHeightDip = 12;
-    private const double TetherTitleBarHeightDip = 34;
 
     public static bool TryPlanCapsuleMagnet(
         DeviceScreenRect capsuleBounds,
@@ -107,13 +106,19 @@ internal static partial class ExperimentalWindowAttachmentGeometry
         MonitorGeometry monitor,
         string preferredEdge,
         double gapDip,
+        double dragRegionTopDip,
+        double dragRegionHeightDip,
         out ExperimentalAttachmentPlan plan)
     {
         plan = default;
         if (paperBounds.IsEmpty ||
             !externalWindow.IsUsableTarget ||
             monitor.WorkArea.IsEmpty ||
-            !double.IsFinite(gapDip))
+            !double.IsFinite(gapDip) ||
+            !double.IsFinite(dragRegionTopDip) ||
+            dragRegionTopDip < 0 ||
+            !double.IsFinite(dragRegionHeightDip) ||
+            dragRegionHeightDip <= 0)
         {
             return false;
         }
@@ -142,7 +147,9 @@ internal static partial class ExperimentalWindowAttachmentGeometry
                 monitor,
                 edge,
                 insideTarget: false,
-                gapDip);
+                gapDip,
+                dragRegionTopDip,
+                dragRegionHeightDip);
             AddTetherCandidate(
                 candidates,
                 paperBounds,
@@ -150,7 +157,9 @@ internal static partial class ExperimentalWindowAttachmentGeometry
                 monitor,
                 edge,
                 insideTarget: true,
-                gapDip);
+                gapDip,
+                dragRegionTopDip,
+                dragRegionHeightDip);
         }
 
         if (candidates.Count == 0)
@@ -280,44 +289,65 @@ internal static partial class ExperimentalWindowAttachmentGeometry
     public static bool KeepsTetherHandleReachable(
         DeviceScreenRect bounds,
         DeviceScreenRect workArea,
-        double dpiScale)
+        double dpiScale,
+        double dragRegionTopDip,
+        double dragRegionHeightDip)
     {
-        if (bounds.IsEmpty || workArea.IsEmpty)
+        if (bounds.IsEmpty ||
+            workArea.IsEmpty ||
+            !double.IsFinite(dragRegionTopDip) ||
+            dragRegionTopDip < 0 ||
+            !double.IsFinite(dragRegionHeightDip) ||
+            dragRegionHeightDip <= 0)
         {
             return false;
         }
 
         dpiScale = Math.Max(1, dpiScale);
-        var titleBar = new DeviceScreenRect(
+        var dragRegionTop = bounds.Top +
+            RoundDevice(dragRegionTopDip * dpiScale);
+        var dragRegion = new DeviceScreenRect(
             bounds.Left,
-            bounds.Top,
+            Math.Min(bounds.Bottom, dragRegionTop),
             bounds.Right,
             Math.Min(
                 bounds.Bottom,
-                bounds.Top +
-                RoundDevice(TetherTitleBarHeightDip * dpiScale)));
+                dragRegionTop +
+                RoundDevice(dragRegionHeightDip * dpiScale)));
+        if (dragRegion.IsEmpty)
+        {
+            return false;
+        }
+
         var visibleWidth = Math.Max(
             0,
-            Math.Min(titleBar.Right, workArea.Right) -
-            Math.Max(titleBar.Left, workArea.Left));
+            Math.Min(dragRegion.Right, workArea.Right) -
+            Math.Max(dragRegion.Left, workArea.Left));
         var visibleHeight = Math.Max(
             0,
-            Math.Min(titleBar.Bottom, workArea.Bottom) -
-            Math.Max(titleBar.Top, workArea.Top));
+            Math.Min(dragRegion.Bottom, workArea.Bottom) -
+            Math.Max(dragRegion.Top, workArea.Top));
         return visibleWidth >= Math.Min(
-                titleBar.Width,
+                dragRegion.Width,
                 RoundDevice(MinimumTetherHandleWidthDip * dpiScale)) &&
             visibleHeight >= Math.Min(
-                titleBar.Height,
+                dragRegion.Height,
                 RoundDevice(MinimumTetherHandleHeightDip * dpiScale));
     }
 
     public static DeviceScreenRect KeepTetherHandleVisible(
         DeviceScreenRect bounds,
         DeviceScreenRect workArea,
-        double dpiScale)
+        double dpiScale,
+        double dragRegionTopDip,
+        double dragRegionHeightDip)
     {
-        if (bounds.IsEmpty || workArea.IsEmpty)
+        if (bounds.IsEmpty ||
+            workArea.IsEmpty ||
+            !double.IsFinite(dragRegionTopDip) ||
+            dragRegionTopDip < 0 ||
+            !double.IsFinite(dragRegionHeightDip) ||
+            dragRegionHeightDip <= 0)
         {
             return bounds;
         }
@@ -326,17 +356,28 @@ internal static partial class ExperimentalWindowAttachmentGeometry
         var visibleWidth = Math.Min(
             bounds.Width,
             RoundDevice(MinimumTetherHandleWidthDip * dpiScale));
-        var titleBarHeight = Math.Min(
+        var dragRegionTopOffset = Math.Min(
             bounds.Height,
-            RoundDevice(TetherTitleBarHeightDip * dpiScale));
-        var visibleTitleHeight = Math.Min(
-            titleBarHeight,
+            RoundDevice(dragRegionTopDip * dpiScale));
+        var dragRegionHeight = Math.Min(
+            Math.Max(0, bounds.Height - dragRegionTopOffset),
+            RoundDevice(dragRegionHeightDip * dpiScale));
+        if (dragRegionHeight <= 0)
+        {
+            return bounds;
+        }
+
+        var visibleDragHeight = Math.Min(
+            dragRegionHeight,
             RoundDevice(MinimumTetherHandleHeightDip * dpiScale));
         var minLeft = workArea.Left - bounds.Width + visibleWidth;
         var maxLeft = workArea.Right - visibleWidth;
         var minTop =
-            workArea.Top - titleBarHeight + visibleTitleHeight;
-        var maxTop = workArea.Bottom - visibleTitleHeight;
+            workArea.Top + visibleDragHeight -
+            dragRegionTopOffset - dragRegionHeight;
+        var maxTop =
+            workArea.Bottom - visibleDragHeight -
+            dragRegionTopOffset;
         var left = Math.Clamp(bounds.Left, minLeft, maxLeft);
         var top = Math.Clamp(bounds.Top, minTop, maxTop);
         return new DeviceScreenRect(
@@ -467,7 +508,9 @@ internal static partial class ExperimentalWindowAttachmentGeometry
         MonitorGeometry monitor,
         ExperimentalAttachmentEdge edge,
         bool insideTarget,
-        double gapDip)
+        double gapDip,
+        double dragRegionTopDip,
+        double dragRegionHeightDip)
     {
         var perpendicularOffset = edge is
             ExperimentalAttachmentEdge.Left or ExperimentalAttachmentEdge.Right
@@ -493,7 +536,9 @@ internal static partial class ExperimentalWindowAttachmentGeometry
             !KeepsTetherHandleReachable(
                 desired,
                 monitor.WorkArea,
-                externalWindow.DpiScale))
+                Math.Max(monitor.DpiScaleX, monitor.DpiScaleY),
+                dragRegionTopDip,
+                dragRegionHeightDip))
         {
             return;
         }
@@ -631,6 +676,18 @@ public sealed partial class PaperWindow
         _experimentalCapsuleMagnetPreviewPlan;
     private bool _experimentalCapsuleMagnetDragPreviewActive;
     private long _experimentalCapsuleMagnetPreviewTimestamp;
+
+    private double ExperimentalTetherDragRegionTopDip =>
+        (_paperChrome?.Margin.Top ?? WindowChromeMargin) +
+        (_paperChrome?.BorderThickness.Top ?? 1) +
+        (_topBar?.Margin.Top ?? 3);
+
+    private double ExperimentalTetherDragRegionHeightDip =>
+        _topBar != null &&
+        double.IsFinite(_topBar.Height) &&
+        _topBar.Height > 0
+            ? _topBar.Height
+            : TitleBarHeight;
 
     internal bool HasExperimentalWindowAttachment =>
         _experimentalWindowAttachment != null;
@@ -953,6 +1010,8 @@ public sealed partial class PaperWindow
                     : _controller.State
                         .ExperimentalWindowTetherPreferredEdge,
                 _controller.State.ExperimentalWindowTetherGap,
+                ExperimentalTetherDragRegionTopDip,
+                ExperimentalTetherDragRegionHeightDip,
                 out var plan))
         {
             return false;
@@ -1277,6 +1336,8 @@ public sealed partial class PaperWindow
                 monitor,
                 _controller.State.ExperimentalWindowTetherPreferredEdge,
                 _controller.State.ExperimentalWindowTetherGap,
+                ExperimentalTetherDragRegionTopDip,
+                ExperimentalTetherDragRegionHeightDip,
                 out var plan))
         {
             _experimentalTetherReplanPending = true;
@@ -1370,7 +1431,9 @@ public sealed partial class PaperWindow
                     .KeepsTetherHandleReachable(
                         desired,
                         monitor.WorkArea,
-                        snapshot.DpiScale);
+                        Math.Max(monitor.DpiScaleX, monitor.DpiScaleY),
+                        ExperimentalTetherDragRegionTopDip,
+                        ExperimentalTetherDragRegionHeightDip);
             if (shouldReplan &&
                 ExperimentalWindowAttachmentGeometry.TryPlanWindowTether(
                     currentBounds,
@@ -1378,6 +1441,8 @@ public sealed partial class PaperWindow
                     monitor,
                     _controller.State.ExperimentalWindowTetherPreferredEdge,
                     _controller.State.ExperimentalWindowTetherGap,
+                    ExperimentalTetherDragRegionTopDip,
+                    ExperimentalTetherDragRegionHeightDip,
                     out var replanned))
             {
                 session = replanned.Session;
@@ -1391,7 +1456,9 @@ public sealed partial class PaperWindow
                         .KeepTetherHandleVisible(
                             desired,
                             monitor.WorkArea,
-                            snapshot.DpiScale);
+                            Math.Max(monitor.DpiScaleX, monitor.DpiScaleY),
+                            ExperimentalTetherDragRegionTopDip,
+                            ExperimentalTetherDragRegionHeightDip);
             }
             ClearExperimentalCapsuleFollowPresentation();
         }

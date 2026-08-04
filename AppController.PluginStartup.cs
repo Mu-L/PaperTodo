@@ -1,17 +1,15 @@
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Threading;
 
 namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private DispatcherTimer? _pluginStartupPaperTimer;
     private int _pluginStartupPaperGeneration;
 
     private void SchedulePluginStartupPapers(StartupCommandKind visibilityCommand)
     {
-        _pluginStartupPaperTimer?.Stop();
-        _pluginStartupPaperTimer = null;
         var generation = ++_pluginStartupPaperGeneration;
         if (visibilityCommand == StartupCommandKind.Hide || IsExiting)
         {
@@ -26,29 +24,25 @@ public sealed partial class AppController
             return;
         }
 
-        var delay = candidates
-            .Select(item => item.Manifest!.StartupPaper!.DelayMs)
-            .DefaultIfEmpty(1200)
-            .Min();
-        var timer = new DispatcherTimer(DispatcherPriority.ApplicationIdle)
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null)
         {
-            Interval = TimeSpan.FromMilliseconds(delay)
-        };
-        _pluginStartupPaperTimer = timer;
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            if (ReferenceEquals(_pluginStartupPaperTimer, timer))
+            return;
+        }
+
+        // Normal paper restoration has completed before this method is called. One idle
+        // dispatch is enough; startup timing is owned by the host, not by each plugin.
+        _ = dispatcher.BeginInvoke(
+            (Action)(() =>
             {
-                _pluginStartupPaperTimer = null;
-            }
-            if (generation != _pluginStartupPaperGeneration || IsExiting)
-            {
-                return;
-            }
-            EnsurePluginStartupPapers(candidates);
-        };
-        timer.Start();
+                if (generation != _pluginStartupPaperGeneration ||
+                    IsExiting)
+                {
+                    return;
+                }
+                EnsurePluginStartupPapers(candidates);
+            }),
+            DispatcherPriority.ApplicationIdle);
     }
 
     private void EnsurePluginStartupPapers(

@@ -1,27 +1,26 @@
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace PaperTodo;
 
 /// <summary>
 /// One animation-frame scheduler per UI dispatcher. Presenters still own their transitions and
-/// reconcile pipelines; the shared scheduler only batches frame advances and cursor sampling.
+/// reconcile pipelines; the shared scheduler only batches frame advances and cursor sampling
+/// on WPF's actual composition frames.
 /// </summary>
 internal sealed class EdgeCapsuleFrameScheduler
 {
     private static readonly ConditionalWeakTable<Dispatcher, EdgeCapsuleFrameScheduler> Schedulers = new();
 
-    private readonly DispatcherTimer _timer;
+    private readonly Dispatcher _dispatcher;
     private readonly List<EdgeCapsulePresenter> _presenters = new();
+    private bool _renderingSubscribed;
     private bool _isTicking;
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
-        _timer = new DispatcherTimer(DispatcherPriority.Render, dispatcher)
-        {
-            Interval = TimeSpan.FromMilliseconds(16)
-        };
-        _timer.Tick += OnTick;
+        _dispatcher = dispatcher;
     }
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
@@ -33,9 +32,10 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
             _presenters.Add(presenter);
         }
-        if (!_timer.IsEnabled)
+        if (!_renderingSubscribed)
         {
-            _timer.Start();
+            CompositionTarget.Rendering += OnRendering;
+            _renderingSubscribed = true;
         }
     }
 
@@ -52,8 +52,13 @@ internal sealed class EdgeCapsuleFrameScheduler
         StopWhenEmpty();
     }
 
-    private void OnTick(object? sender, EventArgs e)
+    private void OnRendering(object? sender, EventArgs e)
     {
+        if (!_dispatcher.CheckAccess())
+        {
+            return;
+        }
+
         var initialCount = _presenters.Count;
         var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
             ? currentPointer
@@ -89,9 +94,10 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void StopWhenEmpty()
     {
-        if (_presenters.Count == 0)
+        if (_presenters.Count == 0 && _renderingSubscribed)
         {
-            _timer.Stop();
+            CompositionTarget.Rendering -= OnRendering;
+            _renderingSubscribed = false;
         }
     }
 }

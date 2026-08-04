@@ -13,8 +13,7 @@
     "enabledSetting": "autoStartCapsule",
     "instanceKey": "main",
     "presentation": "capsule",
-    "title": "Web 时钟",
-    "delayMs": 1200
+    "title": "Web 时钟"
   },
   "settings": [
     { "id": "autoStartCapsule", "type": "boolean", "name": "启动后自动创建时钟胶囊", "description": "PaperTodo 启动稳定后创建或恢复同一个时钟胶囊，不会重复创建。", "default": false },
