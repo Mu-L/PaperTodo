@@ -115,6 +115,8 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 dotnet build PaperTodo.csproj -c Release
 ```
 
+`vendor/wpf-notifyicon` 跟踪 `snownico0722/wpf-notifyicon` 的 `develop` 最新提交；本地真实构建和云端 Release 都必须先运行 `Update-WpfNotifyIcon.ps1`。不要把它改回只消费父仓库记录的固定子模块提交。
+
 云端 Release 发布两个 Windows x64 单文件：自包含 .NET Runtime 的 `…-self-contained.exe`，以及不带运行库的 `…-no-runtime.exe`。本地打包只生成 no-runtime 单文件。WPF 版本不要开启 `PublishTrimmed` 或 Native AOT。
 
 仓库内 `native/lmdb/bin/win-x64/papertodo_lmdb.dll` 是本地没有 CMake / MSVC 环境时使用的默认原生库，普通 `dotnet build` / `dotnet publish` 必须复制或嵌入它，并在缺失时直接失败。GitHub Release 必须先调用 `native/lmdb/build.ps1 -ForceRebuild` 从仓库内 LMDB 源码重新生成 DLL，不能直接拿默认 DLL 冒充云端编译产物。

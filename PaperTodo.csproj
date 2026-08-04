@@ -22,6 +22,7 @@
     <ApplicationIcon>assets\icons\PaperTodo.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PaperTodoLmdbLibrary>$(MSBuildProjectDirectory)\native\lmdb\bin\win-x64\papertodo_lmdb.dll</PaperTodoLmdbLibrary>
+    <UpdateWpfNotifyIconOnBuild Condition="'$(UpdateWpfNotifyIconOnBuild)' == ''">true</UpdateWpfNotifyIconOnBuild>
     <OutputPath>$(MSBuildProjectDirectory)\输出\PaperTodo-v$(Version)\</OutputPath>
     <SatelliteResourceLanguages>en;ja;ko</SatelliteResourceLanguages>
     <DefaultItemExcludes>$(DefaultItemExcludes);对比_StickyMD\**;输出\**;PaperTodo_v*\**;.codex_decompile_debug\**;PaperTodo.Plugin.Abstractions\**;plugin-samples\**;plugins\**\.runtime\**;plugins\data\**;vendor\**</DefaultItemExcludes>
@@ -61,5 +62,13 @@
     <Error
       Condition="!Exists('$(PaperTodoLmdbLibrary)')"
       Text="PaperTodo's native LMDB library is missing. Restore native\lmdb\bin\win-x64\papertodo_lmdb.dll or build it with native\lmdb\build.ps1." />
+  </Target>
+  <Target
+    Name="UpdateWpfNotifyIcon"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(UpdateWpfNotifyIconOnBuild)' == 'true' and Exists('$(MSBuildProjectDirectory)\.git')">
+    <Exec
+      WorkingDirectory="$(MSBuildProjectDirectory)"
+      Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Update-WpfNotifyIcon.ps1&quot;" />
   </Target>
 </Project>

@@ -39,10 +39,14 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "true"
+      UpdateWpfNotifyIconOnBuild: "false"
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Update WPF NotifyIcon to latest develop
+        run: .\Update-WpfNotifyIcon.ps1
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
