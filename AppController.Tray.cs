@@ -38,6 +38,11 @@ public sealed partial class AppController
                 return;
             }
 
+            // Clear an application-owned active/focus HWND that survived after
+            // foreground moved to the taskbar or another process. Without this,
+            // the first tray menu can immediately return focus to the old paper.
+            DeepCapsuleContextMenuSession.ClearStaleApplicationActivationIfNeeded();
+
             // Capture taskbar/desktop/external foreground before the popup HWND takes focus.
             RefreshTopmostForForegroundWindow(forceGlobalScan: true);
             RebuildTrayMenu();

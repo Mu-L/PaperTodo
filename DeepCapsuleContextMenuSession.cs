@@ -235,7 +235,17 @@ internal sealed class DeepCapsuleContextMenuSession
 
     private void ClearStaleActivationIfNeeded()
     {
-        if (_activeMenu?.IsOpen == true || InputManager.Current.IsInMenuMode)
+        if (_activeMenu?.IsOpen == true)
+        {
+            return;
+        }
+
+        ClearStaleApplicationActivationIfNeeded();
+    }
+
+    internal static void ClearStaleApplicationActivationIfNeeded()
+    {
+        if (InputManager.Current.IsInMenuMode)
         {
             return;
         }
@@ -254,8 +264,10 @@ internal sealed class DeepCapsuleContextMenuSession
             return;
         }
 
-        // A promoted WPF Popup can leave its owner active after closing. Hardcodet's next tray
-        // menu then opens and immediately closes, so clear only this stale cross-app handoff.
+        // A WPF popup or a previously active paper can leave this UI thread with an
+        // application-owned active/focus HWND after foreground moved to another process.
+        // Hardcodet's next tray menu then opens and immediately closes, so clear only
+        // this stale cross-app handoff.
         Keyboard.ClearFocus();
         WindowNative.ClearCurrentThreadInputActivation(foreground);
     }
