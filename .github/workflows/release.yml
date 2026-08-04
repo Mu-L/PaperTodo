@@ -100,8 +100,14 @@ jobs:
             /p:IncludeNativeLibrariesForSelfExtract=true `
             /p:EnableCompressionInSingleFile=true `
             /p:PublishTrimmed=false `
+            /p:EmbedAllSources=false `
+            /p:EmbedUntrackedSources=false `
             /p:DebugType=none `
             /p:DebugSymbols=false
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
           Copy-Item -LiteralPath (Join-Path $selfContainedOut "PaperTodo.exe") -Destination (Join-Path $releaseDir $env:SELF_CONTAINED_EXE)
 
@@ -115,8 +121,14 @@ jobs:
             /p:IncludeNativeLibrariesForSelfExtract=true `
             /p:EnableCompressionInSingleFile=false `
             /p:PublishTrimmed=false `
+            /p:EmbedAllSources=false `
+            /p:EmbedUntrackedSources=false `
             /p:DebugType=none `
             /p:DebugSymbols=false
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
           Copy-Item -LiteralPath (Join-Path $frameworkDependentOut "PaperTodo.exe") -Destination (Join-Path $releaseDir $env:FRAMEWORK_DEPENDENT_EXE)
 
