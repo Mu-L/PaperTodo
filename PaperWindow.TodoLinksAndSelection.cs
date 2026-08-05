@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace PaperTodo;
 
@@ -33,6 +34,7 @@ public sealed partial class PaperWindow
     private TodoSweepSelectionState? _todoSweepSelection;
     private bool _todoSweepOwnsMouseCapture;
     private bool _todoSelectionInputHooksInstalled;
+    private DispatcherTimer? _todoSweepTrackingTimer;
 
     private static Brush TodoSelectionBrush =>
         Theme.Tint((byte)(Theme.IsDark ? 62 : 42));
@@ -48,6 +50,7 @@ public sealed partial class PaperWindow
 
         _todoSelectionInputHooksInstalled = true;
         PreviewMouseLeftButtonDown += OnTodoSelectionWindowPreviewMouseLeftButtonDown;
+        PreviewKeyDown += OnTodoSelectionWindowPreviewKeyDown;
         PreviewMouseMove += OnTodoSweepPreviewMouseMove;
         PreviewMouseLeftButtonUp += OnTodoSweepPreviewMouseLeftButtonUp;
         LostMouseCapture += OnTodoSweepLostMouseCapture;
@@ -68,6 +71,16 @@ public sealed partial class PaperWindow
         if (FindTodoRowAncestor(e.OriginalSource as DependencyObject) == null)
         {
             ClearTodoSelection();
+        }
+    }
+
+    private void OnTodoSelectionWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.C &&
+            Keyboard.Modifiers == ModifierKeys.Control &&
+            TryCopySelectedTodoItems())
+        {
+            e.Handled = true;
         }
     }
 
@@ -105,15 +118,15 @@ public sealed partial class PaperWindow
             // Do not consume the press. TodoTextBox keeps normal character selection until the
             // held pointer actually enters a different todo row; only then do we promote the
             // gesture to whole-item sweep selection.
+            if (_selectedTodoItemIds.Count > 0)
+            {
+                ClearTodoSelection();
+            }
+
             ArmTodoSweepSelection(
                 item.Id,
                 row,
                 IsDescendantOf(source, text) ? text : null);
-
-            if (!_selectedTodoItemIds.Contains(item.Id))
-            {
-                ClearTodoSelection();
-            }
         };
 
         UpdateTodoRowBackground(row);
@@ -172,6 +185,7 @@ public sealed partial class PaperWindow
             itemId,
             row,
             sourceTextBox);
+        StartTodoSweepTracking();
     }
 
     private bool PromoteTodoSweepSelection(
@@ -190,13 +204,30 @@ public sealed partial class PaperWindow
         state.IsPromoted = true;
         if (state.SourceTextBox != null)
         {
-            state.SourceTextBox.Select(state.SourceTextBox.CaretIndex, 0);
+            state.SourceTextBox.Select(
+                Math.Clamp(state.SourceTextBox.CaretIndex, 0, state.SourceTextBox.Text.Length),
+                0);
         }
-        Keyboard.ClearFocus();
+        FocusTodoSweepSelectionHost();
         _selectedTodoItemIds.Clear();
         _selectedTodoItemIds.Add(state.AnchorItemId);
         SelectTodoRange(state.AnchorItemId, targetItemId);
         return true;
+    }
+
+    private void FocusTodoSweepSelectionHost()
+    {
+        // Keep keyboard focus inside the paper without leaving any TodoTextBox active. Sweep
+        // highlighting is drawn independently, so no editor retains a caret or real text range.
+        _paperChrome.Focusable = true;
+        _paperChrome.FocusVisualStyle = null;
+        KeyboardNavigation.SetIsTabStop(_paperChrome, false);
+        FocusManager.SetFocusedElement(this, _paperChrome);
+        Keyboard.Focus(_paperChrome);
+        if (!ReferenceEquals(Keyboard.FocusedElement, _paperChrome))
+        {
+            Keyboard.ClearFocus();
+        }
     }
 
     private void OnTodoSweepPreviewMouseMove(object sender, MouseEventArgs e)
@@ -214,12 +245,10 @@ public sealed partial class PaperWindow
         }
 
         var point = e.GetPosition(this);
-        var targetRow = FindTodoRowAtPoint(point);
         if (!state.IsPromoted)
         {
-            if (targetRow == null ||
-                ReferenceEquals(targetRow, state.AnchorRow) ||
-                targetRow.Tag is not string firstTargetItemId)
+            var firstTargetItemId = FindTodoSweepPromotionTargetItemId(state, point);
+            if (firstTargetItemId == null)
             {
                 // The original TextBox still owns this gesture and may select characters.
                 return;
@@ -232,14 +261,78 @@ public sealed partial class PaperWindow
             }
         }
 
-        AutoScrollTodoSelection(point);
-        targetRow = FindTodoRowAtPoint(point);
-        if (targetRow?.Tag is string targetItemId)
+        UpdatePromotedTodoSweepSelection(state, point, autoScroll: true);
+        e.Handled = true;
+    }
+
+    private void UpdatePromotedTodoSweepSelection(
+        TodoSweepSelectionState state,
+        Point pointOnWindow,
+        bool autoScroll)
+    {
+        if (autoScroll)
+        {
+            AutoScrollTodoSelection(pointOnWindow);
+        }
+
+        if (FindTodoRowForSweep(pointOnWindow)?.Tag is string targetItemId)
         {
             SelectTodoRange(state.AnchorItemId, targetItemId);
         }
+    }
 
-        e.Handled = true;
+    private void StartTodoSweepTracking()
+    {
+        if (_todoSweepTrackingTimer == null)
+        {
+            _todoSweepTrackingTimer = new DispatcherTimer(DispatcherPriority.Input)
+            {
+                Interval = TimeSpan.FromMilliseconds(32)
+            };
+            _todoSweepTrackingTimer.Tick += OnTodoSweepTrackingTick;
+        }
+
+        _todoSweepTrackingTimer.Stop();
+        _todoSweepTrackingTimer.Start();
+    }
+
+    private void StopTodoSweepTracking()
+    {
+        _todoSweepTrackingTimer?.Stop();
+    }
+
+    private void OnTodoSweepTrackingTick(object? sender, EventArgs e)
+    {
+        var state = _todoSweepSelection;
+        if (state == null)
+        {
+            StopTodoSweepTracking();
+            return;
+        }
+
+        if (Mouse.LeftButton != MouseButtonState.Pressed)
+        {
+            EndTodoSweepSelection();
+            return;
+        }
+
+        var point = Mouse.GetPosition(this);
+        if (!state.IsPromoted)
+        {
+            var firstTargetItemId = FindTodoSweepPromotionTargetItemId(state, point);
+            if (firstTargetItemId == null)
+            {
+                return;
+            }
+
+            if (!PromoteTodoSweepSelection(state, firstTargetItemId))
+            {
+                CancelTodoSweepSelection(clearSelection: false);
+                return;
+            }
+        }
+
+        UpdatePromotedTodoSweepSelection(state, point, autoScroll: true);
     }
 
     private void OnTodoSweepPreviewMouseLeftButtonUp(
@@ -268,6 +361,7 @@ public sealed partial class PaperWindow
 
     private void CancelTodoSweepSelection(bool clearSelection)
     {
+        StopTodoSweepTracking();
         _todoSweepSelection = null;
         if (clearSelection)
         {
@@ -299,6 +393,7 @@ public sealed partial class PaperWindow
             return;
         }
 
+        StopTodoSweepTracking();
         _todoSweepOwnsMouseCapture = false;
         _todoSweepSelection = null;
         ApplyTodoSelectionVisuals();
@@ -306,9 +401,11 @@ public sealed partial class PaperWindow
 
     private void OnTodoSweepWindowDeactivated(object? sender, EventArgs e)
     {
-        if (_todoSweepSelection != null || _todoSweepOwnsMouseCapture)
+        if (_todoSweepSelection != null ||
+            _todoSweepOwnsMouseCapture ||
+            _selectedTodoItemIds.Count > 0)
         {
-            CancelTodoSweepSelection(clearSelection: false);
+            CancelTodoSweepSelection(clearSelection: true);
         }
     }
 
@@ -322,13 +419,39 @@ public sealed partial class PaperWindow
 
         var point = TranslatePoint(pointOnWindow, scrollViewer);
         var edge = Math.Min(AppTypography.Scale(28), scrollViewer.ActualHeight / 4);
+        var direction = 0;
+        var overflow = 0d;
         if (point.Y < edge)
         {
-            scrollViewer.LineUp();
+            direction = -1;
+            overflow = edge - point.Y;
         }
         else if (point.Y > scrollViewer.ActualHeight - edge)
         {
-            scrollViewer.LineDown();
+            direction = 1;
+            overflow = point.Y - (scrollViewer.ActualHeight - edge);
+        }
+
+        if (direction == 0)
+        {
+            return;
+        }
+
+        var stepDistance = Math.Max(AppTypography.Scale(14), edge * 0.7);
+        var steps = Math.Clamp(
+            1 + (int)Math.Floor(Math.Max(0, overflow - 1) / stepDistance),
+            1,
+            6);
+        for (var index = 0; index < steps; index++)
+        {
+            if (direction < 0)
+            {
+                scrollViewer.LineUp();
+            }
+            else
+            {
+                scrollViewer.LineDown();
+            }
         }
     }
 
@@ -366,6 +489,90 @@ public sealed partial class PaperWindow
             }
         }
         return null;
+    }
+
+    private Border? FindTodoRowForSweep(Point pointOnWindow)
+    {
+        var scrollViewer = FindVisualAncestor<ScrollViewer>(_todoPanel);
+        var viewportTop = double.NegativeInfinity;
+        var viewportBottom = double.PositiveInfinity;
+        if (scrollViewer != null && scrollViewer.ActualHeight > 0)
+        {
+            var viewportOrigin = scrollViewer.TranslatePoint(new Point(0, 0), this);
+            viewportTop = viewportOrigin.Y;
+            viewportBottom = viewportOrigin.Y + scrollViewer.ActualHeight;
+        }
+
+        Border? nearest = null;
+        var nearestDistance = double.PositiveInfinity;
+        foreach (var row in _todoRows)
+        {
+            if (!row.IsVisible || row.ActualWidth <= 0 || row.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            var origin = row.TranslatePoint(new Point(0, 0), this);
+            var top = origin.Y;
+            var bottom = origin.Y + row.ActualHeight;
+            if (bottom < viewportTop || top > viewportBottom)
+            {
+                continue;
+            }
+
+            if (pointOnWindow.Y >= top && pointOnWindow.Y <= bottom)
+            {
+                return row;
+            }
+
+            var distance = pointOnWindow.Y < top
+                ? top - pointOnWindow.Y
+                : pointOnWindow.Y - bottom;
+            if (distance < nearestDistance)
+            {
+                nearest = row;
+                nearestDistance = distance;
+            }
+        }
+
+        return nearest;
+    }
+
+    private string? FindTodoSweepPromotionTargetItemId(
+        TodoSweepSelectionState state,
+        Point pointOnWindow)
+    {
+        var row = FindTodoRowForSweep(pointOnWindow);
+        if (row != null &&
+            !ReferenceEquals(row, state.AnchorRow) &&
+            row.Tag is string rowItemId)
+        {
+            return rowItemId;
+        }
+
+        var scrollViewer = FindVisualAncestor<ScrollViewer>(_todoPanel);
+        if (scrollViewer == null || scrollViewer.ActualHeight <= 0)
+        {
+            return null;
+        }
+
+        var viewportOrigin = scrollViewer.TranslatePoint(new Point(0, 0), this);
+        var direction = pointOnWindow.Y < viewportOrigin.Y
+            ? -1
+            : pointOnWindow.Y > viewportOrigin.Y + scrollViewer.ActualHeight
+                ? 1
+                : 0;
+        if (direction == 0)
+        {
+            return null;
+        }
+
+        var orderedIds = OrderedItems().Select(item => item.Id).ToList();
+        var anchorIndex = orderedIds.IndexOf(state.AnchorItemId);
+        var targetIndex = anchorIndex + direction;
+        return anchorIndex >= 0 && targetIndex >= 0 && targetIndex < orderedIds.Count
+            ? orderedIds[targetIndex]
+            : null;
     }
 
     private void SelectTodoRange(string anchorItemId, string targetItemId)
@@ -420,11 +627,19 @@ public sealed partial class PaperWindow
 
     private void UpdateTodoRowBackground(Border row)
     {
-        var selected = row.Tag is string itemId &&
-            _selectedTodoItemIds.Contains(itemId);
+        var itemId = row.Tag as string;
+        var selected = itemId != null && _selectedTodoItemIds.Contains(itemId);
         row.Background = selected
             ? TodoSelectionBrush
             : row.IsMouseOver ? HoverBrush : Brushes.Transparent;
+
+        if (itemId == null || !_todoEditors.TryGetValue(itemId, out var text))
+        {
+            return;
+        }
+
+        text.IsSweepSelected = selected;
+        text.Foreground = text.IsDone ? BrightWeakTextBrush : TextBrush;
     }
 
     private List<PaperItem> SelectedTodoItems()

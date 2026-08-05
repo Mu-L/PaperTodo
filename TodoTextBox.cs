@@ -29,6 +29,19 @@ public sealed class TodoTextBox : TextBox
         set => SetValue(IsDoneProperty, value);
     }
 
+    public static readonly DependencyProperty IsSweepSelectedProperty =
+        DependencyProperty.Register(
+            nameof(IsSweepSelected),
+            typeof(bool),
+            typeof(TodoTextBox),
+            new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public bool IsSweepSelected
+    {
+        get => (bool)GetValue(IsSweepSelectedProperty);
+        set => SetValue(IsSweepSelectedProperty, value);
+    }
+
     protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnPreviewMouseLeftButtonDown(e);
@@ -45,6 +58,11 @@ public sealed class TodoTextBox : TextBox
 
     protected override void OnRender(DrawingContext drawingContext)
     {
+        if (IsSweepSelected && ActualWidth > 0 && ActualHeight > 0)
+        {
+            DrawSweepSelection(drawingContext);
+        }
+
         base.OnRender(drawingContext);
 
         if (!IsDone || ActualWidth <= 0 || ActualHeight <= 0)
@@ -68,6 +86,91 @@ public sealed class TodoTextBox : TextBox
             pen,
             new Point(StrikeInset, y),
             new Point(Math.Max(StrikeInset, ActualWidth - StrikeInset), y));
+    }
+
+    private void DrawSweepSelection(DrawingContext drawingContext)
+    {
+        var text = Text ?? "";
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var selectionBrush = SelectionBrush ?? SystemColors.HighlightBrush;
+        var opacity = IsFinite(SelectionOpacity)
+            ? Math.Clamp(SelectionOpacity, 0, 1)
+            : 1;
+        if (opacity <= 0)
+        {
+            return;
+        }
+
+        int lineCount;
+        try
+        {
+            lineCount = Math.Max(1, LineCount);
+        }
+        catch
+        {
+            return;
+        }
+
+        drawingContext.PushOpacity(opacity);
+        try
+        {
+            for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
+            {
+                int start;
+                int length;
+                try
+                {
+                    start = GetCharacterIndexFromLineIndex(lineIndex);
+                    length = GetLineLength(lineIndex);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (start < 0 || start >= text.Length)
+                {
+                    continue;
+                }
+
+                var endExclusive = Math.Min(start + Math.Max(0, length), text.Length);
+                while (endExclusive > start && IsLineBreak(text[endExclusive - 1]))
+                {
+                    endExclusive--;
+                }
+                if (endExclusive <= start)
+                {
+                    continue;
+                }
+
+                var startRect = CharacterRectOrEmpty(start, trailingEdge: false);
+                var endRect = CharacterRectOrEmpty(endExclusive - 1, trailingEdge: true);
+                if (!IsUsableRect(startRect) || !IsUsableRect(endRect))
+                {
+                    continue;
+                }
+
+                var left = Math.Max(0, startRect.Left);
+                var top = Math.Max(0, Math.Min(startRect.Top, endRect.Top));
+                var right = Math.Min(ActualWidth, endRect.Right);
+                var bottom = Math.Min(ActualHeight, Math.Max(startRect.Bottom, endRect.Bottom));
+                if (right > left && bottom > top)
+                {
+                    drawingContext.DrawRectangle(
+                        selectionBrush,
+                        null,
+                        new Rect(left, top, right - left, bottom - top));
+                }
+            }
+        }
+        finally
+        {
+            drawingContext.Pop();
+        }
     }
 
     private bool DrawPerLineStrikes(DrawingContext drawingContext, Pen pen)
