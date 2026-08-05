@@ -459,54 +459,42 @@ public sealed partial class AppController
             Child = content
         };
 
-        var popup = new System.Windows.Controls.Primitives.Popup
-        {
-            PlacementTarget = editor,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
-            StaysOpen = false,
-            AllowsTransparency = true,
-            HorizontalOffset = 0,
-            VerticalOffset = 3
-        };
-        var optionsPanel = new StackPanel();
-        var optionRows = new List<(string Value, Border Row, TextBlock Label)>();
+        // Reuse the menu surface that already owns popup activation, DPI and theme resources.
+        // A standalone Popup here bypassed that lifecycle and could terminate the settings window
+        // when the first plugin select editor was opened.
+        var menu = CreateTrayMenu();
+        menu.MinWidth = 125;
+        menu.MaxWidth = 280;
+        menu.MaxHeight = 230;
+        menu.PlacementTarget = editor;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.HorizontalOffset = 0;
+        menu.VerticalOffset = 3;
+        var optionRows = new List<(string Value, string Name, MenuItem Row)>();
 
         void RefreshOptionRows()
         {
-            foreach (var (value, row, label) in optionRows)
+            foreach (var (value, name, row) in optionRows)
             {
                 var active = string.Equals(value, selected, StringComparison.Ordinal);
+                row.Header = active ? $"✓  {name}" : $"   {name}";
+                row.Foreground = active ? Theme.ActiveBrush : TrayTextBrush;
+                row.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
                 row.Background = active
                     ? Theme.Tint((byte)(Theme.IsDark ? 45 : 28))
                     : Brushes.Transparent;
-                label.Foreground = active ? Theme.ActiveBrush : TrayTextBrush;
-                label.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
             }
         }
 
         foreach (var option in setting.Options)
         {
-            var optionLabel = new TextBlock
+            var optionRow = new MenuItem
             {
-                Text = option.Name,
-                Foreground = TrayTextBrush,
-                FontSize = AppTypography.Scale(11.5),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center
+                Header = option.Name,
+                Style = SharedTrayMenuItemStyle,
+                ToolTip = option.Name
             };
-            var optionRow = new Border
-            {
-                MinHeight = 28,
-                Padding = new Thickness(9, 4, 9, 4),
-                CornerRadius = new CornerRadius(5),
-                Background = Brushes.Transparent,
-                Cursor = Cursors.Hand,
-                Child = optionLabel
-            };
-            optionRow.MouseEnter += (_, _) =>
-                optionRow.Background = Theme.Tint((byte)(Theme.IsDark ? 34 : 22));
-            optionRow.MouseLeave += (_, _) => RefreshOptionRows();
-            optionRow.MouseLeftButtonUp += (_, e) =>
+            optionRow.Click += (_, _) =>
             {
                 var normalized = CommitPluginSetting(
                     descriptor,
@@ -517,45 +505,22 @@ public sealed partial class AppController
                     : option.Value;
                 valueText.Text = SelectedName();
                 RefreshOptionRows();
-                popup.IsOpen = false;
+                menu.IsOpen = false;
                 editor.Focus();
-                e.Handled = true;
             };
-            optionRows.Add((option.Value, optionRow, optionLabel));
-            optionsPanel.Children.Add(optionRow);
+            optionRows.Add((option.Value, option.Name, optionRow));
+            menu.Items.Add(optionRow);
         }
 
         RefreshOptionRows();
-        var scroll = new ScrollViewer
-        {
-            Content = optionsPanel,
-            MaxHeight = 230,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
-        popup.Child = new Border
-        {
-            Width = 125,
-            Padding = new Thickness(4),
-            CornerRadius = new CornerRadius(7),
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            Background = TrayPaperBrush,
-            Effect = new DropShadowEffect
-            {
-                BlurRadius = 16,
-                ShadowDepth = 2,
-                Opacity = 0.22
-            },
-            Child = scroll
-        };
 
         void OpenPopup()
         {
             RefreshOptionRows();
             arrow.Text = "⌃";
             editor.Background = TrayHoverBrush;
-            popup.IsOpen = true;
+            menu.PlacementTarget = editor;
+            menu.IsOpen = true;
         }
 
         void SelectByOffset(int offset)
@@ -587,17 +552,17 @@ public sealed partial class AppController
 
         editor.MouseEnter += (_, _) =>
         {
-            if (!popup.IsOpen) editor.Background = TrayHoverBrush;
+            if (!menu.IsOpen) editor.Background = TrayHoverBrush;
         };
         editor.MouseLeave += (_, _) =>
         {
-            if (!popup.IsOpen) editor.Background = Brushes.Transparent;
+            if (!menu.IsOpen) editor.Background = Brushes.Transparent;
         };
         editor.MouseLeftButtonDown += (_, e) =>
         {
-            if (popup.IsOpen)
+            if (menu.IsOpen)
             {
-                popup.IsOpen = false;
+                menu.IsOpen = false;
             }
             else
             {
@@ -619,17 +584,17 @@ public sealed partial class AppController
             }
             else if (e.Key is Key.Enter or Key.Space)
             {
-                if (popup.IsOpen) popup.IsOpen = false;
+                if (menu.IsOpen) menu.IsOpen = false;
                 else OpenPopup();
                 e.Handled = true;
             }
-            else if (e.Key == Key.Escape && popup.IsOpen)
+            else if (e.Key == Key.Escape && menu.IsOpen)
             {
-                popup.IsOpen = false;
+                menu.IsOpen = false;
                 e.Handled = true;
             }
         };
-        popup.Closed += (_, _) =>
+        menu.Closed += (_, _) =>
         {
             arrow.Text = "⌄";
             editor.Background = Brushes.Transparent;
