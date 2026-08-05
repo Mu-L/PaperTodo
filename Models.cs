@@ -126,14 +126,15 @@ public static class DeepCapsuleGapSizes
     public const string Standard = "standard";
     public const string Wide = "wide";
     public const double StandardGap = 4;
+    public const double VariantDelta = 3;
 
     public static string Normalize(string? size) =>
         size is Narrow or Wide ? size : Standard;
 
     public static double Value(string? size) => Normalize(size) switch
     {
-        Narrow => StandardGap * 0.5,
-        Wide => StandardGap * 1.5,
+        Narrow => StandardGap - VariantDelta,
+        Wide => StandardGap + VariantDelta,
         _ => StandardGap
     };
 }
