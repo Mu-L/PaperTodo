@@ -234,6 +234,17 @@ internal static class ReviewArchiveStore
                         OriginText(item.Metadata));
                 }
             }
+
+            if ((item.ChangedFields & TodoChangedFields.Reminder) != 0)
+            {
+                record.ReminderChangedAt = item.Metadata.OccurredAt;
+                AddEvent(
+                    record,
+                    item.After.ReminderAt.HasValue ? "reminder-set" : "reminder-cleared",
+                    item.Metadata.OccurredAt,
+                    estimated: false,
+                    OriginText(item.Metadata));
+            }
             return true;
         }
     }
@@ -353,6 +364,8 @@ internal static class ReviewArchiveStore
         Done = todo.Done,
         CreatedAt = observedAt,
         CompletedAt = todo.Done ? observedAt : null,
+        ReminderAt = todo.ReminderAt,
+        ReminderChangedAt = todo.ReminderAt.HasValue ? observedAt : null,
         LastChangedAt = observedAt,
         CreatedAtEstimated = createdEstimated,
         CompletedAtEstimated = completedEstimated,
@@ -386,6 +399,10 @@ internal static class ReviewArchiveStore
         {
             AddEvent(record, "completed", observedAt, completedEstimated, origin);
         }
+        if (todo.ReminderAt.HasValue)
+        {
+            AddEvent(record, "reminder-set", observedAt, estimated: true, origin);
+        }
         return record;
     }
 
@@ -399,6 +416,7 @@ internal static class ReviewArchiveStore
         record.TodoId = todo.Id;
         record.Text = todo.Text;
         record.Done = todo.Done;
+        record.ReminderAt = todo.ReminderAt;
         record.LastChangedAt = changedAt;
     }
 
@@ -425,6 +443,8 @@ internal static class ReviewArchiveStore
         CreatedAt = value.CreatedAt,
         CompletedAt = value.CompletedAt,
         DeletedAt = value.DeletedAt,
+        ReminderAt = value.ReminderAt,
+        ReminderChangedAt = value.ReminderChangedAt,
         LastChangedAt = value.LastChangedAt,
         CreatedAtEstimated = value.CreatedAtEstimated,
         CompletedAtEstimated = value.CompletedAtEstimated,
@@ -502,7 +522,11 @@ internal static class ReviewArchiveStore
             }
             document.StorageVersion = 2;
         }
-        if (document.StorageVersion != 2)
+        if (document.StorageVersion == 2)
+        {
+            document.StorageVersion = 3;
+        }
+        if (document.StorageVersion != 3)
         {
             throw new InvalidDataException(
                 $"Unsupported review archive version {document.StorageVersion}.");
@@ -549,7 +573,9 @@ internal static class ReviewArchiveStore
     }
 
     private static DateTimeOffset EffectiveTime(ReviewArchiveRecord value) =>
-        value.CompletedAt ?? value.DeletedAt ?? value.LastChangedAt;
+        value.Events.Count > 0
+            ? value.Events.Max(item => item.At)
+            : value.CompletedAt ?? value.DeletedAt ?? value.ReminderChangedAt ?? value.LastChangedAt;
 
     private static void SaveAndNotify(ReviewArchiveSettings settings, bool prune = true)
     {

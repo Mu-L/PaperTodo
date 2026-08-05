@@ -2,8 +2,8 @@
   "kind": "native",
   "id": "sample.review-archive.native",
   "name": "待办复盘记录池",
-  "description": "记录待办创建、完成和删除时间，保留历史并导出 Excel 可直接打开的 CSV。",
-  "version": "1.0.0",
+  "description": "实时记录待办生命周期、提醒变化和完成趋势，长期保存并导出 Excel 可直接打开的 CSV。",
+  "version": "1.1.0",
   "apiVersion": "1.3",
   "stateVersion": 1,
   "entry": "PaperTodo.Plugin.ReviewArchive.dll",
@@ -16,14 +16,6 @@
     "todos.observe"
   ],
   "settings": [
-    {
-      "id": "trackCreated",
-      "type": "boolean",
-      "name": "记录创建时间",
-      "description": "为新建待办保存精确创建时刻。",
-      "default": true,
-      "quick": true
-    },
     {
       "id": "keepDeleted",
       "type": "boolean",
@@ -39,6 +31,35 @@
       "description": "在“全部记录”和“进行中”筛选中显示尚未完成的项目。",
       "default": false,
       "quick": true
+    },
+    {
+      "id": "showInsights",
+      "type": "boolean",
+      "name": "显示复盘指标",
+      "description": "显示今日、近 7 天、连续完成日和进行中数量。",
+      "default": true,
+      "quick": true
+    },
+    {
+      "id": "trackCreated",
+      "type": "boolean",
+      "name": "记录创建时间",
+      "description": "为新建待办保存精确创建时刻。",
+      "default": true
+    },
+    {
+      "id": "showReminderChanges",
+      "type": "boolean",
+      "name": "显示提醒变化",
+      "description": "记录并显示提醒设置、取消和调整次数。",
+      "default": true
+    },
+    {
+      "id": "highlightUpcomingReminders",
+      "type": "boolean",
+      "name": "高亮近期提醒",
+      "description": "高亮未来 24 小时内和已经到期的待办提醒。",
+      "default": true
     },
     {
       "id": "initialImport",
@@ -61,6 +82,10 @@
         { "value": "today", "name": "今天完成" },
         { "value": "week", "name": "近 7 天" },
         { "value": "month", "name": "近 30 天" },
+        { "value": "open", "name": "进行中" },
+        { "value": "reopened", "name": "重新打开" },
+        { "value": "reminders", "name": "有提醒" },
+        { "value": "deleted", "name": "源已删除" },
         { "value": "all", "name": "全部记录" }
       ]
     },
@@ -129,8 +154,10 @@
       "name": "胶囊标题",
       "default": "summary",
       "options": [
-        { "value": "summary", "name": "累计完成数" },
+        { "value": "summary", "name": "累计完成项目" },
         { "value": "today", "name": "今日完成数" },
+        { "value": "streak", "name": "连续完成日" },
+        { "value": "open", "name": "进行中数量" },
         { "value": "fixed", "name": "固定文字" }
       ]
     },

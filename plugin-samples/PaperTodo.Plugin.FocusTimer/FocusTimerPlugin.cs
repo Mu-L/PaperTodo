@@ -1,6 +1,5 @@
 using System.Media;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -11,15 +10,35 @@ namespace PaperTodo.Plugin.FocusTimer;
 
 public sealed class FocusTimerPlugin : IPaperBodyPlugin
 {
+    private static readonly JsonSerializerOptions JsonOptions =
+        new(JsonSerializerDefaults.Web);
+
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
-    public string Description => "完整的 WPF 番茄钟示例，支持自动轮转、声音、每日目标和折叠后台计时。";
-    public Version Version => new(1, 2, 0);
-    public string ApiVersion => "1.2";
-    public int StateVersion => 1;
+    public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
+    public Version Version => new(1, 3, 0);
+    public string ApiVersion => "1.3";
+    public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
         PaperBodyRuntimeRequirements.BackgroundUpdates;
+
+    public string MigrateState(string stateJson, int fromVersion)
+    {
+        try
+        {
+            var state = JsonSerializer.Deserialize<State>(
+                string.IsNullOrWhiteSpace(stateJson) ? "{}" : stateJson,
+                JsonOptions) ?? new State();
+            state.LinkedPaperId ??= "";
+            state.LinkedTodoId ??= "";
+            return JsonSerializer.Serialize(state, JsonOptions);
+        }
+        catch
+        {
+            return JsonSerializer.Serialize(new State(), JsonOptions);
+        }
+    }
 
     public IPaperBodySession Create(PaperBodyContext context) => new Session(context);
 
@@ -41,6 +60,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         public int CompletedFocusSessions { get; set; }
         public int CompletedToday { get; set; }
         public string CompletionDate { get; set; } = "";
+        public string LinkedPaperId { get; set; } = "";
+        public string LinkedTodoId { get; set; } = "";
     }
 
     private sealed record Settings(
@@ -52,8 +73,23 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         bool ShowProgress,
         bool ShowCompleted,
         bool ConfirmReset,
+        bool ShowLinkedTodo,
+        bool CompleteLinkedTodo,
+        bool AutoSelectNextTodo,
         string Sound,
         string TitleStyle);
+
+    private sealed record TodoOption(
+        string PaperId,
+        string TodoId,
+        string Label,
+        string Text,
+        bool Done)
+    {
+        public bool IsNone =>
+            string.IsNullOrWhiteSpace(PaperId) ||
+            string.IsNullOrWhiteSpace(TodoId);
+    }
 
     private sealed class Session : IPaperBodySession
     {
@@ -66,6 +102,9 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         private readonly Button _focusButton;
         private readonly Button _breakButton;
         private readonly TextBlock _completedText;
+        private readonly Border _todoHost;
+        private readonly ComboBox _todoBox;
+        private readonly TextBlock _todoStatusText;
         private readonly TextBlock _timeText;
         private readonly TextBlock _statusText;
         private readonly ProgressBar _progress;
@@ -77,12 +116,17 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         private readonly Button _resetButton;
         private readonly Button[] _buttons;
         private readonly DispatcherTimer _timer;
+        private readonly DispatcherTimer _hostRefreshTimer;
+        private readonly IDisposable? _subscription;
 
         private Settings _settings;
         private PaperBodyTheme _theme;
+        private IReadOnlyList<TodoOption> _todoOptions = [];
+        private bool _suppressTodoSelection;
         private bool _runtimeVisible;
         private bool _disposed;
         private string _lastDisplayTitle = "";
+        private string _todoLoadError = "";
 
         public Session(PaperBodyContext context)
         {
@@ -111,6 +155,33 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             header.Children.Add(_breakButton);
             header.Children.Add(_completedText);
 
+            _todoBox = new ComboBox
+            {
+                MinWidth = 170,
+                MaxWidth = 460,
+                Height = 30,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                DisplayMemberPath = nameof(TodoOption.Label),
+                ToolTip = "选择本轮专注对应的 PaperTodo 待办"
+            };
+            _todoBox.SelectionChanged += OnTodoSelectionChanged;
+            _todoStatusText = new TextBlock
+            {
+                Margin = new Thickness(0, 5, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var todoPanel = new StackPanel();
+            todoPanel.Children.Add(_todoBox);
+            todoPanel.Children.Add(_todoStatusText);
+            _todoHost = new Border
+            {
+                Margin = new Thickness(3, 10, 3, 0),
+                Padding = new Thickness(10, 8, 10, 8),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(7),
+                Child = todoPanel
+            };
+
             _timeText = new TextBlock
             {
                 FontWeight = FontWeights.SemiBold,
@@ -119,7 +190,9 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _statusText = new TextBlock
             {
                 Margin = new Thickness(0, 4, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Center
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
             };
             _progress = new ProgressBar
             {
@@ -182,14 +255,25 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 Background = Brushes.Transparent
             };
             _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _root.RowDefinitions.Add(new RowDefinition());
             _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             Grid.SetRow(header, 0);
-            Grid.SetRow(center, 1);
-            Grid.SetRow(footer, 2);
+            Grid.SetRow(_todoHost, 1);
+            Grid.SetRow(center, 2);
+            Grid.SetRow(footer, 3);
             _root.Children.Add(header);
+            _root.Children.Add(_todoHost);
             _root.Children.Add(center);
             _root.Children.Add(footer);
+            _root.SizeChanged += (_, e) =>
+            {
+                var compact = e.NewSize.Width < 300;
+                _root.Margin = compact
+                    ? new Thickness(9, 9, 9, 11)
+                    : new Thickness(18, 14, 18, 16);
+                _todoBox.MaxWidth = compact ? 260 : 460;
+            };
 
             _buttons =
             [
@@ -210,6 +294,47 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 Interval = TimeSpan.FromMilliseconds(500)
             };
             _timer.Tick += OnTick;
+
+            _hostRefreshTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(80)
+            };
+            _hostRefreshTimer.Tick += (_, _) =>
+            {
+                _hostRefreshTimer.Stop();
+                if (_disposed)
+                {
+                    return;
+                }
+                RefreshTodoOptions(saveIfMissing: true);
+                UpdateView();
+            };
+
+            if (CanReadTodos())
+            {
+                RefreshTodoOptions(saveIfMissing: true);
+                if (HasPermission(PaperTodoPermissionNames.TodosObserve))
+                {
+                    var kinds = new HashSet<PaperTodoEventKind>
+                    {
+                        PaperTodoEventKind.TodoCreated,
+                        PaperTodoEventKind.TodoChanged,
+                        PaperTodoEventKind.TodoDeleted
+                    };
+                    if (HasPermission(PaperTodoPermissionNames.PapersObserve))
+                    {
+                        kinds.Add(PaperTodoEventKind.PaperChanged);
+                        kinds.Add(PaperTodoEventKind.PaperDeleted);
+                    }
+                    _subscription = context.Host.Subscribe(
+                        new PaperTodoEventFilter { Kinds = kinds },
+                        _ => QueueTodoRefresh());
+                }
+            }
+            else
+            {
+                _todoLoadError = "插件未获得 todos.read 权限，无法关联待办。";
+            }
 
             ApplyTheme(context.Theme);
             if (!CompleteExpiredPhase())
@@ -234,11 +359,19 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             Cursor = System.Windows.Input.Cursors.Hand
         };
 
+        private bool HasPermission(string permission) =>
+            _context.GrantedPermissions.Contains(permission);
+
+        private bool CanReadTodos() =>
+            HasPermission(PaperTodoPermissionNames.TodosRead);
+
         private static State ReadState(string json)
         {
             try
             {
-                return JsonSerializer.Deserialize<State>(json, JsonOptions) ?? new State();
+                return JsonSerializer.Deserialize<State>(
+                    string.IsNullOrWhiteSpace(json) ? "{}" : json,
+                    JsonOptions) ?? new State();
             }
             catch (JsonException)
             {
@@ -257,6 +390,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 _state.RemainingSeconds = _state.FocusMinutes * 60;
             }
 
+            _state.LinkedPaperId ??= "";
+            _state.LinkedTodoId ??= "";
             _state.FocusMinutes = Math.Clamp(_state.FocusMinutes, 1, 180);
             _state.BreakMinutes = Math.Clamp(_state.BreakMinutes, 1, 180);
             _state.CompletedFocusSessions = Math.Max(0, _state.CompletedFocusSessions);
@@ -337,6 +472,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 RefreshDailyCounter();
                 _state.CompletedFocusSessions++;
                 _state.CompletedToday++;
+                CompleteLinkedTodo();
             }
 
             _state.Mode = _state.Mode == TimerMode.Focus
@@ -362,6 +498,87 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             }
             SaveState();
             UpdateView();
+        }
+
+        private void CompleteLinkedTodo()
+        {
+            if (!_settings.CompleteLinkedTodo ||
+                !HasPermission(PaperTodoPermissionNames.TodosUpdate) ||
+                string.IsNullOrWhiteSpace(_state.LinkedPaperId) ||
+                string.IsNullOrWhiteSpace(_state.LinkedTodoId))
+            {
+                return;
+            }
+
+            try
+            {
+                var current = _context.Host
+                    .ListTodos(_state.LinkedPaperId, includeBlank: false)
+                    .FirstOrDefault(item => string.Equals(
+                        item.Id,
+                        _state.LinkedTodoId,
+                        StringComparison.Ordinal));
+                if (current == null)
+                {
+                    ClearLinkedTodo(save: false);
+                    _todoLoadError = "关联待办已不存在。";
+                    return;
+                }
+                if (!current.Done)
+                {
+                    _context.Host.UpdateTodo(new UpdateTodoRequest
+                    {
+                        PaperId = current.PaperId,
+                        TodoId = current.Id,
+                        Done = true
+                    });
+                }
+
+                if (_settings.AutoSelectNextTodo)
+                {
+                    SelectNextOpenTodo(current.PaperId, current.Id);
+                }
+                else
+                {
+                    RefreshTodoOptions(saveIfMissing: true);
+                }
+            }
+            catch (PaperTodoPluginException ex)
+            {
+                _todoLoadError = "完成关联待办失败：" + ex.Message;
+            }
+            catch (Exception ex)
+            {
+                _todoLoadError = "完成关联待办失败：" + ex.GetBaseException().Message;
+            }
+        }
+
+        private void SelectNextOpenTodo(string previousPaperId, string previousTodoId)
+        {
+            try
+            {
+                var next = _context.Host.ListTodos(includeBlank: false)
+                    .Where(item => !item.Done)
+                    .OrderBy(item => item.PaperTitle, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(item => item.Order)
+                    .FirstOrDefault(item =>
+                        !string.Equals(item.PaperId, previousPaperId, StringComparison.Ordinal) ||
+                        !string.Equals(item.Id, previousTodoId, StringComparison.Ordinal));
+                if (next == null)
+                {
+                    ClearLinkedTodo(save: false);
+                }
+                else
+                {
+                    _state.LinkedPaperId = next.PaperId;
+                    _state.LinkedTodoId = next.Id;
+                }
+                RefreshTodoOptions(saveIfMissing: true);
+            }
+            catch (Exception ex)
+            {
+                _todoLoadError = "选择下一项失败：" + ex.GetBaseException().Message;
+            }
         }
 
         private void PlayCompletionSound()
@@ -463,7 +680,10 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _state.EndsAtUtc = null;
             _state.RemainingSeconds = DurationSeconds();
             _timer.Stop();
-            if (save) SaveState();
+            if (save)
+            {
+                SaveState();
+            }
             UpdateView();
         }
 
@@ -476,6 +696,133 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             UpdateView();
         }
 
+        private void OnTodoSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressTodoSelection)
+            {
+                return;
+            }
+
+            if (_todoBox.SelectedItem is not TodoOption option || option.IsNone)
+            {
+                ClearLinkedTodo(save: true);
+            }
+            else
+            {
+                _state.LinkedPaperId = option.PaperId;
+                _state.LinkedTodoId = option.TodoId;
+                _todoLoadError = "";
+                SaveState();
+            }
+            UpdateView();
+        }
+
+        private void ClearLinkedTodo(bool save)
+        {
+            var changed =
+                !string.IsNullOrWhiteSpace(_state.LinkedPaperId) ||
+                !string.IsNullOrWhiteSpace(_state.LinkedTodoId);
+            _state.LinkedPaperId = "";
+            _state.LinkedTodoId = "";
+            if (save && changed)
+            {
+                SaveState();
+            }
+        }
+
+        private void QueueTodoRefresh()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _hostRefreshTimer.Stop();
+            _hostRefreshTimer.Start();
+        }
+
+        private void RefreshTodoOptions(bool saveIfMissing)
+        {
+            if (!CanReadTodos())
+            {
+                return;
+            }
+
+            try
+            {
+                var linkedPaperId = _state.LinkedPaperId;
+                var linkedTodoId = _state.LinkedTodoId;
+                var todos = _context.Host.ListTodos(includeBlank: false)
+                    .Where(item => !item.Done ||
+                        (string.Equals(item.PaperId, linkedPaperId, StringComparison.Ordinal) &&
+                         string.Equals(item.Id, linkedTodoId, StringComparison.Ordinal)))
+                    .OrderBy(item => item.PaperTitle, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(item => item.Order)
+                    .Select(item => new TodoOption(
+                        item.PaperId,
+                        item.Id,
+                        TodoLabel(item),
+                        item.Text,
+                        item.Done))
+                    .ToList();
+                todos.Insert(0, new TodoOption("", "", "不关联待办", "", false));
+                _todoOptions = todos;
+
+                var current = todos.FirstOrDefault(item =>
+                    string.Equals(item.PaperId, linkedPaperId, StringComparison.Ordinal) &&
+                    string.Equals(item.TodoId, linkedTodoId, StringComparison.Ordinal));
+                var missing =
+                    !string.IsNullOrWhiteSpace(linkedTodoId) &&
+                    current == null;
+                if (missing)
+                {
+                    ClearLinkedTodo(save: saveIfMissing);
+                    _todoLoadError = "关联待办已删除或不可访问。";
+                }
+
+                _suppressTodoSelection = true;
+                try
+                {
+                    _todoBox.ItemsSource = todos;
+                    _todoBox.SelectedItem = current ?? todos[0];
+                }
+                finally
+                {
+                    _suppressTodoSelection = false;
+                }
+                if (!missing)
+                {
+                    _todoLoadError = "";
+                }
+            }
+            catch (PaperTodoPluginException ex)
+            {
+                _todoLoadError = ex.Message;
+            }
+            catch (Exception ex)
+            {
+                _todoLoadError = ex.GetBaseException().Message;
+            }
+        }
+
+        private static string TodoLabel(TodoSnapshot item)
+        {
+            var text = string.IsNullOrWhiteSpace(item.Text)
+                ? "（空待办）"
+                : Compact(item.Text, 46);
+            var paper = string.IsNullOrWhiteSpace(item.PaperTitle)
+                ? "待办纸"
+                : Compact(item.PaperTitle, 24);
+            return item.Done
+                ? $"✓ {paper} · {text}"
+                : $"{paper} · {text}";
+        }
+
+        private TodoOption? CurrentTodo() =>
+            _todoOptions.FirstOrDefault(item =>
+                !item.IsNone &&
+                string.Equals(item.PaperId, _state.LinkedPaperId, StringComparison.Ordinal) &&
+                string.Equals(item.TodoId, _state.LinkedTodoId, StringComparison.Ordinal));
+
         private void UpdateView()
         {
             RefreshDailyCounter();
@@ -484,7 +831,11 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             var minutes = remaining / 60;
             var seconds = remaining % 60;
             var modeName = _state.Mode == TimerMode.Focus ? "专注" : "休息";
+            var currentTodo = CurrentTodo();
 
+            _todoHost.Visibility = _settings.ShowLinkedTodo
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             _timeText.Text = $"{minutes:00}:{seconds:00}";
             _statusText.Text = _state.Mode == TimerMode.Focus
                 ? (_state.IsRunning ? "保持专注" : "准备开始")
@@ -507,13 +858,44 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _minusButton.IsEnabled = !_state.IsRunning && DurationMinutes() > 1;
             _plusButton.IsEnabled = !_state.IsRunning && DurationMinutes() < 180;
 
+            if (!string.IsNullOrWhiteSpace(_todoLoadError))
+            {
+                _todoStatusText.Text = _todoLoadError;
+            }
+            else if (currentTodo == null)
+            {
+                _todoStatusText.Text = "本轮未关联待办；选择后可在专注结束时自动完成。";
+            }
+            else if (currentTodo.Done)
+            {
+                _todoStatusText.Text = "关联待办已完成。";
+            }
+            else
+            {
+                _todoStatusText.Text = _settings.CompleteLinkedTodo
+                    ? "专注结束后将完成此待办。"
+                    : "仅显示关联，不自动修改待办状态。";
+            }
+
             UpdateModeButtons();
             SetDisplayTitle(_settings.TitleStyle switch
             {
+                "task" when currentTodo != null =>
+                    $"{Compact(currentTodo.Text, 16)} · {minutes:00}:{seconds:00}",
                 "status" => _state.IsRunning ? $"{modeName}中" : $"{modeName}已暂停",
                 "fixed" => "专注计时器",
                 _ => $"{modeName} · {minutes:00}:{seconds:00}"
             });
+        }
+
+        private static string Compact(string text, int limit)
+        {
+            var value = (text ?? "").Trim();
+            if (value.Length == 0)
+            {
+                return "待办";
+            }
+            return value.Length <= limit ? value : value[..Math.Max(1, limit - 1)] + "…";
         }
 
         private void ApplyTheme(PaperBodyTheme theme)
@@ -532,14 +914,24 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _statusText.FontFamily = fontFamily;
             _completedText.FontFamily = fontFamily;
             _durationText.FontFamily = fontFamily;
+            _todoBox.FontFamily = fontFamily;
+            _todoStatusText.FontFamily = fontFamily;
             _timeText.FontSize = 46 * scale;
             _statusText.FontSize = 12 * scale;
             _completedText.FontSize = 10.5 * scale;
             _durationText.FontSize = 11.5 * scale;
+            _todoBox.FontSize = 11.5 * scale;
+            _todoStatusText.FontSize = 10.5 * scale;
             _timeText.Foreground = text;
             _statusText.Foreground = weak;
             _completedText.Foreground = weak;
             _durationText.Foreground = text;
+            _todoBox.Foreground = text;
+            _todoBox.Background = background;
+            _todoBox.BorderBrush = border;
+            _todoStatusText.Foreground = weak;
+            _todoHost.Background = background;
+            _todoHost.BorderBrush = border;
             _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
             _progress.Background = ToBrush("#30707070", "#30707070");
 
@@ -618,13 +1010,17 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                     Boolean(root, "showProgress", true),
                     Boolean(root, "showCompleted", true),
                     Boolean(root, "confirmReset", true),
+                    Boolean(root, "showLinkedTodo", true),
+                    Boolean(root, "completeLinkedTodo", false),
+                    Boolean(root, "autoSelectNextTodo", false),
                     String(root, "sound", "asterisk"),
                     String(root, "titleStyle", "countdown"));
             }
             catch
             {
                 return new Settings(
-                    25, 5, 5, 4, false, true, true, true, "asterisk", "countdown");
+                    25, 5, 5, 4, false, true, true, true,
+                    true, false, false, "asterisk", "countdown");
             }
         }
 
@@ -695,6 +1091,17 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             }
         }
 
+        public void RefreshFromModel()
+        {
+            RefreshTodoOptions(saveIfMissing: true);
+            UpdateView();
+        }
+
+        public void CancelInteractions()
+        {
+            _todoBox.IsDropDownOpen = false;
+        }
+
         public void Commit()
         {
             if (_state.IsRunning)
@@ -714,6 +1121,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             if (!visible)
             {
                 _timer.Stop();
+                _hostRefreshTimer.Stop();
                 return;
             }
 
@@ -721,12 +1129,19 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             {
                 SaveState();
             }
+            RefreshTodoOptions(saveIfMissing: true);
             StartTimer();
             UpdateView();
         }
 
-        public void OnPresentationChanged(bool visible) =>
+        public void OnPresentationChanged(bool visible)
+        {
             _root.IsHitTestVisible = visible;
+            if (!visible)
+            {
+                _todoBox.IsDropDownOpen = false;
+            }
+        }
 
         public void OnThemeChanged(PaperBodyTheme theme) => ApplyTheme(theme);
         public void OnTypographyChanged(PaperBodyTheme theme) => ApplyTheme(theme);
@@ -740,7 +1155,9 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
 
             _disposed = true;
             _timer.Stop();
+            _hostRefreshTimer.Stop();
             _timer.Tick -= OnTick;
+            _subscription?.Dispose();
         }
     }
 }

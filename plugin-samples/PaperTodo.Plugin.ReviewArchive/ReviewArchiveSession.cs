@@ -19,6 +19,11 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private readonly Grid _root;
     private readonly TextBlock _summaryText;
     private readonly TextBlock _hintText;
+    private readonly WrapPanel _insightsPanel;
+    private readonly TextBlock _todayValue;
+    private readonly TextBlock _weekValue;
+    private readonly TextBlock _streakValue;
+    private readonly TextBlock _openValue;
     private readonly ComboBox _filterBox;
     private readonly TextBox _searchBox;
     private readonly StackPanel _listPanel;
@@ -56,13 +61,31 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             TextWrapping = TextWrapping.Wrap
         };
 
+        _insightsPanel = new WrapPanel
+        {
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        var todayCard = CreateInsightCard("今日");
+        var weekCard = CreateInsightCard("近 7 天");
+        var streakCard = CreateInsightCard("连续");
+        var openCard = CreateInsightCard("进行中");
+        _todayValue = todayCard.Value;
+        _weekValue = weekCard.Value;
+        _streakValue = streakCard.Value;
+        _openValue = openCard.Value;
+        _insightsPanel.Children.Add(todayCard.Card);
+        _insightsPanel.Children.Add(weekCard.Card);
+        _insightsPanel.Children.Add(streakCard.Card);
+        _insightsPanel.Children.Add(openCard.Card);
+
         var heading = new StackPanel();
         heading.Children.Add(_summaryText);
         heading.Children.Add(_hintText);
+        heading.Children.Add(_insightsPanel);
 
         _filterBox = new ComboBox
         {
-            Width = 112,
+            Width = 122,
             Margin = new Thickness(0, 0, 8, 0),
             ItemsSource = new[]
             {
@@ -71,6 +94,8 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
                 new FilterOption("week", "近 7 天"),
                 new FilterOption("month", "近 30 天"),
                 new FilterOption("open", "进行中"),
+                new FilterOption("reopened", "重新打开"),
+                new FilterOption("reminders", "有提醒"),
                 new FilterOption("deleted", "源已删除"),
                 new FilterOption("all", "全部记录")
             },
@@ -88,7 +113,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _searchBox = new TextBox
         {
             MinWidth = 120,
-            MaxWidth = 240,
+            MaxWidth = 260,
             Height = 30,
             Padding = new Thickness(8, 4, 8, 4),
             Text = _viewState.Search,
@@ -160,9 +185,12 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _root.Children.Add(actions);
         _root.SizeChanged += (_, e) =>
         {
-            _root.Margin = e.NewSize.Width < 290
+            var compact = e.NewSize.Width < 310;
+            _root.Margin = compact
                 ? new Thickness(8, 8, 8, 10)
                 : new Thickness(16, 13, 16, 14);
+            _filterBox.Width = compact ? 106 : 122;
+            _searchBox.MaxWidth = compact ? 180 : 260;
         };
 
         _refreshTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -172,7 +200,10 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _refreshTimer.Tick += (_, _) =>
         {
             _refreshTimer.Stop();
-            if (!_disposed) Refresh();
+            if (!_disposed)
+            {
+                Refresh();
+            }
         };
 
         _subscription = context.Host.Subscribe(
@@ -198,21 +229,35 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
     public FrameworkElement View => _root;
 
-    private static DateTimeOffset LastActivityAt(ReviewArchiveRecord record) =>
-        record.Events.Count > 0
-            ? record.Events.Max(value => value.At)
-            : record.CompletedAt ?? record.DeletedAt ?? record.LastChangedAt;
-
-    private static bool HasCompletionSince(ReviewArchiveRecord record, DateTimeOffset since) =>
-        record.Events.Any(value => value.Kind == "completed" && value.At >= since);
-
-    private static DateTimeOffset? LastEventAt(ReviewArchiveRecord record, string kind) =>
-        record.Events
-            .Where(value => value.Kind == kind)
-            .Select(value => (DateTimeOffset?)value.At)
-            .Max();
-
     private sealed record FilterOption(string Id, string Name);
+
+    private static (Border Card, TextBlock Value) CreateInsightCard(string label)
+    {
+        var value = new TextBlock
+        {
+            Text = "0",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 15
+        };
+        var labelText = new TextBlock
+        {
+            Text = label,
+            FontSize = 9.5,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+        var panel = new StackPanel();
+        panel.Children.Add(value);
+        panel.Children.Add(labelText);
+        return (new Border
+        {
+            MinWidth = 68,
+            Padding = new Thickness(9, 6, 9, 6),
+            Margin = new Thickness(0, 0, 6, 6),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Child = panel
+        }, value);
+    }
 
     private static Button MakeButton(string text) => new()
     {
@@ -223,6 +268,58 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         BorderThickness = new Thickness(1),
         Cursor = System.Windows.Input.Cursors.Hand
     };
+
+    private static DateTimeOffset LastActivityAt(ReviewArchiveRecord record) =>
+        record.Events.Count > 0
+            ? record.Events.Max(value => value.At)
+            : record.CompletedAt ?? record.DeletedAt ?? record.ReminderChangedAt ?? record.LastChangedAt;
+
+    private static bool HasCompletionSince(ReviewArchiveRecord record, DateTimeOffset since) =>
+        record.Events.Any(value => value.Kind == "completed" && value.At >= since);
+
+    private static DateTimeOffset? LastEventAt(ReviewArchiveRecord record, string kind) =>
+        record.Events
+            .Where(value => value.Kind == kind)
+            .Select(value => (DateTimeOffset?)value.At)
+            .Max();
+
+    private static int EventCount(ReviewArchiveRecord record, string kind) =>
+        record.Events.Count(value => value.Kind == kind);
+
+    private static bool IsActiveReminder(ReviewArchiveRecord record, DateTimeOffset now) =>
+        !record.Done &&
+        !record.SourceDeleted &&
+        record.ReminderAt.HasValue &&
+        record.ReminderAt.Value > now;
+
+    private static bool IsUpcomingReminder(ReviewArchiveRecord record, DateTimeOffset now) =>
+        IsActiveReminder(record, now) &&
+        record.ReminderAt!.Value <= now.AddHours(24);
+
+    private static int CompletionStreakDays(IEnumerable<ReviewArchiveEvent> completionEvents)
+    {
+        var days = completionEvents
+            .Select(value => value.At.ToLocalTime().Date)
+            .ToHashSet();
+        if (days.Count == 0)
+        {
+            return 0;
+        }
+
+        var cursor = DateTime.Now.Date;
+        if (!days.Contains(cursor))
+        {
+            cursor = cursor.AddDays(-1);
+        }
+
+        var streak = 0;
+        while (days.Contains(cursor))
+        {
+            streak++;
+            cursor = cursor.AddDays(-1);
+        }
+        return streak;
+    }
 
     private void OnArchiveChanged()
     {
@@ -237,21 +334,43 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private void Refresh()
     {
         var all = ReviewArchiveStore.Snapshot();
-        var today = DateTimeOffset.Now.Date;
+        var now = DateTimeOffset.Now;
         var completionEvents = all
             .SelectMany(item => item.Events.Where(value => value.Kind == "completed"))
             .ToArray();
         var completedRecords = all.Count(item =>
             item.Events.Any(value => value.Kind == "completed"));
         var todayCount = completionEvents.Count(value =>
-            value.At.ToLocalTime().Date == today);
+            value.At.ToLocalTime().Date == now.Date);
         var weekCount = completionEvents.Count(value =>
-            value.At >= DateTimeOffset.Now.AddDays(-7));
+            value.At >= now.AddDays(-7));
+        var openCount = all.Count(item => !item.Done && !item.SourceDeleted);
+        var reopenedCount = all.Sum(item => EventCount(item, "reopened"));
+        var streak = CompletionStreakDays(completionEvents);
+        var upcomingCount = all.Count(item => IsUpcomingReminder(item, now));
+
         _summaryText.Text =
-            $"完成记录 {completedRecords} · 今日 {todayCount} · 近 7 天 {weekCount}";
-        _hintText.Text = string.IsNullOrWhiteSpace(ReviewArchiveStore.LastSaveError)
-            ? "记录池独立保存在插件 .runtime 中；删除原待办纸片后仍可复盘和导出。"
-            : "记录池暂时无法写入：" + ReviewArchiveStore.LastSaveError;
+            $"完成 {completedRecords} 项 / {completionEvents.Length} 次 · 重新打开 {reopenedCount} 次";
+        _todayValue.Text = todayCount.ToString();
+        _weekValue.Text = weekCount.ToString();
+        _streakValue.Text = streak > 0 ? streak + " 天" : "0";
+        _openValue.Text = openCount.ToString();
+        _insightsPanel.Visibility = _settings.ShowInsights
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        if (!string.IsNullOrWhiteSpace(ReviewArchiveStore.LastSaveError))
+        {
+            _hintText.Text = "记录池暂时无法写入：" + ReviewArchiveStore.LastSaveError;
+        }
+        else if (upcomingCount > 0)
+        {
+            _hintText.Text = $"未来 24 小时有 {upcomingCount} 个待办提醒；记录池独立保存在插件 .runtime 中。";
+        }
+        else
+        {
+            _hintText.Text = "记录池独立保存在插件 .runtime 中；删除原待办纸片后仍可复盘和导出。";
+        }
 
         var filtered = Filter(all)
             .OrderByDescending(LastActivityAt)
@@ -273,10 +392,12 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         var title = _settings.TitleMode switch
         {
             "today" => $"今日完成 {todayCount}",
+            "streak" => streak > 0 ? $"连续 {streak} 天" : "等待今日完成",
+            "open" => $"进行中 {openCount}",
             "fixed" => string.IsNullOrWhiteSpace(_settings.FixedTitle)
                 ? "复盘记录"
                 : _settings.FixedTitle,
-            _ => $"复盘 · {completedRecords} 条"
+            _ => $"复盘 · {completedRecords} 项"
         };
         SetDisplayTitle(title);
         ApplyTheme(_theme);
@@ -293,7 +414,9 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
                 value.At.ToLocalTime().Date == now.Date),
             "week" => HasCompletionSince(item, now.AddDays(-7)),
             "month" => HasCompletionSince(item, now.AddDays(-30)),
-            "open" => !item.Done,
+            "open" => !item.Done && !item.SourceDeleted,
+            "reopened" => item.Events.Any(value => value.Kind == "reopened"),
+            "reminders" => !item.Done && !item.SourceDeleted && item.ReminderAt.HasValue,
             "deleted" => item.SourceDeleted,
             "all" => true,
             _ => item.Events.Any(value => value.Kind == "completed")
@@ -303,7 +426,9 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         {
             result = result.Where(item =>
                 item.Events.Any(value => value.Kind == "completed") ||
-                item.SourceDeleted);
+                item.SourceDeleted ||
+                item.Events.Any(value => value.Kind == "reopened") ||
+                item.ReminderAt.HasValue);
         }
 
         var search = _viewState.Search;
@@ -318,6 +443,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
     private Border BuildRow(ReviewArchiveRecord record)
     {
+        var now = DateTimeOffset.Now;
         var title = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(record.Text) ? "（空待办）" : record.Text,
@@ -337,10 +463,34 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             : lastReopened.HasValue
                 ? "重新打开 " + FormatDate(lastReopened.Value)
                 : "创建 " + FormatDate(record.CreatedAt));
-        var completionCount = record.Events.Count(value => value.Kind == "completed");
+
+        var completionCount = EventCount(record, "completed");
         if (completionCount > 1)
         {
             metadata.Add($"完成 {completionCount} 次");
+        }
+        var reopenedCount = EventCount(record, "reopened");
+        if (reopenedCount > 1)
+        {
+            metadata.Add($"重开 {reopenedCount} 次");
+        }
+
+        if (record.ReminderAt.HasValue && !record.Done && !record.SourceDeleted)
+        {
+            var reminder = record.ReminderAt.Value;
+            metadata.Add(reminder <= now
+                ? "提醒已到期 " + FormatDate(reminder)
+                : "提醒 " + FormatDate(reminder));
+        }
+        if (_settings.ShowReminderChanges)
+        {
+            var reminderChanges =
+                EventCount(record, "reminder-set") +
+                EventCount(record, "reminder-cleared");
+            if (reminderChanges > 1)
+            {
+                metadata.Add($"提醒调整 {reminderChanges} 次");
+            }
         }
         if (record.Events.Any(value => value.Estimated))
         {
@@ -362,7 +512,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         var panel = new StackPanel();
         panel.Children.Add(title);
         panel.Children.Add(detail);
-        return new Border
+        var row = new Border
         {
             Child = panel,
             Padding = new Thickness(10, 8, 10, 8),
@@ -370,6 +520,15 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7)
         };
+        if (record.ReminderAt.HasValue && !record.Done && !record.SourceDeleted)
+        {
+            row.Tag = record.ReminderAt.Value <= now
+                ? "reminder-overdue"
+                : IsUpcomingReminder(record, now)
+                    ? "reminder-upcoming"
+                    : null;
+        }
+        return row;
     }
 
     private string FormatDate(DateTimeOffset value) =>
@@ -430,7 +589,17 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         {
             headers.Add("所属纸片");
         }
-        headers.AddRange(["创建时间", "完成时间", "源已删除", "创建时间精度", "完成时间精度", "来源"]);
+        headers.AddRange([
+            "创建时间",
+            "最后完成时间",
+            "完成次数",
+            "最后重新打开",
+            "提醒时间",
+            "提醒变更次数",
+            "源已删除",
+            "创建时间精度",
+            "完成时间精度",
+            "来源"]);
         builder.AppendLine(string.Join(',', headers.Select(Csv)));
 
         foreach (var record in records)
@@ -444,12 +613,17 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             {
                 row.Add(record.PaperTitle);
             }
-            row.Add(FormatDate(record.CreatedAt));
             var lastCompleted = LastEventAt(record, "completed");
             var lastReopened = LastEventAt(record, "reopened");
+            var reminderChanges =
+                EventCount(record, "reminder-set") +
+                EventCount(record, "reminder-cleared");
+            row.Add(FormatDate(record.CreatedAt));
             row.Add(lastCompleted.HasValue ? FormatDate(lastCompleted.Value) : "");
-            row.Add(record.Events.Count(value => value.Kind == "completed").ToString());
+            row.Add(EventCount(record, "completed").ToString());
             row.Add(lastReopened.HasValue ? FormatDate(lastReopened.Value) : "");
+            row.Add(record.ReminderAt.HasValue ? FormatDate(record.ReminderAt.Value) : "");
+            row.Add(reminderChanges.ToString());
             row.Add(record.SourceDeleted ? "是" : "否");
             row.Add(record.CreatedAtEstimated ? "首次观察" : "精确");
             row.Add(record.CompletedAtEstimated ? "首次观察" : record.CompletedAt.HasValue ? "精确" : "");
@@ -484,6 +658,10 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         var weak = Brush(theme.WeakTextColor, "#707070");
         var border = Brush(theme.BorderColor, "#807050");
         var surface = Brush(theme.IsDark ? "#18FFFFFF" : "#0C000000", "#0C000000");
+        var accent = Brush(theme.AccentColor, "#B07A31");
+        var accentSurface = Brush(AddAlpha(theme.AccentColor, theme.IsDark ? (byte)46 : (byte)26), "#1AB07A31");
+        var overdueSurface = Brush(theme.IsDark ? "#28D06A5F" : "#18C44B42", "#18C44B42");
+        var overdueBorder = Brush(theme.IsDark ? "#FFD97B72" : "#FFC44B42", "#FFC44B42");
         var font = new FontFamily(theme.FontFamily);
 
         _summaryText.Foreground = text;
@@ -500,6 +678,20 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _filterBox.Foreground = text;
         _filterBox.Background = surface;
         _filterBox.BorderBrush = border;
+
+        foreach (var card in _insightsPanel.Children.OfType<Border>())
+        {
+            card.BorderBrush = border;
+            card.Background = surface;
+            foreach (var block in Descendants<TextBlock>(card))
+            {
+                var isValue = block.FontWeight == FontWeights.SemiBold;
+                block.Foreground = isValue ? text : weak;
+                block.FontFamily = font;
+                block.FontSize = (isValue ? 15 : 9.5) * scale;
+            }
+        }
+
         foreach (var button in _buttons)
         {
             button.Foreground = text;
@@ -511,13 +703,40 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
         foreach (var row in _listPanel.Children.OfType<Border>())
         {
-            row.BorderBrush = border;
-            row.Background = surface;
+            var reminderTag = row.Tag as string;
+            if (_settings.HighlightUpcomingReminders && reminderTag == "reminder-overdue")
+            {
+                row.BorderBrush = overdueBorder;
+                row.Background = overdueSurface;
+            }
+            else if (_settings.HighlightUpcomingReminders && reminderTag == "reminder-upcoming")
+            {
+                row.BorderBrush = accent;
+                row.Background = accentSurface;
+            }
+            else
+            {
+                row.BorderBrush = border;
+                row.Background = surface;
+            }
             foreach (var block in Descendants<TextBlock>(row))
             {
                 block.Foreground = block.FontSize <= 10.5 ? weak : text;
                 block.FontFamily = font;
             }
+        }
+    }
+
+    private static string AddAlpha(string value, byte alpha)
+    {
+        try
+        {
+            var color = (Color)ColorConverter.ConvertFromString(value)!;
+            return $"#{alpha:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+        }
+        catch
+        {
+            return "#1AB07A31";
         }
     }
 
@@ -575,6 +794,11 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     public void OnTypographyChanged(PaperBodyTheme theme) => OnThemeChanged(theme);
 
     public void OnPresentationChanged(bool visible) => _root.IsHitTestVisible = visible;
+
+    public void CancelInteractions()
+    {
+        _filterBox.IsDropDownOpen = false;
+    }
 
     public void Commit()
     {

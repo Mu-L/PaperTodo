@@ -4,6 +4,9 @@ internal sealed record ReviewArchiveSettings(
     bool TrackCreated,
     bool KeepDeleted,
     bool ShowOpenItems,
+    bool ShowInsights,
+    bool ShowReminderChanges,
+    bool HighlightUpcomingReminders,
     string InitialImport,
     string DefaultFilter,
     int RetentionDays,
@@ -24,7 +27,7 @@ internal sealed class ReviewArchiveViewState
 
 internal sealed class ReviewArchiveDocument
 {
-    public int StorageVersion { get; set; } = 2;
+    public int StorageVersion { get; set; } = 3;
     public Dictionary<string, ReviewArchiveRecord> Records { get; set; } =
         new(StringComparer.Ordinal);
 }
@@ -40,6 +43,8 @@ internal sealed class ReviewArchiveRecord
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
+    public DateTimeOffset? ReminderAt { get; set; }
+    public DateTimeOffset? ReminderChangedAt { get; set; }
     public DateTimeOffset LastChangedAt { get; set; }
     public bool CreatedAtEstimated { get; set; }
     public bool CompletedAtEstimated { get; set; }

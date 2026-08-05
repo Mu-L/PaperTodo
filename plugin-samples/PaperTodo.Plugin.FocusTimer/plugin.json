@@ -2,13 +2,20 @@
   "kind": "native",
   "id": "sample.focus-timer.native",
   "name": "专注计时器",
-  "description": "完整的 WPF 番茄钟示例，支持自动轮转、声音、每日目标和折叠后台计时。",
-  "version": "1.2.0",
-  "apiVersion": "1.2",
-  "stateVersion": 2,
+  "description": "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。",
+  "version": "1.3.0",
+  "apiVersion": "1.3",
+  "stateVersion": 3,
   "entry": "PaperTodo.Plugin.FocusTimer.dll",
   "capabilities": ["textZoom"],
   "requires": ["backgroundUpdates"],
+  "permissions": [
+    "papers.read",
+    "papers.observe",
+    "todos.read",
+    "todos.observe",
+    "todos.update"
+  ],
   "settings": [
     {
       "id": "autoStartNext",
@@ -19,18 +26,39 @@
       "quick": true
     },
     {
+      "id": "showLinkedTodo",
+      "type": "boolean",
+      "name": "显示关联待办",
+      "description": "在计时器中显示可实时同步的 PaperTodo 待办选择器。",
+      "default": true,
+      "quick": true
+    },
+    {
+      "id": "completeLinkedTodo",
+      "type": "boolean",
+      "name": "专注结束后完成待办",
+      "description": "完整完成一轮专注时，将当前关联待办标记为完成；跳过不触发。",
+      "default": false,
+      "quick": true
+    },
+    {
+      "id": "autoSelectNextTodo",
+      "type": "boolean",
+      "name": "完成后选择下一项",
+      "description": "自动完成关联待办后，按纸片和顺序选择下一条未完成待办。",
+      "default": false
+    },
+    {
       "id": "showProgress",
       "type": "boolean",
       "name": "显示进度条",
-      "default": true,
-      "quick": true
+      "default": true
     },
     {
       "id": "showCompleted",
       "type": "boolean",
       "name": "显示完成统计",
-      "default": true,
-      "quick": true
+      "default": true
     },
     {
       "id": "focusMinutes",
@@ -89,8 +117,9 @@
       "id": "titleStyle",
       "type": "select",
       "name": "胶囊标题",
-      "default": "countdown",
+      "default": "task",
       "options": [
+        { "value": "task", "name": "待办与倒计时" },
         { "value": "countdown", "name": "阶段与倒计时" },
         { "value": "status", "name": "仅阶段状态" },
         { "value": "fixed", "name": "固定标题" }

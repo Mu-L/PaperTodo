@@ -22,7 +22,8 @@ internal static class ReviewArchiveSettingsReader
     }
 
     private static bool ValidFilter(string value) => value is
-        "completed" or "today" or "week" or "month" or "open" or "deleted" or "all";
+        "completed" or "today" or "week" or "month" or "open" or
+        "reopened" or "reminders" or "deleted" or "all";
 
     internal static ReviewArchiveSettings ReadSettings(string json)
     {
@@ -34,8 +35,16 @@ internal static class ReviewArchiveSettingsReader
                 Bool(root, "trackCreated", true),
                 Bool(root, "keepDeleted", true),
                 Bool(root, "showOpenItems", false),
+                Bool(root, "showInsights", true),
+                Bool(root, "showReminderChanges", true),
+                Bool(root, "highlightUpcomingReminders", true),
                 Choice(root, "initialImport", "completed", "none", "completed", "all"),
-                Choice(root, "defaultFilter", "completed", "completed", "today", "week", "month", "all"),
+                Choice(
+                    root,
+                    "defaultFilter",
+                    "completed",
+                    "completed", "today", "week", "month", "open",
+                    "reopened", "reminders", "deleted", "all"),
                 Number(root, "retentionDays", 0, 0, 3650),
                 Number(root, "maxRecords", 10000, 100, 50000),
                 Choice(root, "exportEncoding", "utf8bom", "utf8bom", "utf8"),
@@ -43,13 +52,14 @@ internal static class ReviewArchiveSettingsReader
                 Bool(root, "includePaperTitle", true),
                 Bool(root, "showDeletedBadge", true),
                 Bool(root, "confirmClear", true),
-                Choice(root, "titleMode", "summary", "summary", "today", "fixed"),
+                Choice(root, "titleMode", "summary", "summary", "today", "streak", "open", "fixed"),
                 Text(root, "fixedTitle", "复盘记录", 40));
         }
         catch
         {
             return new ReviewArchiveSettings(
-                true, true, false, "completed", "completed", 0, 10000,
+                true, true, false, true, true, true,
+                "completed", "completed", 0, 10000,
                 "utf8bom", "local", true, true, true, "summary", "复盘记录");
         }
     }
