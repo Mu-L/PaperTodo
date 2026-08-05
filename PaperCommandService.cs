@@ -258,6 +258,10 @@ internal sealed class PaperCommandService
             if (request.UpdateLinkedNote)
             {
                 item.LinkedNoteId = linkedNoteId;
+                if (!string.IsNullOrWhiteSpace(linkedNoteId))
+                {
+                    item.LinkedPath = null;
+                }
             }
             if (request.Order.HasValue)
             {
@@ -685,7 +689,8 @@ internal sealed class PaperCommandService
         !string.IsNullOrWhiteSpace(item.Text) ||
         item.Done ||
         item.ReminderAt.HasValue ||
-        !string.IsNullOrWhiteSpace(item.LinkedNoteId);
+        !string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
+        !string.IsNullOrWhiteSpace(item.LinkedPath);
 
     private PaperData? FindPaper(string paperId) =>
         _controller.State.Papers.FirstOrDefault(candidate =>
@@ -813,6 +818,7 @@ internal sealed class PaperCommandService
         bool Done,
         int Order,
         string? LinkedNoteId,
+        string? LinkedPath,
         DateTimeOffset? ReminderAt)
     {
         public static PaperItemSnapshot Capture(PaperItem item) =>
@@ -822,6 +828,7 @@ internal sealed class PaperCommandService
                 item.Done,
                 item.Order,
                 item.LinkedNoteId,
+                item.LinkedPath,
                 item.ReminderAt);
 
         public void Restore()
@@ -830,6 +837,7 @@ internal sealed class PaperCommandService
             Item.Done = Done;
             Item.Order = Order;
             Item.LinkedNoteId = LinkedNoteId;
+            Item.LinkedPath = LinkedPath;
             Item.ReminderAt = ReminderAt;
         }
     }

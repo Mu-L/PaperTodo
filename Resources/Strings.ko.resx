@@ -1323,4 +1323,21 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="PluginBodyUseMarkdown" xml:space="preserve">
     <value>Markdown 사용</value>
   </data>
-</root>
+  <data name="MenuSelectedTodoCount" xml:space="preserve"><value>{0}개 항목 선택됨</value></data>
+  <data name="MenuCopySelectedTodos" xml:space="preserve"><value>선택 항목 복사</value></data>
+  <data name="MenuCompleteSelectedTodos" xml:space="preserve"><value>모두 완료</value></data>
+  <data name="MenuUncompleteSelectedTodos" xml:space="preserve"><value>모두 미완료로 표시</value></data>
+  <data name="MenuDeleteSelectedTodos" xml:space="preserve"><value>선택한 {0}개 항목 삭제</value></data>
+  <data name="TodoDragSelectedCount" xml:space="preserve"><value>{0}개 항목 선택됨</value></data>
+  <data name="TodoMultiSelectToolTip" xml:space="preserve"><value>위아래로 드래그하여 여러 할 일 선택</value></data>
+  <data name="MenuOpenLinkedPath" xml:space="preserve"><value>연결된 경로 열기: {0}</value></data>
+  <data name="MenuOpenLinkedPathLocation" xml:space="preserve"><value>포함된 위치 열기</value></data>
+  <data name="MenuUnlinkPath" xml:space="preserve"><value>경로 연결 해제</value></data>
+  <data name="ToolTipOpenLinkedPath" xml:space="preserve"><value>연결된 경로 열기: {0}</value></data>
+  <data name="ToolTipLinkedPathMissing" xml:space="preserve"><value>연결된 경로를 사용할 수 없음: {0}</value></data>
+  <data name="LinkedPathSingleDropMessage" xml:space="preserve"><value>한 할 일에는 파일 또는 폴더 하나만 연결할 수 있습니다.</value></data>
+  <data name="LinkedPathDropFailureTitle" xml:space="preserve"><value>경로를 연결할 수 없음</value></data>
+  <data name="LinkedPathDropFailureMessage" xml:space="preserve"><value>이 파일 또는 폴더를 연결할 수 없습니다:&#xA;{0}</value></data>
+  <data name="LinkedPathOpenFailureTitle" xml:space="preserve"><value>연결된 경로를 열 수 없음</value></data>
+  <data name="LinkedPathOpenFailureMessage" xml:space="preserve"><value>시스템에서 이 경로를 열 수 없습니다:&#xA;{0}</value></data>
+  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>연결된 파일 또는 폴더가 이동되었거나 삭제되었습니다:&#xA;{0}</value></data></root>

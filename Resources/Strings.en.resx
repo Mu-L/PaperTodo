@@ -1323,4 +1323,21 @@ When off, open at the docked edge or remembered position.</value>
   <data name="PluginBodyUseMarkdown" xml:space="preserve">
     <value>Use Markdown</value>
   </data>
-</root>
+  <data name="MenuSelectedTodoCount" xml:space="preserve"><value>{0} items selected</value></data>
+  <data name="MenuCopySelectedTodos" xml:space="preserve"><value>Copy selected items</value></data>
+  <data name="MenuCompleteSelectedTodos" xml:space="preserve"><value>Complete all</value></data>
+  <data name="MenuUncompleteSelectedTodos" xml:space="preserve"><value>Mark all incomplete</value></data>
+  <data name="MenuDeleteSelectedTodos" xml:space="preserve"><value>Delete {0} selected items</value></data>
+  <data name="TodoDragSelectedCount" xml:space="preserve"><value>{0} items selected</value></data>
+  <data name="TodoMultiSelectToolTip" xml:space="preserve"><value>Drag up or down to select multiple todos</value></data>
+  <data name="MenuOpenLinkedPath" xml:space="preserve"><value>Open linked path: {0}</value></data>
+  <data name="MenuOpenLinkedPathLocation" xml:space="preserve"><value>Open containing location</value></data>
+  <data name="MenuUnlinkPath" xml:space="preserve"><value>Remove path link</value></data>
+  <data name="ToolTipOpenLinkedPath" xml:space="preserve"><value>Open linked path: {0}</value></data>
+  <data name="ToolTipLinkedPathMissing" xml:space="preserve"><value>Linked path is unavailable: {0}</value></data>
+  <data name="LinkedPathSingleDropMessage" xml:space="preserve"><value>A todo can link to only one file or folder at a time.</value></data>
+  <data name="LinkedPathDropFailureTitle" xml:space="preserve"><value>Cannot link path</value></data>
+  <data name="LinkedPathDropFailureMessage" xml:space="preserve"><value>Could not link this file or folder:&#xA;{0}</value></data>
+  <data name="LinkedPathOpenFailureTitle" xml:space="preserve"><value>Cannot open linked path</value></data>
+  <data name="LinkedPathOpenFailureMessage" xml:space="preserve"><value>Windows could not open this path:&#xA;{0}</value></data>
+  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>The linked file or folder was moved or deleted:&#xA;{0}</value></data></root>

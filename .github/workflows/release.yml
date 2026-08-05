@@ -44,6 +44,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
         with:
+          # wpf-notifyicon uses Nerdbank.GitVersioning, which needs history far enough
+          # to calculate version height. A depth-1 parent checkout also shallow-clones
+          # submodules and makes release publishing fail with a missing commit object.
+          fetch-depth: 0
           submodules: recursive
 
       - name: Set up .NET

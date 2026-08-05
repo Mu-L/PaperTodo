@@ -654,6 +654,10 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
+                if (string.IsNullOrWhiteSpace(item.LinkedPath))
+                {
+                    item.LinkedPath = null;
+                }
             }
         }
     }
@@ -684,6 +688,17 @@ public sealed class StateStore
                     string.Equals(item.LinkedNoteId, paper.Id, StringComparison.Ordinal))
                 {
                     item.LinkedNoteId = null;
+                }
+
+                // One todo has one quick-launch target. Existing paper links win if malformed
+                // data contains both fields, preserving the older feature on upgrade.
+                if (!string.IsNullOrWhiteSpace(item.LinkedNoteId))
+                {
+                    item.LinkedPath = null;
+                }
+                else if (string.IsNullOrWhiteSpace(item.LinkedPath))
+                {
+                    item.LinkedPath = null;
                 }
             }
         }

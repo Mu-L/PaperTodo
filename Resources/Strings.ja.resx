@@ -1323,4 +1323,21 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="PluginBodyUseMarkdown" xml:space="preserve">
     <value>Markdown に戻す</value>
   </data>
-</root>
+  <data name="MenuSelectedTodoCount" xml:space="preserve"><value>{0} 件を選択中</value></data>
+  <data name="MenuCopySelectedTodos" xml:space="preserve"><value>選択項目をコピー</value></data>
+  <data name="MenuCompleteSelectedTodos" xml:space="preserve"><value>すべて完了</value></data>
+  <data name="MenuUncompleteSelectedTodos" xml:space="preserve"><value>すべて未完了に戻す</value></data>
+  <data name="MenuDeleteSelectedTodos" xml:space="preserve"><value>選択した {0} 件を削除</value></data>
+  <data name="TodoDragSelectedCount" xml:space="preserve"><value>{0} 件を選択中</value></data>
+  <data name="TodoMultiSelectToolTip" xml:space="preserve"><value>上下にドラッグして複数のタスクを選択</value></data>
+  <data name="MenuOpenLinkedPath" xml:space="preserve"><value>関連パスを開く：{0}</value></data>
+  <data name="MenuOpenLinkedPathLocation" xml:space="preserve"><value>保存場所を開く</value></data>
+  <data name="MenuUnlinkPath" xml:space="preserve"><value>パスの関連付けを解除</value></data>
+  <data name="ToolTipOpenLinkedPath" xml:space="preserve"><value>関連パスを開く：{0}</value></data>
+  <data name="ToolTipLinkedPathMissing" xml:space="preserve"><value>関連パスが見つかりません：{0}</value></data>
+  <data name="LinkedPathSingleDropMessage" xml:space="preserve"><value>1 件のタスクに関連付けられるファイルまたはフォルダーは 1 つだけです。</value></data>
+  <data name="LinkedPathDropFailureTitle" xml:space="preserve"><value>パスを関連付けできません</value></data>
+  <data name="LinkedPathDropFailureMessage" xml:space="preserve"><value>このファイルまたはフォルダーを関連付けできません：&#xA;{0}</value></data>
+  <data name="LinkedPathOpenFailureTitle" xml:space="preserve"><value>関連パスを開けません</value></data>
+  <data name="LinkedPathOpenFailureMessage" xml:space="preserve"><value>システムでこのパスを開けません：&#xA;{0}</value></data>
+  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>関連付けたファイルまたはフォルダーは移動または削除されています：&#xA;{0}</value></data></root>

@@ -253,6 +253,9 @@ public sealed partial class PaperWindow
         CancelCapsulePointerInteraction();
         EndExperimentalCapsuleMagnetDragPreview();
 
+        CancelTodoSweepSelection(
+            clearSelection: reason != InteractionAbortReason.Deactivated);
+
         if (_todoDrag != null)
         {
             EndTodoMouseDrag(commit: false);

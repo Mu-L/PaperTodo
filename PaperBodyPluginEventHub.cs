@@ -237,7 +237,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         !string.IsNullOrWhiteSpace(item.Text) ||
         item.Done ||
         item.ReminderAt.HasValue ||
-        !string.IsNullOrWhiteSpace(item.LinkedNoteId);
+        !string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
+        !string.IsNullOrWhiteSpace(item.LinkedPath);
 
     private static IReadOnlyList<PaperTodoEvent> BuildEvents(
         IReadOnlyDictionary<string, PaperStateSnapshot> before,

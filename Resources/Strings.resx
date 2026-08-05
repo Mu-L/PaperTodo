@@ -1336,4 +1336,57 @@
   <data name="PluginBodyUseMarkdown" xml:space="preserve">
     <value>切回 Markdown</value>
   </data>
-</root>
+  <data name="MenuSelectedTodoCount" xml:space="preserve">
+    <value>已选择 {0} 项</value>
+  </data>
+  <data name="MenuCopySelectedTodos" xml:space="preserve">
+    <value>复制所选项目</value>
+  </data>
+  <data name="MenuCompleteSelectedTodos" xml:space="preserve">
+    <value>全部完成</value>
+  </data>
+  <data name="MenuUncompleteSelectedTodos" xml:space="preserve">
+    <value>全部取消完成</value>
+  </data>
+  <data name="MenuDeleteSelectedTodos" xml:space="preserve">
+    <value>删除所选 {0} 项</value>
+  </data>
+  <data name="TodoDragSelectedCount" xml:space="preserve">
+    <value>已选择 {0} 项</value>
+  </data>
+  <data name="TodoMultiSelectToolTip" xml:space="preserve">
+    <value>按住并上下拖动，选择多个待办</value>
+  </data>
+  <data name="MenuOpenLinkedPath" xml:space="preserve">
+    <value>打开关联路径：{0}</value>
+  </data>
+  <data name="MenuOpenLinkedPathLocation" xml:space="preserve">
+    <value>打开所在位置</value>
+  </data>
+  <data name="MenuUnlinkPath" xml:space="preserve">
+    <value>取消关联路径</value>
+  </data>
+  <data name="ToolTipOpenLinkedPath" xml:space="preserve">
+    <value>打开关联路径：{0}</value>
+  </data>
+  <data name="ToolTipLinkedPathMissing" xml:space="preserve">
+    <value>关联路径已失效：{0}</value>
+  </data>
+  <data name="LinkedPathSingleDropMessage" xml:space="preserve">
+    <value>一条待办一次只能关联一个文件或文件夹。</value>
+  </data>
+  <data name="LinkedPathDropFailureTitle" xml:space="preserve">
+    <value>无法关联路径</value>
+  </data>
+  <data name="LinkedPathDropFailureMessage" xml:space="preserve">
+    <value>无法关联该文件或文件夹：&#xA;{0}</value>
+  </data>
+  <data name="LinkedPathOpenFailureTitle" xml:space="preserve">
+    <value>无法打开关联路径</value>
+  </data>
+  <data name="LinkedPathOpenFailureMessage" xml:space="preserve">
+    <value>无法调用系统打开该路径：&#xA;{0}</value>
+  </data>
+  <data name="LinkedPathMissingMessage" xml:space="preserve">
+    <value>关联的文件或文件夹已移动或删除：&#xA;{0}</value>
+  </data></root>

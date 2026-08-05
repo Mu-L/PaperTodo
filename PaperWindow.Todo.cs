@@ -28,6 +28,7 @@ public sealed partial class PaperWindow
             Margin = new Thickness(6.4, 3.2, 5.6, 3.2)
         };
 
+        EnsureTodoSelectionInputHooks();
         RebuildTodoRows();
 
         return new ScrollViewer
@@ -73,6 +74,7 @@ public sealed partial class PaperWindow
 
         NormalizeTodoItems();
         NormalizeOrders();
+        PruneTodoSelection();
 
         // 记录现有行的ID，用于判断哪些是新增的
         var existingIds = new HashSet<string>(_todoRows.Select(r => (string)r.Tag));
@@ -315,6 +317,7 @@ public sealed partial class PaperWindow
     {
         var metrics = TodoVisualSizes.Metrics(_controller.State.TodoVisualSize);
         var linkedNoteTitle = "";
+        var hasLinkedPath = !string.IsNullOrWhiteSpace(item.LinkedPath);
         var hasLinkedNote = _controller.State.EnableTodoNoteLinks &&
             _controller.TryGetLinkedNoteTitle(item.LinkedNoteId, out linkedNoteTitle);
         var runLinkedScriptOnClick = hasLinkedNote &&
@@ -351,7 +354,7 @@ public sealed partial class PaperWindow
         {
             if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
             {
-                row.Background = HoverBrush;
+                UpdateTodoRowBackground(row);
             }
         };
 
@@ -359,12 +362,16 @@ public sealed partial class PaperWindow
         {
             if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
             {
-                row.Background = Brushes.Transparent;
+                UpdateTodoRowBackground(row);
             }
         };
 
+        var selectionLaneWidth = AppTypography.Scale(8);
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(metrics.CheckColumnWidth) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(metrics.CheckColumnWidth + selectionLaneWidth)
+        });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         if (showTodoReminderControl)
@@ -378,6 +385,31 @@ public sealed partial class PaperWindow
                 metrics.CheckColumnWidth - AppTypography.Scale(4)))
         });
 
+        var checkHost = new Grid();
+        checkHost.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(selectionLaneWidth)
+        });
+        checkHost.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+
+        var selectionLane = new Border
+        {
+            Background = Brushes.Transparent,
+            CornerRadius = new CornerRadius(RadiusSmall),
+            Cursor = Cursors.Cross,
+            ToolTip = Strings.Get("TodoMultiSelectToolTip"),
+            Focusable = false
+        };
+        selectionLane.MouseEnter += (_, _) =>
+            selectionLane.Background = Theme.Tint((byte)(Theme.IsDark ? 46 : 30));
+        selectionLane.MouseLeave += (_, _) =>
+            selectionLane.Background = Brushes.Transparent;
+        Grid.SetColumn(selectionLane, 0);
+        checkHost.Children.Add(selectionLane);
+
         var check = new CheckBox
         {
             IsChecked = item.Done,
@@ -389,8 +421,10 @@ public sealed partial class PaperWindow
             Style = CurrentTodoCheckBoxStyle()
         };
 
-        Grid.SetColumn(check, 0);
-        grid.Children.Add(check);
+        Grid.SetColumn(check, 1);
+        checkHost.Children.Add(check);
+        Grid.SetColumn(checkHost, 0);
+        grid.Children.Add(checkHost);
         Border? reminderButton = null;
         Border? reminderCountdown = null;
 
@@ -524,6 +558,11 @@ public sealed partial class PaperWindow
 
         ContextMenu CreateItemMenu()
         {
+            if (TryCreateTodoSelectionContextMenu(item, row, out var selectedMenu))
+            {
+                return selectedMenu;
+            }
+
             var itemMenu = CreateContextMenu();
             MenuItem? reminderMenu = null;
             itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
@@ -534,6 +573,19 @@ public sealed partial class PaperWindow
                     : Strings.Format("MenuOpenLinkedNote", linkedNoteTitle);
                 itemMenu.Items.Add(MenuItem(openMenuText, (_, _) => _controller.OpenLinkedNote(item.LinkedNoteId, this)));
                 itemMenu.Items.Add(MenuItem(Strings.Get("MenuUnlinkNote"), (_, _) => UnlinkNoteFromTodoItem(item)));
+                itemMenu.Items.Add(MenuSeparator());
+            }
+            else if (hasLinkedPath)
+            {
+                itemMenu.Items.Add(MenuItem(
+                    Strings.Format("MenuOpenLinkedPath", PathDisplayName(item.LinkedPath!)),
+                    (_, _) => OpenTodoLinkedPath(item)));
+                itemMenu.Items.Add(MenuItem(
+                    Strings.Get("MenuOpenLinkedPathLocation"),
+                    (_, _) => OpenTodoLinkedPathLocation(item)));
+                itemMenu.Items.Add(MenuItem(
+                    Strings.Get("MenuUnlinkPath"),
+                    (_, _) => UnlinkPathFromTodoItem(item)));
                 itemMenu.Items.Add(MenuSeparator());
             }
             if (todoRemindersEnabled)
@@ -558,7 +610,7 @@ public sealed partial class PaperWindow
             {
                 if (!row.IsMouseOver)
                 {
-                    row.Background = Brushes.Transparent;
+                    UpdateTodoRowBackground(row);
                 }
             };
 
@@ -568,7 +620,12 @@ public sealed partial class PaperWindow
         void AttachItemContextMenu(FrameworkElement element)
         {
             element.ContextMenu = CreateItemMenu();
-            element.PreviewMouseRightButtonDown += (_, _) => text.Focus();
+            element.PreviewMouseRightButtonDown += (_, _) =>
+            {
+                PrepareTodoSelectionForContextMenu(item.Id);
+                element.ContextMenu = CreateItemMenu();
+                text.Focus();
+            };
         }
 
         AttachItemContextMenu(row);
@@ -578,7 +635,14 @@ public sealed partial class PaperWindow
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
 
-        if (hasLinkedNote)
+        if (hasLinkedPath)
+        {
+            var pathLinkButton = BuildTodoPathLinkButton(item, metrics);
+            AttachItemContextMenu(pathLinkButton);
+            Grid.SetColumn(pathLinkButton, 2);
+            grid.Children.Add(pathLinkButton);
+        }
+        else if (hasLinkedNote)
         {
             var showLinkedNoteName = _controller.State.ShowLinkedNoteName;
             var allowLongLinkedNoteTitle = showLinkedNoteName && _controller.State.AllowLongLinkedNoteTitles;
@@ -862,6 +926,7 @@ public sealed partial class PaperWindow
 
         handle.PreviewMouseLeftButtonDown += (_, e) =>
         {
+            PrepareTodoDragSelection(item.Id);
             _todoDrag = new TodoDragState(
                 item.Id,
                 row,
@@ -878,6 +943,8 @@ public sealed partial class PaperWindow
 
         row.Child = grid;
         _todoRows.Add(row);
+        ConfigureTodoPathDrop(row, item);
+        ConfigureTodoMultiSelection(row, item, check, selectionLane);
 
         // 新增动画：只对新建的项播放动画
         if (_controller.State.EnableAnimations && isNewItem)
@@ -1406,7 +1473,8 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal))
+        if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal) &&
+            string.IsNullOrWhiteSpace(item.LinkedPath))
         {
             return true;
         }
@@ -1415,6 +1483,7 @@ public sealed partial class PaperWindow
         var previousItems = CloneItems(_paper.Items);
         PushUndoSnapshot();
         item.LinkedNoteId = noteId;
+        item.LinkedPath = null;
         _controller.MarkDirty();
         RebuildTodoRows(focusedId);
         RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
@@ -1528,6 +1597,7 @@ public sealed partial class PaperWindow
 
         sourceRow.Opacity = 0.25;
         sourceRow.Background = HoverBrush;
+        BeginTodoGroupDragVisuals(_todoDrag.ItemId);
         _todoDrag.Handle.Opacity = 0.9;
         Mouse.OverrideCursor = Cursors.SizeAll;
 
@@ -1626,6 +1696,11 @@ public sealed partial class PaperWindow
 
         ShowAppendAreaAsTrashBin(active: true, hovered: false);
 
+        if (RestrictTodoGroupDragToTrash())
+        {
+            return;
+        }
+
         var candidates = _todoRows
             .Where(row => row.Tag is string id && id != _todoDrag.ItemId)
             .ToList();
@@ -1678,8 +1753,8 @@ public sealed partial class PaperWindow
     {
         var metrics = TodoVisualSizes.Metrics(_controller.State.TodoVisualSize);
         var item = _paper.Items.FirstOrDefault(i => i.Id == state.ItemId);
-        var text = item?.Text ?? "";
-        var done = item?.Done == true;
+        var text = TodoDragGhostText(item?.Text ?? "");
+        var done = !IsTodoGroupDrag && item?.Done == true;
 
         var ghost = new Border
         {
@@ -1805,10 +1880,11 @@ public sealed partial class PaperWindow
         Mouse.OverrideCursor = null;
 
         CloseTodoDragGhost(state);
+        EndTodoGroupDragVisuals();
 
         state.SourceRow.BeginAnimation(OpacityProperty, null);
         state.SourceRow.Opacity = state.RestingOpacity;
-        state.SourceRow.Background = Brushes.Transparent;
+        UpdateTodoRowBackground(state.SourceRow);
         state.Handle.Opacity = 1.0;
 
         ClearActiveDropIndicator();
@@ -1816,12 +1892,19 @@ public sealed partial class PaperWindow
 
         if (!commit)
         {
+            ClearTodoDragGroupState();
             RebuildTodoRows(state.ItemId);
             return;
         }
 
         if (state.DropAtEnd)
         {
+            if (DeleteTodoGroupDragItems())
+            {
+                return;
+            }
+
+            ClearTodoDragGroupState();
             var item = _paper.Items.FirstOrDefault(i => i.Id == state.ItemId);
             if (item != null)
             {
@@ -1832,10 +1915,12 @@ public sealed partial class PaperWindow
 
         if (!string.IsNullOrWhiteSpace(state.TargetId))
         {
+            ClearTodoDragGroupState();
             MoveItem(state.ItemId, state.TargetId, state.TargetPlacement, focusDragged: true);
             return;
         }
 
+        ClearTodoDragGroupState();
         RebuildTodoRows(state.ItemId);
     }
 
@@ -2015,6 +2100,7 @@ public sealed partial class PaperWindow
             Done = i.Done,
             Order = i.Order,
             LinkedNoteId = i.LinkedNoteId,
+            LinkedPath = i.LinkedPath,
             ReminderAt = i.ReminderAt
         }).ToList();
     }
@@ -2152,6 +2238,14 @@ public sealed partial class PaperWindow
     {
         if (e.Key == Key.Escape &&
             Keyboard.Modifiers == ModifierKeys.None &&
+            TryClearTodoSelectionFromEscape())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape &&
+            Keyboard.Modifiers == ModifierKeys.None &&
             !BodyClaimsInput(PaperBodyInputClaims.EscapeKey) &&
             TryCollapseExpandedPaperFromEscape())
         {
@@ -2166,7 +2260,11 @@ public sealed partial class PaperWindow
 
         if (Keyboard.Modifiers == ModifierKeys.Control)
         {
-            if (e.Key == Key.Z)
+            if (e.Key == Key.C && TryCopySelectedTodoItems())
+            {
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Z)
             {
                 var focusedId = CurrentFocusedTodoItemId();
                 if (focusedId != null && _todoEditors.TryGetValue(focusedId, out var box))
