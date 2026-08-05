@@ -140,6 +140,9 @@ internal static class PaperSelectControl
             ContentPresenter.ContentTemplateProperty,
             new TemplateBindingExtension(ComboBox.SelectionBoxItemTemplateProperty));
         presenter.SetValue(
+            ContentPresenter.ContentTemplateSelectorProperty,
+            new TemplateBindingExtension(ItemsControl.ItemTemplateSelectorProperty));
+        presenter.SetValue(
             ContentPresenter.ContentStringFormatProperty,
             new TemplateBindingExtension(ComboBox.SelectionBoxItemStringFormatProperty));
         presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -192,7 +195,7 @@ internal static class PaperSelectControl
         popupBorder.SetValue(Border.PaddingProperty, new Thickness(3));
         popupBorder.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 4, 0, 0));
         popupBorder.SetBinding(
-            FrameworkElement.MinWidthProperty,
+            FrameworkElement.WidthProperty,
             new Binding(nameof(FrameworkElement.ActualWidth))
             {
                 RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
@@ -210,6 +213,7 @@ internal static class PaperSelectControl
         scroll.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         scroll.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
         scroll.SetValue(ScrollViewer.CanContentScrollProperty, true);
+        scroll.SetValue(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch);
         scroll.SetBinding(
             FrameworkElement.MaxHeightProperty,
             new Binding(nameof(ComboBox.MaxDropDownHeight))
@@ -218,6 +222,7 @@ internal static class PaperSelectControl
             });
 
         var items = new FrameworkElementFactory(typeof(ItemsPresenter));
+        items.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
         scroll.AppendChild(items);
         popupBorder.AppendChild(scroll);
         popup.AppendChild(popupBorder);
@@ -285,6 +290,7 @@ internal static class PaperSelectControl
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(9, 5, 9, 5)));
         style.Setters.Add(new Setter(Control.MinHeightProperty, 28.0));
         style.Setters.Add(new Setter(Control.CursorProperty, Cursors.Hand));
+        style.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch));
         style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
         style.Setters.Add(new Setter(Control.TemplateProperty, BuildItemTemplate(hover, selected, accent)));
         return style;

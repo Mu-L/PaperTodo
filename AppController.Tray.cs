@@ -386,9 +386,12 @@ public sealed partial class AppController
             MaxHeight = TrayMenuMaxHeight(),
             Template = SharedTrayMenuTemplate
         };
-        AppTypography.ApplyTextRendering(menu);
-        UpdateTrayMenuResources(menu);
-        menu.Opened += (_, _) => QueueTrayMenuMaxHeightRefresh(menu);
+        ApplyTrayMenuAppearance(menu);
+        menu.Opened += (_, _) =>
+        {
+            ApplyTrayMenuAppearance(menu);
+            QueueTrayMenuMaxHeightRefresh(menu);
+        };
 
         if (registerForLiveRefresh)
         {
@@ -468,6 +471,18 @@ public sealed partial class AppController
         menu.Resources["TrayHoverBrushKey"] = TrayHoverBrush;
     }
 
+    private void ApplyTrayMenuAppearance(ContextMenu menu)
+    {
+        UpdateTrayMenuResources(menu);
+        menu.Background = TrayPaperBrush;
+        menu.BorderBrush = TrayBorderBrush;
+        menu.Foreground = TrayTextBrush;
+        menu.FontFamily = AppTypography.UiFontFamily;
+        menu.FontSize = AppTypography.Scale(13);
+        menu.Language = AppTypography.Language;
+        AppTypography.ApplyTextRendering(menu);
+    }
+
     private void RebuildTrayMenu()
     {
         if (_trayMenu == null)
@@ -481,15 +496,7 @@ public sealed partial class AppController
     internal void RebuildTrayMenu(ContextMenu menu)
     {
         InvalidateSystemThemeCacheIfNeeded();
-        UpdateTrayMenuResources(menu);
-
-        menu.Background = TrayPaperBrush;
-        menu.BorderBrush = TrayBorderBrush;
-        menu.Foreground = TrayTextBrush;
-        menu.FontFamily = AppTypography.UiFontFamily;
-        menu.FontSize = AppTypography.Scale(13);
-        menu.Language = AppTypography.Language;
-        AppTypography.ApplyTextRendering(menu);
+        ApplyTrayMenuAppearance(menu);
         menu.MaxHeight = TrayMenuMaxHeight();
         if (menu.IsOpen)
         {
