@@ -2883,15 +2883,19 @@ public sealed partial class PaperWindow : Window
 
     private bool ShowDeletePaperDialog()
     {
+        // A startup-restored deep capsule may have a built shell but no shown PaperWindow.
+        var canOwnDialog = IsVisible && PresentationSource.FromVisual(this) is HwndSource;
+
         var dialog = new Window
         {
-            Owner = this,
             Title = Strings.Get("DeletePaperTitle"),
             Width = 300,
             Height = 178,
             MinWidth = 300,
             MinHeight = 178,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            WindowStartupLocation = canOwnDialog
+                ? WindowStartupLocation.CenterOwner
+                : WindowStartupLocation.CenterScreen,
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
             AllowsTransparency = true,
@@ -2899,6 +2903,11 @@ public sealed partial class PaperWindow : Window
             ShowInTaskbar = false,
             Topmost = Topmost
         };
+        if (canOwnDialog)
+        {
+            dialog.Owner = this;
+        }
+
         AppTypography.ApplyTextRendering(dialog);
 
         var root = new Border
