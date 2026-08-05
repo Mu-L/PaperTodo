@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PaperTodo.Plugin;
+using PaperTodo.Plugin.Controls;
 using static PaperTodo.Plugin.ReviewArchive.ReviewArchiveSettingsReader;
 
 namespace PaperTodo.Plugin.ReviewArchive;
@@ -675,9 +676,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _searchBox.Foreground = text;
         _searchBox.Background = surface;
         _searchBox.BorderBrush = border;
-        _filterBox.Foreground = text;
-        _filterBox.Background = surface;
-        _filterBox.BorderBrush = border;
+        PaperPluginComboBoxStyle.Apply(_filterBox, theme, 11.5 * scale);
 
         foreach (var card in _insightsPanel.Children.OfType<Border>())
         {

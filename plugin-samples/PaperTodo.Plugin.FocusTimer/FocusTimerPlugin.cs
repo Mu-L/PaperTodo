@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using PaperTodo.Plugin;
+using PaperTodo.Plugin.Controls;
 
 namespace PaperTodo.Plugin.FocusTimer;
 
@@ -16,7 +17,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
     public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
-    public Version Version => new(1, 3, 0);
+    public Version Version => new(1, 3, 1);
     public string ApiVersion => "1.3";
     public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
@@ -914,24 +915,20 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _statusText.FontFamily = fontFamily;
             _completedText.FontFamily = fontFamily;
             _durationText.FontFamily = fontFamily;
-            _todoBox.FontFamily = fontFamily;
             _todoStatusText.FontFamily = fontFamily;
             _timeText.FontSize = 46 * scale;
             _statusText.FontSize = 12 * scale;
             _completedText.FontSize = 10.5 * scale;
             _durationText.FontSize = 11.5 * scale;
-            _todoBox.FontSize = 11.5 * scale;
             _todoStatusText.FontSize = 10.5 * scale;
             _timeText.Foreground = text;
             _statusText.Foreground = weak;
             _completedText.Foreground = weak;
             _durationText.Foreground = text;
-            _todoBox.Foreground = text;
-            _todoBox.Background = background;
-            _todoBox.BorderBrush = border;
             _todoStatusText.Foreground = weak;
             _todoHost.Background = background;
             _todoHost.BorderBrush = border;
+            PaperPluginComboBoxStyle.Apply(_todoBox, theme, 11.5 * scale);
             _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
             _progress.Background = ToBrush("#30707070", "#30707070");
 
