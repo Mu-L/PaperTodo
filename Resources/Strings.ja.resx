@@ -76,7 +76,7 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>リンク</value>
   </data>
-  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+  <data name="ToolTipDragPaperToTodo" xml:space="preserve">
     <value>ToDo項目の上へドラッグして紙片を関連付け</value>
   </data>
   <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
@@ -85,7 +85,7 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
   <data name="AssociationDropTodo" xml:space="preserve">
     <value>離してこのToDoに関連付け</value>
   </data>
-  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+  <data name="ToolTipOpenLinkedPaper" xml:space="preserve">
     <value>関連紙片を開く: {0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
@@ -247,13 +247,13 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
   <data name="ImageImportTotalTooLarge" xml:space="preserve">
     <value>画像保存容量の上限（{0} MB）に達しました。</value>
   </data>
-  <data name="MenuOpenLinkedNote" xml:space="preserve">
+  <data name="MenuOpenLinkedPaper" xml:space="preserve">
     <value>関連紙片を開く: {0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>関連スクリプトを編集: {0}</value>
   </data>
-  <data name="MenuUnlinkNote" xml:space="preserve">
+  <data name="MenuUnlinkPaper" xml:space="preserve">
     <value>紙片の関連付けを解除</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
@@ -533,7 +533,7 @@ PaperTodo を手動でもう一度開いてください。問題が繰り返さ�
   <data name="SettingsCapsule" xml:space="preserve">
     <value>カプセル</value>
   </data>
-  <data name="SettingsTodoNote" xml:space="preserve">
+  <data name="SettingsTodoPaper" xml:space="preserve">
     <value>ToDo とノート</value>
   </data>
   <data name="SettingsRunLinkedScriptCapsulesOnClick" xml:space="preserve">
@@ -576,18 +576,18 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="TipTodoVisualSize" xml:space="preserve">
     <value>ToDo の文字、行高、間隔を調整します。</value>
   </data>
-  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+  <data name="TipEnableTodoPaperLinks" xml:space="preserve">
     <value>任意の紙片を ToDo 項目へドラッグして関連付け、その項目から紙片を開けます。</value>
   </data>
-  <data name="TipShowLinkedNoteName" xml:space="preserve">
+  <data name="TipShowLinkedPaperName" xml:space="preserve">
     <value>ToDo の後ろに関連紙片のタイトルを表示します。</value>
   </data>
-  <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="TipAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>オフ：コンパクト。オン：内容に合わせて広げます。
 1 行は全角約 5 文字、複数行は約 10 文字。</value>
   </data>
-  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>ToDo に関連付けたノートはカプセル一覧に出さず、入口の重複を避けます。</value>
+  <data name="TipHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>ToDo に関連付けた紙片はカプセル一覧に出さず、入口の重複を避けます。</value>
   </data>
   <data name="TipRunLinkedScriptCapsulesOnClick" xml:space="preserve">
     <value>関連先がスクリプトカプセルのとき：左クリックで実行、右クリックで編集。</value>
@@ -696,7 +696,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
 オフでは圧縮せず、8 MB 超は直ちに拒否します。
 設定に関係なく、いずれかの辺が 4096 ピクセル超なら拒否します。</value>
   </data>
-  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+  <data name="SettingsEnableTodoPaperLinks" xml:space="preserve">
     <value>ToDo と紙片の関連付けを有効化</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
@@ -723,14 +723,14 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>外部で開くボタンを表示</value>
   </data>
-  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+  <data name="SettingsShowLinkedPaperName" xml:space="preserve">
     <value>関連紙片のタイトルを表示</value>
   </data>
-  <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="SettingsAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>関連タイトルを長く表示</value>
   </data>
-  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>関連ノートをカプセルに表示しない</value>
+  <data name="SettingsHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>関連紙片をカプセルに表示しない</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>ノートのズームを戻す</value>
@@ -759,6 +759,18 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>これらは試験中の機能で、動作や設定項目が今後変わる場合があります。各機能は個別に有効化され、オフにすると関連する動作状態を直ちに停止します。</value>
   </data>
+  <data name="LabsFocusBehavior" xml:space="preserve">
+    <value>フォーカスと待機時の動作</value>
+  </data>
+  <data name="LabsWindowCoordination" xml:space="preserve">
+    <value>ウィンドウ連携システム</value>
+  </data>
+  <data name="LabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>フォーカスを失ったら付箋を自動で折りたたむ</value>
+  </data>
+  <data name="TipLabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>フォーカスを失った付箋をカプセルに折りたたみます。ドラッグ中、タイトル編集中、メニューやドロップダウンを開いている間は実行されません。カプセルモードが必要です。</value>
+  </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>付箋の透明度</value>
   </data>
@@ -783,9 +795,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>待機中の不透明度</value>
   </data>
-  <data name="LabsCapsuleMagnetism" xml:space="preserve">
-    <value>通常カプセルの端スナップ</value>
-  </data>
   <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
     <value>通常カプセルのスナップを有効にする</value>
   </data>
@@ -809,9 +818,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>カプセルの吸着を解除</value>
-  </data>
-  <data name="LabsWindowTethering" xml:space="preserve">
-    <value>ウィンドウ連携</value>
   </data>
   <data name="LabsEnableWindowTethering" xml:space="preserve">
     <value>ウィンドウ連携を有効にする</value>
@@ -845,9 +851,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
     <value>ウィンドウ連携を解除</value>
-  </data>
-  <data name="LabsTetherVisibility" xml:space="preserve">
-    <value>ウィンドウ連携の表示連動</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
     <value>対象が非表示のとき収納する</value>

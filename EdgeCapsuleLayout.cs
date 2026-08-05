@@ -20,12 +20,6 @@ public static class EdgeCapsuleLayout
     public const double TopMargin = 8;
     // Where slot 0 starts from the top of the work area (leaves room above for reach).
     public const double StartTopMargin = 48;
-    // Vertical gap between stacked capsules. The visual setting keeps the former 4-DIP
-    // spacing as Standard and exposes 0 / 4 / 8-DIP variants without overlapping host bounds.
-    public static double Gap =>
-        AppController.Current is { State: { } state }
-            ? DeepCapsuleGapSizes.Value(state.DeepCapsuleGapSize)
-            : DeepCapsuleGapSizes.StandardGap;
     // Shared pill corner radius for the real capsules and the master capsule.
     public const double CornerRadius = 12;
     // Transparent outer chrome around the capsule body. Edge capsules omit this margin on the
@@ -111,31 +105,43 @@ public static class EdgeCapsuleLayout
     // input (edge + work area) is explicit, so N independent queues can each compute their own
     // docked positions without sharing one global anchor.
 
-    public static double TopForIndex(int index, double startTopMargin, Rect area, int slotCount)
+    public static double TopForIndex(
+        int index,
+        double startTopMargin,
+        Rect area,
+        int slotCount,
+        double gap)
     {
-        var desiredTop = area.Top + NormalizeStartTopMargin(startTopMargin, area, slotCount) + Math.Max(0, index) * SlotHeight;
+        var desiredTop = area.Top +
+            NormalizeStartTopMargin(startTopMargin, area, slotCount, gap) +
+            Math.Max(0, index) * SlotHeight(gap);
         var maxTop = Math.Max(area.Top + TopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - TopMargin);
         return Math.Min(desiredTop, maxTop);
     }
 
-    public static double MaxStartTopMarginForCount(int slotCount, Rect area)
+    public static double MaxStartTopMarginForCount(int slotCount, Rect area, double gap)
     {
         var count = Math.Max(1, slotCount);
-        var stackHeight = PaperLayoutDefaults.CapsuleHeight + (count - 1) * SlotHeight;
+        var stackHeight = PaperLayoutDefaults.CapsuleHeight + (count - 1) * SlotHeight(gap);
         var maxMargin = area.Height - stackHeight - TopMargin;
         return Math.Max(TopMargin, maxMargin);
     }
 
-    public static double NormalizeStartTopMargin(double value, Rect area, int slotCount)
+    public static double NormalizeStartTopMargin(
+        double value,
+        Rect area,
+        int slotCount,
+        double gap)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))
         {
             value = StartTopMargin;
         }
 
-        var max = MaxStartTopMarginForCount(slotCount, area);
+        var max = MaxStartTopMarginForCount(slotCount, area, gap);
         return Math.Round(Math.Clamp(value, TopMargin, max), 1);
     }
 
-    public static double SlotHeight => PaperLayoutDefaults.CapsuleHeight + Gap;
+    public static double SlotHeight(double gap) =>
+        PaperLayoutDefaults.CapsuleHeight + Math.Max(0, gap);
 }

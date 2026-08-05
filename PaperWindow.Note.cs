@@ -60,12 +60,7 @@ public sealed partial class PaperWindow
     // generation prevents queued focus/image work from the old interaction from running.
     private void CancelNotePresenterDeferredWork()
     {
-        var settleRebuild = _settlePendingNoteBodyRebuild;
-        _settlePendingNoteBodyRebuild = null;
-        settleRebuild?.Invoke();
-
-        _noteDeferredWorkGeneration++;
-        _cancelNotePresenterInteractions?.Invoke();
+        _markdownBodySession?.CancelPresenterDeferredWork();
     }
 
     public void UpdateMarkdownRenderMode()
@@ -677,7 +672,7 @@ public sealed partial class PaperWindow
             {
                 RefreshCapsuleLabel();
                 RefreshPaperContextMenus();
-                _controller.RefreshTodoRowsForLinkedNote(_paper.Id);
+                _controller.RefreshTodoRowsForLinkedPaper(_paper.Id);
             }
             _controller.MarkDirty();
         };

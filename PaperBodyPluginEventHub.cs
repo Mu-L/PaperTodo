@@ -234,11 +234,7 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     }
 
     internal static bool IsObservableTodo(PaperItem item) =>
-        !string.IsNullOrWhiteSpace(item.Text) ||
-        item.Done ||
-        item.ReminderAt.HasValue ||
-        !string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
-        !string.IsNullOrWhiteSpace(item.LinkedPath);
+        TodoRules.HasMeaningfulContent(item);
 
     private static IReadOnlyList<PaperTodoEvent> BuildEvents(
         IReadOnlyDictionary<string, PaperStateSnapshot> before,
@@ -344,7 +340,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         if (before.Done != after.Done) fields |= TodoChangedFields.Completion;
         if (before.Order != after.Order) fields |= TodoChangedFields.Order;
         if (before.ReminderAt != after.ReminderAt) fields |= TodoChangedFields.Reminder;
-        if (!string.Equals(before.LinkedNoteId, after.LinkedNoteId, StringComparison.Ordinal)) fields |= TodoChangedFields.LinkedNote;
+        if (!string.Equals(before.LinkedPaperId, after.LinkedPaperId, StringComparison.Ordinal)) fields |= TodoChangedFields.LinkedPaper;
+        if (!string.Equals(before.LinkedPath, after.LinkedPath, StringComparison.Ordinal)) fields |= TodoChangedFields.LinkedPath;
         return fields;
     }
 

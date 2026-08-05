@@ -1151,7 +1151,7 @@ public sealed partial class PaperWindow
         // Real capsules start after slot 0 when the master capsule occupies that slot.
         var firstCenterY = DeepCapsuleTopForIndex(_edgeCapsule.Placement.VisualOffset) +
             (PaperLayoutDefaults.CapsuleHeight / 2);
-        var slotHeight = PaperLayoutDefaults.CapsuleHeight + DeepCapsuleGap;
+        var slotHeight = EdgeCapsuleLayout.SlotHeight(DeepCapsuleGap);
         var originalIndex = Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
         var rawIndex = (centerY - firstCenterY) / slotHeight;
         var index = rawIndex >= originalIndex

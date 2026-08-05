@@ -5,6 +5,7 @@ internal readonly record struct EdgeCapsuleLayoutFacts(
     EdgeCapsuleEdge Edge,
     EdgeCapsulePlacement Placement,
     double QueueStartTopMarginDip,
+    double GapDip,
     double RestingWidthDip,
     double MaximumCloseWidthDip,
     double HostWidthDip,
@@ -27,14 +28,16 @@ internal static class EdgeCapsuleLayoutService
                 placement.VisualIndex,
                 facts.QueueStartTopMarginDip,
                 localWorkArea,
-                placement.SlotCount)
+                placement.SlotCount,
+                facts.GapDip)
             : 0;
         var masterTop = placement.IsPlaced
             ? EdgeCapsuleLayout.TopForIndex(
                 0,
                 facts.QueueStartTopMarginDip,
                 localWorkArea,
-                placement.SlotCount)
+                placement.SlotCount,
+                facts.GapDip)
             : normalTop;
         return new EdgeCapsuleLayoutSnapshot(
             facts.Monitor,
@@ -53,10 +56,12 @@ internal static class EdgeCapsuleLayoutService
         MonitorGeometry monitor,
         int visualIndex,
         int slotCount,
-        double queueStartTopMarginDip) =>
+        double queueStartTopMarginDip,
+        double gapDip) =>
         EdgeCapsuleLayout.TopForIndex(
             visualIndex,
             queueStartTopMarginDip,
             monitor.LocalWorkAreaDip,
-            slotCount);
+            slotCount,
+            gapDip);
 }

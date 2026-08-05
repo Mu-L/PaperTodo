@@ -140,7 +140,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (_bodySession != null)
+        if (_paperBodyHost.HasCurrent)
         {
             NotifyCurrentPaperBodyVisibility(false);
             return;
@@ -165,7 +165,7 @@ public sealed partial class PaperWindow
             _paper.IsVisible &&
             !_paper.IsCollapsed &&
             WindowState != WindowState.Minimized;
-        if (_bodySession != null)
+        if (_paperBodyHost.HasCurrent)
         {
             NotifyCurrentPaperBodyVisibility(visible);
             return;

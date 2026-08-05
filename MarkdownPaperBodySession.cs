@@ -12,12 +12,19 @@ namespace PaperTodo;
 internal sealed class MarkdownPaperBodySession : IPaperBodySession
 {
     private readonly PaperWindow _owner;
+    private readonly PaperData _paper;
+    private readonly NoteImageStore _imageStore;
     private readonly Grid _root = new();
     private bool _disposed;
 
-    internal MarkdownPaperBodySession(PaperWindow owner)
+    internal MarkdownPaperBodySession(
+        PaperWindow owner,
+        PaperData paper,
+        NoteImageStore imageStore)
     {
         _owner = owner;
+        _paper = paper;
+        _imageStore = imageStore;
         owner.AttachMarkdownBodySession(this);
         try
         {
@@ -82,15 +89,47 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
         _root.Children.Clear();
     }
 
-    public void Commit() => _owner.CommitLegacyMarkdownContent();
+    public void Commit()
+    {
+        if (NoteBox == null || !ContentDirty)
+        {
+            return;
+        }
+        _paper.Content = NoteBox.PersistentText;
+        ContentDirty = false;
+    }
+
     public void RefreshFromModel() => _owner.RefreshLegacyMarkdownFromModel();
-    public void CancelInteractions() => _owner.CancelLegacyMarkdownInteractions();
-    public void OnThemeChanged(PaperBodyTheme theme) => _owner.RefreshLegacyMarkdownTheme();
+
+    public void CancelInteractions() => CancelPresenterDeferredWork();
+
+    internal void CancelPresenterDeferredWork()
+    {
+        var settleRebuild = SettlePendingBodyRebuild;
+        SettlePendingBodyRebuild = null;
+        settleRebuild?.Invoke();
+
+        DeferredWorkGeneration++;
+        CancelPresenterInteractions?.Invoke();
+    }
+
+    public void OnThemeChanged(PaperBodyTheme theme) =>
+        NoteBox?.RefreshVisualStyle();
+
     public void OnTypographyChanged(PaperBodyTheme theme) =>
-        _owner.RefreshLegacyMarkdownTypography();
-    public void OnDpiChanged() => _owner.RefreshLegacyMarkdownDpi();
-    public void OnVisibilityChanged(bool visible) =>
-        _owner.SetLegacyMarkdownVisibility(visible);
+        NoteBox?.RefreshTypography();
+
+    public void OnDpiChanged() =>
+        NoteBox?.RefreshImageDecodeForCurrentDpi();
+
+    public void OnVisibilityChanged(bool visible)
+    {
+        NoteBox?.SetImageRenderingSuspended(!visible);
+        if (!visible)
+        {
+            _imageStore.ReleaseNoteBitmapCache(_paper.Id);
+        }
+    }
 
     public void Dispose()
     {

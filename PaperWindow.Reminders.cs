@@ -53,7 +53,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        RebuildTodoRows(itemId);
+        FocusTodoItem(itemId);
         _controller.BringPaperToFront(_paper);
     }
 
@@ -468,7 +468,7 @@ public sealed partial class PaperWindow
                 ? itemId
                 : null;
         _controller.NotifyTodoReminderChanged(saveImmediately: true);
-        RebuildTodoRows(item.Id);
+        ReconcileTodoRows([item.Id], item.Id);
     }
 
     private static DateTimeOffset? LocalReminderTime(

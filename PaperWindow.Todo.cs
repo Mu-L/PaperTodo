@@ -84,11 +84,12 @@ public sealed partial class PaperWindow
         _todoReminderCountdowns.Clear();
         _todoRows.Clear();
         _linkedPaperTitleRefreshers.Clear();
-        _linkedNoteDropRow = null;
+        _linkedPaperDropRow = null;
 
         foreach (var item in OrderedItems())
         {
             var row = BuildTodoRow(item, isNewItem: !existingIds.Contains(item.Id));
+            _todoRows.Add(row);
             _todoPanel.Children.Add(row);
         }
 
@@ -97,6 +98,124 @@ public sealed partial class PaperWindow
         if (!string.IsNullOrWhiteSpace(targetFocus))
         {
             FocusTodoItem(targetFocus, focusPlacement);
+        }
+    }
+
+    private void ReconcileTodoRows(
+        IEnumerable<string>? rebuildItemIds = null,
+        string? focusItemId = null,
+        TodoFocusPlacement focusPlacement = TodoFocusPlacement.End)
+    {
+        if (_todoPanel == null)
+        {
+            return;
+        }
+
+        _todoRowsGeneration++;
+        var targetFocus = focusItemId ?? _pendingFocusItemId;
+        _pendingFocusItemId = null;
+        NormalizeTodoItems();
+        NormalizeOrders();
+        PruneTodoSelection();
+
+        var rebuildIds = rebuildItemIds?.ToHashSet(StringComparer.Ordinal) ?? [];
+        var orderedItems = OrderedItems().ToList();
+        var itemIds = orderedItems
+            .Select(item => item.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var existingIds = _todoRows
+            .Select(row => row.Tag as string)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var row in _todoRows.ToList())
+        {
+            if (row.Tag is not string itemId ||
+                !itemIds.Contains(itemId) ||
+                rebuildIds.Contains(itemId))
+            {
+                RemoveTodoRowRegistration(row);
+                _todoPanel.Children.Remove(row);
+                _todoRows.Remove(row);
+            }
+        }
+
+        var rowsById = _todoRows
+            .Where(row => row.Tag is string)
+            .ToDictionary(row => (string)row.Tag, StringComparer.Ordinal);
+        var orderedRows = new List<Border>(orderedItems.Count);
+        for (var index = 0; index < orderedItems.Count; index++)
+        {
+            var item = orderedItems[index];
+            if (!rowsById.TryGetValue(item.Id, out var row))
+            {
+                row = BuildTodoRow(
+                    item,
+                    isNewItem: !existingIds.Contains(item.Id));
+                _todoPanel.Children.Insert(
+                    Math.Min(index, _todoPanel.Children.Count),
+                    row);
+            }
+            else
+            {
+                var currentIndex = _todoPanel.Children.IndexOf(row);
+                if (currentIndex != index)
+                {
+                    _todoPanel.Children.RemoveAt(currentIndex);
+                    _todoPanel.Children.Insert(index, row);
+                }
+            }
+            orderedRows.Add(row);
+        }
+
+        _todoRows.Clear();
+        _todoRows.AddRange(orderedRows);
+        if (_appendArea == null || !_todoPanel.Children.Contains(_appendArea))
+        {
+            _todoPanel.Children.Add(BuildTodoAppendArea());
+        }
+        else
+        {
+            var appendIndex = _todoPanel.Children.IndexOf(_appendArea);
+            if (appendIndex != _todoPanel.Children.Count - 1)
+            {
+                _todoPanel.Children.RemoveAt(appendIndex);
+                _todoPanel.Children.Add(_appendArea);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetFocus))
+        {
+            FocusTodoItem(targetFocus, focusPlacement);
+        }
+    }
+
+    private void RemoveTodoRowRegistration(Border row)
+    {
+        if (row.Tag is not string itemId)
+        {
+            return;
+        }
+
+        _todoEditors.Remove(itemId);
+        _todoReminderCountdowns.Remove(itemId);
+        foreach (var paperId in _linkedPaperTitleRefreshers.Keys.ToList())
+        {
+            var refreshers = _linkedPaperTitleRefreshers[paperId];
+            refreshers.Remove(itemId);
+            if (refreshers.Count == 0)
+            {
+                _linkedPaperTitleRefreshers.Remove(paperId);
+            }
+        }
+        if (ReferenceEquals(_linkedPaperDropRow, row))
+        {
+            _linkedPaperDropRow = null;
+        }
+        if (ReferenceEquals(_activeDropRow, row))
+        {
+            _activeDropRow = null;
         }
     }
 
@@ -168,7 +287,7 @@ public sealed partial class PaperWindow
         {
             var newItem = AddItemAfter(OrderedItems().LastOrDefault(), "");
             _pendingFocusItemId = newItem.Id;
-            RebuildTodoRows(newItem.Id);
+            ReconcileTodoRows(focusItemId: newItem.Id);
             e.Handled = true;
         };
 
@@ -228,7 +347,7 @@ public sealed partial class PaperWindow
         ShowAppendAreaAsTrashBin(active: false);
     }
 
-    private static string CompactLinkedNoteTitle(string title, int fullTextElementLimit, int truncatedTextElementCount)
+    private static string CompactLinkedPaperTitle(string title, int fullTextElementLimit, int truncatedTextElementCount)
     {
         var text = title.Trim();
         if (string.IsNullOrEmpty(text))
@@ -261,7 +380,7 @@ public sealed partial class PaperWindow
         return text[..end] + "…";
     }
 
-    private static string CompactLinkedNoteTitleByDisplayWidth(string title, int fullDisplayWidthLimit, int truncatedDisplayWidth)
+    private static string CompactLinkedPaperTitleByDisplayWidth(string title, int fullDisplayWidthLimit, int truncatedDisplayWidth)
     {
         var text = title.Trim();
         if (string.IsNullOrEmpty(text))
@@ -313,15 +432,15 @@ public sealed partial class PaperWindow
         return fallbackLength;
     }
 
-    private UIElement BuildTodoRow(PaperItem item, bool isNewItem = false)
+    private Border BuildTodoRow(PaperItem item, bool isNewItem = false)
     {
         var metrics = TodoVisualSizes.Metrics(_controller.State.TodoVisualSize);
-        var linkedNoteTitle = "";
+        var linkedPaperTitle = "";
         var hasLinkedPath = !string.IsNullOrWhiteSpace(item.LinkedPath);
-        var hasLinkedNote = _controller.State.EnableTodoNoteLinks &&
-            _controller.TryGetLinkedNoteTitle(item.LinkedNoteId, out linkedNoteTitle);
-        var runLinkedScriptOnClick = hasLinkedNote &&
-            _controller.ShouldRunLinkedScriptCapsule(item.LinkedNoteId);
+        var hasLinkedPaper = _controller.State.EnableTodoPaperLinks &&
+            _controller.TryGetLinkedPaperTitle(item.LinkedPaperId, out linkedPaperTitle);
+        var runLinkedScriptOnClick = hasLinkedPaper &&
+            _controller.ShouldRunLinkedScriptCapsule(item.LinkedPaperId);
         var todoRemindersEnabled =
             _controller.State.ExperimentalTodoReminders;
         var showTodoReminderButton = todoRemindersEnabled &&
@@ -352,7 +471,7 @@ public sealed partial class PaperWindow
 
         row.MouseEnter += (_, _) =>
         {
-            if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
+            if (!Equals(_activeDropRow, row) && !Equals(_linkedPaperDropRow, row))
             {
                 UpdateTodoRowBackground(row);
             }
@@ -360,7 +479,7 @@ public sealed partial class PaperWindow
 
         row.MouseLeave += (_, _) =>
         {
-            if (!Equals(_activeDropRow, row) && !Equals(_linkedNoteDropRow, row))
+            if (!Equals(_activeDropRow, row) && !Equals(_linkedPaperDropRow, row))
             {
                 UpdateTodoRowBackground(row);
             }
@@ -538,13 +657,13 @@ public sealed partial class PaperWindow
             var itemMenu = CreateContextMenu();
             MenuItem? reminderMenu = null;
             itemMenu.Items.Add(MenuHeader(Strings.Get("MenuTodoItem")));
-            if (hasLinkedNote)
+            if (hasLinkedPaper)
             {
                 var openMenuText = runLinkedScriptOnClick
-                    ? Strings.Format("MenuEditLinkedScriptCapsule", linkedNoteTitle)
-                    : Strings.Format("MenuOpenLinkedNote", linkedNoteTitle);
-                itemMenu.Items.Add(MenuItem(openMenuText, (_, _) => _controller.OpenLinkedNote(item.LinkedNoteId, this)));
-                itemMenu.Items.Add(MenuItem(Strings.Get("MenuUnlinkNote"), (_, _) => UnlinkNoteFromTodoItem(item)));
+                    ? Strings.Format("MenuEditLinkedScriptCapsule", linkedPaperTitle)
+                    : Strings.Format("MenuOpenLinkedPaper", linkedPaperTitle);
+                itemMenu.Items.Add(MenuItem(openMenuText, (_, _) => _controller.OpenLinkedPaper(item.LinkedPaperId, this)));
+                itemMenu.Items.Add(MenuItem(Strings.Get("MenuUnlinkPaper"), (_, _) => UnlinkPaperFromTodoItem(item)));
                 itemMenu.Items.Add(MenuSeparator());
             }
             else if (hasLinkedPath)
@@ -614,206 +733,207 @@ public sealed partial class PaperWindow
             Grid.SetColumn(pathLinkButton, 2);
             grid.Children.Add(pathLinkButton);
         }
-        else if (hasLinkedNote)
+        else if (hasLinkedPaper)
         {
-            var showLinkedNoteName = _controller.State.ShowLinkedNoteName;
-            var allowLongLinkedNoteTitle = showLinkedNoteName && _controller.State.AllowLongLinkedNoteTitles;
-            var linkedNoteActive = _controller.IsLinkedNoteShown(item.LinkedNoteId);
+            var showLinkedPaperName = _controller.State.ShowLinkedPaperName;
+            var allowLongLinkedPaperTitle = showLinkedPaperName && _controller.State.AllowLongLinkedPaperTitles;
+            var linkedPaperActive = _controller.IsLinkedPaperShown(item.LinkedPaperId);
 
-            string LinkedNoteButtonLabel(bool isTodoMultiline)
+            string LinkedPaperButtonLabel(bool isTodoMultiline)
             {
-                var title = allowLongLinkedNoteTitle
-                    ? CompactLinkedNoteTitleByDisplayWidth(
-                        linkedNoteTitle,
+                var title = allowLongLinkedPaperTitle
+                    ? CompactLinkedPaperTitleByDisplayWidth(
+                        linkedPaperTitle,
                         isTodoMultiline ? 20 : 10,
                         isTodoMultiline ? 20 : 10)
                     : isTodoMultiline
-                        ? CompactLinkedNoteTitle(linkedNoteTitle, 6, 5)
-                        : CompactLinkedNoteTitle(linkedNoteTitle, 3, 3);
+                        ? CompactLinkedPaperTitle(linkedPaperTitle, 6, 5)
+                        : CompactLinkedPaperTitle(linkedPaperTitle, 3, 3);
                 return runLinkedScriptOnClick ? "⚡ " + title : title;
             }
 
-            double LegacyLinkedNoteButtonWidth(bool isTodoMultiline)
+            double LegacyLinkedPaperButtonWidth(bool isTodoMultiline)
             {
                 return isTodoMultiline
                     ? Math.Max(runLinkedScriptOnClick ? 52 : 44, metrics.CheckColumnWidth * (runLinkedScriptOnClick ? 2.35 : 2))
                     : Math.Max(runLinkedScriptOnClick ? 58 : 50, metrics.CheckColumnWidth * (runLinkedScriptOnClick ? 2.55 : 2.2));
             }
 
-            double LegacyLinkedNoteTextMaxWidth(bool isTodoMultiline)
+            double LegacyLinkedPaperTextMaxWidth(bool isTodoMultiline)
             {
                 return metrics.CheckColumnWidth * (isTodoMultiline
                     ? runLinkedScriptOnClick ? 2.15 : 1.8
                     : runLinkedScriptOnClick ? 2.35 : 2);
             }
 
-            double LinkedNoteButtonWidth(bool isTodoMultiline, string label)
+            double LinkedPaperButtonWidth(bool isTodoMultiline, string label)
             {
-                if (!showLinkedNoteName)
+                if (!showLinkedPaperName)
                 {
                     return Math.Max(23, metrics.CheckColumnWidth);
                 }
 
-                var legacyWidth = LegacyLinkedNoteButtonWidth(isTodoMultiline);
-                if (!allowLongLinkedNoteTitle)
+                var legacyWidth = LegacyLinkedPaperButtonWidth(isTodoMultiline);
+                if (!allowLongLinkedPaperTitle)
                 {
                     return legacyWidth;
                 }
 
-                var measuredWidth = MeasureCapsuleTextWidth(label, metrics.LinkedNoteNameFontSize, FontWeights.SemiBold, AppTypography.UiFontFamily) + 10;
+                var measuredWidth = MeasureCapsuleTextWidth(label, metrics.LinkedPaperNameFontSize, FontWeights.SemiBold, AppTypography.UiFontFamily) + 10;
                 return Math.Max(legacyWidth, Math.Ceiling(measuredWidth));
             }
 
-            double LinkedNoteTextMaxWidth(bool isTodoMultiline, double buttonWidth)
+            double LinkedPaperTextMaxWidth(bool isTodoMultiline, double buttonWidth)
             {
-                if (allowLongLinkedNoteTitle)
+                if (allowLongLinkedPaperTitle)
                 {
                     return Math.Max(1, buttonWidth - 6);
                 }
 
-                return LegacyLinkedNoteTextMaxWidth(isTodoMultiline);
+                return LegacyLinkedPaperTextMaxWidth(isTodoMultiline);
             }
 
-            var linkedNoteButtonText = showLinkedNoteName
-                ? LinkedNoteButtonLabel(isTodoMultiline: false)
+            var linkedPaperButtonText = showLinkedPaperName
+                ? LinkedPaperButtonLabel(isTodoMultiline: false)
                 : runLinkedScriptOnClick ? "⚡" : "\uE71B";
-            var multilineLinkedNoteButtonText = showLinkedNoteName
-                ? LinkedNoteButtonLabel(isTodoMultiline: true)
-                : linkedNoteButtonText;
-            var linkedNoteButtonWidth = showLinkedNoteName
+            var multilineLinkedPaperButtonText = showLinkedPaperName
+                ? LinkedPaperButtonLabel(isTodoMultiline: true)
+                : linkedPaperButtonText;
+            var linkedPaperButtonWidth = showLinkedPaperName
                 ? Math.Max(
-                    LinkedNoteButtonWidth(isTodoMultiline: false, linkedNoteButtonText),
-                    LinkedNoteButtonWidth(isTodoMultiline: true, multilineLinkedNoteButtonText))
+                    LinkedPaperButtonWidth(isTodoMultiline: false, linkedPaperButtonText),
+                    LinkedPaperButtonWidth(isTodoMultiline: true, multilineLinkedPaperButtonText))
                 : Math.Max(23, metrics.CheckColumnWidth);
             var linkGlyph = new TextBlock
             {
-                Text = linkedNoteButtonText,
-                Foreground = linkedNoteActive ? LinkedNoteActiveTextBrush : WeakTextBrush,
-                Opacity = linkedNoteActive ? 1.0 : 0.72,
-                FontFamily = showLinkedNoteName
+                Text = linkedPaperButtonText,
+                Foreground = linkedPaperActive ? LinkedPaperActiveTextBrush : WeakTextBrush,
+                Opacity = linkedPaperActive ? 1.0 : 0.72,
+                FontFamily = showLinkedPaperName
                     ? AppTypography.UiFontFamily
                     : runLinkedScriptOnClick ? new FontFamily("Segoe UI Symbol") : new FontFamily("Segoe MDL2 Assets"),
-                FontSize = showLinkedNoteName
-                    ? metrics.LinkedNoteNameFontSize
-                    : runLinkedScriptOnClick ? metrics.LinkedNoteIconFontSize + 1 : metrics.LinkedNoteIconFontSize,
+                FontSize = showLinkedPaperName
+                    ? metrics.LinkedPaperNameFontSize
+                    : runLinkedScriptOnClick ? metrics.LinkedPaperIconFontSize + 1 : metrics.LinkedPaperIconFontSize,
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center,
                 TextWrapping = TextWrapping.NoWrap,
-                LineHeight = showLinkedNoteName ? metrics.LinkedNoteNameFontSize + 1 : double.NaN,
-                MaxWidth = showLinkedNoteName ? LinkedNoteTextMaxWidth(isTodoMultiline: false, linkedNoteButtonWidth) : double.PositiveInfinity
+                LineHeight = showLinkedPaperName ? metrics.LinkedPaperNameFontSize + 1 : double.NaN,
+                MaxWidth = showLinkedPaperName ? LinkedPaperTextMaxWidth(isTodoMultiline: false, linkedPaperButtonWidth) : double.PositiveInfinity
             };
 
             var linkButton = new Border
             {
-                Width = showLinkedNoteName
-                    ? linkedNoteButtonWidth
+                Width = showLinkedPaperName
+                    ? linkedPaperButtonWidth
                     : Math.Max(23, metrics.CheckColumnWidth),
                 MinWidth = Math.Max(23, metrics.CheckColumnWidth),
                 MinHeight = Math.Max(22, metrics.RowMinHeight - 2),
                 Margin = new Thickness(1, 0, 0, 0),
-                Padding = showLinkedNoteName ? new Thickness(3, 1, 3, 1) : new Thickness(0),
+                Padding = showLinkedPaperName ? new Thickness(3, 1, 3, 1) : new Thickness(0),
                 CornerRadius = new CornerRadius(RadiusControl),
-                Background = linkedNoteActive ? LinkedNoteLightBgBrush : LinkedNoteNormalBgBrush,
+                Background = linkedPaperActive ? LinkedPaperLightBgBrush : LinkedPaperNormalBgBrush,
                 Cursor = Cursors.Hand,
                 ToolTip = runLinkedScriptOnClick
-                    ? Strings.Format("ToolTipRunLinkedScriptCapsule", linkedNoteTitle)
-                    : Strings.Format("ToolTipOpenLinkedNote", linkedNoteTitle),
+                    ? Strings.Format("ToolTipRunLinkedScriptCapsule", linkedPaperTitle)
+                    : Strings.Format("ToolTipOpenLinkedPaper", linkedPaperTitle),
                 Child = linkGlyph
             };
 
-            bool? lastLinkedNoteNameMultiline = null;
-            var linkedNoteNameLayoutQueued = false;
+            bool? lastLinkedPaperNameMultiline = null;
+            var linkedPaperNameLayoutQueued = false;
 
-            void UpdateLinkedNoteNameLayout()
+            void UpdateLinkedPaperNameLayout()
             {
-                linkedNoteNameLayoutQueued = false;
-                if (!showLinkedNoteName)
+                linkedPaperNameLayoutQueued = false;
+                if (!showLinkedPaperName)
                 {
                     return;
                 }
 
                 var isTodoMultiline = text.LineCount > 1;
-                if (lastLinkedNoteNameMultiline == isTodoMultiline)
+                if (lastLinkedPaperNameMultiline == isTodoMultiline)
                 {
                     return;
                 }
 
-                lastLinkedNoteNameMultiline = isTodoMultiline;
-                linkGlyph.Text = isTodoMultiline ? multilineLinkedNoteButtonText : linkedNoteButtonText;
+                lastLinkedPaperNameMultiline = isTodoMultiline;
+                linkGlyph.Text = isTodoMultiline ? multilineLinkedPaperButtonText : linkedPaperButtonText;
                 linkGlyph.TextWrapping = isTodoMultiline ? TextWrapping.Wrap : TextWrapping.NoWrap;
-                linkGlyph.MaxWidth = LinkedNoteTextMaxWidth(isTodoMultiline, linkedNoteButtonWidth);
+                linkGlyph.MaxWidth = LinkedPaperTextMaxWidth(isTodoMultiline, linkedPaperButtonWidth);
             }
 
-            void QueueLinkedNoteNameLayoutUpdate()
+            void QueueLinkedPaperNameLayoutUpdate()
             {
-                if (!showLinkedNoteName)
+                if (!showLinkedPaperName)
                 {
                     return;
                 }
 
-                if (linkedNoteNameLayoutQueued)
+                if (linkedPaperNameLayoutQueued)
                 {
                     return;
                 }
 
-                linkedNoteNameLayoutQueued = true;
-                Dispatcher.BeginInvoke((Action)UpdateLinkedNoteNameLayout, System.Windows.Threading.DispatcherPriority.Render);
+                linkedPaperNameLayoutQueued = true;
+                Dispatcher.BeginInvoke((Action)UpdateLinkedPaperNameLayout, System.Windows.Threading.DispatcherPriority.Render);
             }
 
-            if (showLinkedNoteName)
+            if (showLinkedPaperName)
             {
-                text.SizeChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
-                row.SizeChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
-                text.TextChanged += (_, _) => QueueLinkedNoteNameLayoutUpdate();
-                QueueLinkedNoteNameLayoutUpdate();
+                text.SizeChanged += (_, _) => QueueLinkedPaperNameLayoutUpdate();
+                row.SizeChanged += (_, _) => QueueLinkedPaperNameLayoutUpdate();
+                text.TextChanged += (_, _) => QueueLinkedPaperNameLayoutUpdate();
+                QueueLinkedPaperNameLayoutUpdate();
             }
 
             void RefreshLinkedPaperPresentation()
             {
-                if (!_controller.TryGetLinkedNoteTitle(
-                        item.LinkedNoteId,
+                if (!_controller.TryGetLinkedPaperTitle(
+                        item.LinkedPaperId,
                         out var refreshedTitle))
                 {
                     return;
                 }
 
-                linkedNoteTitle = refreshedTitle;
-                linkedNoteButtonText = showLinkedNoteName
-                    ? LinkedNoteButtonLabel(isTodoMultiline: false)
+                linkedPaperTitle = refreshedTitle;
+                linkedPaperButtonText = showLinkedPaperName
+                    ? LinkedPaperButtonLabel(isTodoMultiline: false)
                     : runLinkedScriptOnClick ? "⚡" : "\uE71B";
-                multilineLinkedNoteButtonText = showLinkedNoteName
-                    ? LinkedNoteButtonLabel(isTodoMultiline: true)
-                    : linkedNoteButtonText;
-                linkedNoteButtonWidth = showLinkedNoteName
+                multilineLinkedPaperButtonText = showLinkedPaperName
+                    ? LinkedPaperButtonLabel(isTodoMultiline: true)
+                    : linkedPaperButtonText;
+                linkedPaperButtonWidth = showLinkedPaperName
                     ? Math.Max(
-                        LinkedNoteButtonWidth(false, linkedNoteButtonText),
-                        LinkedNoteButtonWidth(true, multilineLinkedNoteButtonText))
+                        LinkedPaperButtonWidth(false, linkedPaperButtonText),
+                        LinkedPaperButtonWidth(true, multilineLinkedPaperButtonText))
                     : Math.Max(23, metrics.CheckColumnWidth);
-                linkButton.Width = linkedNoteButtonWidth;
+                linkButton.Width = linkedPaperButtonWidth;
                 linkButton.ToolTip = runLinkedScriptOnClick
-                    ? Strings.Format("ToolTipRunLinkedScriptCapsule", linkedNoteTitle)
-                    : Strings.Format("ToolTipOpenLinkedNote", linkedNoteTitle);
-                lastLinkedNoteNameMultiline = null;
-                UpdateLinkedNoteNameLayout();
+                    ? Strings.Format("ToolTipRunLinkedScriptCapsule", linkedPaperTitle)
+                    : Strings.Format("ToolTipOpenLinkedPaper", linkedPaperTitle);
+                lastLinkedPaperNameMultiline = null;
+                UpdateLinkedPaperNameLayout();
             }
 
             RegisterLinkedPaperTitleRefresher(
-                item.LinkedNoteId,
+                item.Id,
+                item.LinkedPaperId,
                 RefreshLinkedPaperPresentation);
 
             linkButton.MouseEnter += (_, _) =>
             {
-                linkButton.Background = linkedNoteActive ? LinkedNoteMediumBgBrush : LinkedNoteLightBgBrush;
-                linkGlyph.Foreground = linkedNoteActive ? LinkedNoteActiveTextBrush : TextBrush;
+                linkButton.Background = linkedPaperActive ? LinkedPaperMediumBgBrush : LinkedPaperLightBgBrush;
+                linkGlyph.Foreground = linkedPaperActive ? LinkedPaperActiveTextBrush : TextBrush;
                 linkGlyph.Opacity = 1.0;
             };
             linkButton.MouseLeave += (_, _) =>
             {
-                linkButton.Background = linkedNoteActive ? LinkedNoteLightBgBrush : LinkedNoteNormalBgBrush;
-                linkGlyph.Foreground = linkedNoteActive ? LinkedNoteActiveTextBrush : WeakTextBrush;
-                linkGlyph.Opacity = linkedNoteActive ? 1.0 : 0.7;
+                linkButton.Background = linkedPaperActive ? LinkedPaperLightBgBrush : LinkedPaperNormalBgBrush;
+                linkGlyph.Foreground = linkedPaperActive ? LinkedPaperActiveTextBrush : WeakTextBrush;
+                linkGlyph.Opacity = linkedPaperActive ? 1.0 : 0.7;
                 linkButton.Opacity = 1.0;
             };
             linkButton.MouseLeftButtonDown += (_, e) =>
@@ -824,10 +944,10 @@ public sealed partial class PaperWindow
             linkButton.MouseLeftButtonUp += (_, e) =>
             {
                 linkButton.Opacity = 1.0;
-                if (!_controller.ShouldRunLinkedScriptCapsule(item.LinkedNoteId) ||
-                    !_controller.RunLinkedScriptCapsule(item.LinkedNoteId))
+                if (!_controller.ShouldRunLinkedScriptCapsule(item.LinkedPaperId) ||
+                    !_controller.RunLinkedScriptCapsule(item.LinkedPaperId))
                 {
-                    _controller.OpenLinkedNote(item.LinkedNoteId, this);
+                    _controller.OpenLinkedPaper(item.LinkedPaperId, this);
                 }
                 e.Handled = true;
             };
@@ -914,7 +1034,6 @@ public sealed partial class PaperWindow
         grid.Children.Add(handle);
 
         row.Child = grid;
-        _todoRows.Add(row);
         ConfigureTodoPathDrop(row, item);
         ConfigureTodoMultiSelection(row, item, check, text);
 
@@ -946,12 +1065,15 @@ public sealed partial class PaperWindow
         {
             var newItem = AddItemAfter(item, "");
             _pendingFocusItemId = newItem.Id;
-            RebuildTodoRows(newItem.Id);
+            ReconcileTodoRows(focusItemId: newItem.Id);
             e.Handled = true;
             return;
         }
 
-        if (e.Key == Key.Back && string.IsNullOrEmpty(box.Text) && _paper.Items.Count > 1)
+        if (e.Key == Key.Back &&
+            string.IsNullOrEmpty(box.Text) &&
+            !TodoRules.HasNonTextContent(item) &&
+            _paper.Items.Count > 1)
         {
             var previous = PreviousItem(item);
             var next = NextItem(item);
@@ -976,8 +1098,10 @@ public sealed partial class PaperWindow
             _controller.NotifyTodoReminderCollectionChanged();
 
             var focusPlacement = previous != null ? TodoFocusPlacement.End : TodoFocusPlacement.Start;
-            RebuildTodoRows(focusTarget, focusPlacement);
-            RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+            ReconcileTodoRows(
+                focusItemId: focusTarget,
+                focusPlacement: focusPlacement);
+            RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
             e.Handled = true;
         }
     }
@@ -1048,7 +1172,7 @@ public sealed partial class PaperWindow
 
         var focusItem = newItems.LastOrDefault() ?? item;
         _pendingFocusItemId = focusItem.Id;
-        RebuildTodoRows(focusItem.Id);
+        ReconcileTodoRows(focusItemId: focusItem.Id);
 
         // 粘贴多行时的错峰动画
         if (_controller.State.EnableAnimations && newItems.Count > 1)
@@ -1115,13 +1239,13 @@ public sealed partial class PaperWindow
     {
         RefreshWindowBindingButton();
 
-        if (!_controller.State.EnableTodoNoteLinks)
+        if (!_controller.State.EnableTodoPaperLinks)
         {
-            _controller.EndNoteLinkDrag(_paper, commit: false);
-            SetNoteLinkDropTarget(null);
+            _controller.EndPaperLinkDrag(_paper, commit: false);
+            SetPaperLinkDropTarget(null);
         }
 
-        if (!_controller.State.EnableTodoNoteLinks &&
+        if (!_controller.State.EnableTodoPaperLinks &&
             !_controller.State.ExperimentalWindowTethering)
         {
             EndTopBarDragGesture(
@@ -1164,9 +1288,9 @@ public sealed partial class PaperWindow
 
         var fallbackFocus = focusItemId ?? PreviousItem(item)?.Id ?? NextItem(item)?.Id;
         var itemId = item.Id;
-        var removedLinkedNoteIds = _paper.Items
+        var removedLinkedPaperIds = _paper.Items
             .Where(i => i.Id == itemId)
-            .Select(i => i.LinkedNoteId)
+            .Select(i => i.LinkedPaperId)
             .ToList();
 
         // 删除动画
@@ -1188,7 +1312,7 @@ public sealed partial class PaperWindow
                 NormalizeOrders();
                 _controller.MarkDirty();
                 _controller.NotifyTodoReminderCollectionChanged();
-                RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
+                RefreshCapsuleEligibilityForLinkedPapers(removedLinkedPaperIds);
 
                 var animationGeneration = _todoRowsGeneration;
                 row.IsHitTestVisible = false;
@@ -1203,7 +1327,7 @@ public sealed partial class PaperWindow
                 {
                     if (rebuild && animationGeneration == _todoRowsGeneration)
                     {
-                        RebuildTodoRows(fallbackFocus);
+                        ReconcileTodoRows(focusItemId: fallbackFocus);
                     }
                 };
 
@@ -1227,11 +1351,11 @@ public sealed partial class PaperWindow
         NormalizeOrders();
         _controller.MarkDirty();
         _controller.NotifyTodoReminderCollectionChanged();
-        RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
+        RefreshCapsuleEligibilityForLinkedPapers(removedLinkedPaperIds);
 
         if (rebuild)
         {
-            RebuildTodoRows(fallbackFocus);
+            ReconcileTodoRows(focusItemId: fallbackFocus);
         }
     }
 
@@ -1250,8 +1374,8 @@ public sealed partial class PaperWindow
         }
 
         var completedItemIds = new HashSet<string>(completedItems.Select(i => i.Id), StringComparer.Ordinal);
-        var removedLinkedNoteIds = completedItems
-            .Select(i => i.LinkedNoteId)
+        var removedLinkedPaperIds = completedItems
+            .Select(i => i.LinkedPaperId)
             .ToList();
         var clearDoneGeneration = ++_clearDoneGeneration;
 
@@ -1270,12 +1394,12 @@ public sealed partial class PaperWindow
         NormalizeOrders();
 
         var focus = remainingItems.FirstOrDefault(i => i.Id == focusedId)?.Id
-            ?? remainingItems.FirstOrDefault(i => !IsBlank(i))?.Id
+            ?? remainingItems.FirstOrDefault(i => !TodoRules.IsPlaceholder(i))?.Id
             ?? remainingItems.FirstOrDefault()?.Id;
 
         _controller.MarkDirty();
         _controller.NotifyTodoReminderCollectionChanged();
-        RefreshCapsuleEligibilityForLinkedNotes(removedLinkedNoteIds);
+        RefreshCapsuleEligibilityForLinkedPapers(removedLinkedPaperIds);
 
         // 批量消失动画
         if (_controller.State.EnableAnimations && completedItems.Count > 0)
@@ -1342,7 +1466,7 @@ public sealed partial class PaperWindow
                     if (clearDoneGeneration == _clearDoneGeneration &&
                         rowGeneration == _todoRowsGeneration)
                     {
-                        RebuildTodoRows(focus);
+                        ReconcileTodoRows(focusItemId: focus);
                     }
                 };
                 finalizeTimer.Start();
@@ -1350,33 +1474,33 @@ public sealed partial class PaperWindow
             }
         }
 
-        RebuildTodoRows(focus);
+        ReconcileTodoRows(focusItemId: focus);
     }
 
-    private void RefreshCapsuleEligibilityForLinkedNotes(IEnumerable<string?> noteIds)
+    private void RefreshCapsuleEligibilityForLinkedPapers(IEnumerable<string?> paperIds)
     {
-        _controller.RefreshCapsuleEligibilityForLinkedNotes(noteIds);
+        _controller.RefreshCapsuleEligibilityForLinkedPapers(paperIds);
     }
 
-    private void RefreshCapsuleEligibilityForLinkedNoteChanges(IEnumerable<PaperItem> previousItems)
+    private void RefreshCapsuleEligibilityForLinkedPaperChanges(IEnumerable<PaperItem> previousItems)
     {
-        var changedNoteIds = previousItems
-            .Select(item => item.LinkedNoteId)
-            .Where(noteId => !string.IsNullOrWhiteSpace(noteId))
-            .Select(noteId => noteId!)
+        var changedPaperIds = previousItems
+            .Select(item => item.LinkedPaperId)
+            .Where(paperId => !string.IsNullOrWhiteSpace(paperId))
+            .Select(paperId => paperId!)
             .ToHashSet(StringComparer.Ordinal);
-        changedNoteIds.SymmetricExceptWith(_paper.Items
-            .Select(item => item.LinkedNoteId)
-            .Where(noteId => !string.IsNullOrWhiteSpace(noteId))
-            .Select(noteId => noteId!));
+        changedPaperIds.SymmetricExceptWith(_paper.Items
+            .Select(item => item.LinkedPaperId)
+            .Where(paperId => !string.IsNullOrWhiteSpace(paperId))
+            .Select(paperId => paperId!));
 
-        RefreshCapsuleEligibilityForLinkedNotes(changedNoteIds);
+        RefreshCapsuleEligibilityForLinkedPapers(changedPaperIds);
     }
 
     public bool TryHitTodoRow(Point screenPoint, out string? itemId)
     {
         itemId = null;
-        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo || _paper.IsCollapsed || !IsVisible)
+        if (!_controller.State.EnableTodoPaperLinks || _paper.Type != PaperTypes.Todo || _paper.IsCollapsed || !IsVisible)
         {
             return false;
         }
@@ -1401,15 +1525,15 @@ public sealed partial class PaperWindow
         return false;
     }
 
-    public void SetNoteLinkDropTarget(string? itemId)
+    public void SetPaperLinkDropTarget(string? itemId)
     {
-        if (_linkedNoteDropRow?.Tag is string currentId &&
+        if (_linkedPaperDropRow?.Tag is string currentId &&
             string.Equals(currentId, itemId, StringComparison.Ordinal))
         {
             return;
         }
 
-        ClearNoteLinkDropTargetVisual();
+        ClearPaperLinkDropTargetVisual();
 
         if (string.IsNullOrWhiteSpace(itemId))
         {
@@ -1424,17 +1548,17 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _linkedNoteDropRow = row;
-        row.Background = NoteLinkTargetBgBrush;
-        row.BorderBrush = NoteLinkTargetBorderBrush;
+        _linkedPaperDropRow = row;
+        row.Background = PaperLinkTargetBgBrush;
+        row.BorderBrush = PaperLinkTargetBorderBrush;
         row.BorderThickness = new Thickness(1);
         row.Padding = new Thickness(1, 3, 1, 3);
     }
 
-    public bool LinkNoteToTodo(string itemId, string noteId)
+    public bool LinkPaperToTodo(string itemId, string paperId)
     {
-        if (!_controller.State.EnableTodoNoteLinks || _paper.Type != PaperTypes.Todo ||
-            !_controller.IsExistingPaper(noteId) || string.Equals(_paper.Id, noteId, StringComparison.Ordinal))
+        if (!_controller.State.EnableTodoPaperLinks || _paper.Type != PaperTypes.Todo ||
+            !_controller.IsExistingPaper(paperId) || string.Equals(_paper.Id, paperId, StringComparison.Ordinal))
         {
             return false;
         }
@@ -1445,7 +1569,7 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        if (string.Equals(item.LinkedNoteId, noteId, StringComparison.Ordinal) &&
+        if (string.Equals(item.LinkedPaperId, paperId, StringComparison.Ordinal) &&
             string.IsNullOrWhiteSpace(item.LinkedPath))
         {
             return true;
@@ -1454,17 +1578,16 @@ public sealed partial class PaperWindow
         var focusedId = CurrentFocusedTodoItemId();
         var previousItems = CloneItems(_paper.Items);
         PushUndoSnapshot();
-        item.LinkedNoteId = noteId;
-        item.LinkedPath = null;
+        item.LinkPaper(paperId);
         _controller.MarkDirty();
-        RebuildTodoRows(focusedId);
-        RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+        ReconcileTodoRows([item.Id], focusedId);
+        RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
         return true;
     }
 
-    private void UnlinkNoteFromTodoItem(PaperItem item)
+    private void UnlinkPaperFromTodoItem(PaperItem item)
     {
-        if (string.IsNullOrWhiteSpace(item.LinkedNoteId))
+        if (string.IsNullOrWhiteSpace(item.LinkedPaperId))
         {
             return;
         }
@@ -1472,21 +1595,21 @@ public sealed partial class PaperWindow
         var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
         var previousItems = CloneItems(_paper.Items);
         PushUndoSnapshot();
-        item.LinkedNoteId = null;
+        item.ClearQuickLaunch();
         _controller.MarkDirty();
-        RebuildTodoRows(focusedId);
-        RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+        ReconcileTodoRows([item.Id], focusedId);
+        RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
     }
 
-    private void ClearNoteLinkDropTargetVisual()
+    private void ClearPaperLinkDropTargetVisual()
     {
-        var row = _linkedNoteDropRow;
+        var row = _linkedPaperDropRow;
         if (row == null)
         {
             return;
         }
 
-        _linkedNoteDropRow = null;
+        _linkedPaperDropRow = null;
         row.BorderThickness = new Thickness(0, 2, 0, 2);
         row.BorderBrush = Brushes.Transparent;
         row.Padding = new Thickness(2);
@@ -1498,6 +1621,7 @@ public sealed partial class PaperWindow
     }
 
     private void RegisterLinkedPaperTitleRefresher(
+        string itemId,
         string? paperId,
         Action refresher)
     {
@@ -1508,10 +1632,10 @@ public sealed partial class PaperWindow
 
         if (!_linkedPaperTitleRefreshers.TryGetValue(paperId, out var refreshers))
         {
-            refreshers = [];
+            refreshers = new Dictionary<string, Action>(StringComparer.Ordinal);
             _linkedPaperTitleRefreshers[paperId] = refreshers;
         }
-        refreshers.Add(refresher);
+        refreshers[itemId] = refresher;
     }
 
     public void RefreshLinkedPaperTitle(string paperId)
@@ -1521,7 +1645,7 @@ public sealed partial class PaperWindow
             return;
         }
 
-        foreach (var refresher in refreshers.ToArray())
+        foreach (var refresher in refreshers.Values.ToArray())
         {
             refresher();
         }
@@ -1865,7 +1989,7 @@ public sealed partial class PaperWindow
         if (!commit)
         {
             ClearTodoDragGroupState();
-            RebuildTodoRows(state.ItemId);
+            ReconcileTodoRows(focusItemId: state.ItemId);
             return;
         }
 
@@ -1893,7 +2017,7 @@ public sealed partial class PaperWindow
         }
 
         ClearTodoDragGroupState();
-        RebuildTodoRows(state.ItemId);
+        ReconcileTodoRows(focusItemId: state.ItemId);
     }
 
     private void MoveItem(string draggedId, string targetId, DropPlacement placement, bool focusDragged)
@@ -1941,7 +2065,7 @@ public sealed partial class PaperWindow
         NormalizeOrders();
         _controller.MarkDirty();
 
-        RebuildTodoRows(focusDragged ? dragged.Id : null);
+        ReconcileTodoRows(focusItemId: focusDragged ? dragged.Id : null);
     }
 
     private IEnumerable<PaperItem> OrderedItems()
@@ -1963,11 +2087,6 @@ public sealed partial class PaperWindow
         }
 
         _paper.Items = ordered;
-    }
-
-    private static bool IsBlank(PaperItem item)
-    {
-        return string.IsNullOrWhiteSpace(item.Text);
     }
 
     private string? CurrentFocusedTodoItemId()
@@ -1992,10 +2111,7 @@ public sealed partial class PaperWindow
     {
         // Preserve the current list order. Sorting here would undo freshly inserted
         // or dragged rows because new items start with Order = 0 until we renumber them.
-        for (var i = 0; i < _paper.Items.Count; i++)
-        {
-            _paper.Items[i].Order = i;
-        }
+        TodoRules.NormalizeOrders(_paper.Items);
     }
 
     private void ShowDropIndicator(Border row, DropPlacement placement)
@@ -2065,16 +2181,7 @@ public sealed partial class PaperWindow
 
     private static List<PaperItem> CloneItems(List<PaperItem> items)
     {
-        return items.Select(i => new PaperItem
-        {
-            Id = i.Id,
-            Text = i.Text,
-            Done = i.Done,
-            Order = i.Order,
-            LinkedNoteId = i.LinkedNoteId,
-            LinkedPath = i.LinkedPath,
-            ReminderAt = i.ReminderAt
-        }).ToList();
+        return TodoRules.CloneAll(items);
     }
 
     private void PushUndoSnapshot()
@@ -2138,7 +2245,7 @@ public sealed partial class PaperWindow
         _controller.NotifyTodoReminderCollectionChanged();
 
         RebuildTodoRows(focusedId);
-        RefreshCapsuleEligibilityForLinkedNoteChanges(currentItems);
+        RefreshCapsuleEligibilityForLinkedPaperChanges(currentItems);
     }
 
     private void Redo()
@@ -2163,7 +2270,7 @@ public sealed partial class PaperWindow
         _controller.NotifyTodoReminderCollectionChanged();
 
         RebuildTodoRows(focusedId);
-        RefreshCapsuleEligibilityForLinkedNoteChanges(currentItems);
+        RefreshCapsuleEligibilityForLinkedPaperChanges(currentItems);
     }
 
     private bool TryCollapseExpandedPaperFromEscape()

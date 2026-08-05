@@ -629,7 +629,8 @@ public sealed class MasterCapsuleWindow : Window
             0,
             QueueStartTopMargin,
             localArea,
-            QueueSlotCount);
+            QueueSlotCount,
+            _controller.DeepCapsuleGap);
         var currentTop = double.IsNaN(_currentTopDip) ? targetTop : _currentTopDip;
 
         ApplyMasterDeviceBounds(currentTop, requestedWidth, geometry);
@@ -688,7 +689,8 @@ public sealed class MasterCapsuleWindow : Window
                     0,
                     QueueStartTopMargin,
                     geometry.LocalWorkAreaDip,
-                    QueueSlotCount);
+                    QueueSlotCount,
+                    _controller.DeepCapsuleGap);
                 ApplyMasterDeviceBounds(
                     targetTop,
                     MasterDockedWidth(geometry.DpiScaleY),
@@ -745,7 +747,8 @@ public sealed class MasterCapsuleWindow : Window
         0,
         QueueStartTopMargin,
         EdgeCapsuleLayout.LocalWorkAreaForQueue(_queueMonitorDeviceName),
-        QueueSlotCount);
+        QueueSlotCount,
+        _controller.DeepCapsuleGap);
 
     private static void OnAnimatedTopChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {

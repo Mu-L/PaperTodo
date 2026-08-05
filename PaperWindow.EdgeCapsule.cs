@@ -182,6 +182,7 @@ public sealed partial class PaperWindow
             MyDeepCapsuleEdge,
             _edgeCapsule.Placement,
             _controller.DeepCapsuleStartTopMarginFor(_paper),
+            DeepCapsuleGap,
             restingWidth,
             CapsuleCloseWidth,
             Math.Max(
@@ -308,7 +309,8 @@ public sealed partial class PaperWindow
             DeepCapsuleMonitorGeometry(),
             index,
             slotCount,
-            _controller.DeepCapsuleStartTopMarginFor(_paper));
+            _controller.DeepCapsuleStartTopMarginFor(_paper),
+            DeepCapsuleGap);
     }
 
 }

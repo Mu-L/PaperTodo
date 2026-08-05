@@ -76,7 +76,7 @@ public sealed partial class PaperWindow
                     ExitNoteEditor();
                     if (CanBeginPaperLinkDrag())
                     {
-                        _controller.BeginNoteLinkDrag(_paper);
+                        _controller.BeginPaperLinkDrag(_paper);
                     }
                 },
                 CreateFeedback = CreateWindowBindingDragFeedback,
@@ -99,7 +99,7 @@ public sealed partial class PaperWindow
         (CanBeginPaperLinkDrag() || CanBeginWindowBindingDrag());
 
     private bool CanBeginPaperLinkDrag() =>
-        _controller.State.EnableTodoNoteLinks;
+        _controller.State.EnableTodoPaperLinks;
 
     private bool CanBeginWindowBindingDrag() =>
         _controller.State.ExperimentalWindowTethering &&
@@ -114,11 +114,11 @@ public sealed partial class PaperWindow
         }
 
         var enabled =
-            _controller.State.EnableTodoNoteLinks ||
+            _controller.State.EnableTodoPaperLinks ||
             _controller.State.ExperimentalWindowTethering;
         var isWindowBound = HasExperimentalWindowTether;
         var isTodoLinked =
-            _controller.State.EnableTodoNoteLinks &&
+            _controller.State.EnableTodoPaperLinks &&
             _controller.IsPaperLinkedToAnyTodo(_paper);
         var isAssociated = isWindowBound || isTodoLinked;
         _windowBindingButton.Visibility =
@@ -148,14 +148,14 @@ public sealed partial class PaperWindow
 
     private string AssociationDragHint()
     {
-        var todoEnabled = _controller.State.EnableTodoNoteLinks;
+        var todoEnabled = _controller.State.EnableTodoPaperLinks;
         var windowEnabled = CanBeginWindowBindingDrag();
         if (todoEnabled && windowEnabled)
         {
             return Strings.Get("ToolTipDragPaperToAssociation");
         }
         return todoEnabled
-            ? Strings.Get("ToolTipDragNoteToTodo")
+            ? Strings.Get("ToolTipDragPaperToTodo")
             : Strings.Get("ToolTipDragPaperToWindow");
     }
 
@@ -163,14 +163,14 @@ public sealed partial class PaperWindow
         TopBarDragFeedback feedback,
         DeviceScreenPoint point)
     {
-        _controller.UpdateNoteLinkDrag(_paper, point.ToPoint());
-        if (_controller.HasNoteLinkDropTarget)
+        _controller.UpdatePaperLinkDrag(_paper, point.ToPoint());
+        if (_controller.HasPaperLinkDropTarget)
         {
             _windowBindingDragTarget = null;
             if (feedback.Context is WindowBindingDragFeedback todoVisual)
             {
-                todoVisual.Chrome.BorderBrush = NoteLinkTargetBorderBrush;
-                todoVisual.Chrome.Background = NoteLinkTargetBgBrush;
+                todoVisual.Chrome.BorderBrush = PaperLinkTargetBorderBrush;
+                todoVisual.Chrome.Background = PaperLinkTargetBgBrush;
                 todoVisual.Icon.Text = "⌖";
                 todoVisual.Label.Foreground = TextBrush;
                 todoVisual.Label.Text = Strings.Get("AssociationDropTodo");
@@ -192,10 +192,10 @@ public sealed partial class PaperWindow
     {
         if (commit && WindowNative.TryGetCursorScreenPosition(out var cursor))
         {
-            _controller.UpdateNoteLinkDrag(_paper, cursor.ToPoint());
+            _controller.UpdatePaperLinkDrag(_paper, cursor.ToPoint());
         }
 
-        var linkedTodo = _controller.EndNoteLinkDrag(_paper, commit);
+        var linkedTodo = _controller.EndPaperLinkDrag(_paper, commit);
         if (linkedTodo)
         {
             _windowBindingDragTarget = null;

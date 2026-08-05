@@ -75,7 +75,7 @@ public sealed partial class PaperWindow : Window
     private Border? _activeDropRow;
     private Border? _dropIndicatorLine;
     private Border? _appendArea;
-    private Border? _linkedNoteDropRow;
+    private Border? _linkedPaperDropRow;
     private bool _closeForReal;
     // Tracks only the hidden owner that PaperTodo applies for window-switcher hiding.
     private bool _windowSwitcherHiddenOwnerApplied;
@@ -86,7 +86,7 @@ public sealed partial class PaperWindow : Window
     private TodoDragState? _todoDrag;
     private readonly List<WeakReference<ContextMenu>> _themedContextMenus = new();
     private readonly List<List<PaperItem>> _undoStack = new();
-    private readonly Dictionary<string, List<Action>> _linkedPaperTitleRefreshers =
+    private readonly Dictionary<string, Dictionary<string, Action>> _linkedPaperTitleRefreshers =
         new(StringComparer.Ordinal);
     private bool _updatingTopBarResponsiveLayout;
     private readonly List<List<PaperItem>> _redoStack = new();
@@ -127,7 +127,7 @@ public sealed partial class PaperWindow : Window
     private const double DeepCapsuleExpandedEdgeInset = EdgeCapsuleLayout.ExpandedEdgeInset;
     private const double DeepCapsuleTopMargin = EdgeCapsuleLayout.TopMargin;
     private const double DeepCapsuleStartTopMargin = EdgeCapsuleLayout.StartTopMargin;
-    private static double DeepCapsuleGap => EdgeCapsuleLayout.Gap;
+    private double DeepCapsuleGap => _controller.DeepCapsuleGap;
     private const double WindowChromeMargin = EdgeCapsuleLayout.WindowChromeMargin;
     private const double WindowChromeInset = WindowChromeMargin * 2;
     // Grow top bar with overall font scale, but only half as much as full FitChrome (shell zoom).
@@ -295,12 +295,12 @@ public sealed partial class PaperWindow : Window
     private static Brush AppendBorderBrush => Theme.Tint(45);
     private static Brush AppendBgBrush => Theme.Tint(12);
     private static Brush AppendHoverBgBrush => Theme.Tint(26);
-    private static Brush NoteLinkTargetBgBrush => Theme.Tint((byte)(Theme.IsDark ? 36 : 28));
-    private static Brush NoteLinkTargetBorderBrush => Theme.Tint(150);
-    private static Brush LinkedNoteNormalBgBrush => Theme.Tint((byte)(Theme.IsDark ? 28 : 18));
-    private static Brush LinkedNoteLightBgBrush => Theme.Tint((byte)(Theme.IsDark ? 48 : 34));
-    private static Brush LinkedNoteMediumBgBrush => Theme.Tint((byte)(Theme.IsDark ? 78 : 58));
-    private static Brush LinkedNoteActiveTextBrush => Theme.TextBrush;
+    private static Brush PaperLinkTargetBgBrush => Theme.Tint((byte)(Theme.IsDark ? 36 : 28));
+    private static Brush PaperLinkTargetBorderBrush => Theme.Tint(150);
+    private static Brush LinkedPaperNormalBgBrush => Theme.Tint((byte)(Theme.IsDark ? 28 : 18));
+    private static Brush LinkedPaperLightBgBrush => Theme.Tint((byte)(Theme.IsDark ? 48 : 34));
+    private static Brush LinkedPaperMediumBgBrush => Theme.Tint((byte)(Theme.IsDark ? 78 : 58));
+    private static Brush LinkedPaperActiveTextBrush => Theme.TextBrush;
 
     private static Brush CheckBoxBorderBrush => Theme.CheckBoxBorderBrush;
 
@@ -713,6 +713,7 @@ public sealed partial class PaperWindow : Window
         };
         Activated += (_, _) =>
         {
+            CancelExperimentalAutoCollapse();
             _controller.NotifyPaperWindowActivated(this);
             _controller.RefreshFloatingSurfaceZOrder();
             NotifyCurrentPaperBodyActivated();
@@ -720,9 +721,11 @@ public sealed partial class PaperWindow : Window
         };
         Deactivated += (_, _) =>
         {
+            var suppressAutoCollapse = HasExperimentalAutoCollapseBlocker();
             NotifyCurrentPaperBodyDeactivated();
             AbortAllInteractions(InteractionAbortReason.Deactivated);
             RefreshExperimentalOpacity();
+            ScheduleExperimentalAutoCollapse(suppressAutoCollapse);
         };
         Closing += OnClosing;
         Closed += (_, _) => CompletePaperWindowClose();
@@ -2407,21 +2410,21 @@ public sealed partial class PaperWindow : Window
             {
                 Kind = TopBarDragKind.NoteLink,
                 CanBegin = () =>
-                    _controller.State.EnableTodoNoteLinks &&
+                    _controller.State.EnableTodoPaperLinks &&
                     _paper.Type == PaperTypes.Note &&
                     BodySupports(PaperBodyCapabilities.NoteLinks),
                 Started = () =>
                 {
                     ExitNoteEditor();
-                    _controller.BeginNoteLinkDrag(_paper);
+                    _controller.BeginPaperLinkDrag(_paper);
                 },
                 CreateFeedback = CreateNoteLinkDragFeedback,
                 Moved = (_, point) =>
-                    _controller.UpdateNoteLinkDrag(
+                    _controller.UpdatePaperLinkDrag(
                         _paper,
                         point.ToPoint()),
                 Completed = commit =>
-                    _controller.EndNoteLinkDrag(_paper, commit),
+                    _controller.EndPaperLinkDrag(_paper, commit),
                 GhostPlacement = TopBarDragGhostPlacement.Centered,
                 DraggingOpacity = 0.82
             });
@@ -2463,7 +2466,7 @@ public sealed partial class PaperWindow : Window
             Padding = new Thickness(9, 5, 10, 5),
             CornerRadius = new CornerRadius(RadiusControl),
             Background = PaperBrush,
-            BorderBrush = NoteLinkTargetBorderBrush,
+            BorderBrush = PaperLinkTargetBorderBrush,
             BorderThickness = new Thickness(1),
             Opacity = 0.86,
             Child = stack,

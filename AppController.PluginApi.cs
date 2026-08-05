@@ -36,7 +36,8 @@ public sealed partial class AppController
             item.Text,
             item.Done,
             item.Order,
-            item.LinkedNoteId,
+            item.LinkedPaperId,
+            item.LinkedPath,
             item.ReminderAt);
 
     internal NoteSnapshot CaptureNoteSnapshot(PaperData paper)

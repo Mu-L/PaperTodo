@@ -141,6 +141,10 @@ public sealed partial class AppController
             Width = new GridLength(1, GridUnitType.Star)
         });
         var statusDot = CreatePluginStatusDot(status);
+        _pluginStatusRefreshers[descriptor.Id] = () =>
+            ApplyPluginStatusDot(
+                statusDot,
+                PluginStatusFor(descriptor, dataIssue != null));
         Grid.SetColumn(statusDot, 0);
         titleRow.Children.Add(statusDot);
 

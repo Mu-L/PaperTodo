@@ -75,6 +75,7 @@ internal sealed class PaperBodyPluginManifest
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
     internal const string SupportedPluginApiVersion = "1.4";
+    internal const string MinimumPluginApiVersion = "1.2";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -635,15 +636,17 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     private static void ValidateManifestApiVersion(string pluginApiVersion)
     {
         var host = SupportedPluginApiVersion.Split('.');
+        var minimum = MinimumPluginApiVersion.Split('.');
         var plugin = pluginApiVersion.Split('.');
         if (plugin[0] == host[0] &&
+            int.Parse(plugin[1]) >= int.Parse(minimum[1]) &&
             int.Parse(plugin[1]) <= int.Parse(host[1]))
         {
             return;
         }
 
         throw new InvalidDataException(
-            $"Unsupported plugin API version {pluginApiVersion}; host supports compatible 1.x plugins up to {SupportedPluginApiVersion}.");
+            $"Unsupported plugin API version {pluginApiVersion}; host supports {MinimumPluginApiVersion} through {SupportedPluginApiVersion}.");
     }
     private static Version ParseVersion(string? value)
     {

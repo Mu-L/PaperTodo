@@ -10,15 +10,6 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private enum SettingsPage
-    {
-        General,
-        Visual,
-        Shortcuts,
-        Plugins,
-        Labs
-    }
-
     private enum ShortcutUiStatus
     {
         Disabled,
@@ -29,9 +20,6 @@ public sealed partial class AppController
         RegistrationFailed
     }
 
-    private SettingsPage _settingsPage;
-    private ScrollViewer? _settingsPageScrollViewer;
-    private SettingsPage? _settingsPageScrollViewerPage;
     private GlobalHotkeyManager? _globalHotkeys;
     private Dictionary<string, string>? _shortcutDraft;
     private Dictionary<string, bool>? _shortcutEnabledDraft;

@@ -170,8 +170,8 @@ public static class TodoVisualSizes
             AppendMinHeight = AppTypography.Scale(metrics.AppendMinHeight),
             AppendGlyphFontSize = AppTypography.Scale(metrics.AppendGlyphFontSize),
             TrashGlyphFontSize = AppTypography.Scale(metrics.TrashGlyphFontSize),
-            LinkedNoteNameFontSize = AppTypography.Scale(metrics.LinkedNoteNameFontSize),
-            LinkedNoteIconFontSize = AppTypography.Scale(metrics.LinkedNoteIconFontSize),
+            LinkedPaperNameFontSize = AppTypography.Scale(metrics.LinkedPaperNameFontSize),
+            LinkedPaperIconFontSize = AppTypography.Scale(metrics.LinkedPaperIconFontSize),
             CheckColumnWidth = AppTypography.Scale(metrics.CheckColumnWidth),
             GhostTextFontSize = AppTypography.Scale(metrics.GhostTextFontSize),
             RowMinHeight = AppTypography.Scale(metrics.RowMinHeight)
@@ -358,8 +358,8 @@ public readonly record struct TodoVisualMetrics(
     double AppendMinHeight,
     double AppendGlyphFontSize,
     double TrashGlyphFontSize,
-    double LinkedNoteNameFontSize,
-    double LinkedNoteIconFontSize,
+    double LinkedPaperNameFontSize,
+    double LinkedPaperIconFontSize,
     double CheckColumnWidth,
     double GhostTextFontSize,
     double RowMinHeight);
@@ -399,11 +399,11 @@ public sealed class AppState
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
     public bool HidePapersFromTaskbar { get; set; } = true;
     public bool HidePapersFromWindowSwitcher { get; set; } = true;
-    public bool EnableTodoNoteLinks { get; set; } = true;
-    public bool ShowLinkedNoteName { get; set; }
-    public bool AllowLongLinkedNoteTitles { get; set; }
+    public bool EnableTodoPaperLinks { get; set; } = true;
+    public bool ShowLinkedPaperName { get; set; }
+    public bool AllowLongLinkedPaperTitles { get; set; }
     public bool ShowLinkedPathExtensionOnly { get; set; }
-    public bool HideLinkedNotesFromCapsules { get; set; }
+    public bool HideLinkedPapersFromCapsules { get; set; }
     public bool RunLinkedScriptCapsulesOnClick { get; set; }
     public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;
     public bool UseCapsuleCollapseAll { get; set; } = true;
@@ -420,6 +420,7 @@ public sealed class AppState
     public bool ExperimentalRestingCapsuleOpacity { get; set; }
     public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
         ExperimentalOpacityLevels.DefaultRestingCapsule;
+    public bool ExperimentalCollapsePaperOnDeactivate { get; set; }
     public bool ExperimentalTodoReminders { get; set; }
     public bool ExperimentalTodoReminderShowButton { get; set; } = true;
     public int ExperimentalTodoReminderQuickMinutes { get; set; } =
@@ -482,12 +483,6 @@ public sealed class AppState
     public bool? ShowTopBarNewPaperButtons { get; set; }
 }
 
-public sealed class PaperBodyStoredState
-{
-    public int Version { get; set; } = 1;
-    public string Json { get; set; } = "{}";
-}
-
 public sealed class PaperData
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -504,13 +499,8 @@ public sealed class PaperData
     public bool IsCollapsed { get; set; } = false;
     public double TextZoom { get; set; } = 1.0;
 
-    // Note body provider. Older data files omit these fields and therefore remain Markdown.
+    // Note body provider.
     public string BodyProviderId { get; set; } = PaperBodyProviderIds.Markdown;
-    // Protocol 1.2 stores plugin data under plugins/data. Keep the old property only so source
-    // code compiled against PaperData still builds; old bodyStates JSON is intentionally ignored.
-    [JsonIgnore]
-    public Dictionary<string, PaperBodyStoredState> BodyStates { get; set; } =
-        new(StringComparer.Ordinal);
     // Last plugin-provided display title. Persisting this lightweight cache lets linked todo
     // badges and capsules show the last known plugin title before the body session is recreated.
     [JsonPropertyName("bodyCapsuleText")]
@@ -556,12 +546,52 @@ public sealed class PaperItem
     public bool Done { get; set; }
     public int Order { get; set; }
 
+    [JsonInclude]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? LinkedNoteId { get; set; }
+    public string? LinkedPaperId { get; private set; }
 
+    [JsonInclude]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? LinkedPath { get; set; }
+    public string? LinkedPath { get; private set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? ReminderAt { get; set; }
+
+    public void LinkPaper(string? paperId)
+    {
+        LinkedPaperId = NormalizeQuickLaunchValue(paperId);
+        LinkedPath = null;
+    }
+
+    public void LinkPath(string? path)
+    {
+        LinkedPath = NormalizeQuickLaunchValue(path);
+        LinkedPaperId = null;
+    }
+
+    public void ClearQuickLaunch()
+    {
+        LinkedPaperId = null;
+        LinkedPath = null;
+    }
+
+    internal void RestoreQuickLaunch(string? paperId, string? path)
+    {
+        var normalizedPaperId = NormalizeQuickLaunchValue(paperId);
+        if (normalizedPaperId != null)
+        {
+            LinkedPaperId = normalizedPaperId;
+            LinkedPath = null;
+            return;
+        }
+
+        LinkedPaperId = null;
+        LinkedPath = NormalizeQuickLaunchValue(path);
+    }
+
+    private static string? NormalizeQuickLaunchValue(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrEmpty(normalized) ? null : normalized;
+    }
 }

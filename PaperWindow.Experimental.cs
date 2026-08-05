@@ -1,4 +1,8 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace PaperTodo;
 
@@ -17,6 +21,7 @@ public sealed partial class PaperWindow
     private bool _experimentalPassiveNativeApplied;
     private bool _experimentalPassiveHadNoActivateStyle;
     private bool _experimentalPassiveNeedsZOrderRestore;
+    private int _experimentalAutoCollapseGeneration;
 
     internal bool IsExperimentalPassive =>
         _experimentalPassiveReasons != ExperimentalPassiveReason.None;
@@ -199,6 +204,90 @@ public sealed partial class PaperWindow
             }
         }
 
+        return false;
+    }
+
+    private void CancelExperimentalAutoCollapse()
+    {
+        _experimentalAutoCollapseGeneration++;
+    }
+
+    private void ScheduleExperimentalAutoCollapse(bool interactionWasActive)
+    {
+        var generation = ++_experimentalAutoCollapseGeneration;
+        if (interactionWasActive ||
+            !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
+            !_controller.State.UseCapsuleMode ||
+            _paper.IsCollapsed)
+        {
+            return;
+        }
+
+        var timer = new DispatcherTimer(
+            DispatcherPriority.ContextIdle,
+            Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(140)
+        };
+        EventHandler? tick = null;
+        tick = (_, _) =>
+        {
+            timer.Stop();
+            if (tick != null)
+            {
+                timer.Tick -= tick;
+            }
+
+            if (generation != _experimentalAutoCollapseGeneration ||
+                _windowLifecycle != PaperWindowLifecycleState.Alive ||
+                IsActive ||
+                !IsVisible ||
+                !_paper.IsVisible ||
+                _paper.IsCollapsed ||
+                WindowState == WindowState.Minimized ||
+                !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
+                !_controller.State.UseCapsuleMode ||
+                HasExperimentalAutoCollapseBlocker() ||
+                !CanDisplayAsCapsule())
+            {
+                return;
+            }
+
+            SetCollapsedState(true);
+        };
+        timer.Tick += tick;
+        timer.Start();
+    }
+
+    private bool HasExperimentalAutoCollapseBlocker() =>
+        _isEditingTitle ||
+        _titleBarDragSession != null ||
+        _todoDrag?.IsDragging == true ||
+        _topBarDrag?.IsDragging == true ||
+        (Mouse.Captured is DependencyObject captured &&
+            IsDescendantOf(captured, this)) ||
+        HasOpenOwnedContextMenu() ||
+        HasOpenComboBox(_paperChrome);
+
+    private static bool HasOpenComboBox(DependencyObject? root)
+    {
+        if (root == null)
+        {
+            return false;
+        }
+        if (root is ComboBox { IsDropDownOpen: true })
+        {
+            return true;
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            if (HasOpenComboBox(VisualTreeHelper.GetChild(root, index)))
+            {
+                return true;
+            }
+        }
         return false;
     }
 

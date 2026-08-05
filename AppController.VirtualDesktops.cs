@@ -43,7 +43,7 @@ public sealed partial class AppController
             !State.ExperimentalVirtualDesktopIntegration;
         RefreshExperimentalVirtualDesktopRuntime();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.virtualDesktop");
     }
 
     private void ToggleExperimentalVirtualDesktopMoveOnShow()
@@ -51,7 +51,7 @@ public sealed partial class AppController
         State.ExperimentalVirtualDesktopMoveOnShow =
             !State.ExperimentalVirtualDesktopMoveOnShow;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.virtualDesktop");
     }
 
     private void ToggleExperimentalVirtualDesktopMoveOnCapsuleActivation()
@@ -59,7 +59,7 @@ public sealed partial class AppController
         State.ExperimentalVirtualDesktopMoveOnCapsuleActivation =
             !State.ExperimentalVirtualDesktopMoveOnCapsuleActivation;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.virtualDesktop");
     }
 
     internal bool PreparePaperForCurrentVirtualDesktop(

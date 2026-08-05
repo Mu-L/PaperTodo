@@ -85,7 +85,7 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
     private void SetDeepCapsuleGapSize(string size)

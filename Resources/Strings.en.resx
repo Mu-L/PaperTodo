@@ -76,7 +76,7 @@ Error: {0}</value>
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>Link</value>
   </data>
-  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+  <data name="ToolTipDragPaperToTodo" xml:space="preserve">
     <value>Drag onto a todo item to link this paper</value>
   </data>
   <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
@@ -85,7 +85,7 @@ Error: {0}</value>
   <data name="AssociationDropTodo" xml:space="preserve">
     <value>Release to link to this todo</value>
   </data>
-  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+  <data name="ToolTipOpenLinkedPaper" xml:space="preserve">
     <value>Open linked paper: {0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
@@ -247,13 +247,13 @@ Error: {0}</value>
   <data name="ImageImportTotalTooLarge" xml:space="preserve">
     <value>The image store has reached its total limit ({0} MB).</value>
   </data>
-  <data name="MenuOpenLinkedNote" xml:space="preserve">
+  <data name="MenuOpenLinkedPaper" xml:space="preserve">
     <value>Open linked paper: {0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>Edit linked script: {0}</value>
   </data>
-  <data name="MenuUnlinkNote" xml:space="preserve">
+  <data name="MenuUnlinkPaper" xml:space="preserve">
     <value>Unlink paper</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
@@ -520,7 +520,7 @@ Error: {0}</value>
   <data name="SettingsCapsule" xml:space="preserve">
     <value>Capsule</value>
   </data>
-  <data name="SettingsTodoNote" xml:space="preserve">
+  <data name="SettingsTodoPaper" xml:space="preserve">
     <value>To-dos &amp; notes</value>
   </data>
   <data name="SettingsRunLinkedScriptCapsulesOnClick" xml:space="preserve">
@@ -563,18 +563,18 @@ Enhanced: nicer headings, lists, and emphasis.</value>
   <data name="TipTodoVisualSize" xml:space="preserve">
     <value>Todo text, row height, and spacing.</value>
   </data>
-  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+  <data name="TipEnableTodoPaperLinks" xml:space="preserve">
     <value>Drag any paper onto a todo item to link it, then open the paper from that item.</value>
   </data>
-  <data name="TipShowLinkedNoteName" xml:space="preserve">
+  <data name="TipShowLinkedPaperName" xml:space="preserve">
     <value>Show the linked paper title after the todo.</value>
   </data>
-  <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="TipAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>Off: compact. On: wider to fit content.
 About 5 full-width characters on one line, 10 on multiline.</value>
   </data>
-  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>Notes linked to todos leave the capsule list, avoiding duplicate entries.</value>
+  <data name="TipHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>Papers linked to todos leave the capsule list, avoiding duplicate entries.</value>
   </data>
   <data name="TipRunLinkedScriptCapsulesOnClick" xml:space="preserve">
     <value>If linked to a script capsule: left-click runs it, right-click opens edit.</value>
@@ -683,7 +683,7 @@ Cancel import if compression is unsafe, fails, stays over 8 MB, or does not shri
 Off: no compression; over 8 MB is rejected.
 Either way, any side over 4096 px is rejected.</value>
   </data>
-  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+  <data name="SettingsEnableTodoPaperLinks" xml:space="preserve">
     <value>Enable todo-paper links</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
@@ -710,14 +710,14 @@ Either way, any side over 4096 px is rejected.</value>
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>Show external open button</value>
   </data>
-  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+  <data name="SettingsShowLinkedPaperName" xml:space="preserve">
     <value>Show linked paper title</value>
   </data>
-  <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="SettingsAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>Long linked paper titles</value>
   </data>
-  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>Linked notes not shown as capsules</value>
+  <data name="SettingsHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>Linked papers not shown as capsules</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>Restore note zoom</value>
@@ -759,6 +759,18 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>These features are experimental, and their behavior or options may change. Each feature runs independently and stops its related runtime state as soon as it is turned off.</value>
   </data>
+  <data name="LabsFocusBehavior" xml:space="preserve">
+    <value>Focus and idle behavior</value>
+  </data>
+  <data name="LabsWindowCoordination" xml:space="preserve">
+    <value>Window coordination</value>
+  </data>
+  <data name="LabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>Collapse paper when focus is lost</value>
+  </data>
+  <data name="TipLabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>Collapses an unfocused paper into a capsule. It does not trigger during dragging, title editing, or while a menu or drop-down is open. Capsule mode is required.</value>
+  </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>Paper opacity</value>
   </data>
@@ -783,9 +795,6 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>Resting opacity</value>
   </data>
-  <data name="LabsCapsuleMagnetism" xml:space="preserve">
-    <value>Ordinary capsule edge snap</value>
-  </data>
   <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
     <value>Enable edge snap</value>
   </data>
@@ -809,9 +818,6 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>Remove edge snap</value>
-  </data>
-  <data name="LabsWindowTethering" xml:space="preserve">
-    <value>Window binding</value>
   </data>
   <data name="LabsEnableWindowTethering" xml:space="preserve">
     <value>Enable window binding</value>
@@ -845,9 +851,6 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
     <value>Unbind from window</value>
-  </data>
-  <data name="LabsTetherVisibility" xml:space="preserve">
-    <value>Window-binding visibility</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
     <value>Retract when the target is hidden</value>

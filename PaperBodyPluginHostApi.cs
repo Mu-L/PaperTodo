@@ -77,7 +77,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
             if (todos.Any(item =>
                     item.Done ||
                     item.ReminderAt.HasValue ||
-                    !string.IsNullOrWhiteSpace(item.LinkedNoteId)))
+                    !string.IsNullOrWhiteSpace(item.LinkedPaperId)))
             {
                 Require(PaperTodoPermissionNames.TodosUpdate);
             }
@@ -94,7 +94,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         if ((request.Todos ?? []).Any(item =>
                 item.Done ||
                 item.ReminderAt.HasValue ||
-                !string.IsNullOrWhiteSpace(item.LinkedNoteId)))
+                !string.IsNullOrWhiteSpace(item.LinkedPaperId)))
         {
             Require(PaperTodoPermissionNames.TodosUpdate);
         }
@@ -242,7 +242,8 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         {
             PaperTitle = canReadPapers ? value.PaperTitle : "",
             Text = canReadTodos ? value.Text : "",
-            LinkedNoteId = canReadTodos ? value.LinkedNoteId : null,
+            LinkedPaperId = canReadTodos ? value.LinkedPaperId : null,
+            LinkedPath = canReadTodos ? value.LinkedPath : null,
             ReminderAt = canReadTodos ? value.ReminderAt : null
         };
 

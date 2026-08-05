@@ -9,7 +9,7 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private IPaperBodySession? _bodySession;
+    private readonly PaperBodyHost _paperBodyHost = new();
     private PaperBodyPluginDescriptor? _bodyDescriptor;
     private UIElement? _bodyElement;
     private FrameworkElement? _pluginBodyClipHost;
@@ -173,7 +173,7 @@ public sealed partial class PaperWindow
         _bodyFailed = false;
         var generation = NextBodySessionGeneration();
         var body = CreatePaperBodyView(generation, out var session);
-        _bodySession = session;
+        _paperBodyHost.Attach(session);
         _bodyElement = body;
         return body;
     }
@@ -194,7 +194,10 @@ public sealed partial class PaperWindow
         {
             _controller.PaperBodyPlugins.TryGet(providerId, out var markdownDescriptor);
             _bodyDescriptor = markdownDescriptor;
-            return new MarkdownPaperBodySession(this);
+            return new MarkdownPaperBodySession(
+                this,
+                _paper,
+                _controller.ImageStore);
         }
 
         if (!_controller.PaperBodyPlugins.TryGet(providerId, out var descriptor))
@@ -654,18 +657,9 @@ public sealed partial class PaperWindow
 
     private void CommitDisposeAndInvalidateCurrentBody(bool cancelInteractions)
     {
-        var session = _bodySession;
         var generation = _bodySessionGeneration;
         var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
-        if (session != null)
-        {
-            try { session.Commit(); } catch { }
-            if (cancelInteractions)
-            {
-                try { session.CancelInteractions(); } catch { }
-            }
-            try { session.Dispose(); } catch { }
-        }
+        _paperBodyHost.CommitCancelDispose(cancelInteractions);
         _bodyHostApi?.Dispose();
         _bodyHostApi = null;
         _bodyRuntimeVisible = false;
@@ -854,7 +848,7 @@ public sealed partial class PaperWindow
         _bodyFailed = false;
         var generation = NextBodySessionGeneration();
         var body = CreatePaperBodyView(generation, out var session);
-        _bodySession = session;
+        _paperBodyHost.Attach(session);
         _bodyElement = body;
         Grid.SetRow(body, 1);
         Panel.SetZIndex(body, 1);
@@ -871,7 +865,6 @@ public sealed partial class PaperWindow
         {
             _shell.Children.Remove(_bodyElement);
         }
-        _bodySession = null;
         _bodyDescriptor = null;
         _bodyElement = null;
         _pluginBodyClipHost = null;
@@ -914,24 +907,15 @@ public sealed partial class PaperWindow
         Action<IPaperBodySession> callback,
         bool disableOnFailure = true)
     {
-        var session = _bodySession;
-        if (session == null)
-        {
-            return;
-        }
-
-        try
-        {
-            callback(session);
-        }
-        catch (Exception ex)
+        var failure = _paperBodyHost.Invoke(callback);
+        if (failure != null)
         {
             if (!disableOnFailure ||
                 _windowLifecycle != PaperWindowLifecycleState.Alive)
             {
                 return;
             }
-            ReplaceBodyWithFailure(ex.GetBaseException().Message);
+            ReplaceBodyWithFailure(failure.Message);
         }
     }
 
@@ -944,10 +928,11 @@ public sealed partial class PaperWindow
             _shell.Children.Remove(_bodyElement);
         }
         ClearPluginCapsuleTextOnFailure();
-        _bodySession = new FailedPaperBodySession(this, providerName, message);
+        var failedSession = new FailedPaperBodySession(this, providerName, message);
+        _paperBodyHost.Attach(failedSession);
         _bodyDescriptor = null;
         _bodyFailed = true;
-        _bodyElement = WrapPluginBodyView(_bodySession.View);
+        _bodyElement = WrapPluginBodyView(failedSession.View);
         Grid.SetRow(_bodyElement, 1);
         Panel.SetZIndex(_bodyElement, 1);
         _shell.Children.Add(_bodyElement);
@@ -957,8 +942,14 @@ public sealed partial class PaperWindow
 
     private void ClearPluginCapsuleTextOnFailure()
     {
+        var hadPersistedTitle = !string.IsNullOrEmpty(_paper.BodyCapsuleText);
         _paper.BodyCapsuleText = "";
         RefreshCapsuleLabel();
+        if (hadPersistedTitle)
+        {
+            RefreshPaperTitle();
+            _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
+        }
     }
 
     internal void CommitCurrentPaperBody()
@@ -1054,7 +1045,6 @@ public sealed partial class PaperWindow
     internal void DisposeCurrentPaperBody()
     {
         CommitDisposeAndInvalidateCurrentBody(cancelInteractions: true);
-        _bodySession = null;
         _bodyDescriptor = null;
         _bodyElement = null;
         _pluginBodyClipHost = null;
@@ -1132,17 +1122,6 @@ public sealed partial class PaperWindow
     }
 
 
-    internal void CommitLegacyMarkdownContent()
-    {
-        if (_paper.Type != PaperTypes.Note || _noteBox == null || !_noteContentDirty)
-        {
-            return;
-        }
-
-        _paper.Content = _noteBox.PersistentText;
-        _noteContentDirty = false;
-    }
-
     internal void RefreshLegacyMarkdownFromModel()
     {
         if (_paper.Type != PaperTypes.Note || _noteBox == null)
@@ -1175,27 +1154,6 @@ public sealed partial class PaperWindow
 
     internal FrameworkElement CreateMarkdownBodyView() =>
         (FrameworkElement)BuildNoteBody();
-
-    internal void CancelLegacyMarkdownInteractions() =>
-        CancelNotePresenterDeferredWork();
-
-    internal void RefreshLegacyMarkdownTheme() =>
-        _noteBox?.RefreshVisualStyle();
-
-    internal void RefreshLegacyMarkdownTypography() =>
-        _noteBox?.RefreshTypography();
-
-    internal void RefreshLegacyMarkdownDpi() =>
-        _noteBox?.RefreshImageDecodeForCurrentDpi();
-
-    internal void SetLegacyMarkdownVisibility(bool visible)
-    {
-        _noteBox?.SetImageRenderingSuspended(!visible);
-        if (!visible)
-        {
-            _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
-        }
-    }
 
     private void ClearPluginRuntimeStateOnFailure()
     {

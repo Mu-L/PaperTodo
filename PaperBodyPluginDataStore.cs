@@ -11,6 +11,12 @@ internal sealed record PaperBodyPluginDataReadIssue(
     bool UsingEmptyState,
     string Details);
 
+internal sealed class PaperBodyStoredState
+{
+    public int Version { get; set; } = 1;
+    public string Json { get; set; } = "{}";
+}
+
 /// <summary>
 /// PaperTodo-managed plugin persistence. One JSON file stores one plugin's global settings and
 /// all of its per-paper state. These files are deliberately separate from data.json and its backup.

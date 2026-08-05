@@ -208,7 +208,7 @@ public sealed partial class AppController
 
         SaveNow();
         RefreshExperimentalWindowRuntime();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void ToggleExperimentalCapsuleMagnetScreenEdges()
@@ -220,7 +220,7 @@ public sealed partial class AppController
             window.DisableExperimentalCapsuleMagnet();
         }
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void ToggleExperimentalCapsuleMagnetWindowEdges()
@@ -233,7 +233,7 @@ public sealed partial class AppController
         }
         SaveNow();
         RefreshExperimentalWindowRuntime();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void SetExperimentalCapsuleMagnetDistance(int distance)
@@ -248,7 +248,7 @@ public sealed partial class AppController
 
         State.ExperimentalCapsuleMagnetDistance = normalized;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void ToggleExperimentalWindowTethering()
@@ -266,7 +266,7 @@ public sealed partial class AppController
         SaveNow();
         RefreshExperimentalWindowRuntime();
         RefreshExperimentalAttachmentMenus();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void SetExperimentalWindowTetherPreferredEdge(string edge)
@@ -283,7 +283,7 @@ public sealed partial class AppController
             window.RefreshExperimentalWindowTetherOptions();
         }
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void SetExperimentalWindowTetherGap(int gap)
@@ -300,7 +300,7 @@ public sealed partial class AppController
             window.RefreshExperimentalWindowTetherOptions();
         }
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void ToggleExperimentalTetherVisibilityLink()
@@ -323,7 +323,7 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void SetExperimentalTetherMinimizedBehavior(string behavior)
@@ -341,7 +341,7 @@ public sealed partial class AppController
             window.RefreshExperimentalTetherVisibilityOptions();
         }
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.window");
     }
 
     private void RefreshExperimentalAttachmentMenus()

@@ -9,6 +9,8 @@ namespace PaperTodo;
 public sealed partial class AppController
 {
     private bool _pluginStatusRefreshQueued;
+    private readonly Dictionary<string, Action> _pluginStatusRefreshers =
+        new(StringComparer.Ordinal);
 
     private enum PluginPageStatus
     {
@@ -67,7 +69,23 @@ public sealed partial class AppController
 
     private Border CreatePluginStatusDot(PluginPageStatus status)
     {
-        var brush = status switch
+        var dot = new Border
+        {
+            Width = 7,
+            Height = 7,
+            CornerRadius = new CornerRadius(3.5),
+            Margin = new Thickness(0, 0, 7, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ApplyPluginStatusDot(dot, status);
+        return dot;
+    }
+
+    private void ApplyPluginStatusDot(
+        Border dot,
+        PluginPageStatus status)
+    {
+        dot.Background = status switch
         {
             PluginPageStatus.Issue => Theme.DangerBrush,
             PluginPageStatus.Running => new SolidColorBrush(
@@ -83,17 +101,8 @@ public sealed partial class AppController
             _ => "PluginsStatusStopped"
         };
 
-        return new Border
-        {
-            Width = 7,
-            Height = 7,
-            CornerRadius = new CornerRadius(3.5),
-            Background = brush,
-            Opacity = status == PluginPageStatus.Stopped ? 0.62 : 1,
-            Margin = new Thickness(0, 0, 7, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = Strings.Get(tipKey)
-        };
+        dot.Opacity = status == PluginPageStatus.Stopped ? 0.62 : 1;
+        dot.ToolTip = Strings.Get(tipKey);
     }
     internal void QueuePluginStatusRefresh()
     {
@@ -112,7 +121,11 @@ public sealed partial class AppController
                 if (_settingsWindow is { IsVisible: true } &&
                     _settingsPage == SettingsPage.Plugins)
                 {
-                    RefreshSettingsWindowContent();
+                    foreach (var refresh in
+                             _pluginStatusRefreshers.Values.ToList())
+                    {
+                        refresh();
+                    }
                 }
             }),
             DispatcherPriority.Background);

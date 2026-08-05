@@ -335,7 +335,6 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 },
                 setTitle(title) { post('setTitle', String(title ?? '')); },
                 setDisplayTitle(text) { post('setDisplayTitle', String(text ?? '')); },
-                setCapsuleText(text) { post('setDisplayTitle', String(text ?? '')); },
                 setInputClaims(claims) {
                   const values = Array.isArray(claims)
                     ? claims.map(value => String(value ?? '')).filter(Boolean)
@@ -680,7 +679,6 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                     _context.SetTitle(ReadPayloadString(payload));
                     break;
                 case "setDisplayTitle":
-                case "setCapsuleText":
                     _context.SetDisplayTitle(ReadPayloadString(payload));
                     break;
                 case "setInputClaims":

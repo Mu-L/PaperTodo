@@ -83,7 +83,7 @@
   <data name="MarkdownDefaultLinkLabel" xml:space="preserve">
     <value>链接</value>
   </data>
-  <data name="ToolTipDragNoteToTodo" xml:space="preserve">
+  <data name="ToolTipDragPaperToTodo" xml:space="preserve">
     <value>拖到待办项上关联纸片</value>
   </data>
   <data name="ToolTipDragPaperToAssociation" xml:space="preserve">
@@ -92,7 +92,7 @@
   <data name="AssociationDropTodo" xml:space="preserve">
     <value>松开以关联到待办</value>
   </data>
-  <data name="ToolTipOpenLinkedNote" xml:space="preserve">
+  <data name="ToolTipOpenLinkedPaper" xml:space="preserve">
     <value>打开关联纸片：{0}</value>
   </data>
   <data name="ToolTipRunLinkedScriptCapsule" xml:space="preserve">
@@ -257,13 +257,13 @@
   <data name="ImageImportTotalTooLarge" xml:space="preserve">
     <value>图片总容量已达到上限（{0} MB）。</value>
   </data>
-  <data name="MenuOpenLinkedNote" xml:space="preserve">
+  <data name="MenuOpenLinkedPaper" xml:space="preserve">
     <value>打开关联纸片：{0}</value>
   </data>
   <data name="MenuEditLinkedScriptCapsule" xml:space="preserve">
     <value>编辑关联脚本：{0}</value>
   </data>
-  <data name="MenuUnlinkNote" xml:space="preserve">
+  <data name="MenuUnlinkPaper" xml:space="preserve">
     <value>取消关联纸片</value>
   </data>
   <data name="MenuItalic" xml:space="preserve">
@@ -546,7 +546,7 @@
   <data name="SettingsCapsule" xml:space="preserve">
     <value>胶囊</value>
   </data>
-  <data name="SettingsTodoNote" xml:space="preserve">
+  <data name="SettingsTodoPaper" xml:space="preserve">
     <value>待办与笔记</value>
   </data>
   <data name="SettingsRunLinkedScriptCapsulesOnClick" xml:space="preserve">
@@ -589,18 +589,18 @@
   <data name="TipTodoVisualSize" xml:space="preserve">
     <value>调整待办文字、行高与间距。</value>
   </data>
-  <data name="TipEnableTodoNoteLinks" xml:space="preserve">
+  <data name="TipEnableTodoPaperLinks" xml:space="preserve">
     <value>把任意纸片拖到待办项上建立关联，再从该项打开纸片。</value>
   </data>
-  <data name="TipShowLinkedNoteName" xml:space="preserve">
+  <data name="TipShowLinkedPaperName" xml:space="preserve">
     <value>在待办项后显示已关联纸片的标题。</value>
   </data>
-  <data name="TipAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="TipAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>关闭时紧凑显示；开启后按内容加宽。
 单行约 5 个全角字，多行约 10 个。</value>
   </data>
-  <data name="TipHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>已关联到待办的笔记不再出现在胶囊列表，避免重复入口。</value>
+  <data name="TipHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>已关联到待办的纸片不再出现在胶囊列表，避免重复入口。</value>
   </data>
   <data name="TipRunLinkedScriptCapsulesOnClick" xml:space="preserve">
     <value>关联到脚本胶囊时：左键运行，右键打开编辑。</value>
@@ -709,7 +709,7 @@
     <value>隐藏脚本运行窗口。
 !p / !power 会等待结束并捕获错误；!pf / !powerf 只投递到常驻进程。</value>
   </data>
-  <data name="SettingsEnableTodoNoteLinks" xml:space="preserve">
+  <data name="SettingsEnableTodoPaperLinks" xml:space="preserve">
     <value>启用待办关联纸片</value>
   </data>
   <data name="SettingsAutoClearCompletedTodos" xml:space="preserve">
@@ -736,14 +736,14 @@
   <data name="SettingsShowTopBarExternalOpenButton" xml:space="preserve">
     <value>显示外部打开按钮</value>
   </data>
-  <data name="SettingsShowLinkedNoteName" xml:space="preserve">
+  <data name="SettingsShowLinkedPaperName" xml:space="preserve">
     <value>显示关联纸片标题</value>
   </data>
-  <data name="SettingsAllowLongLinkedNoteTitles" xml:space="preserve">
+  <data name="SettingsAllowLongLinkedPaperTitles" xml:space="preserve">
     <value>关联纸片显示长标题</value>
   </data>
-  <data name="SettingsHideLinkedNotesFromCapsules" xml:space="preserve">
-    <value>关联笔记不显示为胶囊</value>
+  <data name="SettingsHideLinkedPapersFromCapsules" xml:space="preserve">
+    <value>关联纸片不显示为胶囊</value>
   </data>
   <data name="SettingsResetNoteZoom" xml:space="preserve">
     <value>恢复笔记缩放</value>
@@ -772,6 +772,18 @@
   <data name="SettingsLabsIntro" xml:space="preserve">
     <value>这些功能仍在试验，行为和选项可能随版本调整。每项功能独立启用；关闭后会立即停止对应运行状态。</value>
   </data>
+  <data name="LabsFocusBehavior" xml:space="preserve">
+    <value>失焦与静置</value>
+  </data>
+  <data name="LabsWindowCoordination" xml:space="preserve">
+    <value>窗口联动系统</value>
+  </data>
+  <data name="LabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>失去焦点时自动收起纸片</value>
+  </data>
+  <data name="TipLabsCollapsePaperOnDeactivate" xml:space="preserve">
+    <value>纸片失去焦点后自动收起为胶囊。拖拽、标题编辑、菜单或下拉栏打开时不会触发。需要启用胶囊模式。</value>
+  </data>
   <data name="LabsPaperOpacity" xml:space="preserve">
     <value>纸片透明度</value>
   </data>
@@ -796,9 +808,6 @@
   <data name="LabsRestingCapsuleOpacityLevel" xml:space="preserve">
     <value>静止时不透明度</value>
   </data>
-  <data name="LabsCapsuleMagnetism" xml:space="preserve">
-    <value>普通胶囊边缘磁吸</value>
-  </data>
   <data name="LabsEnableCapsuleMagnetism" xml:space="preserve">
     <value>启用边缘磁吸</value>
   </data>
@@ -822,9 +831,6 @@
   </data>
   <data name="LabsCapsuleMagnetDetach" xml:space="preserve">
     <value>解除磁吸</value>
-  </data>
-  <data name="LabsWindowTethering" xml:space="preserve">
-    <value>窗口绑定</value>
   </data>
   <data name="LabsEnableWindowTethering" xml:space="preserve">
     <value>启用窗口绑定</value>
@@ -858,9 +864,6 @@
   </data>
   <data name="LabsWindowTetherDetach" xml:space="preserve">
     <value>解除窗口绑定</value>
-  </data>
-  <data name="LabsTetherVisibility" xml:space="preserve">
-    <value>窗口绑定显隐联动</value>
   </data>
   <data name="LabsEnableTetherVisibility" xml:space="preserve">
     <value>目标隐藏时同步收起</value>

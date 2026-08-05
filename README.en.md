@@ -58,7 +58,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 - **Capsule mode** (on by default) — Use the top-right control to fold a paper into a small capsule and open it again when needed.
 - **Automatic edge docking** (on by default) — Folded capsules dock along screen edges. Multi-monitor layouts are supported, and a capsule can be dragged to another side or display.
 - **Script capsules** — Start a note with `!p` / `!power` to run its contents quickly as a PowerShell script.
-- **Link notes to todos** — Drag a note onto a todo item to link it, then open the linked note directly from that item.
+- **Link papers to todos** — Drag a note paper onto a todo item, then open the target paper directly; the link model also supports plugin bodies and other todo papers.
 - **Note images** — Paste, drop, or choose local images from the menu.
 - **Local data** — Papers auto-save to `data.json` with a backup; note images are written incrementally and safely to a single `note-assets.lmdb` file.
 
@@ -114,7 +114,7 @@ Good for today's tasks, temporary items, and small desktop checklists.
 - **Undo / redo** — `Ctrl+Z` / `Ctrl+Y`
 - **Auto-clear completed** — Optional in settings; completed items are removed automatically when checked.
 
-**Linked notes**: Drag a note from its title bar onto a todo item to link it. The item then shows an entry for opening the linked note.
+**Linked papers**: Drag a note paper from its title bar onto a todo item. The item then shows an entry for opening the target paper.
 
 ---
 
@@ -160,7 +160,7 @@ The settings window has three pages: **Behavior / Visual / Shortcuts**. **Advanc
 - **Title bar buttons** — hide new todo, new note, or external open separately
 - **External open** — temporary file suffix for the system editor
 - **Capsules** — capsule mode, auto-dock, keep the edge capsule while expanded, remember expand position, show the master capsule (collapse all), and click an edge capsule again to fold the paper; Advanced options also include hiding the close button on hover, title character limits, and maximum edge-title length
-- **Todos and notes** — auto-clear completed items, linked notes, show linked names, long linked titles, whether linked notes appear as capsules, and run linked scripts on click; Advanced also includes automatic compression for oversized images
+- **Todos and papers** — auto-clear completed items, linked papers, show linked names, long linked titles, whether linked papers appear as capsules, and run linked scripts on click; Advanced also includes automatic compression for oversized images
 - **Script capsules** (Advanced) — prefer PowerShell 7, hide run window, persistent process
 - **Fullscreen topmost policy** (Advanced) — choose whether papers and edge capsules step back or stay above external fullscreen windows
 - **Hide papers from window switching** (Advanced) — expanded papers do not appear in Alt+Tab or Task View, and their taskbar icons are hidden

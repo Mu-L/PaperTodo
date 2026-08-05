@@ -69,8 +69,6 @@ public sealed class PaperBodyContext
     public required Action<PaperBodyInputClaims> SetInputClaims { get; init; }
     public required Action MarkDirty { get; init; }
 
-    [Obsolete("Use SetDisplayTitle. Protocol 1.1 display titles apply to both paper and capsule.")]
-    public void SetCapsuleText(string text) => SetDisplayTitle(text);
     public required Action<string> OpenExternal { get; init; }
     public required Action RequestReload { get; init; }
 }
@@ -115,16 +113,16 @@ public interface IPaperBodySession : IDisposable
     void OnActivated() { }
     void OnDeactivated() { }
 
-    // Protocol 1.1: whether the paper/plugin remains available at all. A visible capsule keeps
-    // this true even while its full body is folded away.
+    // Whether the paper/plugin remains available at all. A visible capsule keeps this true even
+    // while its full body is folded away.
     void OnVisibilityChanged(bool visible) { }
 
-    // Protocol 1.1: whether the full paper body is currently presented and interactive.
+    // Whether the full paper body is currently presented and interactive.
     void OnPresentationChanged(bool visible) { }
     void OnThemeChanged(PaperBodyTheme theme) { }
     void OnTypographyChanged(PaperBodyTheme theme) { }
     void OnDpiChanged() { }
 
-    // Protocol 1.2: host-rendered global settings changed for this plugin.
+    // Host-rendered global settings changed for this plugin.
     void OnSettingsChanged(string settingsJson) { }
 }

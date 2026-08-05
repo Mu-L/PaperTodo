@@ -181,14 +181,14 @@ internal sealed class McpCommandService
         var hasText = parameters.TryGetProperty("text", out var textValue);
         var hasDone = parameters.TryGetProperty("done", out var doneValue);
         var hasOrder = parameters.TryGetProperty("order", out var orderValue);
-        var hasLinkedNote = parameters.TryGetProperty(
-            "linked_note_id",
-            out var linkedNoteValue);
-        if (!hasText && !hasDone && !hasOrder && !hasLinkedNote)
+        var hasLinkedPaper = parameters.TryGetProperty(
+            "linked_paper_id",
+            out var linkedPaperValue);
+        if (!hasText && !hasDone && !hasOrder && !hasLinkedPaper)
         {
             throw new McpApiException(
                 "invalid_params",
-                "Provide text, done, order and/or linked_note_id.");
+                "Provide text, done, order and/or linked_paper_id.");
         }
 
         string? text = null;
@@ -229,13 +229,13 @@ internal sealed class McpCommandService
             }
         }
 
-        string? linkedNoteId = null;
-        if (hasLinkedNote)
+        string? linkedPaperId = null;
+        if (hasLinkedPaper)
         {
             RequireFullWrites();
-            linkedNoteId = linkedNoteValue.ValueKind == JsonValueKind.Null
+            linkedPaperId = linkedPaperValue.ValueKind == JsonValueKind.Null
                 ? null
-                : RequiredStringValue(linkedNoteValue, "linked_note_id", 64);
+                : RequiredStringValue(linkedPaperValue, "linked_paper_id", 64);
         }
 
         _commands.UpdateTodo(
@@ -246,8 +246,8 @@ internal sealed class McpCommandService
                 Text = hasText ? text : null,
                 Done = done,
                 Order = order,
-                UpdateLinkedNote = hasLinkedNote,
-                LinkedNoteId = linkedNoteId
+                UpdateLinkedPaper = hasLinkedPaper,
+                LinkedPaperId = linkedPaperId
             },
             PaperOperationContext.Mcp());
         return TodoDetails(RequireTodo(paperId, todoId));
@@ -406,7 +406,8 @@ internal sealed class McpCommandService
         text = item.Text,
         done = item.Done,
         order = item.Order,
-        linked_note_id = item.LinkedNoteId,
+        linked_paper_id = item.LinkedPaperId,
+        linked_path = item.LinkedPath,
         reminder_at = item.ReminderAt?.ToString("O", CultureInfo.InvariantCulture)
     };
 
@@ -476,7 +477,7 @@ internal sealed class McpCommandService
                 "text",
                 PaperWindow.TodoTextMaxLength);
             var done = OptionalBoolean(value, "done") ?? false;
-            var linkedNoteId = OptionalString(value, "linked_note_id", 64);
+            var linkedPaperId = OptionalString(value, "linked_paper_id", 64);
             DateTimeOffset? reminderAt = null;
             if (value.TryGetProperty("reminder_at", out var reminderValue) &&
                 reminderValue.ValueKind != JsonValueKind.Null)
@@ -490,7 +491,7 @@ internal sealed class McpCommandService
             {
                 Text = text,
                 Done = done,
-                LinkedNoteId = linkedNoteId,
+                LinkedPaperId = linkedPaperId,
                 ReminderAt = reminderAt
             });
         }
@@ -503,7 +504,7 @@ internal sealed class McpCommandService
         if (inputs.Any(input =>
                 input.Done ||
                 input.ReminderAt.HasValue ||
-                !string.IsNullOrWhiteSpace(input.LinkedNoteId)))
+                !string.IsNullOrWhiteSpace(input.LinkedPaperId)))
         {
             RequireFullWrites();
         }

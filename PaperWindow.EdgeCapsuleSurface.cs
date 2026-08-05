@@ -181,7 +181,7 @@ public sealed partial class PaperWindow
         }
     }
 
-    public bool TryHandleLinkedNoteRepeatedOpenAsDeepCapsuleToggle()
+    public bool TryHandleLinkedPaperRepeatedOpenAsDeepCapsuleToggle()
     {
         if (_paper.IsCollapsed ||
             !_paper.IsVisible ||

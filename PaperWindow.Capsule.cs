@@ -969,7 +969,7 @@ public sealed partial class PaperWindow
         RefreshPaperContextMenus();
         if (_paper.Type == PaperTypes.Note)
         {
-            _controller.RefreshTodoRowsForLinkedNote(_paper.Id);
+            _controller.RefreshTodoRowsForLinkedPaper(_paper.Id);
         }
 
         if (!collapsed && activateOnExpand)

@@ -618,7 +618,7 @@ public sealed partial class PaperWindow
         foreach (var row in _todoRows)
         {
             if (!ReferenceEquals(row, _activeDropRow) &&
-                !ReferenceEquals(row, _linkedNoteDropRow))
+                !ReferenceEquals(row, _linkedPaperDropRow))
             {
                 UpdateTodoRowBackground(row);
             }
@@ -714,8 +714,11 @@ public sealed partial class PaperWindow
         NormalizeOrders();
         _controller.MarkDirty();
         _controller.NotifyTodoReminderCollectionChanged();
-        RebuildTodoRows();
-        RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+        ReconcileTodoRows(
+            done && _controller.State.AutoClearCompletedTodos
+                ? null
+                : selected.Select(item => item.Id));
+        RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
     }
 
     private void DeleteSelectedTodoItems()
@@ -740,8 +743,8 @@ public sealed partial class PaperWindow
         NormalizeOrders();
         _controller.MarkDirty();
         _controller.NotifyTodoReminderCollectionChanged();
-        RebuildTodoRows();
-        RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+        ReconcileTodoRows();
+        RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
     }
 
     private bool TryCreateTodoSelectionContextMenu(
@@ -959,8 +962,8 @@ public sealed partial class PaperWindow
         if (paths.Length == 1)
         {
             e.Effects = DragDropEffects.Link;
-            row.Background = NoteLinkTargetBgBrush;
-            row.BorderBrush = NoteLinkTargetBorderBrush;
+            row.Background = PaperLinkTargetBgBrush;
+            row.BorderBrush = PaperLinkTargetBorderBrush;
             row.BorderThickness = new Thickness(1);
             row.Padding = new Thickness(1, 3, 1, 3);
         }
@@ -983,7 +986,7 @@ public sealed partial class PaperWindow
 
     private void ResetTodoPathDropVisual(Border row)
     {
-        if (ReferenceEquals(row, _linkedNoteDropRow) ||
+        if (ReferenceEquals(row, _linkedPaperDropRow) ||
             ReferenceEquals(row, _activeDropRow))
         {
             return;
@@ -998,7 +1001,7 @@ public sealed partial class PaperWindow
     private void LinkPathToTodo(PaperItem item, string path)
     {
         if (string.Equals(item.LinkedPath, path, StringComparison.OrdinalIgnoreCase) &&
-            string.IsNullOrWhiteSpace(item.LinkedNoteId))
+            string.IsNullOrWhiteSpace(item.LinkedPaperId))
         {
             return;
         }
@@ -1006,11 +1009,10 @@ public sealed partial class PaperWindow
         var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
         var previousItems = CloneItems(_paper.Items);
         PushUndoSnapshot();
-        item.LinkedPath = path;
-        item.LinkedNoteId = null;
+        item.LinkPath(path);
         _controller.MarkDirty();
-        RebuildTodoRows(focusedId);
-        RefreshCapsuleEligibilityForLinkedNoteChanges(previousItems);
+        ReconcileTodoRows([item.Id], focusedId);
+        RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
     }
 
     private void UnlinkPathFromTodoItem(PaperItem item)
@@ -1022,9 +1024,9 @@ public sealed partial class PaperWindow
 
         var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
         PushUndoSnapshot();
-        item.LinkedPath = null;
+        item.ClearQuickLaunch();
         _controller.MarkDirty();
-        RebuildTodoRows(focusedId);
+        ReconcileTodoRows([item.Id], focusedId);
     }
 
     private Border BuildTodoPathLinkButton(
@@ -1033,9 +1035,9 @@ public sealed partial class PaperWindow
         TodoVisualMetrics metrics)
     {
         var path = item.LinkedPath ?? "";
-        var showName = _controller.State.ShowLinkedNoteName;
+        var showName = _controller.State.ShowLinkedPaperName;
         var allowLongName =
-            showName && _controller.State.AllowLongLinkedNoteTitles;
+            showName && _controller.State.AllowLongLinkedPaperTitles;
         var label = PathDisplayName(path);
 
         string LinkedPathButtonLabel(bool isTodoMultiline) =>
@@ -1056,7 +1058,7 @@ public sealed partial class PaperWindow
 
             var measuredWidth = MeasureCapsuleTextWidth(
                 value,
-                metrics.LinkedNoteNameFontSize,
+                metrics.LinkedPaperNameFontSize,
                 FontWeights.SemiBold,
                 AppTypography.UiFontFamily) + 10;
             return Math.Max(legacyWidth, Math.Ceiling(measuredWidth));
@@ -1104,14 +1106,14 @@ public sealed partial class PaperWindow
                 ? AppTypography.UiFontFamily
                 : new FontFamily("Segoe MDL2 Assets");
             glyph.FontSize = showName
-                ? metrics.LinkedNoteNameFontSize
-                : valid ? metrics.LinkedNoteIconFontSize : metrics.LinkedNoteIconFontSize + 1;
+                ? metrics.LinkedPaperNameFontSize
+                : valid ? metrics.LinkedPaperIconFontSize : metrics.LinkedPaperIconFontSize + 1;
             glyph.Foreground = valid
                 ? hovered ? TextBrush : WeakTextBrush
                 : TrashTextBrush;
             glyph.Opacity = valid ? hovered ? 1.0 : 0.72 : 1.0;
             button.Background = valid
-                ? hovered ? LinkedNoteLightBgBrush : LinkedNoteNormalBgBrush
+                ? hovered ? LinkedPaperLightBgBrush : LinkedPaperNormalBgBrush
                 : hovered ? TrashHoverBgBrush : TrashBgBrush;
             button.ToolTip = valid
                 ? Strings.Format("ToolTipOpenLinkedPath", path)
@@ -1178,7 +1180,7 @@ public sealed partial class PaperWindow
         if (allowLongName)
         {
             var limit = isTodoMultiline ? 20 : 10;
-            return CompactLinkedNoteTitleByDisplayWidth(
+            return CompactLinkedPaperTitleByDisplayWidth(
                 fileName,
                 limit,
                 limit);
@@ -1201,8 +1203,8 @@ public sealed partial class PaperWindow
         }
 
         return isTodoMultiline
-            ? CompactLinkedNoteTitle(fileName, 6, 5)
-            : CompactLinkedNoteTitle(fileName, 3, 3);
+            ? CompactLinkedPaperTitle(fileName, 6, 5)
+            : CompactLinkedPaperTitle(fileName, 3, 3);
     }
 
     private static string PathDisplayName(string path)
@@ -1237,7 +1239,9 @@ public sealed partial class PaperWindow
                 Strings.Get("LinkedPathOpenFailureTitle"),
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
-            RebuildTodoRows(CurrentFocusedTodoItemId() ?? item.Id);
+            ReconcileTodoRows(
+                [item.Id],
+                CurrentFocusedTodoItemId() ?? item.Id);
             return;
         }
 

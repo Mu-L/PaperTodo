@@ -30,11 +30,6 @@ internal sealed partial class PaperBodyPluginRegistry
     private static void ValidateProtocolFeatures(PaperBodyPluginManifest manifest)
     {
         manifest.Permissions ??= [];
-        if (manifest.Settings.Length > 0 && !ApiAtLeast(manifest.ApiVersion, 1, 2))
-        {
-            throw new InvalidDataException(
-                "Plugin settings require apiVersion 1.2 or newer.");
-        }
         if (manifest.Permissions.Length > 0 && !ApiAtLeast(manifest.ApiVersion, 1, 3))
         {
             throw new InvalidDataException(

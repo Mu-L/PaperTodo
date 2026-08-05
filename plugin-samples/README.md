@@ -57,7 +57,7 @@ plugins\
    └─ .runtime\                     # 插件私有缓存或长期数据
 ```
 
-当前 PaperTodo 插件协议为 **1.3**。同一主版本内向后兼容：插件声明的小版本不高于宿主即可加载；使用 `permissions` 必须声明 1.3。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+当前 PaperTodo 插件协议为 **1.4**，宿主只加载 **1.2–1.4** 插件；1.2 以下协议已删除。使用 `permissions` 必须声明 1.3，使用宿主统一选择器控件必须声明 1.4。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -109,7 +109,7 @@ plugins\
 }
 ```
 
-每个插件的宿主管理数据保存在 `plugins/data/<插件 ID>.json`：`settings` 是插件所有纸片共享的设置，`papers` 以纸片 ID 保存独立状态。单张纸片状态上限为 1 MiB（只在保存时按 UTF-8 JSON 字节数检查）。这些数据不写入 `data.json`，旧版 `BodyStates` 不迁移；删除纸片时会同步删除各插件中的对应状态。正常数据文件无法读取时，原文件保持不变，插件从空状态运行，之后只写入唯一的 `<插件 ID>.json.recovered`，该文件存在时会优先使用。
+每个插件的宿主管理数据保存在 `plugins/data/<插件 ID>.json`：`settings` 是插件所有纸片共享的设置，`papers` 以纸片 ID 保存独立状态。单张纸片状态上限为 1 MiB（只在保存时按 UTF-8 JSON 字节数检查）。删除纸片时会同步删除各插件中的对应状态。正常数据文件无法读取时，原文件保持不变，插件从空状态运行，之后只写入唯一的 `<插件 ID>.json.recovered`，该文件存在时会优先使用。
 
 `.runtime/` 不受宿主状态协议管理，适合 WebView2 Profile、可重建缓存或必须独立于纸片生命周期的插件私有数据。原生插件应自行负责格式版本、原子写入、损坏恢复和容量控制，不应把普通单纸片界面状态重复放入 `.runtime`。
 
@@ -143,7 +143,7 @@ papertodo.openExternal("https://example.com");
 papertodo.onEvent(message => console.log(message));
 ```
 
-`setDisplayTitle` 是纸片顶栏和胶囊共用的运行时显示标题，不写入 `data.json`；传入空字符串会取消覆盖，恢复 `setTitle` 保存的正式标题。`setCapsuleText` 仍作为兼容别名，但新插件应使用 `setDisplayTitle`。
+`setDisplayTitle` 是纸片顶栏和胶囊共用的运行时显示标题，不写入 `data.json`；传入空字符串会取消覆盖，恢复 `setTitle` 保存的正式标题。
 
 宿主发送 `initialize`、`stateChanged`、`settingsChanged`、`activated`、`deactivated`、`visibilityChanged`、`presentationChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 提供 `apiVersion`、`stateVersion`、`targetStateVersion`、`settings`、`visible` 和 `presentationVisible`。
 

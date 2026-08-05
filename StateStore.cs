@@ -543,7 +543,10 @@ public sealed class StateStore
 
         var keepDeepCapsuleStartTopMargins = state.UseCapsuleMode && state.UseDeepCapsuleMode && state.UseCapsuleCollapseAll;
         state.DeepCapsuleStartTopMargin = keepDeepCapsuleStartTopMargins
-            ? NormalizeDeepCapsuleStartTopMargin(state.DeepCapsuleStartTopMargin, state.DeepCapsuleMonitorDeviceName)
+            ? NormalizeDeepCapsuleStartTopMargin(
+                state.DeepCapsuleStartTopMargin,
+                state.DeepCapsuleMonitorDeviceName,
+                DeepCapsuleGapSizes.Value(state.DeepCapsuleGapSize))
             : EdgeCapsuleLayout.StartTopMargin;
 
         // Per-queue margins: drop NaN/inf; final clamping against each queue's live work area is
@@ -586,11 +589,6 @@ public sealed class StateStore
             paper.BodyProviderId = paper.Type == PaperTypes.Note
                 ? NormalizeBodyProviderId(paper.BodyProviderId)
                 : PaperBodyProviderIds.Markdown;
-            if (paper.BodyStates == null)
-            {
-                throw new InvalidDataException(
-                    $"Paper '{paper.Id}' has a null bodyStates collection.");
-            }
             // Plugin state is opaque persisted data. Validate it only when that provider starts;
             // load normalization must never replace recoverable bytes with an empty state.
             paper.BodyCapsuleText ??= "";
@@ -655,10 +653,6 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
-                if (string.IsNullOrWhiteSpace(item.LinkedPath))
-                {
-                    item.LinkedPath = null;
-                }
             }
         }
     }
@@ -684,32 +678,26 @@ public sealed class StateStore
         {
             foreach (var item in paper.Items)
             {
-                if (string.IsNullOrWhiteSpace(item.LinkedNoteId) ||
-                    !paperIds.Contains(item.LinkedNoteId) ||
-                    string.Equals(item.LinkedNoteId, paper.Id, StringComparison.Ordinal))
+                var linkedPaperId = item.LinkedPaperId;
+                if (string.IsNullOrWhiteSpace(linkedPaperId) ||
+                    !paperIds.Contains(linkedPaperId) ||
+                    string.Equals(linkedPaperId, paper.Id, StringComparison.Ordinal))
                 {
-                    item.LinkedNoteId = null;
+                    item.LinkPath(item.LinkedPath);
                 }
-
-                // One todo has one quick-launch target. Existing paper links win if malformed
-                // data contains both fields, preserving the older feature on upgrade.
-                if (!string.IsNullOrWhiteSpace(item.LinkedNoteId))
+                else
                 {
-                    item.LinkedPath = null;
-                }
-                else if (string.IsNullOrWhiteSpace(item.LinkedPath))
-                {
-                    item.LinkedPath = null;
+                    item.LinkPaper(linkedPaperId);
                 }
             }
         }
 
-        if (state.EnableTodoNoteLinks && state.HideLinkedNotesFromCapsules)
+        if (state.EnableTodoPaperLinks && state.HideLinkedPapersFromCapsules)
         {
             var linkedPaperIds = state.Papers
                 .Where(p => p.Type == PaperTypes.Todo)
                 .SelectMany(p => p.Items)
-                .Select(item => item.LinkedNoteId)
+                .Select(item => item.LinkedPaperId)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -868,9 +856,12 @@ public sealed class StateStore
     private static string QueueKey(string? monitorDeviceName, string? side)
         => $"{WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(monitorDeviceName)}|{(side == DeepCapsuleSides.Left ? DeepCapsuleSides.Left : DeepCapsuleSides.Right)}";
 
-    private static double NormalizeDeepCapsuleStartTopMargin(double value, string monitorDeviceName)
+    private static double NormalizeDeepCapsuleStartTopMargin(
+        double value,
+        string monitorDeviceName,
+        double gap)
     {
         var area = EdgeCapsuleLayout.LocalWorkAreaForQueue(monitorDeviceName);
-        return EdgeCapsuleLayout.NormalizeStartTopMargin(value, area, 1);
+        return EdgeCapsuleLayout.NormalizeStartTopMargin(value, area, 1, gap);
     }
 }

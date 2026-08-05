@@ -17,8 +17,32 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private enum SettingsPage
+    {
+        General,
+        Visual,
+        Shortcuts,
+        Plugins,
+        Labs
+    }
+
     private const string AuthorName = "Designed by trigger";
     private const string AuthorGithubUrl = "https://github.com/snownico0722";
+    private SettingsPage _settingsPage;
+    private ScrollViewer? _settingsPageScrollViewer;
+    private SettingsPage? _settingsPageScrollViewerPage;
+    private Window? _settingsWindow;
+    private TextBox? _settingsExternalMarkdownTextBox;
+    private CheckBox? _settingsHidePapersFromTaskbarCheckBox;
+    private CheckBox? _settingsHidePapersFromWindowSwitcherCheckBox;
+    private CheckBox? _settingsCapsuleModeCheckBox;
+    private CheckBox? _settingsDeepCapsuleModeCheckBox;
+    private CheckBox? _settingsDeepCapsuleExpandedSlotCheckBox;
+    private CheckBox? _settingsRememberDeepCapsuleExpandedPositionCheckBox;
+    private CheckBox? _settingsCollapseExpandedDeepCapsuleOnClickCheckBox;
+    private CheckBox? _settingsCapsuleCollapseAllCheckBox;
+    private readonly Dictionary<string, Action> _settingsRegionRefreshers =
+        new(StringComparer.Ordinal);
 
     private void SetTheme(string theme)
     {
@@ -206,7 +230,7 @@ public sealed partial class AppController
         State.ExperimentalInactivePaperOpacity = !State.ExperimentalInactivePaperOpacity;
         SaveNow();
         RefreshExperimentalOpacitySurfaces();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.focus");
     }
 
     private void SetExperimentalInactivePaperOpacityLevel(double opacity)
@@ -222,7 +246,7 @@ public sealed partial class AppController
         State.ExperimentalInactivePaperOpacityLevel = normalized;
         SaveNow();
         RefreshExperimentalOpacitySurfaces();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.focus");
     }
 
     private void ToggleExperimentalRestingCapsuleOpacity()
@@ -230,7 +254,7 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacity = !State.ExperimentalRestingCapsuleOpacity;
         SaveNow();
         RefreshExperimentalOpacitySurfaces();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.focus");
     }
 
     private void SetExperimentalRestingCapsuleOpacityLevel(double opacity)
@@ -246,7 +270,7 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityLevel = normalized;
         SaveNow();
         RefreshExperimentalOpacitySurfaces();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.focus");
     }
 
     private void RefreshExperimentalOpacitySurfaces(bool animate = true)
@@ -257,12 +281,20 @@ public sealed partial class AppController
         }
     }
 
+    private void ToggleExperimentalCollapsePaperOnDeactivate()
+    {
+        State.ExperimentalCollapsePaperOnDeactivate =
+            !State.ExperimentalCollapsePaperOnDeactivate;
+        SaveNow();
+        RefreshSettingsRegions("labs.focus");
+    }
+
     private void ToggleExperimentalTodoReminders()
     {
         State.ExperimentalTodoReminders = !State.ExperimentalTodoReminders;
         SaveNow();
         RefreshTodoReminderFeature();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.reminders");
     }
 
     private void ToggleExperimentalTodoReminderShowButton()
@@ -271,7 +303,7 @@ public sealed partial class AppController
             !State.ExperimentalTodoReminderShowButton;
         SaveNow();
         RefreshTodoReminderFeature();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.reminders");
     }
 
     private void SetExperimentalTodoReminderQuickMinutes(int minutes)
@@ -285,7 +317,7 @@ public sealed partial class AppController
 
         State.ExperimentalTodoReminderQuickMinutes = normalized;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.reminders");
     }
 
     private void SetTitleTextSize(string size)
@@ -992,6 +1024,8 @@ public sealed partial class AppController
         double? fittedHeight = null,
         bool enableScroll = false)
     {
+        _settingsRegionRefreshers.Clear();
+        _pluginStatusRefreshers.Clear();
         var root = new DockPanel
         {
             Width = SettingsContentWidth(),
@@ -1115,7 +1149,6 @@ public sealed partial class AppController
             Foreground = TrayWeakTextBrush,
             FontSize = AppTypography.Scale(12),
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 520,
             LineHeight = AppTypography.Scale(19)
         });
 
@@ -1136,35 +1169,38 @@ public sealed partial class AppController
             Margin = new Thickness(14, 0, 0, 0)
         };
 
-        leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsPaperOpacity")));
-        leftColumn.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableInactivePaperOpacity"),
-                State.ExperimentalInactivePaperOpacity,
-                ToggleExperimentalInactivePaperOpacity),
-            "TipLabsInactivePaperOpacity"));
-        leftColumn.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsInactivePaperOpacityLevel"),
-            topMargin: 8));
-        leftColumn.Children.Add(CreateLabsPercentageStepper(
-            () => State.ExperimentalInactivePaperOpacityLevel,
-            SetExperimentalInactivePaperOpacityLevel,
-            State.ExperimentalInactivePaperOpacity));
+        leftColumn.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsFocusBehavior")));
+        leftColumn.Children.Add(BuildSettingsLiveRegion(
+            "labs.focus",
+            BuildLabsFocusBehaviorSettings));
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsCapsuleOpacity")));
-        rightColumn.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableRestingCapsuleOpacity"),
-                State.ExperimentalRestingCapsuleOpacity,
-                ToggleExperimentalRestingCapsuleOpacity),
-            "TipLabsRestingCapsuleOpacity"));
-        rightColumn.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsRestingCapsuleOpacityLevel"),
-            topMargin: 8));
-        rightColumn.Children.Add(CreateLabsPercentageStepper(
-            () => State.ExperimentalRestingCapsuleOpacityLevel,
-            SetExperimentalRestingCapsuleOpacityLevel,
-            State.ExperimentalRestingCapsuleOpacity));
+        leftColumn.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsWindowCoordination")));
+        leftColumn.Children.Add(BuildSettingsLiveRegion(
+            "labs.window",
+            BuildLabsWindowCoordinationSettings));
+
+        rightColumn.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsVirtualDesktops")));
+        rightColumn.Children.Add(BuildSettingsLiveRegion(
+            "labs.virtualDesktop",
+            BuildLabsVirtualDesktopSettings));
+
+        rightColumn.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsTodoReminders")));
+        rightColumn.Children.Add(BuildSettingsLiveRegion(
+            "labs.reminders",
+            BuildLabsTodoReminderSettings));
+
+        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsMcp")));
+        rightColumn.Children.Add(BuildSettingsLiveRegion(
+            "labs.mcp",
+            BuildLabsMcpSettings));
+
+        rightColumn.Children.Add(SettingsSectionLabel(
+            Strings.Get("LabsPassiveMode")));
+        rightColumn.Children.Add(BuildLabsPassiveModeSettings());
 
         var separator = new Border
         {
@@ -1182,43 +1218,105 @@ public sealed partial class AppController
         columns.Children.Add(rightColumn);
         root.Children.Add(columns);
 
-        root.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsCapsuleMagnetism")));
-        root.Children.Add(BuildLabsCapsuleMagnetSettings());
+        return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
+    }
 
-        root.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsWindowTethering")));
-        root.Children.Add(BuildLabsWindowTetherSettings());
+    private UIElement BuildLabsWindowCoordinationSettings()
+    {
+        var content = new StackPanel();
+        content.Children.Add(BuildLabsWindowTetherSettings());
+        content.Children.Add(BuildLabsTetherVisibilitySettings());
+        content.Children.Add(BuildLabsCapsuleMagnetSettings());
+        return content;
+    }
 
-        root.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsTetherVisibility")));
-        root.Children.Add(BuildLabsTetherVisibilitySettings());
+    private UIElement BuildLabsFocusBehaviorSettings()
+    {
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 7, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
 
-        root.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsVirtualDesktops")));
-        root.Children.Add(BuildLabsVirtualDesktopSettings());
+        var autoCollapse = SettingsToggle(
+            Strings.Get("LabsCollapsePaperOnDeactivate"),
+            State.ExperimentalCollapsePaperOnDeactivate,
+            ToggleExperimentalCollapsePaperOnDeactivate);
+        autoCollapse.IsEnabled = State.UseCapsuleMode;
+        autoCollapse.Opacity = State.UseCapsuleMode ? 1.0 : 0.55;
+        content.Children.Add(WrapWithHint(
+            autoCollapse,
+            "TipLabsCollapsePaperOnDeactivate"));
 
-        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsTodoReminders")));
-        root.Children.Add(BuildLabsTodoReminderSettings());
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsPaperOpacity"),
+            topMargin: 9));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableInactivePaperOpacity"),
+                State.ExperimentalInactivePaperOpacity,
+                ToggleExperimentalInactivePaperOpacity),
+            "TipLabsInactivePaperOpacity"));
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsInactivePaperOpacityLevel"),
+            topMargin: 7));
+        content.Children.Add(CreateLabsPercentageStepper(
+            () => State.ExperimentalInactivePaperOpacityLevel,
+            SetExperimentalInactivePaperOpacityLevel,
+            State.ExperimentalInactivePaperOpacity));
 
-        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsMcp")));
-        root.Children.Add(BuildLabsMcpSettings());
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsCapsuleOpacity"),
+            topMargin: 2));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableRestingCapsuleOpacity"),
+                State.ExperimentalRestingCapsuleOpacity,
+                ToggleExperimentalRestingCapsuleOpacity),
+            "TipLabsRestingCapsuleOpacity"));
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsRestingCapsuleOpacityLevel"),
+            topMargin: 7));
+        content.Children.Add(CreateLabsPercentageStepper(
+            () => State.ExperimentalRestingCapsuleOpacityLevel,
+            SetExperimentalRestingCapsuleOpacityLevel,
+            State.ExperimentalRestingCapsuleOpacity));
 
-        root.Children.Add(SettingsSectionLabel(Strings.Get("LabsPassiveMode")));
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement BuildLabsPassiveModeSettings()
+    {
+        var card = new Border
+        {
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10, 5, 10, 9),
+            Margin = new Thickness(0, 5, 0, 7)
+        };
+        var content = new StackPanel();
         if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperPassive) is { } currentPassive)
         {
-            root.Children.Add(BuildLabsShortcutSetting(
+            content.Children.Add(BuildLabsShortcutSetting(
                 currentPassive,
                 "TipLabsCurrentPaperPassive"));
         }
         if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.AllSurfacesPassive) is { } allPassive)
         {
-            root.Children.Add(BuildLabsShortcutSetting(
+            content.Children.Add(BuildLabsShortcutSetting(
                 allPassive,
                 "TipLabsAllSurfacesPassive"));
         }
-
-        return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
+        card.Child = content;
+        return card;
     }
 
     private UIElement BuildLabsCapsuleMagnetSettings()
@@ -1907,6 +2005,7 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacity = false;
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
+        State.ExperimentalCollapsePaperOnDeactivate = false;
         State.ExperimentalTodoReminders = false;
         State.ExperimentalTodoReminderShowButton = true;
         State.ExperimentalTodoReminderQuickMinutes =
@@ -2047,33 +2146,9 @@ public sealed partial class AppController
                 CreateDeepCapsuleTitleMeasureLimitStepper()));
         }
 
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoNote")));
-        if (advanced)
-        {
-            rightColumn.Children.Add(AdvancedSettingsBlock(
-                WrapWithHint(MarkAdvancedSetting(SettingsToggle(Strings.Get("SettingsAutoCompressLargeImages"), State.AutoCompressLargeImages, ToggleAutoCompressLargeImages)), "TipAutoCompressLargeImages")));
-        }
-
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsAutoClearCompletedTodos"), State.AutoClearCompletedTodos, ToggleAutoClearCompletedTodos), "TipAutoClearCompletedTodos"));
-        rightColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableTodoNoteLinks"), State.EnableTodoNoteLinks, ToggleTodoNoteLinks), "TipEnableTodoNoteLinks"));
-        var showLinkedNoteNameToggle = SettingsToggle(Strings.Get("SettingsShowLinkedNoteName"), State.ShowLinkedNoteName, ToggleLinkedNoteNameDisplay);
-        showLinkedNoteNameToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(showLinkedNoteNameToggle, "TipShowLinkedNoteName"));
-        var allowLongLinkedNoteTitlesToggle = SettingsToggle(Strings.Get("SettingsAllowLongLinkedNoteTitles"), State.AllowLongLinkedNoteTitles, ToggleLongLinkedNoteTitles);
-        allowLongLinkedNoteTitlesToggle.IsEnabled = State.EnableTodoNoteLinks && State.ShowLinkedNoteName;
-        rightColumn.Children.Add(WrapWithHint(allowLongLinkedNoteTitlesToggle, "TipAllowLongLinkedNoteTitles"));
-        var linkedPathExtensionOnlyToggle = SettingsToggle(Strings.Get("SettingsShowLinkedPathExtensionOnly"), State.ShowLinkedPathExtensionOnly, ToggleLinkedPathExtensionOnly);
-        linkedPathExtensionOnlyToggle.IsEnabled =
-            State.EnableTodoNoteLinks &&
-            State.ShowLinkedNoteName &&
-            !State.AllowLongLinkedNoteTitles;
-        rightColumn.Children.Add(WrapWithHint(linkedPathExtensionOnlyToggle, "TipShowLinkedPathExtensionOnly"));
-        var hideLinkedNotesFromCapsulesToggle = SettingsToggle(Strings.Get("SettingsHideLinkedNotesFromCapsules"), State.HideLinkedNotesFromCapsules, ToggleHideLinkedNotesFromCapsules);
-        hideLinkedNotesFromCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(hideLinkedNotesFromCapsulesToggle, "TipHideLinkedNotesFromCapsules"));
-        var runLinkedScriptCapsulesToggle = SettingsToggle(Strings.Get("SettingsRunLinkedScriptCapsulesOnClick"), State.RunLinkedScriptCapsulesOnClick, ToggleRunLinkedScriptCapsulesOnClick);
-        runLinkedScriptCapsulesToggle.IsEnabled = State.EnableTodoNoteLinks;
-        rightColumn.Children.Add(WrapWithHint(runLinkedScriptCapsulesToggle, "TipRunLinkedScriptCapsulesOnClick"));
+        rightColumn.Children.Add(BuildSettingsLiveRegion(
+            "general.todos",
+            BuildGeneralTodoPaperSettings));
         var separator = new Border
         {
             Width = 1,
@@ -2090,6 +2165,85 @@ public sealed partial class AppController
         columns.Children.Add(rightColumn);
 
         return WithSettingsPageRestoreFooter(columns, RestoreGeneralSettingsPageDefaults);
+    }
+
+    private UIElement BuildGeneralTodoPaperSettings()
+    {
+        var content = new StackPanel();
+        content.Children.Add(SettingsSectionLabel(Strings.Get("SettingsTodoPaper")));
+        if (State.AdvancedSettingsMode)
+        {
+            content.Children.Add(AdvancedSettingsBlock(
+                WrapWithHint(
+                    MarkAdvancedSetting(SettingsToggle(
+                        Strings.Get("SettingsAutoCompressLargeImages"),
+                        State.AutoCompressLargeImages,
+                        ToggleAutoCompressLargeImages)),
+                    "TipAutoCompressLargeImages")));
+        }
+
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("SettingsAutoClearCompletedTodos"),
+                State.AutoClearCompletedTodos,
+                ToggleAutoClearCompletedTodos),
+            "TipAutoClearCompletedTodos"));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("SettingsEnableTodoPaperLinks"),
+                State.EnableTodoPaperLinks,
+                ToggleTodoPaperLinks),
+            "TipEnableTodoPaperLinks"));
+
+        var showLinkedPaperNameToggle = SettingsToggle(
+            Strings.Get("SettingsShowLinkedPaperName"),
+            State.ShowLinkedPaperName,
+            ToggleLinkedPaperNameDisplay);
+        showLinkedPaperNameToggle.IsEnabled = State.EnableTodoPaperLinks;
+        content.Children.Add(WrapWithHint(
+            showLinkedPaperNameToggle,
+            "TipShowLinkedPaperName"));
+
+        var allowLongLinkedPaperTitlesToggle = SettingsToggle(
+            Strings.Get("SettingsAllowLongLinkedPaperTitles"),
+            State.AllowLongLinkedPaperTitles,
+            ToggleLongLinkedPaperTitles);
+        allowLongLinkedPaperTitlesToggle.IsEnabled =
+            State.EnableTodoPaperLinks && State.ShowLinkedPaperName;
+        content.Children.Add(WrapWithHint(
+            allowLongLinkedPaperTitlesToggle,
+            "TipAllowLongLinkedPaperTitles"));
+
+        var linkedPathExtensionOnlyToggle = SettingsToggle(
+            Strings.Get("SettingsShowLinkedPathExtensionOnly"),
+            State.ShowLinkedPathExtensionOnly,
+            ToggleLinkedPathExtensionOnly);
+        linkedPathExtensionOnlyToggle.IsEnabled =
+            State.EnableTodoPaperLinks &&
+            State.ShowLinkedPaperName &&
+            !State.AllowLongLinkedPaperTitles;
+        content.Children.Add(WrapWithHint(
+            linkedPathExtensionOnlyToggle,
+            "TipShowLinkedPathExtensionOnly"));
+
+        var hideLinkedPapersFromCapsulesToggle = SettingsToggle(
+            Strings.Get("SettingsHideLinkedPapersFromCapsules"),
+            State.HideLinkedPapersFromCapsules,
+            ToggleHideLinkedPapersFromCapsules);
+        hideLinkedPapersFromCapsulesToggle.IsEnabled = State.EnableTodoPaperLinks;
+        content.Children.Add(WrapWithHint(
+            hideLinkedPapersFromCapsulesToggle,
+            "TipHideLinkedPapersFromCapsules"));
+
+        var runLinkedScriptCapsulesToggle = SettingsToggle(
+            Strings.Get("SettingsRunLinkedScriptCapsulesOnClick"),
+            State.RunLinkedScriptCapsulesOnClick,
+            ToggleRunLinkedScriptCapsulesOnClick);
+        runLinkedScriptCapsulesToggle.IsEnabled = State.EnableTodoPaperLinks;
+        content.Children.Add(WrapWithHint(
+            runLinkedScriptCapsulesToggle,
+            "TipRunLinkedScriptCapsulesOnClick"));
+        return content;
     }
 
     private UIElement BuildVisualSettingsPage()
@@ -2280,11 +2434,11 @@ public sealed partial class AppController
         State.DeepCapsuleTitleMeasureCharacterLimit = 0;
         State.AutoCompressLargeImages = true;
         State.AutoClearCompletedTodos = false;
-        State.EnableTodoNoteLinks = true;
-        State.ShowLinkedNoteName = false;
-        State.AllowLongLinkedNoteTitles = false;
+        State.EnableTodoPaperLinks = true;
+        State.ShowLinkedPaperName = false;
+        State.AllowLongLinkedPaperTitles = false;
         State.ShowLinkedPathExtensionOnly = false;
-        State.HideLinkedNotesFromCapsules = false;
+        State.HideLinkedPapersFromCapsules = false;
         State.RunLinkedScriptCapsulesOnClick = false;
         NormalizePaperSystemVisibilitySettings();
         ClampPaperTitlesToMaxLength(State.MaxTitleLength);
@@ -2746,6 +2900,49 @@ public sealed partial class AppController
         return checkBox;
     }
 
+    private UIElement BuildSettingsLiveRegion(
+        string key,
+        Func<UIElement> build)
+    {
+        var host = new ContentPresenter
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        void Refresh() => host.Content = build();
+        _settingsRegionRefreshers[key] = Refresh;
+        Refresh();
+        return host;
+    }
+
+    private void RefreshSettingsRegions(params string[] keys)
+    {
+        if (_settingsWindow is not { IsVisible: true })
+        {
+            return;
+        }
+
+        var distinctKeys = keys
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (!distinctKeys.Any(_settingsRegionRefreshers.ContainsKey))
+        {
+            return;
+        }
+
+        _ = _settingsWindow.Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                foreach (var key in distinctKeys)
+                {
+                    if (_settingsRegionRefreshers.TryGetValue(key, out var refresh))
+                    {
+                        refresh();
+                    }
+                }
+            }),
+            DispatcherPriority.Background);
+    }
+
     // Lays the option out as: [option .....stretch.....] [ⓘ]. The trailing ⓘ shows a themed
     // tooltip with the detailed explanation on hover, so every row stays short while the full
     // description is one hover away. tipKey is a Strings resource key.
@@ -3159,7 +3356,6 @@ public sealed partial class AppController
             ArrangeDeepCapsules(animate: false);
         }
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void SetResizeGripMode(string mode)
@@ -3195,7 +3391,6 @@ public sealed partial class AppController
     {
         State.AutoClearCompletedTodos = !State.AutoClearCompletedTodos;
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void ToggleAutoCompressLargeImages()
@@ -3203,7 +3398,6 @@ public sealed partial class AppController
         State.AutoCompressLargeImages = !State.AutoCompressLargeImages;
         _imageStore.AutoCompressLargeImages = State.AutoCompressLargeImages;
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void ToggleHidePapersFromTaskbar()
@@ -3264,7 +3458,6 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void TogglePreferPowerShell7()
@@ -3273,7 +3466,6 @@ public sealed partial class AppController
         PaperWindow.StopPersistentScriptProcesses();
         PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void ToggleHideScriptRunWindow()
@@ -3282,7 +3474,6 @@ public sealed partial class AppController
         PaperWindow.StopPersistentScriptProcesses();
         PaperWindow.EnsurePersistentScriptProcessForSettings(State);
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void ToggleToolTips()
@@ -3290,7 +3481,6 @@ public sealed partial class AppController
         State.EnableToolTips = !State.EnableToolTips;
         SaveNow();
         RefreshToolTipSetting();
-        RefreshSettingsWindowContent();
     }
 
     private void RefreshToolTipSetting()
@@ -3374,9 +3564,9 @@ public sealed partial class AppController
         RefreshTopBarNewPaperButtonsSetting();
     }
 
-    private void ToggleLinkedNoteNameDisplay()
+    private void ToggleLinkedPaperNameDisplay()
     {
-        State.ShowLinkedNoteName = !State.ShowLinkedNoteName;
+        State.ShowLinkedPaperName = !State.ShowLinkedPaperName;
 
         foreach (var window in _windows.Values)
         {
@@ -3384,12 +3574,12 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
-    private void ToggleLongLinkedNoteTitles()
+    private void ToggleLongLinkedPaperTitles()
     {
-        State.AllowLongLinkedNoteTitles = !State.AllowLongLinkedNoteTitles;
+        State.AllowLongLinkedPaperTitles = !State.AllowLongLinkedPaperTitles;
 
         foreach (var window in _windows.Values)
         {
@@ -3397,15 +3587,15 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
-    private void ToggleHideLinkedNotesFromCapsules()
+    private void ToggleHideLinkedPapersFromCapsules()
     {
-        State.HideLinkedNotesFromCapsules = !State.HideLinkedNotesFromCapsules;
-        RefreshCapsuleEligibilityForLinkedNotes();
+        State.HideLinkedPapersFromCapsules = !State.HideLinkedPapersFromCapsules;
+        RefreshCapsuleEligibilityForLinkedPapers();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
     private void ToggleRunLinkedScriptCapsulesOnClick()
@@ -3418,22 +3608,22 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
-    private void ToggleTodoNoteLinks()
+    private void ToggleTodoPaperLinks()
     {
-        State.EnableTodoNoteLinks = !State.EnableTodoNoteLinks;
-        ClearNoteLinkDropTarget();
+        State.EnableTodoPaperLinks = !State.EnableTodoPaperLinks;
+        ClearPaperLinkDropTarget();
 
         foreach (var window in _windows.Values)
         {
             window.UpdateTodoLinkFeature();
         }
 
-        RefreshCapsuleEligibilityForLinkedNotes();
+        RefreshCapsuleEligibilityForLinkedPapers();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("general.todos");
     }
 
     private void RefreshTopBarNewPaperButtonsSetting()
@@ -3444,7 +3634,6 @@ public sealed partial class AppController
         }
 
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private void ToggleDeepCapsuleMode()

@@ -37,28 +37,28 @@ public sealed partial class AppController
         State.McpEnabled = !State.McpEnabled;
         RefreshMcpRuntime();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.mcp");
     }
 
     private void ToggleMcpBlankWrites()
     {
         State.McpAllowBlankWrites = !State.McpAllowBlankWrites;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.mcp");
     }
 
     private void ToggleMcpFullWrites()
     {
         State.McpAllowFullWrites = !State.McpAllowFullWrites;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.mcp");
     }
 
     private void ToggleMcpDeletes()
     {
         State.McpAllowDeletes = !State.McpAllowDeletes;
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshSettingsRegions("labs.mcp");
     }
 
     internal bool TryCommitMcpMutation()
@@ -145,7 +145,7 @@ public sealed partial class AppController
         {
             window.RefreshNoteForExternalChange();
         }
-        RefreshTodoRowsForLinkedNote(paper.Id);
+        RefreshTodoRowsForLinkedPaper(paper.Id);
         RefreshTrayMenu();
     }
 
@@ -174,7 +174,7 @@ public sealed partial class AppController
                     todoWindow.RefreshTodoRowsForExternalChange();
                 }
             }
-            RefreshCapsuleEligibilityForLinkedNotes();
+            RefreshCapsuleEligibilityForLinkedPapers();
         }
 
         if (replacement != null)
