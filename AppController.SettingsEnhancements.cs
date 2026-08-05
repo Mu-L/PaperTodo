@@ -1,0 +1,119 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+
+namespace PaperTodo;
+
+public sealed partial class AppController
+{
+    private T MarkAdvancedSetting<T>(T element)
+        where T : FrameworkElement
+    {
+        if (element is CheckBox { Content: string text } checkBox)
+        {
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            content.Children.Add(new TextBlock
+            {
+                Text = text,
+                Foreground = TrayTextBrush,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "◇",
+                Foreground = TrayWeakTextBrush,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(10.5),
+                Opacity = 0.52,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = BuildSettingsHintTooltip(
+                    Strings.Get("AdvancedFeatureBadgeTip"))
+            });
+            checkBox.Content = content;
+        }
+        else if (element is TextBlock label && !string.IsNullOrWhiteSpace(label.Text))
+        {
+            var labelText = label.Text;
+            label.Inlines.Clear();
+            label.Inlines.Add(new Run(labelText));
+            label.Inlines.Add(new Run("  ◇")
+            {
+                Foreground = TrayWeakTextBrush,
+                FontFamily = AppTypography.SymbolFontFamily,
+                FontSize = AppTypography.Scale(10.5),
+                FontWeight = FontWeights.Normal
+            });
+            label.ToolTip ??= BuildSettingsHintTooltip(
+                Strings.Get("AdvancedFeatureBadgeTip"));
+        }
+
+        return element;
+    }
+
+    private UIElement AdvancedSettingsBlock(params UIElement[] items)
+    {
+        var content = new StackPanel();
+        foreach (var item in items)
+        {
+            content.Children.Add(item);
+        }
+
+        return new Border
+        {
+            Background = Theme.Tint((byte)(Theme.IsDark ? 24 : 14)),
+            BorderBrush = Theme.Tint((byte)(Theme.IsDark ? 42 : 28)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8, 5, 8, 8),
+            Margin = new Thickness(0, 5, 0, 7),
+            Child = content
+        };
+    }
+
+    private void ToggleLinkedPathExtensionOnly()
+    {
+        State.ShowLinkedPathExtensionOnly = !State.ShowLinkedPathExtensionOnly;
+        foreach (var window in _windows.Values)
+        {
+            window.RefreshTodoRowsForExternalChange();
+        }
+
+        SaveNow();
+        RefreshSettingsWindowContent();
+    }
+
+    private void SetDeepCapsuleGapSize(string size)
+    {
+        var normalized = DeepCapsuleGapSizes.Normalize(size);
+        if (State.DeepCapsuleGapSize == normalized)
+        {
+            return;
+        }
+
+        State.DeepCapsuleGapSize = normalized;
+        SaveNow();
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
+        RefreshSettingsWindowContent();
+    }
+
+    private UIElement CreateDeepCapsuleGapSegmentSelector()
+    {
+        var segments = new[]
+        {
+            (DeepCapsuleGapSizes.Narrow, Strings.Get("DeepCapsuleGapNarrow")),
+            (DeepCapsuleGapSizes.Standard, Strings.Get("DeepCapsuleGapStandard")),
+            (DeepCapsuleGapSizes.Wide, Strings.Get("DeepCapsuleGapWide"))
+        };
+
+        return CreateSegmentSelector(
+            segments,
+            DeepCapsuleGapSizes.Normalize(State.DeepCapsuleGapSize),
+            SetDeepCapsuleGapSize);
+    }
+}

@@ -133,36 +133,40 @@ public sealed partial class AppController
         }
 
         var text = new StackPanel();
+        var status = PluginStatusFor(descriptor, dataIssue != null);
         var titleRow = new Grid();
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition
         {
             Width = new GridLength(1, GridUnitType.Star)
         });
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var name = new TextBlock
+        var statusDot = CreatePluginStatusDot(status);
+        Grid.SetColumn(statusDot, 0);
+        titleRow.Children.Add(statusDot);
+
+        var titleFlow = new TextBlock
         {
-            Text = descriptor.DisplayName,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = Strings.Format(
+                "PluginsProtocolTooltipFormat",
+                descriptor.ApiVersion)
+        };
+        titleFlow.Inlines.Add(new System.Windows.Documents.Run(descriptor.DisplayName)
+        {
             Foreground = TrayTextBrush,
             FontSize = AppTypography.Scale(13),
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        var metadata = new TextBlock
+            FontWeight = FontWeights.SemiBold
+        });
+        titleFlow.Inlines.Add(new System.Windows.Documents.Run(
+            $" — {PluginKindText(descriptor.Kind)} · v{PluginVersionText(descriptor.Version)} · s{descriptor.ApiVersion}")
         {
-            Text = $"{PluginKindText(descriptor.Kind)} · v{PluginVersionText(descriptor.Version)} · s{descriptor.ApiVersion}",
             Foreground = TrayWeakTextBrush,
             FontSize = AppTypography.Scale(10.5),
-            FontWeight = FontWeights.Medium,
-            Margin = new Thickness(0, 1, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = Strings.Format("PluginsProtocolTooltipFormat", descriptor.ApiVersion)
-        };
-        Grid.SetColumn(name, 0);
-        Grid.SetColumn(metadata, 1);
-        titleRow.Children.Add(name);
-        titleRow.Children.Add(metadata);
+            FontWeight = FontWeights.Medium
+        });
+        Grid.SetColumn(titleFlow, 1);
+        titleRow.Children.Add(titleFlow);
         text.Children.Add(titleRow);
         if (!string.IsNullOrWhiteSpace(descriptor.Description))
         {
@@ -224,14 +228,13 @@ public sealed partial class AppController
             Margin = new Thickness(12, 0, 0, 0)
         };
         var quick = settings.Where(item => item.Quick).Take(3).ToArray();
-        foreach (var setting in quick)
-        {
-            root.Children.Add(BuildPluginSettingControl(descriptor, setting));
-        }
-
         var remaining = settings.Where(item => !item.Quick).ToArray();
         if (remaining.Length == 0)
         {
+            foreach (var setting in quick)
+            {
+                root.Children.Add(BuildPluginSettingControl(descriptor, setting));
+            }
             return root;
         }
 
@@ -246,8 +249,7 @@ public sealed partial class AppController
 
         var toggle = PluginPageButton(Strings.Get("PluginsMoreSettings"));
         toggle.MinWidth = 0;
-        toggle.HorizontalAlignment = HorizontalAlignment.Right;
-        toggle.Margin = new Thickness(0, quick.Length > 0 ? 5 : 0, 0, 0);
+        toggle.HorizontalAlignment = HorizontalAlignment.Left;
         toggle.Click += (_, _) =>
         {
             var expand = more.Visibility != Visibility.Visible;
@@ -255,7 +257,32 @@ public sealed partial class AppController
             toggle.Content = Strings.Get(
                 expand ? "PluginsLessSettings" : "PluginsMoreSettings");
         };
-        root.Children.Add(toggle);
+
+        if (quick.Length == 0)
+        {
+            toggle.HorizontalAlignment = HorizontalAlignment.Right;
+            root.Children.Add(toggle);
+        }
+        else
+        {
+            foreach (var setting in quick[..^1])
+            {
+                root.Children.Add(BuildPluginSettingControl(descriptor, setting));
+            }
+
+            var tail = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            var finalQuick = BuildPluginSettingControl(descriptor, quick[^1]);
+            finalQuick.Margin = new Thickness(0, 4, 0, 0);
+            toggle.Margin = new Thickness(8, 4, 0, 0);
+            tail.Children.Add(finalQuick);
+            tail.Children.Add(toggle);
+            root.Children.Add(tail);
+        }
+
         root.Children.Add(more);
         return root;
     }
@@ -656,12 +683,20 @@ public sealed partial class AppController
             {
                 Children =
                 {
-                    new TextBlock
+                    new StackPanel
                     {
-                        Text = Path.GetFileName(issue.SourcePath),
-                        Foreground = Theme.DangerBrush,
-                        FontSize = AppTypography.Scale(12),
-                        FontWeight = FontWeights.SemiBold
+                        Orientation = Orientation.Horizontal,
+                        Children =
+                        {
+                            CreatePluginStatusDot(PluginPageStatus.Issue),
+                            new TextBlock
+                            {
+                                Text = Path.GetFileName(issue.SourcePath),
+                                Foreground = Theme.DangerBrush,
+                                FontSize = AppTypography.Scale(12),
+                                FontWeight = FontWeights.SemiBold
+                            }
+                        }
                     },
                     new TextBlock
                     {

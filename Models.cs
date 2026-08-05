@@ -120,6 +120,24 @@ public static class DeepCapsuleSides
     }
 }
 
+public static class DeepCapsuleGapSizes
+{
+    public const string Narrow = "narrow";
+    public const string Standard = "standard";
+    public const string Wide = "wide";
+    public const double StandardGap = 4;
+
+    public static string Normalize(string? size) =>
+        size is Narrow or Wide ? size : Standard;
+
+    public static double Value(string? size) => Normalize(size) switch
+    {
+        Narrow => StandardGap * 0.5,
+        Wide => StandardGap * 1.5,
+        _ => StandardGap
+    };
+}
+
 public static class TodoVisualSizes
 {
     public const string Small = "small";
@@ -374,6 +392,7 @@ public sealed class AppState
     public bool CapsuleTextBold { get; set; }
     public bool UseCapsuleMode { get; set; } = true;
     public bool UseDeepCapsuleMode { get; set; } = true;
+    public string DeepCapsuleGapSize { get; set; } = DeepCapsuleGapSizes.Standard;
     public bool ShowTopBarNewTodoButton { get; set; } = true;
     public bool ShowTopBarNewNoteButton { get; set; } = true;
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
@@ -382,6 +401,7 @@ public sealed class AppState
     public bool EnableTodoNoteLinks { get; set; } = true;
     public bool ShowLinkedNoteName { get; set; }
     public bool AllowLongLinkedNoteTitles { get; set; }
+    public bool ShowLinkedPathExtensionOnly { get; set; }
     public bool HideLinkedNotesFromCapsules { get; set; }
     public bool RunLinkedScriptCapsulesOnClick { get; set; }
     public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;

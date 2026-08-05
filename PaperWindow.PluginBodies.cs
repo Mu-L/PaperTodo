@@ -815,6 +815,7 @@ public sealed partial class PaperWindow
         _shell.Children.Add(body);
         NotifyCurrentPaperBodyVisibility(
             _paper.IsVisible && !_paper.IsCollapsed && WindowState != WindowState.Minimized);
+        _controller.QueuePluginStatusRefresh();
     }
 
     private void RemoveCurrentPaperBody()
@@ -829,7 +830,9 @@ public sealed partial class PaperWindow
         _bodyElement = null;
         _pluginBodyClipHost = null;
         _bodyFailed = false;
+        _bodyRuntimeVisible = false;
         RemoveTextZoomOverlay();
+        _controller.QueuePluginStatusRefresh();
     }
 
     private void RefreshPaperBodyChrome()
@@ -903,6 +906,7 @@ public sealed partial class PaperWindow
         Panel.SetZIndex(_bodyElement, 1);
         _shell.Children.Add(_bodyElement);
         RefreshPaperBodyChrome();
+        _controller.QueuePluginStatusRefresh();
     }
 
     private void ClearPluginCapsuleTextOnFailure()
@@ -925,13 +929,20 @@ public sealed partial class PaperWindow
     {
         if (IsCurrentBodyProviderMarkdown)
         {
+            var statusChanged = _bodyRuntimeVisible != visible;
+            _bodyRuntimeVisible = visible;
             InvokeBodySession(item => item.OnVisibilityChanged(visible));
+            if (statusChanged)
+            {
+                _controller.QueuePluginStatusRefresh();
+            }
             return;
         }
 
         var runtimeVisible = _paper.IsVisible &&
             (visible ||
              BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
+        var runtimeStatusChanged = _bodyRuntimeVisible != runtimeVisible;
         _bodyRuntimeVisible = runtimeVisible;
         InvokeBodySession(item =>
         {
@@ -940,6 +951,10 @@ public sealed partial class PaperWindow
             item.OnPresentationChanged(visible);
             item.OnVisibilityChanged(runtimeVisible);
         });
+        if (runtimeStatusChanged)
+        {
+            _controller.QueuePluginStatusRefresh();
+        }
     }
 
     internal void NotifyCurrentPaperBodyActivated()

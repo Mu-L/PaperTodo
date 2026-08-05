@@ -11,15 +11,20 @@ public sealed partial class PaperWindow
 {
     private sealed class TodoSweepSelectionState
     {
-        public TodoSweepSelectionState(string anchorItemId, Point startPoint)
+        public TodoSweepSelectionState(
+            string anchorItemId,
+            Border anchorRow,
+            TodoTextBox? sourceTextBox)
         {
             AnchorItemId = anchorItemId;
-            StartPoint = startPoint;
+            AnchorRow = anchorRow;
+            SourceTextBox = sourceTextBox;
         }
 
         public string AnchorItemId { get; }
-        public Point StartPoint { get; }
-        public bool IsDragging { get; set; }
+        public Border AnchorRow { get; }
+        public TodoTextBox? SourceTextBox { get; }
+        public bool IsPromoted { get; set; }
     }
 
     private readonly HashSet<string> _selectedTodoItemIds = new(StringComparer.Ordinal);
@@ -68,7 +73,7 @@ public sealed partial class PaperWindow
         Border row,
         PaperItem item,
         CheckBox check,
-        FrameworkElement selectionLane)
+        TodoTextBox text)
     {
         row.PreviewMouseLeftButtonDown += (_, e) =>
         {
@@ -88,16 +93,22 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            if (IsDescendantOf(source, selectionLane))
+            if (IsDescendantOf(source, check) ||
+                IsDescendantOfCursor(source, Cursors.SizeAll) ||
+                IsDescendantOfCursor(source, Cursors.Hand))
             {
-                BeginTodoSweepSelection(item.Id, e.GetPosition(this));
-                e.Handled = true;
                 return;
             }
 
-            if (IsDescendantOfType<TodoTextBox>(source) ||
-                (!_selectedTodoItemIds.Contains(item.Id) &&
-                 !IsDescendantOfCursor(source, Cursors.SizeAll)))
+            // Do not consume the press. TodoTextBox keeps normal character selection until the
+            // held pointer actually enters a different todo row; only then do we promote the
+            // gesture to whole-item sweep selection.
+            ArmTodoSweepSelection(
+                item.Id,
+                row,
+                IsDescendantOf(source, text) ? text : null);
+
+            if (!_selectedTodoItemIds.Contains(item.Id))
             {
                 ClearTodoSelection();
             }
@@ -150,14 +161,31 @@ public sealed partial class PaperWindow
         return null;
     }
 
-    private void BeginTodoSweepSelection(string itemId, Point startPoint)
+    private void ArmTodoSweepSelection(
+        string itemId,
+        Border row,
+        TodoTextBox? sourceTextBox)
     {
-        _selectedTodoItemIds.Clear();
-        _selectedTodoItemIds.Add(itemId);
-        _todoSweepSelection = new TodoSweepSelectionState(itemId, startPoint);
+        _todoSweepSelection = new TodoSweepSelectionState(
+            itemId,
+            row,
+            sourceTextBox);
+    }
+
+    private void PromoteTodoSweepSelection(
+        TodoSweepSelectionState state,
+        string targetItemId)
+    {
+        state.IsPromoted = true;
+        if (state.SourceTextBox != null)
+        {
+            state.SourceTextBox.Select(state.SourceTextBox.CaretIndex, 0);
+        }
         Keyboard.ClearFocus();
+        _selectedTodoItemIds.Clear();
+        _selectedTodoItemIds.Add(state.AnchorItemId);
+        SelectTodoRange(state.AnchorItemId, targetItemId);
         CaptureMouse();
-        ApplyTodoSelectionVisuals();
     }
 
     private void OnTodoSweepPreviewMouseMove(object sender, MouseEventArgs e)
@@ -175,20 +203,22 @@ public sealed partial class PaperWindow
         }
 
         var point = e.GetPosition(this);
-        if (!state.IsDragging)
+        var targetRow = FindTodoRowAtPoint(point);
+        if (!state.IsPromoted)
         {
-            state.IsDragging =
-                Math.Abs(point.X - state.StartPoint.X) >= SystemParameters.MinimumHorizontalDragDistance ||
-                Math.Abs(point.Y - state.StartPoint.Y) >= SystemParameters.MinimumVerticalDragDistance;
-            if (!state.IsDragging)
+            if (targetRow == null ||
+                ReferenceEquals(targetRow, state.AnchorRow) ||
+                targetRow.Tag is not string firstTargetItemId)
             {
-                e.Handled = true;
+                // The original TextBox still owns this gesture and may select characters.
                 return;
             }
+
+            PromoteTodoSweepSelection(state, firstTargetItemId);
         }
 
         AutoScrollTodoSelection(point);
-        var targetRow = FindTodoRowAtPoint(point);
+        targetRow = FindTodoRowAtPoint(point);
         if (targetRow?.Tag is string targetItemId)
         {
             SelectTodoRange(state.AnchorItemId, targetItemId);
@@ -206,8 +236,15 @@ public sealed partial class PaperWindow
             return;
         }
 
+        var promoted = _todoSweepSelection.IsPromoted;
+        var clearExistingSelection =
+            !promoted && _selectedTodoItemIds.Count > 0;
         EndTodoSweepSelection();
-        e.Handled = true;
+        if (clearExistingSelection)
+        {
+            ClearTodoSelection();
+        }
+        e.Handled = promoted;
     }
 
     private void EndTodoSweepSelection()
@@ -230,8 +267,9 @@ public sealed partial class PaperWindow
 
     private void OnTodoSweepLostMouseCapture(object sender, MouseEventArgs e)
     {
-        if (_todoSweepSelection == null)
+        if (_todoSweepSelection?.IsPromoted != true)
         {
+            // A TextBox may capture/release the mouse while the gesture is only armed.
             return;
         }
 
@@ -739,19 +777,47 @@ public sealed partial class PaperWindow
         RebuildTodoRows(focusedId);
     }
 
-    private Border BuildTodoPathLinkButton(PaperItem item, TodoVisualMetrics metrics)
+    private Border BuildTodoPathLinkButton(
+        PaperItem item,
+        TodoTextBox text,
+        TodoVisualMetrics metrics)
     {
         var path = item.LinkedPath ?? "";
         var showName = _controller.State.ShowLinkedNoteName;
+        var allowLongName =
+            showName && _controller.State.AllowLongLinkedNoteTitles;
         var label = PathDisplayName(path);
+
+        string LinkedPathButtonLabel(bool isTodoMultiline) =>
+            TodoLinkedPathLabel(path, label, allowLongName, isTodoMultiline);
+
+        double LegacyLinkedPathButtonWidth(bool isTodoMultiline) =>
+            isTodoMultiline
+                ? Math.Max(44, metrics.CheckColumnWidth * 2)
+                : Math.Max(50, metrics.CheckColumnWidth * 2.2);
+
+        double LinkedPathButtonWidth(bool isTodoMultiline, string value)
+        {
+            var legacyWidth = LegacyLinkedPathButtonWidth(isTodoMultiline);
+            if (!allowLongName)
+            {
+                return legacyWidth;
+            }
+
+            var measuredWidth = MeasureCapsuleTextWidth(
+                value,
+                metrics.LinkedNoteNameFontSize,
+                FontWeights.SemiBold,
+                AppTypography.UiFontFamily) + 10;
+            return Math.Max(legacyWidth, Math.Ceiling(measuredWidth));
+        }
+
+        var linkedPathButtonText = LinkedPathButtonLabel(isTodoMultiline: false);
+        var multilineLinkedPathButtonText = LinkedPathButtonLabel(isTodoMultiline: true);
         var width = showName
             ? Math.Max(
-                Math.Max(50, metrics.CheckColumnWidth * 2.2),
-                Math.Ceiling(MeasureCapsuleTextWidth(
-                    CompactLinkedNoteTitle(label, 10, 9),
-                    metrics.LinkedNoteNameFontSize,
-                    FontWeights.SemiBold,
-                    AppTypography.UiFontFamily) + 10))
+                LinkedPathButtonWidth(false, linkedPathButtonText),
+                LinkedPathButtonWidth(true, multilineLinkedPathButtonText))
             : Math.Max(23, metrics.CheckColumnWidth);
         var glyph = new TextBlock
         {
@@ -779,7 +845,9 @@ public sealed partial class PaperWindow
             var isDirectory = valid && Directory.Exists(path);
             glyph.Text = valid
                 ? showName
-                    ? CompactLinkedNoteTitle(label, 10, 9)
+                    ? (text.LineCount > 1
+                        ? multilineLinkedPathButtonText
+                        : linkedPathButtonText)
                     : isDirectory ? "\uE8B7" : "\uE7C3"
                 : "!";
             glyph.FontFamily = showName || !valid
@@ -800,7 +868,36 @@ public sealed partial class PaperWindow
                 : Strings.Format("ToolTipLinkedPathMissing", path);
         }
 
+        var linkedPathNameLayoutQueued = false;
+        void QueueLinkedPathNameLayoutUpdate()
+        {
+            if (!showName || linkedPathNameLayoutQueued)
+            {
+                return;
+            }
+
+            linkedPathNameLayoutQueued = true;
+            Dispatcher.BeginInvoke(
+                (Action)(() =>
+                {
+                    linkedPathNameLayoutQueued = false;
+                    RefreshPresentation(hovered: button.IsMouseOver);
+                    glyph.TextWrapping = text.LineCount > 1
+                        ? TextWrapping.Wrap
+                        : TextWrapping.NoWrap;
+                    glyph.MaxWidth = Math.Max(1, width - 6);
+                }),
+                System.Windows.Threading.DispatcherPriority.Render);
+        }
+
+        if (showName)
+        {
+            text.SizeChanged += (_, _) => QueueLinkedPathNameLayoutUpdate();
+            text.TextChanged += (_, _) => QueueLinkedPathNameLayoutUpdate();
+        }
+
         RefreshPresentation(hovered: false);
+        QueueLinkedPathNameLayoutUpdate();
         button.MouseEnter += (_, _) => RefreshPresentation(hovered: true);
         button.MouseLeave += (_, _) =>
         {
@@ -820,6 +917,42 @@ public sealed partial class PaperWindow
             e.Handled = true;
         };
         return button;
+    }
+
+    private string TodoLinkedPathLabel(
+        string path,
+        string fileName,
+        bool allowLongName,
+        bool isTodoMultiline)
+    {
+        if (allowLongName)
+        {
+            var limit = isTodoMultiline ? 20 : 10;
+            return CompactLinkedNoteTitleByDisplayWidth(
+                fileName,
+                limit,
+                limit);
+        }
+
+        if (_controller.State.ShowLinkedPathExtensionOnly &&
+            !Directory.Exists(path))
+        {
+            try
+            {
+                var extension = Path.GetExtension(fileName);
+                if (!string.IsNullOrWhiteSpace(extension))
+                {
+                    return extension;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return isTodoMultiline
+            ? CompactLinkedNoteTitle(fileName, 6, 5)
+            : CompactLinkedNoteTitle(fileName, 3, 3);
     }
 
     private static string PathDisplayName(string path)

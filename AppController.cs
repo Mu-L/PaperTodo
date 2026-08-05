@@ -980,8 +980,8 @@ public sealed partial class AppController : IDisposable
 
     public bool IsNoteLinkedToAnyTodo(PaperData paper)
     {
-        return paper.Type == PaperTypes.Note &&
-            IsPaperLinkedToAnyTodo(paper);
+        // Kept as a compatibility alias for callers compiled around the old note-only name.
+        return IsPaperLinkedToAnyTodo(paper);
     }
 
     public bool CanPaperDisplayAsCapsule(PaperData paper)
@@ -993,7 +993,7 @@ public sealed partial class AppController : IDisposable
 
         return !(State.EnableTodoNoteLinks &&
             State.HideLinkedNotesFromCapsules &&
-            IsNoteLinkedToAnyTodo(paper));
+            IsPaperLinkedToAnyTodo(paper));
     }
 
     public void OpenLinkedNote(string? noteId, Window? anchorWindow = null)
@@ -2132,7 +2132,7 @@ public sealed partial class AppController : IDisposable
         var refreshedAny = false;
         foreach (var noteId in linkedPaperIds)
         {
-            var note = FindNote(noteId);
+            var note = FindPaper(noteId);
             if (note == null)
             {
                 continue;

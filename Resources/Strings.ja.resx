@@ -1340,4 +1340,38 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LinkedPathDropFailureMessage" xml:space="preserve"><value>このファイルまたはフォルダーを関連付けできません：&#xA;{0}</value></data>
   <data name="LinkedPathOpenFailureTitle" xml:space="preserve"><value>関連パスを開けません</value></data>
   <data name="LinkedPathOpenFailureMessage" xml:space="preserve"><value>システムでこのパスを開けません：&#xA;{0}</value></data>
-  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>関連付けたファイルまたはフォルダーは移動または削除されています：&#xA;{0}</value></data></root>
+  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>関連付けたファイルまたはフォルダーは移動または削除されています：&#xA;{0}</value></data>
+  <data name="SettingsShowLinkedPathExtensionOnly" xml:space="preserve">
+    <value>長いタイトルがオフのとき拡張子のみ表示</value>
+  </data>
+  <data name="TipShowLinkedPathExtensionOnly" xml:space="preserve">
+    <value>有効にすると、関連紙片の長いタイトルがオフのとき、ファイルのクイック起動は拡張子のみ表示します。フォルダーと拡張子のないファイルは短い名前を表示します。</value>
+  </data>
+  <data name="SettingsDeepCapsuleGap" xml:space="preserve">
+    <value>エッジカプセルの間隔</value>
+  </data>
+  <data name="TipDeepCapsuleGap" xml:space="preserve">
+    <value>同じエッジキュー内のカプセル間の上下間隔を調整します。</value>
+  </data>
+  <data name="DeepCapsuleGapNarrow" xml:space="preserve">
+    <value>狭い</value>
+  </data>
+  <data name="DeepCapsuleGapStandard" xml:space="preserve">
+    <value>標準</value>
+  </data>
+  <data name="DeepCapsuleGapWide" xml:space="preserve">
+    <value>広い</value>
+  </data>
+  <data name="AdvancedFeatureBadgeTip" xml:space="preserve">
+    <value>詳細モードで表示される拡張機能</value>
+  </data>
+  <data name="PluginsStatusIssue" xml:space="preserve">
+    <value>プラグインに問題があります</value>
+  </data>
+  <data name="PluginsStatusStopped" xml:space="preserve">
+    <value>プラグインは未起動です</value>
+  </data>
+  <data name="PluginsStatusRunning" xml:space="preserve">
+    <value>プラグインは実行中です</value>
+  </data>
+</root>

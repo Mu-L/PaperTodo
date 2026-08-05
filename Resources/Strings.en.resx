@@ -1340,4 +1340,38 @@ When off, open at the docked edge or remembered position.</value>
   <data name="LinkedPathDropFailureMessage" xml:space="preserve"><value>Could not link this file or folder:&#xA;{0}</value></data>
   <data name="LinkedPathOpenFailureTitle" xml:space="preserve"><value>Cannot open linked path</value></data>
   <data name="LinkedPathOpenFailureMessage" xml:space="preserve"><value>Windows could not open this path:&#xA;{0}</value></data>
-  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>The linked file or folder was moved or deleted:&#xA;{0}</value></data></root>
+  <data name="LinkedPathMissingMessage" xml:space="preserve"><value>The linked file or folder was moved or deleted:&#xA;{0}</value></data>
+  <data name="SettingsShowLinkedPathExtensionOnly" xml:space="preserve">
+    <value>Show only file extension when long titles are off</value>
+  </data>
+  <data name="TipShowLinkedPathExtensionOnly" xml:space="preserve">
+    <value>When enabled, file quick links show only the extension while long linked-paper titles are off. Folders and extensionless files keep a compact name.</value>
+  </data>
+  <data name="SettingsDeepCapsuleGap" xml:space="preserve">
+    <value>Edge capsule spacing</value>
+  </data>
+  <data name="TipDeepCapsuleGap" xml:space="preserve">
+    <value>Adjust the vertical spacing between capsules in the same edge queue.</value>
+  </data>
+  <data name="DeepCapsuleGapNarrow" xml:space="preserve">
+    <value>Narrow</value>
+  </data>
+  <data name="DeepCapsuleGapStandard" xml:space="preserve">
+    <value>Standard</value>
+  </data>
+  <data name="DeepCapsuleGapWide" xml:space="preserve">
+    <value>Wide</value>
+  </data>
+  <data name="AdvancedFeatureBadgeTip" xml:space="preserve">
+    <value>Enhanced setting shown in Advanced mode</value>
+  </data>
+  <data name="PluginsStatusIssue" xml:space="preserve">
+    <value>Plugin has an issue</value>
+  </data>
+  <data name="PluginsStatusStopped" xml:space="preserve">
+    <value>Plugin is not running</value>
+  </data>
+  <data name="PluginsStatusRunning" xml:space="preserve">
+    <value>Plugin is running</value>
+  </data>
+</root>

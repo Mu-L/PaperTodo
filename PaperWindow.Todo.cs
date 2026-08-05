@@ -366,11 +366,10 @@ public sealed partial class PaperWindow
             }
         };
 
-        var selectionLaneWidth = AppTypography.Scale(8);
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition
         {
-            Width = new GridLength(metrics.CheckColumnWidth + selectionLaneWidth)
+            Width = new GridLength(metrics.CheckColumnWidth)
         });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -385,31 +384,6 @@ public sealed partial class PaperWindow
                 metrics.CheckColumnWidth - AppTypography.Scale(4)))
         });
 
-        var checkHost = new Grid();
-        checkHost.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(selectionLaneWidth)
-        });
-        checkHost.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(1, GridUnitType.Star)
-        });
-
-        var selectionLane = new Border
-        {
-            Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(RadiusSmall),
-            Cursor = Cursors.Cross,
-            ToolTip = Strings.Get("TodoMultiSelectToolTip"),
-            Focusable = false
-        };
-        selectionLane.MouseEnter += (_, _) =>
-            selectionLane.Background = Theme.Tint((byte)(Theme.IsDark ? 46 : 30));
-        selectionLane.MouseLeave += (_, _) =>
-            selectionLane.Background = Brushes.Transparent;
-        Grid.SetColumn(selectionLane, 0);
-        checkHost.Children.Add(selectionLane);
-
         var check = new CheckBox
         {
             IsChecked = item.Done,
@@ -421,10 +395,8 @@ public sealed partial class PaperWindow
             Style = CurrentTodoCheckBoxStyle()
         };
 
-        Grid.SetColumn(check, 1);
-        checkHost.Children.Add(check);
-        Grid.SetColumn(checkHost, 0);
-        grid.Children.Add(checkHost);
+        Grid.SetColumn(check, 0);
+        grid.Children.Add(check);
         Border? reminderButton = null;
         Border? reminderCountdown = null;
 
@@ -637,7 +609,7 @@ public sealed partial class PaperWindow
 
         if (hasLinkedPath)
         {
-            var pathLinkButton = BuildTodoPathLinkButton(item, metrics);
+            var pathLinkButton = BuildTodoPathLinkButton(item, text, metrics);
             AttachItemContextMenu(pathLinkButton);
             Grid.SetColumn(pathLinkButton, 2);
             grid.Children.Add(pathLinkButton);
@@ -944,7 +916,7 @@ public sealed partial class PaperWindow
         row.Child = grid;
         _todoRows.Add(row);
         ConfigureTodoPathDrop(row, item);
-        ConfigureTodoMultiSelection(row, item, check, selectionLane);
+        ConfigureTodoMultiSelection(row, item, check, text);
 
         // 新增动画：只对新建的项播放动画
         if (_controller.State.EnableAnimations && isNewItem)

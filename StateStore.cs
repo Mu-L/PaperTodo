@@ -460,6 +460,7 @@ public sealed class StateStore
         state.FullscreenTopmostMode = FullscreenTopmostModes.Normalize(state.FullscreenTopmostMode);
         state.ResizeGripMode = ResizeGripModes.Normalize(state.ResizeGripMode);
         state.DeepCapsuleSide = DeepCapsuleSides.Normalize(state.DeepCapsuleSide);
+        state.DeepCapsuleGapSize = DeepCapsuleGapSizes.Normalize(state.DeepCapsuleGapSize);
         state.DeepCapsuleMonitorDeviceName = WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(state.DeepCapsuleMonitorDeviceName);
         state.TodoVisualSize = TodoVisualSizes.Normalize(state.TodoVisualSize);
         state.NoteTextSize = VisualTextSizes.Normalize(state.NoteTextSize);
@@ -705,16 +706,16 @@ public sealed class StateStore
 
         if (state.EnableTodoNoteLinks && state.HideLinkedNotesFromCapsules)
         {
-            var linkedNoteIds = state.Papers
+            var linkedPaperIds = state.Papers
                 .Where(p => p.Type == PaperTypes.Todo)
                 .SelectMany(p => p.Items)
                 .Select(item => item.LinkedNoteId)
                 .Where(id => !string.IsNullOrWhiteSpace(id))
                 .ToHashSet(StringComparer.Ordinal);
 
-            foreach (var note in state.Papers.Where(p => p.Type == PaperTypes.Note && linkedNoteIds.Contains(p.Id)))
+            foreach (var linkedPaper in state.Papers.Where(p => linkedPaperIds.Contains(p.Id)))
             {
-                note.IsCollapsed = false;
+                linkedPaper.IsCollapsed = false;
             }
         }
     }
