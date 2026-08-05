@@ -63,7 +63,7 @@ plugins\
 
 ## 宿主绘制的插件设置
 
-协议 1.2 支持 `boolean`、`string`、`number` 和 `select` 四种全局设置。插件只声明结构，PaperTodo 负责绘制和保存。约束字段均可省略；`quick: true` 的设置最多三个，会直接显示在插件卡片右侧，其余设置放在“更多设置”中。
+协议 1.2 起支持 `boolean`、`string`、`number` 和 `select` 四种全局设置。插件只声明结构，PaperTodo 负责绘制和保存。约束字段均可省略；`quick: true` 的设置最多三个，会直接显示在插件卡片右侧，其余设置放在“更多设置”中。
 
 ```json
 {
@@ -72,7 +72,7 @@ plugins\
   "name": "天气",
   "description": "天气信息面板",
   "version": "1.0.0",
-  "apiVersion": "1.2",
+  "apiVersion": "1.4",
   "stateVersion": 1,
   "entry": "web/index.html",
   "capabilities": ["textZoom"],
@@ -151,7 +151,7 @@ papertodo.onEvent(message => console.log(message));
 
 ## 原生插件
 
-原生插件目录的 `entry` 指向实现 `PaperTodo.Plugin.IPaperBodyPlugin` 的入口 DLL，依赖、`.deps.json`、资源和本地库全部放在同一插件目录。协议 1.2 要求 DLL 显式实现 `ApiVersion` 和 `RuntimeRequirements`，并与 `plugin.json` 完全一致；不一致时拒绝加载。PaperTodo 为每个纸片创建新的插件工厂对象，`IPaperBodyPlugin` 不应保存纸片实例状态。
+原生插件目录的 `entry` 指向实现 `PaperTodo.Plugin.IPaperBodyPlugin` 的入口 DLL，依赖、`.deps.json`、资源和本地库全部放在同一插件目录。自协议 1.2 起，DLL 必须显式实现 `ApiVersion` 和 `RuntimeRequirements`，并与 `plugin.json` 完全一致；不一致时拒绝加载。PaperTodo 为每个纸片创建新的插件工厂对象，`IPaperBodyPlugin` 不应保存纸片实例状态。
 
 原生会话可通过 `OnPresentationChanged` 判断完整正文是否显示，通过 `OnVisibilityChanged` 判断运行时是否应保持活动，通过 `OnSettingsChanged` 接收全局设置变化，并通过 `PaperBodyContext.SetInputClaims` 动态占用 Esc 或正文右键菜单；正文会话必须在 `Dispose` 中停止计时器、取消任务并解除事件。
 

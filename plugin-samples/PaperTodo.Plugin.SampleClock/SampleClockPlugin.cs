@@ -13,7 +13,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string DisplayName => "原生时钟";
     public string Description => "完整的 WPF 时钟示例：时区、日期格式、标题和日进度均可配置。";
     public Version Version => new(1, 3, 0);
-    public string ApiVersion => "1.2";
+    public string ApiVersion => "1.4";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
