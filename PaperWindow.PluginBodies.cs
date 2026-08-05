@@ -13,6 +13,9 @@ public sealed partial class PaperWindow
     private PaperBodyPluginDescriptor? _bodyDescriptor;
     private UIElement? _bodyElement;
     private FrameworkElement? _pluginBodyClipHost;
+    private StreamGeometry? _pluginBodyClipGeometry;
+    private bool _pluginBodyClipRefreshQueued;
+    private IPaperBodyControls? _bodyControls;
     private string _pluginDisplayTitle = "";
     private PaperBodyInputClaims _bodyInputClaims;
     private PaperBodyPluginHostApi? _bodyHostApi;
@@ -25,6 +28,18 @@ public sealed partial class PaperWindow
         _pendingPluginStates = new();
 
     private sealed record PendingPluginState(int Version, string Json);
+
+    private sealed class PaperBodyControls(PaperWindow owner) : IPaperBodyControls
+    {
+        public void ApplySelectStyle(ComboBox comboBox, double fontSize)
+        {
+            ArgumentNullException.ThrowIfNull(comboBox);
+            PaperSelectControl.ApplyPluginTheme(
+                comboBox,
+                owner.CurrentPaperBodyTheme(),
+                fontSize);
+        }
+    }
 
     // Staged Markdown extraction: mutable editor state lives in MarkdownPaperBodySession while
     // the mature interaction methods remain in PaperWindow.Note.cs for this release.
@@ -296,6 +311,7 @@ public sealed partial class PaperWindow
         if (IsCurrentBodyProviderMarkdown)
         {
             _pluginBodyClipHost = null;
+            _pluginBodyClipGeometry = null;
             return view;
         }
 
@@ -305,10 +321,28 @@ public sealed partial class PaperWindow
             ClipToBounds = true
         };
         host.Children.Add(view);
-        host.SizeChanged += (_, _) => RefreshPluginBodyClip();
+        host.SizeChanged += (_, _) => QueuePluginBodyClipRefresh();
         _pluginBodyClipHost = host;
-        RefreshPluginBodyClip();
+        _pluginBodyClipGeometry = new StreamGeometry();
+        QueuePluginBodyClipRefresh();
         return host;
+    }
+
+    private void QueuePluginBodyClipRefresh()
+    {
+        if (_pluginBodyClipHost == null || _pluginBodyClipRefreshQueued)
+        {
+            return;
+        }
+
+        _pluginBodyClipRefreshQueued = true;
+        _ = Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                _pluginBodyClipRefreshQueued = false;
+                RefreshPluginBodyClip();
+            }),
+            System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void OnPaperChromeContextMenuOpening(
@@ -382,36 +416,47 @@ public sealed partial class PaperWindow
         var radius = Math.Min(
             Math.Max(0, chromeRadius - 1),
             Math.Min(width, height) / 2);
-        if (radius <= 0)
-        {
-            host.Clip = new RectangleGeometry(new Rect(0, 0, width, height));
-            return;
-        }
 
-        var figure = new PathFigure
+        var geometry = _pluginBodyClipGeometry ??= new StreamGeometry();
+        using (var drawing = geometry.Open())
         {
-            StartPoint = new Point(0, 0),
-            IsClosed = true,
-            IsFilled = true
-        };
-        figure.Segments.Add(new LineSegment(new Point(width, 0), true));
-        figure.Segments.Add(new LineSegment(new Point(width, height - radius), true));
-        figure.Segments.Add(new ArcSegment(
-            new Point(width - radius, height),
-            new Size(radius, radius),
-            0,
-            false,
-            SweepDirection.Clockwise,
-            true));
-        figure.Segments.Add(new LineSegment(new Point(radius, height), true));
-        figure.Segments.Add(new ArcSegment(
-            new Point(0, height - radius),
-            new Size(radius, radius),
-            0,
-            false,
-            SweepDirection.Clockwise,
-            true));
-        host.Clip = new PathGeometry([figure]);
+            drawing.BeginFigure(new Point(0, 0), isFilled: true, isClosed: true);
+            drawing.LineTo(new Point(width, 0), isStroked: true, isSmoothJoin: false);
+            drawing.LineTo(
+                new Point(width, Math.Max(0, height - radius)),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (radius > 0)
+            {
+                drawing.ArcTo(
+                    new Point(width - radius, height),
+                    new Size(radius, radius),
+                    rotationAngle: 0,
+                    isLargeArc: false,
+                    sweepDirection: SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+            drawing.LineTo(
+                new Point(radius, height),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (radius > 0)
+            {
+                drawing.ArcTo(
+                    new Point(0, height - radius),
+                    new Size(radius, radius),
+                    rotationAngle: 0,
+                    isLargeArc: false,
+                    sweepDirection: SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+        }
+        if (!ReferenceEquals(host.Clip, geometry))
+        {
+            host.Clip = geometry;
+        }
     }
 
 
@@ -448,6 +493,7 @@ public sealed partial class PaperWindow
             SettingsJson = _controller.PaperBodyPlugins.DataStore.GetSettingsJson(descriptor),
             GrantedPermissions = hostApi.GrantedPermissions,
             Host = hostApi,
+            Controls = _bodyControls ??= new PaperBodyControls(this),
             Theme = CurrentPaperBodyTheme(),
             SaveStateJson = json => QueuePluginStateSave(
                 generation,

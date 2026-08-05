@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 
 namespace PaperTodo.Plugin;
 
@@ -36,6 +37,15 @@ public sealed record PaperBodyTheme(
     double FontScale);
 
 /// <summary>
+/// Host-owned native controls. Plugins provide data and behavior while PaperTodo owns the
+/// shared visual language, popup lifecycle, theme and DPI behavior.
+/// </summary>
+public interface IPaperBodyControls
+{
+    void ApplySelectStyle(ComboBox comboBox, double fontSize);
+}
+
+/// <summary>
 /// Narrow host surface exposed to fully trusted, unsandboxed PaperTodo body plugins.
 /// Callbacks are queued onto PaperTodo's UI dispatcher and ignored after the session is replaced.
 /// </summary>
@@ -51,6 +61,7 @@ public sealed class PaperBodyContext
     public IReadOnlySet<string> GrantedPermissions { get; init; } =
         PaperTodoPermissionNames.None;
     public required IPaperTodoHostApi Host { get; init; }
+    public required IPaperBodyControls Controls { get; init; }
     public required PaperBodyTheme Theme { get; init; }
     public required Action<string> SaveStateJson { get; init; }
     public required Action<string> SetTitle { get; init; }

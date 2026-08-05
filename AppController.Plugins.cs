@@ -453,14 +453,19 @@ public sealed partial class AppController
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
         };
-        var arrow = new TextBlock
+        var arrow = new System.Windows.Shapes.Path
         {
-            Text = "⌄",
-            Foreground = TrayWeakTextBrush,
-            FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = AppTypography.Scale(11),
-            Margin = new Thickness(6, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center
+            Data = Geometry.Parse("M 0 1 L 4 5 L 8 1"),
+            Stroke = TrayWeakTextBrush,
+            StrokeThickness = 1.35,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Width = 8,
+            Height = 6,
+            Margin = new Thickness(10, 0, 1, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            SnapsToDevicePixels = true
         };
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition
@@ -474,29 +479,29 @@ public sealed partial class AppController
 
         var editor = new Border
         {
-            Width = 125,
-            MinHeight = 27,
-            Padding = new Thickness(8, 3, 7, 3),
+            Width = 132,
+            MinHeight = 28,
+            Padding = new Thickness(9, 2, 8, 2),
             CornerRadius = new CornerRadius(6),
             BorderBrush = TrayBorderBrush,
             BorderThickness = new Thickness(1),
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
             Focusable = true,
+            SnapsToDevicePixels = true,
             Child = content
         };
 
-        // Reuse the menu surface that already owns popup activation, DPI and theme resources.
-        // A standalone Popup here bypassed that lifecycle and could terminate the settings window
-        // when the first plugin select editor was opened.
+        // Keep the settings selector on the existing ContextMenu lifecycle. A standalone Popup
+        // previously caused the settings window to terminate when its first select was opened.
         var menu = CreateTrayMenu();
-        menu.MinWidth = 125;
-        menu.MaxWidth = 280;
-        menu.MaxHeight = 230;
+        menu.MinWidth = 132;
+        menu.MaxWidth = 320;
+        menu.MaxHeight = 236;
         menu.PlacementTarget = editor;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
         menu.HorizontalOffset = 0;
-        menu.VerticalOffset = 3;
+        menu.VerticalOffset = 4;
         var optionRows = new List<(string Value, string Name, MenuItem Row)>();
 
         void RefreshOptionRows()
@@ -541,11 +546,19 @@ public sealed partial class AppController
 
         RefreshOptionRows();
 
+        void SetOpenVisual(bool open)
+        {
+            arrow.RenderTransform = open
+                ? new RotateTransform(180)
+                : Transform.Identity;
+            editor.Background = open ? TrayHoverBrush : Brushes.Transparent;
+            editor.BorderBrush = open ? Theme.ActiveBrush : TrayBorderBrush;
+        }
+
         void OpenPopup()
         {
             RefreshOptionRows();
-            arrow.Text = "⌃";
-            editor.Background = TrayHoverBrush;
+            SetOpenVisual(true);
             menu.PlacementTarget = editor;
             menu.IsOpen = true;
         }
@@ -579,11 +592,17 @@ public sealed partial class AppController
 
         editor.MouseEnter += (_, _) =>
         {
-            if (!menu.IsOpen) editor.Background = TrayHoverBrush;
+            if (!menu.IsOpen)
+            {
+                editor.Background = TrayHoverBrush;
+            }
         };
         editor.MouseLeave += (_, _) =>
         {
-            if (!menu.IsOpen) editor.Background = Brushes.Transparent;
+            if (!menu.IsOpen)
+            {
+                editor.Background = Brushes.Transparent;
+            }
         };
         editor.MouseLeftButtonDown += (_, e) =>
         {
@@ -621,11 +640,7 @@ public sealed partial class AppController
                 e.Handled = true;
             }
         };
-        menu.Closed += (_, _) =>
-        {
-            arrow.Text = "⌄";
-            editor.Background = Brushes.Transparent;
-        };
+        menu.Closed += (_, _) => SetOpenVisual(false);
         return editor;
     }
 

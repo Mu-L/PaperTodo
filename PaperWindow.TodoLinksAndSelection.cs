@@ -31,6 +31,7 @@ public sealed partial class PaperWindow
     private readonly HashSet<string> _todoGroupDragItemIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _todoGroupDragRestingOpacities = new(StringComparer.Ordinal);
     private TodoSweepSelectionState? _todoSweepSelection;
+    private bool _todoSweepOwnsMouseCapture;
     private bool _todoSelectionInputHooksInstalled;
 
     private static Brush TodoSelectionBrush =>
@@ -50,6 +51,7 @@ public sealed partial class PaperWindow
         PreviewMouseMove += OnTodoSweepPreviewMouseMove;
         PreviewMouseLeftButtonUp += OnTodoSweepPreviewMouseLeftButtonUp;
         LostMouseCapture += OnTodoSweepLostMouseCapture;
+        Deactivated += OnTodoSweepWindowDeactivated;
     }
 
     private void OnTodoSelectionWindowPreviewMouseLeftButtonDown(
@@ -172,10 +174,19 @@ public sealed partial class PaperWindow
             sourceTextBox);
     }
 
-    private void PromoteTodoSweepSelection(
+    private bool PromoteTodoSweepSelection(
         TodoSweepSelectionState state,
         string targetItemId)
     {
+        // Transfer capture while the gesture is still only armed. The TextBox capture-loss event
+        // bubbles through PaperWindow; marking the sweep promoted before this transfer could clear
+        // the state while leaving the window itself captured.
+        if (!CaptureMouse())
+        {
+            return false;
+        }
+
+        _todoSweepOwnsMouseCapture = true;
         state.IsPromoted = true;
         if (state.SourceTextBox != null)
         {
@@ -185,7 +196,7 @@ public sealed partial class PaperWindow
         _selectedTodoItemIds.Clear();
         _selectedTodoItemIds.Add(state.AnchorItemId);
         SelectTodoRange(state.AnchorItemId, targetItemId);
-        CaptureMouse();
+        return true;
     }
 
     private void OnTodoSweepPreviewMouseMove(object sender, MouseEventArgs e)
@@ -214,7 +225,11 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            PromoteTodoSweepSelection(state, firstTargetItemId);
+            if (!PromoteTodoSweepSelection(state, firstTargetItemId))
+            {
+                CancelTodoSweepSelection(clearSelection: false);
+                return;
+            }
         }
 
         AutoScrollTodoSelection(point);
@@ -233,6 +248,7 @@ public sealed partial class PaperWindow
     {
         if (_todoSweepSelection == null)
         {
+            ReleaseTodoSweepMouseCapture();
             return;
         }
 
@@ -252,29 +268,48 @@ public sealed partial class PaperWindow
 
     private void CancelTodoSweepSelection(bool clearSelection)
     {
-        var hadSweep = _todoSweepSelection != null;
         _todoSweepSelection = null;
         if (clearSelection)
         {
             _selectedTodoItemIds.Clear();
         }
-        if (hadSweep && IsMouseCaptured && _todoDrag == null)
+        ReleaseTodoSweepMouseCapture();
+        ApplyTodoSelectionVisuals();
+    }
+
+    private void ReleaseTodoSweepMouseCapture()
+    {
+        if (!_todoSweepOwnsMouseCapture)
+        {
+            return;
+        }
+
+        _todoSweepOwnsMouseCapture = false;
+        if (IsMouseCaptured && _todoDrag == null)
         {
             ReleaseMouseCapture();
         }
-        ApplyTodoSelectionVisuals();
     }
 
     private void OnTodoSweepLostMouseCapture(object sender, MouseEventArgs e)
     {
-        if (_todoSweepSelection?.IsPromoted != true)
+        if (!_todoSweepOwnsMouseCapture || ReferenceEquals(Mouse.Captured, this))
         {
-            // A TextBox may capture/release the mouse while the gesture is only armed.
+            // Ignore a descendant TextBox losing capture while ownership transfers to the window.
             return;
         }
 
+        _todoSweepOwnsMouseCapture = false;
         _todoSweepSelection = null;
         ApplyTodoSelectionVisuals();
+    }
+
+    private void OnTodoSweepWindowDeactivated(object? sender, EventArgs e)
+    {
+        if (_todoSweepSelection != null || _todoSweepOwnsMouseCapture)
+        {
+            CancelTodoSweepSelection(clearSelection: false);
+        }
     }
 
     private void AutoScrollTodoSelection(Point pointOnWindow)
