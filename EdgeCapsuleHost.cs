@@ -505,7 +505,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
             Effect = new DropShadowEffect
             {
                 BlurRadius = 4,
-                ShadowDepth = 2,
+                ShadowDepth = 0,
                 Opacity = 0.10
             }
         };

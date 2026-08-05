@@ -1113,7 +1113,7 @@ public sealed partial class PaperWindow : Window
         _paperChrome.Margin = new Thickness(WindowChromeMargin);
         _paperChrome.CornerRadius = targetCorner;
         _paperChrome.Effect = isCapsule
-            ? CreatePaperChromeShadow(blurRadius: 8, opacity: 0.12)
+            ? CreatePaperChromeShadow(blurRadius: 8, opacity: 0.12, shadowDepth: 1)
             : CreatePaperChromeShadow();
         RefreshPluginBodyClip();
     }
@@ -1407,12 +1407,15 @@ public sealed partial class PaperWindow : Window
         return false;
     }
 
-    private static DropShadowEffect CreatePaperChromeShadow(double blurRadius = 14, double opacity = 0.22)
+    private static DropShadowEffect CreatePaperChromeShadow(
+        double blurRadius = 14,
+        double opacity = 0.22,
+        double shadowDepth = 2)
     {
         return new DropShadowEffect
         {
             BlurRadius = blurRadius,
-            ShadowDepth = 2,
+            ShadowDepth = shadowDepth,
             Opacity = opacity
         };
     }
