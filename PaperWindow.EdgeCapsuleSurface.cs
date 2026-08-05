@@ -7,6 +7,8 @@ public sealed partial class PaperWindow
     internal readonly record struct ProgrammaticPaperExpansionOrigin(double Left, double Top);
     internal readonly record struct DeepCapsuleModeHandoff(double Left, double Top);
 
+    private int _deepCapsuleDevicePlacementGeneration;
+
     internal bool TryCaptureDeepCapsuleModeHandoff(out DeepCapsuleModeHandoff handoff)
     {
         handoff = default;
@@ -216,39 +218,118 @@ public sealed partial class PaperWindow
             return;
         }
 
+        var bootstrapBounds = programmaticOrigin == null
+            ? DeepCapsuleMainWindowBootstrapBounds()
+            : default;
+        var useNativeBootstrap = !bootstrapBounds.IsEmpty;
+
         BeginAnimation(Window.OpacityProperty, null);
-        Opacity = 1.0;
-        MoveWindowWithoutGeometrySave(() =>
+        Opacity = useNativeBootstrap ? 0 : 1.0;
+        try
         {
-            Width = DesiredCapsuleWindowWidth;
-            Height = PaperLayoutDefaults.CapsuleHeight;
-            if (programmaticOrigin is { } targetPlacement)
+            MoveWindowWithoutGeometrySave(() =>
             {
-                MoveMainWindowToProgrammaticExpansionOrigin(targetPlacement);
-            }
-            else if (_edgeCapsuleHost != null)
-            {
-                // PointToScreen is physical pixels; convert through the app's global screen-DIP
-                // coordinate space. Rounding with this hidden paper HWND's old monitor DPI is the
-                // exact mixed-DPI bug this hand-off must avoid.
-                var slotOrigin = WindowWorkAreaHelper.DeviceScreenPointToDip(
-                    _edgeCapsuleHost.ScreenOrigin());
-                Left = slotOrigin.X;
-                Top = slotOrigin.Y;
-            }
-            else
-            {
-                Left = _paper.X;
-                Top = _paper.Y;
-            }
-            Show();
-        });
+                Width = DesiredCapsuleWindowWidth;
+                Height = PaperLayoutDefaults.CapsuleHeight;
+                if (programmaticOrigin is { } targetPlacement)
+                {
+                    MoveMainWindowToProgrammaticExpansionOrigin(targetPlacement);
+                }
+                else if (!useNativeBootstrap && _edgeCapsuleHost != null)
+                {
+                    var slotOrigin = WindowWorkAreaHelper.DeviceScreenPointToDip(
+                        _edgeCapsuleHost.ScreenOrigin());
+                    Left = slotOrigin.X;
+                    Top = slotOrigin.Y;
+                }
+                else if (!useNativeBootstrap)
+                {
+                    Left = _paper.X;
+                    Top = _paper.Y;
+                }
+
+                Show();
+                if (useNativeBootstrap &&
+                    !TryApplyDeepCapsuleDeviceBounds(bootstrapBounds))
+                {
+                    if (_edgeCapsuleHost != null)
+                    {
+                        var slotOrigin = WindowWorkAreaHelper.DeviceScreenPointToDip(
+                            _edgeCapsuleHost.ScreenOrigin());
+                        Left = slotOrigin.X;
+                        Top = slotOrigin.Y;
+                    }
+                    else
+                    {
+                        Left = _paper.X;
+                        Top = _paper.Y;
+                    }
+                }
+            });
+        }
+        finally
+        {
+            Opacity = 1.0;
+        }
     }
 
     private void MoveMainWindowToProgrammaticExpansionOrigin(ProgrammaticPaperExpansionOrigin placement)
     {
+        _deepCapsuleDevicePlacementGeneration++;
         Left = placement.Left;
         Top = placement.Top;
+    }
+
+    private DeviceScreenRect DeepCapsuleMainWindowBootstrapBounds()
+    {
+        var frame = _edgeCapsule.AppliedPresentation;
+        if (!frame.Visible || frame.Bounds.IsEmpty)
+        {
+            return default;
+        }
+
+        return EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
+            DeepCapsuleMonitorGeometry(),
+            frame.Edge,
+            frame.Bounds.Top,
+            DesiredCapsuleWindowWidth,
+            PaperLayoutDefaults.CapsuleHeight,
+            edgeInsetDip: 0,
+            verticalMarginDip: 0);
+    }
+
+    private bool TryApplyDeepCapsuleDeviceBounds(DeviceScreenRect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return false;
+        }
+
+        if (WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds) &&
+            EdgeCapsuleGeometry.DeviceBoundsMatch(currentBounds, bounds, tolerance: 1))
+        {
+            return true;
+        }
+
+        return WindowNative.TrySetWindowDeviceBounds(this, bounds);
+    }
+
+    private void QueueDeepCapsuleDeviceBoundsConfirmation(DeviceScreenRect bounds)
+    {
+        var generation = ++_deepCapsuleDevicePlacementGeneration;
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (generation != _deepCapsuleDevicePlacementGeneration ||
+                    _paper.IsCollapsed ||
+                    !IsVisible)
+                {
+                    return;
+                }
+
+                _ = TryApplyDeepCapsuleDeviceBounds(bounds);
+            }),
+            System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void HideMainWindowForDeepCapsuleRest()
@@ -442,22 +523,45 @@ public sealed partial class PaperWindow
 
     private void AlignExpandedToDockedEdge(double targetWidth, double targetHeight, double requiredEdgeInset = 0)
     {
-        var area = DeepCapsuleWorkArea();
+        var monitor = DeepCapsuleMonitorGeometry();
         var width = Math.Max(targetWidth, PaperLayoutDefaults.MinWidth);
         var height = Math.Max(targetHeight, PaperLayoutDefaults.MinHeight);
-        // "rightInset" is really the gap between the expanded window and the docked edge; it
-        // reserves room for the resting capsule strip. On the left edge it pushes the window
-        // rightward from area.Left; on the right edge it pulls it leftward from area.Right.
-        var edgeInset = Math.Min(
-            Math.Max(
-                Math.Max(DeepCapsuleExpandedEdgeInset, requiredEdgeInset),
-                _controller.VisibleDeepCapsuleRestingWidthForQueue(_paper) + DeepCapsuleGap),
-            Math.Max(0, area.Width - width));
-        var targetTop = Math.Clamp(Top, area.Top + DeepCapsuleTopMargin, Math.Max(area.Top + DeepCapsuleTopMargin, area.Bottom - height - DeepCapsuleTopMargin));
+        var edgeInset = Math.Max(
+            Math.Max(DeepCapsuleExpandedEdgeInset, requiredEdgeInset),
+            _controller.VisibleDeepCapsuleRestingWidthForQueue(_paper) + DeepCapsuleGap);
+        var appliedBounds = _edgeCapsule.AppliedPresentation.Bounds;
+        var anchorTop = !appliedBounds.IsEmpty
+            ? appliedBounds.Top
+            : WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds)
+                ? currentBounds.Top
+                : monitor.WorkArea.Top;
+        var targetBounds = EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
+            monitor,
+            MyDeepCapsuleEdge,
+            anchorTop,
+            width,
+            height,
+            edgeInset,
+            DeepCapsuleTopMargin);
+        if (TryApplyDeepCapsuleDeviceBounds(targetBounds))
+        {
+            // Width/Height are written by the form transition immediately after this method.
+            // Confirm the same physical rectangle after that layout pass, before rendering.
+            QueueDeepCapsuleDeviceBoundsConfirmation(targetBounds);
+            return;
+        }
 
+        var area = DeepCapsuleWorkArea();
+        var fallbackInset = Math.Min(edgeInset, Math.Max(0, area.Width - width));
+        var targetTop = Math.Clamp(
+            Top,
+            area.Top + DeepCapsuleTopMargin,
+            Math.Max(
+                area.Top + DeepCapsuleTopMargin,
+                area.Bottom - height - DeepCapsuleTopMargin));
         Left = RoundToDevicePixelX(MyDeepCapsuleIsLeftEdge
-            ? area.Left + edgeInset
-            : area.Right - width - edgeInset);
+            ? area.Left + fallbackInset
+            : area.Right - width - fallbackInset);
         Top = RoundToDevicePixelY(targetTop);
     }
 }
