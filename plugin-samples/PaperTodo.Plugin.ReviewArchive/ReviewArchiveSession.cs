@@ -6,7 +6,6 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PaperTodo.Plugin;
-using PaperTodo.Plugin.Controls;
 using static PaperTodo.Plugin.ReviewArchive.ReviewArchiveSettingsReader;
 
 namespace PaperTodo.Plugin.ReviewArchive;
@@ -27,7 +26,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private readonly TextBlock _openValue;
     private readonly ComboBox _filterBox;
     private readonly TextBox _searchBox;
-    private readonly StackPanel _listPanel;
+    private readonly ListBox _list;
     private readonly TextBlock _emptyText;
     private readonly Button _importButton;
     private readonly Button _exportButton;
@@ -40,6 +39,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private ReviewArchiveViewState _viewState;
     private PaperBodyTheme _theme;
     private bool _disposed;
+    private bool _compactLayout;
     private string _lastDisplayTitle = "";
 
     public ReviewArchiveSession(PaperBodyContext context)
@@ -134,7 +134,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         filters.Children.Add(_filterBox);
         filters.Children.Add(_searchBox);
 
-        _listPanel = new StackPanel();
         _emptyText = new TextBlock
         {
             Text = "当前筛选没有记录",
@@ -143,12 +142,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             Margin = new Thickness(20),
             TextAlignment = TextAlignment.Center
         };
-        var scroll = new ScrollViewer
-        {
-            Content = _listPanel,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
+        _list = CreateVirtualizedList();
 
         _importButton = MakeButton("导入当前");
         _exportButton = MakeButton("导出 CSV");
@@ -178,21 +172,14 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetRow(heading, 0);
         Grid.SetRow(filters, 1);
-        Grid.SetRow(scroll, 2);
+        Grid.SetRow(_list, 2);
         Grid.SetRow(actions, 3);
         _root.Children.Add(heading);
         _root.Children.Add(filters);
-        _root.Children.Add(scroll);
+        _root.Children.Add(_list);
         _root.Children.Add(actions);
         _root.SizeChanged += (_, e) =>
-        {
-            var compact = e.NewSize.Width < 310;
-            _root.Margin = compact
-                ? new Thickness(8, 8, 8, 10)
-                : new Thickness(16, 13, 16, 14);
-            _filterBox.Width = compact ? 106 : 122;
-            _searchBox.MaxWidth = compact ? 180 : 260;
-        };
+            ApplyResponsiveLayout(e.NewSize.Width);
 
         _refreshTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -229,6 +216,61 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     }
 
     public FrameworkElement View => _root;
+
+    private static ListBox CreateVirtualizedList()
+    {
+        var list = new ListBox
+        {
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            Focusable = false,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
+        ScrollViewer.SetCanContentScroll(list, true);
+        VirtualizingPanel.SetIsVirtualizing(list, true);
+        VirtualizingPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
+
+        var itemRoot = new FrameworkElementFactory(typeof(Border));
+        itemRoot.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.ContentSourceProperty, "Content");
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+        itemRoot.AppendChild(presenter);
+        var itemStyle = new Style(typeof(ListBoxItem));
+        itemStyle.Setters.Add(new Setter(Control.FocusableProperty, false));
+        itemStyle.Setters.Add(new Setter(Control.IsTabStopProperty, false));
+        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        itemStyle.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0)));
+        itemStyle.Setters.Add(new Setter(
+            Control.HorizontalContentAlignmentProperty,
+            HorizontalAlignment.Stretch));
+        itemStyle.Setters.Add(new Setter(
+            Control.TemplateProperty,
+            new ControlTemplate(typeof(ListBoxItem)) { VisualTree = itemRoot }));
+        list.ItemContainerStyle = itemStyle;
+        list.ItemsPanel = new ItemsPanelTemplate(
+            new FrameworkElementFactory(typeof(VirtualizingStackPanel)));
+        return list;
+    }
+
+    private void ApplyResponsiveLayout(double width)
+    {
+        var compact = width < 310;
+        if (_compactLayout == compact)
+        {
+            return;
+        }
+
+        _compactLayout = compact;
+        _root.Margin = compact
+            ? new Thickness(8, 8, 8, 10)
+            : new Thickness(16, 13, 16, 14);
+        _filterBox.Width = compact ? 106 : 122;
+        _searchBox.MaxWidth = compact ? 180 : 260;
+    }
 
     private sealed record FilterOption(string Id, string Name);
 
@@ -377,18 +419,9 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             .OrderByDescending(LastActivityAt)
             .Take(300)
             .ToArray();
-        _listPanel.Children.Clear();
-        if (filtered.Length == 0)
-        {
-            _listPanel.Children.Add(_emptyText);
-        }
-        else
-        {
-            foreach (var record in filtered)
-            {
-                _listPanel.Children.Add(BuildRow(record));
-            }
-        }
+        _list.ItemsSource = filtered.Length == 0
+            ? new object[] { _emptyText }
+            : filtered.Select(record => (object)BuildRow(record)).ToArray();
 
         var title = _settings.TitleMode switch
         {
@@ -676,7 +709,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _searchBox.Foreground = text;
         _searchBox.Background = surface;
         _searchBox.BorderBrush = border;
-        PaperPluginComboBoxStyle.Apply(_filterBox, theme, 11.5 * scale);
+        _context.Controls.ApplySelectStyle(_filterBox, 11.5 * scale);
 
         foreach (var card in _insightsPanel.Children.OfType<Border>())
         {
@@ -700,7 +733,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             button.FontSize = 11.5 * scale;
         }
 
-        foreach (var row in _listPanel.Children.OfType<Border>())
+        foreach (var row in _list.Items.OfType<Border>())
         {
             var reminderTag = row.Tag as string;
             if (_settings.HighlightUpcomingReminders && reminderTag == "reminder-overdue")

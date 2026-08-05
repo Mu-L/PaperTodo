@@ -5,7 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using PaperTodo.Plugin;
-using PaperTodo.Plugin.Controls;
 
 namespace PaperTodo.Plugin.FocusTimer;
 
@@ -17,8 +16,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
     public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
-    public Version Version => new(1, 3, 1);
-    public string ApiVersion => "1.3";
+    public Version Version => new(1, 3, 2);
+    public string ApiVersion => "1.4";
     public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -126,6 +125,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         private bool _suppressTodoSelection;
         private bool _runtimeVisible;
         private bool _disposed;
+        private bool _compactLayout;
         private string _lastDisplayTitle = "";
         private string _todoLoadError = "";
 
@@ -268,13 +268,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _root.Children.Add(center);
             _root.Children.Add(footer);
             _root.SizeChanged += (_, e) =>
-            {
-                var compact = e.NewSize.Width < 300;
-                _root.Margin = compact
-                    ? new Thickness(9, 9, 9, 11)
-                    : new Thickness(18, 14, 18, 16);
-                _todoBox.MaxWidth = compact ? 260 : 460;
-            };
+                ApplyResponsiveLayout(e.NewSize.Width);
 
             _buttons =
             [
@@ -349,6 +343,21 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         }
 
         public FrameworkElement View => _root;
+
+        private void ApplyResponsiveLayout(double width)
+        {
+            var compact = width < 300;
+            if (_compactLayout == compact)
+            {
+                return;
+            }
+
+            _compactLayout = compact;
+            _root.Margin = compact
+                ? new Thickness(9, 9, 9, 11)
+                : new Thickness(18, 14, 18, 16);
+            _todoBox.MaxWidth = compact ? 260 : 460;
+        }
 
         private static Button MakeButton(string text) => new()
         {
@@ -928,7 +937,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _todoStatusText.Foreground = weak;
             _todoHost.Background = background;
             _todoHost.BorderBrush = border;
-            PaperPluginComboBoxStyle.Apply(_todoBox, theme, 11.5 * scale);
+            _context.Controls.ApplySelectStyle(_todoBox, 11.5 * scale);
             _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
             _progress.Background = ToBrush("#30707070", "#30707070");
 
