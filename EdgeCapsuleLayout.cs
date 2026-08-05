@@ -21,7 +21,7 @@ public static class EdgeCapsuleLayout
     // Where slot 0 starts from the top of the work area (leaves room above for reach).
     public const double StartTopMargin = 48;
     // Vertical gap between stacked capsules. The visual setting keeps the former 4-DIP
-    // spacing as Standard and exposes 50% / 150% variants without changing capsule height.
+    // spacing as Standard and exposes 0 / 4 / 8-DIP variants without overlapping host bounds.
     public static double Gap =>
         AppController.Current is { State: { } state }
             ? DeepCapsuleGapSizes.Value(state.DeepCapsuleGapSize)
