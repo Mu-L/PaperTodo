@@ -40,19 +40,15 @@ public sealed partial class PaperWindow
     private bool _strictAutoCollapsePending;
     private bool _strictAutoCollapseReady;
     private bool _strictAutoCollapseWasForeground;
+    private int _strictAutoCollapseSettledTicks;
     private uint _strictAutoCollapseLastInputTime;
     private StrictNativePoint _strictAutoCollapseCursor;
 
     private void InitializeStrictAutoCollapseTracking()
     {
         PreviewMouseDown += (_, _) => MarkStrictPaperUsed();
-        PreviewKeyDown += (_, e) =>
-        {
-            if (!IsStrictExternalShortcutDown(e.Key))
-            {
-                MarkStrictPaperUsed();
-            }
-        };
+        PreviewMouseWheel += (_, _) => MarkStrictPaperUsed();
+        PreviewKeyDown += (_, _) => MarkStrictPaperUsed();
         PreviewStylusDown += (_, _) => MarkStrictPaperUsed();
         PreviewTouchDown += (_, _) => MarkStrictPaperUsed();
     }
@@ -68,6 +64,7 @@ public sealed partial class PaperWindow
             !_paper.IsCollapsed &&
             _paper.IsVisible;
         _strictAutoCollapseReady = false;
+        _strictAutoCollapseSettledTicks = 0;
         if (!_strictAutoCollapsePending)
         {
             return;
@@ -99,6 +96,7 @@ public sealed partial class PaperWindow
         _strictAutoCollapseGeneration++;
         _strictAutoCollapsePending = false;
         _strictAutoCollapseReady = false;
+        _strictAutoCollapseSettledTicks = 0;
         StopStrictAutoCollapseTimer();
     }
 
@@ -128,23 +126,32 @@ public sealed partial class PaperWindow
 
         var foreground = GetForegroundWindow();
         var ownsForeground = OwnsNativeWindow(foreground);
+        var lastInputTime = ReadStrictLastInputTime();
         if (!_strictAutoCollapseReady)
         {
-            // The shortcut that created or showed the paper can still have keys held down.
-            // Arm only after all buttons are released so its key-up cannot count as a later action.
-            if (HasStrictPhysicalInputDown())
+            // Wait for a short input-idle boundary after show. This lets the shortcut/mouse
+            // action that opened the paper finish without scanning the whole virtual-key table.
+            if (_strictAutoCollapseLastInputTime != lastInputTime)
+            {
+                _strictAutoCollapseLastInputTime = lastInputTime;
+                _strictAutoCollapseSettledTicks = 0;
+                GetCursorPos(out _strictAutoCollapseCursor);
+                _strictAutoCollapseWasForeground = ownsForeground;
+                return;
+            }
+
+            if (++_strictAutoCollapseSettledTicks < 2)
             {
                 return;
             }
 
-            _strictAutoCollapseLastInputTime = ReadStrictLastInputTime();
+            _strictAutoCollapseLastInputTime = lastInputTime;
             GetCursorPos(out _strictAutoCollapseCursor);
             _strictAutoCollapseWasForeground = ownsForeground;
             _strictAutoCollapseReady = true;
             return;
         }
 
-        var lastInputTime = ReadStrictLastInputTime();
         if (lastInputTime == _strictAutoCollapseLastInputTime)
         {
             _strictAutoCollapseWasForeground = ownsForeground;
@@ -157,32 +164,40 @@ public sealed partial class PaperWindow
             cursor.X != _strictAutoCollapseCursor.X ||
             cursor.Y != _strictAutoCollapseCursor.Y;
         _strictAutoCollapseCursor = cursor;
-        var inputDown = HasStrictPhysicalInputDown();
+        var pointerAction = HasStrictPointerButtonActivity();
 
+        // Real input delivered to the paper cancels pending state through the Preview* handlers
+        // before this poll runs. If the paper still owns foreground here, cursor motion alone is
+        // harmless; keyboard/global-hotkey input or a pointer click not delivered to the paper is
+        // another operation and should fold the still-unused paper.
         if (ownsForeground)
         {
-            if (!IsStrictExternalShortcutDown(Key.None) &&
-                (inputDown || !cursorMoved))
+            if (!cursorMoved || pointerAction)
             {
-                MarkStrictPaperUsed();
+                CollapseStrictPendingPaper();
             }
             _strictAutoCollapseWasForeground = true;
             return;
         }
 
-        // Foreground leaving this paper is an explicit other operation. For papers shown without
-        // activation, require a key/button press; cursor movement alone must not fold the paper.
-        if (_strictAutoCollapseWasForeground || inputDown || !cursorMoved)
+        // Foreground leaving this paper is already a strong signal. For papers shown without
+        // activation, ignore pure cursor motion but react to keyboard/wheel input or pointer clicks.
+        if (_strictAutoCollapseWasForeground || !cursorMoved || pointerAction)
         {
-            CancelStrictAutoCollapse();
-            if (CanDisplayAsCapsule() && !HasExperimentalAutoCollapseBlocker())
-            {
-                SetCollapsedState(true);
-            }
+            CollapseStrictPendingPaper();
             return;
         }
 
         _strictAutoCollapseWasForeground = false;
+    }
+
+    private void CollapseStrictPendingPaper()
+    {
+        CancelStrictAutoCollapse();
+        if (CanDisplayAsCapsule() && !HasExperimentalAutoCollapseBlocker())
+        {
+            SetCollapsedState(true);
+        }
     }
 
     private static uint ReadStrictLastInputTime()
@@ -194,42 +209,25 @@ public sealed partial class PaperWindow
         return GetLastInputInfo(ref info) ? info.Time : 0;
     }
 
-    private static bool IsStrictExternalShortcutDown(Key eventKey)
+    private static bool HasStrictPointerButtonActivity()
     {
-        const int virtualKeyTab = 0x09;
-        const int virtualKeyMenu = 0x12;
-        const int virtualKeyControl = 0x11;
-        const int virtualKeyShift = 0x10;
-        const int virtualKeyLeftWindows = 0x5B;
-        const int virtualKeyRightWindows = 0x5C;
+        const int virtualKeyLeftButton = 0x01;
+        const int virtualKeyRightButton = 0x02;
+        const int virtualKeyMiddleButton = 0x04;
+        const int virtualKeyXButton1 = 0x05;
+        const int virtualKeyXButton2 = 0x06;
 
-        static bool Down(int key) =>
-            (GetAsyncKeyState(key) & 0x8000) != 0;
+        static bool Active(int key)
+        {
+            var state = GetAsyncKeyState(key);
+            return (state & 0x8000) != 0 || (state & 0x0001) != 0;
+        }
 
-        if (Down(virtualKeyLeftWindows) || Down(virtualKeyRightWindows))
-        {
-            return true;
-        }
-        if (Down(virtualKeyMenu) &&
-            (Down(virtualKeyTab) || eventKey == Key.Tab))
-        {
-            return true;
-        }
-        return Down(virtualKeyControl) &&
-            Down(virtualKeyMenu) &&
-            Down(virtualKeyShift);
-    }
-
-    private static bool HasStrictPhysicalInputDown()
-    {
-        for (var virtualKey = 1; virtualKey < 255; virtualKey++)
-        {
-            if ((GetAsyncKeyState(virtualKey) & 0x8000) != 0)
-            {
-                return true;
-            }
-        }
-        return false;
+        return Active(virtualKeyLeftButton) ||
+            Active(virtualKeyRightButton) ||
+            Active(virtualKeyMiddleButton) ||
+            Active(virtualKeyXButton1) ||
+            Active(virtualKeyXButton2);
     }
 
     private void StopStrictAutoCollapseTimer()
