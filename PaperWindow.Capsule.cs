@@ -79,6 +79,14 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (IsPaperContextMenuInteractionActive)
+        {
+            _paperContextMenuRefreshPending = true;
+            return;
+        }
+
+        _paperContextMenuRefreshPending = false;
+
         // Every surface uses the same menu builder, but WPF requires a separate
         // ContextMenu instance for each owner. Rebuild all live instances together so
         // state-dependent entries never lag behind the paper's current form.
@@ -108,6 +116,23 @@ public sealed partial class PaperWindow
                 _noteBox.ContextMenu = _notePreviewContextMenu;
             }
         }
+    }
+
+    private void FlushPendingPaperContextMenuRefresh()
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive)
+        {
+            _paperContextMenuRefreshPending = false;
+            return;
+        }
+
+        if (!_paperContextMenuRefreshPending ||
+            IsPaperContextMenuInteractionActive)
+        {
+            return;
+        }
+
+        RefreshPaperContextMenus();
     }
 
     public void UpdateCapsuleMode()

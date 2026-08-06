@@ -352,6 +352,12 @@ public sealed partial class PaperWindow
         object sender,
         ContextMenuEventArgs e)
     {
+        // ContextMenuOpening runs before the popup takes keyboard focus. Mark the complete
+        // transition so note preview focus parking and title commits cannot steal or replace
+        // a menu during its first open frame. The guard also covers plugin-owned menus routed
+        // through the paper chrome, including the path where PaperTodo suppresses its own menu.
+        BeginPaperContextMenuOpening();
+
         var host = _pluginBodyClipHost;
         if (host == null ||
             !BodyClaimsInput(PaperBodyInputClaims.ContextMenu))

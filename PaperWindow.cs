@@ -85,6 +85,9 @@ public sealed partial class PaperWindow : Window
     private readonly List<Border> _todoRows = new();
     private TodoDragState? _todoDrag;
     private readonly List<WeakReference<ContextMenu>> _themedContextMenus = new();
+    private bool _paperContextMenuOpening;
+    private int _paperContextMenuOpeningVersion;
+    private bool _paperContextMenuRefreshPending;
     private readonly List<List<PaperItem>> _undoStack = new();
     private readonly Dictionary<string, Dictionary<string, Action>> _linkedPaperTitleRefreshers =
         new(StringComparer.Ordinal);
@@ -3202,12 +3205,37 @@ public sealed partial class PaperWindow : Window
             RefreshExperimentalOpacity();
         };
         menu.Closed += (_, _) => Dispatcher.BeginInvoke(
-            (Action)(() => RefreshExperimentalOpacity()),
+            (Action)(() =>
+            {
+                RefreshExperimentalOpacity();
+                FlushPendingPaperContextMenuRefresh();
+            }),
             System.Windows.Threading.DispatcherPriority.Background);
 
         menu.Resources.Add(typeof(MenuItem), SharedCompactMenuItemStyle);
         RegisterThemedContextMenu(menu);
         return menu;
+    }
+
+    private bool IsPaperContextMenuInteractionActive =>
+        _paperContextMenuOpening || HasOpenOwnedContextMenu();
+
+    private void BeginPaperContextMenuOpening()
+    {
+        _paperContextMenuOpening = true;
+        var version = ++_paperContextMenuOpeningVersion;
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (version != _paperContextMenuOpeningVersion)
+                {
+                    return;
+                }
+
+                _paperContextMenuOpening = false;
+                FlushPendingPaperContextMenuRefresh();
+            }),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void RegisterThemedContextMenu(ContextMenu menu)

@@ -361,7 +361,10 @@ public sealed partial class PaperWindow
                         return;
                     }
 
-                    if (isPreviewing && IsActive && !IsKeyboardFocusWithin)
+                    if (isPreviewing &&
+                        IsActive &&
+                        !IsKeyboardFocusWithin &&
+                        !IsPaperContextMenuInteractionActive)
                     {
                         Focus();
                     }
