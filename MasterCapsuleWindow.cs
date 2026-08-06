@@ -374,6 +374,7 @@ public sealed class MasterCapsuleWindow : Window
         var avoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
             _queueMonitorDeviceName);
         var topmost = !_experimentalPassive &&
+            !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
             avoidanceWindow == IntPtr.Zero &&
             !_controller.SuppressDeepCapsuleTopmostForContextMenu;
         Topmost = topmost;

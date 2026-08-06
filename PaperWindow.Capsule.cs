@@ -678,6 +678,14 @@ public sealed partial class PaperWindow
         double finalTargetHeight = RoundToDevicePixelY(targetHeight);
 
         _paper.IsCollapsed = collapsed;
+        if (collapsed)
+        {
+            CancelStrictAutoCollapse();
+        }
+        else
+        {
+            ArmStrictAutoCollapseAfterShow();
+        }
         RefreshExperimentalOpacity();
         if (!collapsed)
         {

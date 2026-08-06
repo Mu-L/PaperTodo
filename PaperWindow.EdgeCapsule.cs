@@ -36,6 +36,7 @@ public sealed partial class PaperWindow
             CapsuleLabelFontFamily,
             AppTypography.SymbolFontFamily,
             AppTypography.Language,
+            !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
             _controller.FullscreenAvoidanceWindowForQueue(
                 _paper.CapsuleMonitorDeviceName) == IntPtr.Zero));
         var host = _edgeCapsuleHost;

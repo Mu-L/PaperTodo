@@ -421,6 +421,8 @@ public sealed class AppState
     public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
         ExperimentalOpacityLevels.DefaultRestingCapsule;
     public bool ExperimentalCollapsePaperOnDeactivate { get; set; }
+    public bool ExperimentalStrictCollapsePaperAfterShow { get; set; }
+    public bool ExperimentalDockedCapsulesNonTopmost { get; set; }
     public bool ExperimentalAllowLockIconUnlock { get; set; } = true;
     public double ExperimentalShortcutOpacityLevel { get; set; } = 0.35;
     public bool ExperimentalTodoReminders { get; set; }

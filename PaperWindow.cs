@@ -657,6 +657,7 @@ public sealed partial class PaperWindow : Window
             IsPointInsideDeepCapsuleOwnerSurface,
             OnDeepCapsuleContextMenuOpenChanged);
         InitializePaperPresentationState();
+        InitializeStrictAutoCollapseTracking();
 
         ConfigureWindow();
         if (deferShellConstruction)
@@ -2659,7 +2660,9 @@ public sealed partial class PaperWindow : Window
     {
         var queueAvoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
             _paper.CapsuleMonitorDeviceName);
-        var slotShouldBeTopmost = !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
+        var slotShouldBeTopmost =
+            !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
+            !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
             queueAvoidanceWindow == IntPtr.Zero;
         _edgeCapsuleHost?.SetTopmost(
             slotShouldBeTopmost,

@@ -285,7 +285,45 @@ public sealed partial class AppController
     {
         State.ExperimentalCollapsePaperOnDeactivate =
             !State.ExperimentalCollapsePaperOnDeactivate;
+        if (!State.ExperimentalCollapsePaperOnDeactivate)
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.CancelStrictAutoCollapse();
+            }
+        }
         SaveNow();
+        RefreshSettingsRegions("labs.focus");
+    }
+
+    private void ToggleExperimentalStrictCollapsePaperAfterShow()
+    {
+        State.ExperimentalStrictCollapsePaperAfterShow =
+            !State.ExperimentalStrictCollapsePaperAfterShow;
+        SaveNow();
+        if (!State.ExperimentalStrictCollapsePaperAfterShow)
+        {
+            foreach (var window in _windows.Values.ToList())
+            {
+                window.CancelStrictAutoCollapse();
+            }
+        }
+        RefreshSettingsRegions("labs.focus");
+    }
+
+    private void ToggleExperimentalDockedCapsulesNonTopmost()
+    {
+        State.ExperimentalDockedCapsulesNonTopmost =
+            !State.ExperimentalDockedCapsulesNonTopmost;
+        SaveNow();
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.RefreshDeepCapsuleSlotTopmost();
+        }
+        foreach (var master in _masterCapsules.Values.ToList())
+        {
+            master.RefreshEffectiveTopmost();
+        }
         RefreshSettingsRegions("labs.focus");
     }
 
@@ -1354,6 +1392,25 @@ public sealed partial class AppController
             autoCollapse,
             "TipLabsCollapsePaperOnDeactivate"));
 
+        var strictCollapse = SettingsToggle(
+            Strings.Get("LabsStrictCollapsePaperAfterShow"),
+            State.ExperimentalStrictCollapsePaperAfterShow,
+            ToggleExperimentalStrictCollapsePaperAfterShow);
+        strictCollapse.IsEnabled =
+            State.UseCapsuleMode &&
+            State.ExperimentalCollapsePaperOnDeactivate;
+        strictCollapse.Opacity = strictCollapse.IsEnabled ? 1.0 : 0.55;
+        content.Children.Add(WrapWithHint(
+            strictCollapse,
+            "TipLabsStrictCollapsePaperAfterShow"));
+
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsDockedCapsulesNonTopmost"),
+                State.ExperimentalDockedCapsulesNonTopmost,
+                ToggleExperimentalDockedCapsulesNonTopmost),
+            "TipLabsDockedCapsulesNonTopmost"));
+
         content.Children.Add(SettingsFieldLabel(
             Strings.Get("LabsPaperOpacity"),
             topMargin: 9));
@@ -2131,6 +2188,8 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
         State.ExperimentalCollapsePaperOnDeactivate = false;
+        State.ExperimentalStrictCollapsePaperAfterShow = false;
+        State.ExperimentalDockedCapsulesNonTopmost = false;
         State.ExperimentalAllowLockIconUnlock = true;
         State.ExperimentalShortcutOpacityLevel = 0.35;
         ClearAdvancedShortcutRuntimeState();
@@ -2162,9 +2221,15 @@ public sealed partial class AppController
 
         foreach (var window in _windows.Values.ToList())
         {
+            window.CancelStrictAutoCollapse();
+            window.RefreshDeepCapsuleSlotTopmost();
             window.DisableExperimentalCapsuleMagnet();
             window.DisableExperimentalTetherVisibilityLink();
             window.DisableExperimentalWindowTether();
+        }
+        foreach (var master in _masterCapsules.Values.ToList())
+        {
+            master.RefreshEffectiveTopmost();
         }
         RefreshExperimentalWindowRuntime();
         RefreshExperimentalVirtualDesktopRuntime();

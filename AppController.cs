@@ -1419,6 +1419,10 @@ public sealed partial class AppController : IDisposable
         RefreshTrayMenu();
         if (!_suppressDirty) RefreshTodoRowsForLinkedPaper(paper.Id);
         MarkDirty();
+        if (!paper.IsCollapsed)
+        {
+            window.ArmStrictAutoCollapseAfterShow();
+        }
     }
 
     private static void ForceWindowToFront(PaperWindow window)
