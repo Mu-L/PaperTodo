@@ -434,12 +434,9 @@ public sealed partial class AppController
 
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         var enabled = _shortcutEnabledDraft!.GetValueOrDefault(definition.Id);

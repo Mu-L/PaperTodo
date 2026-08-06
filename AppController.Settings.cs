@@ -1128,7 +1128,9 @@ public sealed partial class AppController
 
         if (_settingsPage == SettingsPage.Plugins)
         {
-            root.Children.Add(WrapSettingsPageContent(BuildPluginsSettingsPage(), enableScroll));
+            var pluginsPage = BuildPluginsSettingsPage();
+            MovePluginMoreSettingsButtonsToTail(pluginsPage);
+            root.Children.Add(WrapSettingsPageContent(pluginsPage, enableScroll));
             return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
         }
 
@@ -1169,38 +1171,31 @@ public sealed partial class AppController
             Margin = new Thickness(14, 0, 0, 0)
         };
 
-        leftColumn.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsFocusBehavior")));
-        leftColumn.Children.Add(BuildSettingsLiveRegion(
-            "labs.focus",
-            BuildLabsFocusBehaviorSettings));
+        AddLabsMajorSection(
+            leftColumn,
+            Strings.Get("LabsFocusBehavior"),
+            BuildSettingsLiveRegion("labs.focus", BuildLabsFocusBehaviorSettings));
+        AddLabsMajorSection(
+            leftColumn,
+            Strings.Get("LabsWindowCoordination"),
+            BuildSettingsLiveRegion("labs.window", BuildLabsWindowCoordinationSettings));
 
-        leftColumn.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsWindowCoordination")));
-        leftColumn.Children.Add(BuildSettingsLiveRegion(
-            "labs.window",
-            BuildLabsWindowCoordinationSettings));
-
-        rightColumn.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsVirtualDesktops")));
-        rightColumn.Children.Add(BuildSettingsLiveRegion(
-            "labs.virtualDesktop",
-            BuildLabsVirtualDesktopSettings));
-
-        rightColumn.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsTodoReminders")));
-        rightColumn.Children.Add(BuildSettingsLiveRegion(
-            "labs.reminders",
-            BuildLabsTodoReminderSettings));
-
-        rightColumn.Children.Add(SettingsSectionLabel(Strings.Get("LabsMcp")));
-        rightColumn.Children.Add(BuildSettingsLiveRegion(
-            "labs.mcp",
-            BuildLabsMcpSettings));
-
-        rightColumn.Children.Add(SettingsSectionLabel(
-            Strings.Get("LabsPassiveMode")));
-        rightColumn.Children.Add(BuildLabsPassiveModeSettings());
+        AddLabsMajorSection(
+            rightColumn,
+            Strings.Get("LabsVirtualDesktops"),
+            BuildSettingsLiveRegion("labs.virtualDesktop", BuildLabsVirtualDesktopSettings));
+        AddLabsMajorSection(
+            rightColumn,
+            Strings.Get("LabsTodoReminders"),
+            BuildSettingsLiveRegion("labs.reminders", BuildLabsTodoReminderSettings));
+        AddLabsMajorSection(
+            rightColumn,
+            Strings.Get("LabsMcp"),
+            BuildSettingsLiveRegion("labs.mcp", BuildLabsMcpSettings));
+        AddLabsMajorSection(
+            rightColumn,
+            Strings.Get("LabsAdvancedShortcuts"),
+            BuildLabsPassiveModeSettings());
 
         var separator = new Border
         {
@@ -1221,6 +1216,92 @@ public sealed partial class AppController
         return WithSettingsPageRestoreFooter(root, RestoreLabsSettingsPageDefaults);
     }
 
+    private void AddLabsMajorSection(
+        StackPanel column,
+        string title,
+        UIElement content)
+    {
+        if (column.Children.Count > 0)
+        {
+            column.Children.Add(new Border
+            {
+                Height = 1,
+                Margin = new Thickness(0, 11, 0, 2),
+                Background = TrayBorderBrush,
+                Opacity = 0.65
+            });
+        }
+
+        column.Children.Add(SettingsSectionLabel(title));
+        column.Children.Add(content);
+    }
+
+    private static void MovePluginMoreSettingsButtonsToTail(DependencyObject root)
+    {
+        if (root is Panel panel)
+        {
+            Button? moreButton = null;
+            for (var index = panel.Children.Count - 1; index >= 0; index--)
+            {
+                var child = panel.Children[index];
+                if (child is Button directButton && IsPluginMoreSettingsButton(directButton))
+                {
+                    moreButton = directButton;
+                    panel.Children.RemoveAt(index);
+                    continue;
+                }
+
+                if (child is WrapPanel wrap)
+                {
+                    var nestedButton = wrap.Children
+                        .OfType<Button>()
+                        .FirstOrDefault(IsPluginMoreSettingsButton);
+                    if (nestedButton != null)
+                    {
+                        wrap.Children.Remove(nestedButton);
+                        moreButton = nestedButton;
+                        if (wrap.Children.Count == 1)
+                        {
+                            var remaining = wrap.Children[0];
+                            wrap.Children.RemoveAt(0);
+                            panel.Children.RemoveAt(index);
+                            panel.Children.Insert(index, remaining);
+                        }
+                        else if (wrap.Children.Count == 0)
+                        {
+                            panel.Children.RemoveAt(index);
+                        }
+                    }
+                }
+            }
+
+            foreach (UIElement child in panel.Children)
+            {
+                MovePluginMoreSettingsButtonsToTail(child);
+            }
+
+            if (moreButton != null)
+            {
+                moreButton.Margin = new Thickness(0, 8, 0, 0);
+                moreButton.HorizontalAlignment = HorizontalAlignment.Left;
+                panel.Children.Add(moreButton);
+            }
+            return;
+        }
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < count; index++)
+        {
+            MovePluginMoreSettingsButtonsToTail(VisualTreeHelper.GetChild(root, index));
+        }
+    }
+
+    private static bool IsPluginMoreSettingsButton(Button button) =>
+        string.Equals(
+            button.Content?.ToString(),
+            Strings.Get("PluginsMoreSettings"),
+            StringComparison.Ordinal);
+
     private UIElement BuildLabsWindowCoordinationSettings()
     {
         var content = new StackPanel();
@@ -1234,12 +1315,9 @@ public sealed partial class AppController
     {
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
 
@@ -1295,12 +1373,9 @@ public sealed partial class AppController
     {
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 5, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperPassive) is { } currentPassive)
@@ -1324,12 +1399,9 @@ public sealed partial class AppController
         var enabled = State.ExperimentalCapsuleMagnetism;
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         content.Children.Add(WrapWithHint(
@@ -1468,12 +1540,9 @@ public sealed partial class AppController
         var enabled = State.ExperimentalWindowTethering;
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         content.Children.Add(WrapWithHint(
@@ -1603,12 +1672,9 @@ public sealed partial class AppController
         var enabled = State.ExperimentalTetherVisibilityLink;
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7),
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3),
             IsEnabled = tetherEnabled,
             Opacity = tetherEnabled ? 1.0 : 0.55
         };
@@ -1650,12 +1716,9 @@ public sealed partial class AppController
             State.ExperimentalVirtualDesktopIntegration && compatible;
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         var integrationToggle = SettingsToggle(
@@ -1722,12 +1785,9 @@ public sealed partial class AppController
     {
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         content.Children.Add(WrapWithHint(
@@ -1835,12 +1895,9 @@ public sealed partial class AppController
     {
         var card = new Border
         {
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
             Background = Brushes.Transparent,
-            Padding = new Thickness(10, 7, 10, 9),
-            Margin = new Thickness(0, 5, 0, 7)
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
         content.Children.Add(WrapWithHint(
@@ -2638,7 +2695,7 @@ public sealed partial class AppController
         // hidden under it. Only use ScrollViewer when the window is capped by the work area.
         var body = new Border
         {
-            Padding = new Thickness(0, 0, 0, enableScroll ? 28 : 24),
+            Padding = new Thickness(0, 0, enableScroll ? 4 : 0, enableScroll ? 28 : 24),
             Child = content
         };
 
