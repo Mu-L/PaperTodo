@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
@@ -6,10 +7,17 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private static readonly TimeSpan PluginStartupPaperPollInterval =
+        TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan PluginStartupPaperMaximumWait =
+        TimeSpan.FromSeconds(5);
+    private DispatcherTimer? _pluginStartupPaperTimer;
     private int _pluginStartupPaperGeneration;
 
     private void SchedulePluginStartupPapers(StartupCommandKind visibilityCommand)
     {
+        _pluginStartupPaperTimer?.Stop();
+        _pluginStartupPaperTimer = null;
         var generation = ++_pluginStartupPaperGeneration;
         if (visibilityCommand == StartupCommandKind.Hide || IsExiting)
         {
@@ -30,19 +38,63 @@ public sealed partial class AppController
             return;
         }
 
-        // Normal paper restoration has completed before this method is called. One idle
-        // dispatch is enough; startup timing is owned by the host, not by each plugin.
-        _ = dispatcher.BeginInvoke(
-            (Action)(() =>
+        var startedAt = Stopwatch.GetTimestamp();
+        var timer = new DispatcherTimer(
+            DispatcherPriority.ApplicationIdle)
+        {
+            Interval = PluginStartupPaperPollInterval
+        };
+        timer.Tick += (_, _) =>
+        {
+            if (generation != _pluginStartupPaperGeneration ||
+                IsExiting)
             {
-                if (generation != _pluginStartupPaperGeneration ||
-                    IsExiting)
-                {
-                    return;
-                }
-                EnsurePluginStartupPapers(candidates);
-            }),
-            DispatcherPriority.ApplicationIdle);
+                StopPluginStartupPaperTimer(timer);
+                return;
+            }
+
+            var elapsed = TimeSpan.FromSeconds(
+                Math.Max(0, Stopwatch.GetTimestamp() - startedAt) /
+                (double)Stopwatch.Frequency);
+            if (!StartupPaperCreationReady() &&
+                elapsed < PluginStartupPaperMaximumWait)
+            {
+                return;
+            }
+
+            StopPluginStartupPaperTimer(timer);
+            EnsurePluginStartupPapers(candidates);
+        };
+        _pluginStartupPaperTimer = timer;
+        timer.Start();
+    }
+
+    private bool StartupPaperCreationReady()
+    {
+        if (_isRestoringStartupPapers || _isPreparingStartupEdgeCapsules)
+        {
+            return false;
+        }
+
+        foreach (var paper in State.Papers.Where(item => item.IsVisible))
+        {
+            if (!_windows.TryGetValue(paper.Id, out var window) ||
+                window.IsClosed ||
+                !window.IsShellBuilt)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void StopPluginStartupPaperTimer(DispatcherTimer timer)
+    {
+        timer.Stop();
+        if (ReferenceEquals(_pluginStartupPaperTimer, timer))
+        {
+            _pluginStartupPaperTimer = null;
+        }
     }
 
     private void EnsurePluginStartupPapers(

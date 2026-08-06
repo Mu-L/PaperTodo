@@ -6,8 +6,9 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    // Preserve the former 6 / 120-frame behavior at 60 Hz without making
-    // follow lifetime depend on the monitor refresh rate.
+    // Stability requires both real observations and elapsed time. This avoids treating the first
+    // frame after a render stall as stable, without making lifetime depend on refresh rate.
+    private const int ExperimentalFollowMinimumStableSamples = 3;
     private static readonly TimeSpan ExperimentalFollowStableDuration =
         TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan ExperimentalFollowMovingIdleDuration =
@@ -16,6 +17,7 @@ public sealed partial class AppController
     private readonly HashSet<IntPtr> _externalMoveSizeWindows = new();
     private bool _experimentalFollowRendering;
     private long _experimentalFollowLastChangeTimestamp;
+    private int _experimentalFollowStableSamples;
 
     private bool NeedsExternalWindowTracker =>
         _windows.Values.Any(window =>
@@ -95,6 +97,7 @@ public sealed partial class AppController
     private void BeginExperimentalFollowFrames()
     {
         _experimentalFollowLastChangeTimestamp = Stopwatch.GetTimestamp();
+        _experimentalFollowStableSamples = 0;
         if (_experimentalFollowRendering ||
             IsExiting ||
             !NeedsExternalWindowTracker)
@@ -153,6 +156,7 @@ public sealed partial class AppController
         {
             _experimentalFollowLastChangeTimestamp =
                 Stopwatch.GetTimestamp();
+            _experimentalFollowStableSamples = 0;
             return;
         }
 
@@ -163,6 +167,10 @@ public sealed partial class AppController
             return;
         }
 
+        if (_experimentalFollowStableSamples < int.MaxValue)
+        {
+            _experimentalFollowStableSamples++;
+        }
         var idleDuration = targetMoving
             ? ExperimentalFollowMovingIdleDuration
             : ExperimentalFollowStableDuration;
@@ -171,7 +179,9 @@ public sealed partial class AppController
                 0,
                 now - _experimentalFollowLastChangeTimestamp) /
             (double)Stopwatch.Frequency);
-        if (idleElapsed >= idleDuration)
+        if (_experimentalFollowStableSamples >=
+                ExperimentalFollowMinimumStableSamples &&
+            idleElapsed >= idleDuration)
         {
             // A missed MOVESIZEEND must not leave a render-rate Win32 sampler alive forever.
             // A later location event starts it again if the target resumes moving.
@@ -192,6 +202,7 @@ public sealed partial class AppController
             _experimentalFollowRendering = false;
         }
         _experimentalFollowLastChangeTimestamp = 0;
+        _experimentalFollowStableSamples = 0;
     }
 
     private void ToggleExperimentalCapsuleMagnetism()

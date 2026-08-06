@@ -10,9 +10,12 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsulePresenter
 {
-    // Preserve the former 5 x 16 ms retry budget when frame scheduling follows
-    // the actual monitor refresh rate.
-    private const int MaximumApplyRetryMilliseconds = 80;
+    // Give a temporarily invalid HWND real retry opportunities at every refresh rate, while
+    // bounding both high-refresh call volume and total retry lifetime. The failure count includes
+    // the initial failed apply, so 3 means at least two genuine retries before time can expire.
+    private const int MinimumApplyFailureCountBeforeTimeout = 3;
+    private const int MaximumApplyFailureCount = 6;
+    private const int MaximumApplyRetryMilliseconds = 120;
     private static readonly long MaximumApplyRetryTimestampTicks =
         Math.Max(
             1,
@@ -43,6 +46,7 @@ internal sealed class EdgeCapsulePresenter
     private int _forceApplyVersion;
     private int _appliedForceApplyVersion;
     private long _applyRetryStartedAtTimestamp;
+    private int _applyFailureCount;
     private bool _applyRetryExhausted;
     private Action<bool>? _presentationSettleCallback;
     private EdgeCapsuleMotion _pendingMotion =
@@ -249,7 +253,7 @@ internal sealed class EdgeCapsulePresenter
 
         if (!applied)
         {
-            StartApplyRetryWindow(nowTimestamp);
+            RegisterApplyFailure(nowTimestamp);
             return new PresentationResult(false, Transition.HasValue);
         }
 
@@ -350,26 +354,44 @@ internal sealed class EdgeCapsulePresenter
         !ContextMenuOpen &&
         !_applyRetryExhausted;
 
-    private void StartApplyRetryWindow(long nowTimestamp)
+    private void RegisterApplyFailure(long nowTimestamp)
     {
-        if (_applyRetryStartedAtTimestamp == 0 &&
-            !_applyRetryExhausted)
+        if (_applyRetryExhausted)
+        {
+            return;
+        }
+        if (_applyRetryStartedAtTimestamp == 0)
         {
             _applyRetryStartedAtTimestamp = nowTimestamp;
+        }
+        if (_applyFailureCount < int.MaxValue)
+        {
+            _applyFailureCount++;
         }
     }
 
     private void ResetApplyRetryWindow()
     {
         _applyRetryStartedAtTimestamp = 0;
+        _applyFailureCount = 0;
         _applyRetryExhausted = false;
     }
 
-    private bool ApplyRetryExpired(long nowTimestamp) =>
-        _applyRetryExhausted ||
-        (_applyRetryStartedAtTimestamp != 0 &&
-         Math.Max(0, nowTimestamp - _applyRetryStartedAtTimestamp) >=
-             MaximumApplyRetryTimestampTicks);
+    private bool ApplyRetryExpired(long nowTimestamp)
+    {
+        if (_applyRetryExhausted ||
+            _applyFailureCount >= MaximumApplyFailureCount)
+        {
+            return true;
+        }
+        if (_applyFailureCount < MinimumApplyFailureCountBeforeTimeout ||
+            _applyRetryStartedAtTimestamp == 0)
+        {
+            return false;
+        }
+        return Math.Max(0, nowTimestamp - _applyRetryStartedAtTimestamp) >=
+            MaximumApplyRetryTimestampTicks;
+    }
 
     private void ExhaustApplyRetryWindow()
     {
@@ -431,7 +453,7 @@ internal sealed class EdgeCapsulePresenter
         if (applyRetryExpired)
         {
             // Keep Presentation dirty for a later explicit/display invalidation, but stop the
-            // bounded time-window retry so a permanently invalid HWND cannot spin the UI thread.
+            // bounded attempt/time retry so a permanently invalid HWND cannot spin the UI thread.
             _dirty &= ~EdgeCapsuleDirty.ApplyRetry;
             Transition = null;
             needsFrame = false;

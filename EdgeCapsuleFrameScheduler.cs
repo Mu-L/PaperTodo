@@ -28,6 +28,7 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     public void Activate(EdgeCapsulePresenter presenter)
     {
+        _dispatcher.VerifyAccess();
         if (!_presenters.Contains(presenter))
         {
             _presenters.Add(presenter);
@@ -41,6 +42,7 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     public void Deactivate(EdgeCapsulePresenter presenter)
     {
+        _dispatcher.VerifyAccess();
         // Removing from the list while another presenter's reconcile is running would invalidate
         // the backwards iteration. The post-tick sweep observes the presenter's inactive flag.
         if (_isTicking)
@@ -54,18 +56,21 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void OnRendering(object? sender, EventArgs e)
     {
-        if (!_dispatcher.CheckAccess())
+        // CompositionTarget.Rendering can be nested when presentation work pumps WPF messages.
+        // A nested tick must never observe or mutate the list owned by the outer tick.
+        if (!_dispatcher.CheckAccess() || _isTicking)
         {
             return;
         }
 
-        var initialCount = _presenters.Count;
-        var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
-            ? currentPointer
-            : (DeviceScreenPoint?)null;
         _isTicking = true;
         try
         {
+            var initialCount = _presenters.Count;
+            var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
+                ? currentPointer
+                : (DeviceScreenPoint?)null;
+
             // Iterate backwards so a completing presenter can be removed without a per-frame
             // snapshot allocation. Presenters activated during this tick start on the next one.
             for (var index = initialCount - 1; index >= 0; index--)
@@ -76,20 +81,22 @@ internal sealed class EdgeCapsuleFrameScheduler
                     _presenters.RemoveAt(index);
                 }
             }
+
+            // Deactivate is intentionally deferred while ticking. Remove all presenters that
+            // stopped themselves during reconcile before the next composition frame.
+            for (var index = _presenters.Count - 1; index >= 0; index--)
+            {
+                if (!_presenters[index].UsesSharedFrameScheduler(this))
+                {
+                    _presenters.RemoveAt(index);
+                }
+            }
         }
         finally
         {
             _isTicking = false;
+            StopWhenEmpty();
         }
-
-        for (var index = _presenters.Count - 1; index >= 0; index--)
-        {
-            if (!_presenters[index].UsesSharedFrameScheduler(this))
-            {
-                _presenters.RemoveAt(index);
-            }
-        }
-        StopWhenEmpty();
     }
 
     private void StopWhenEmpty()
