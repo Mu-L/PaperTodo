@@ -40,6 +40,7 @@ public sealed partial class PaperWindow
                 _paper.CapsuleMonitorDeviceName) == IntPtr.Zero));
         var host = _edgeCapsuleHost;
         host.SetExperimentalPassive(IsExperimentalPassive);
+        host.SetInteractionLocked(_advancedInteractionLocked);
         AttachDeepCapsuleSlotHostInput();
         host.AttachNativeHooks(
             OnDeepCapsuleSlotHostMessage,
@@ -196,7 +197,10 @@ public sealed partial class PaperWindow
                 ? ExperimentalOpacityLevels.Normalize(
                     _controller.State.ExperimentalRestingCapsuleOpacityLevel,
                     ExperimentalOpacityLevels.DefaultRestingCapsule)
-                : 1.0));
+                : 1.0,
+            _controller.IsAdvancedCapsuleTransparent(_paper)
+                ? _controller.AdvancedShortcutOpacity
+                : null));
     }
 
     private bool ApplyEdgeCapsulePresentationFrame(EdgeCapsulePresentationFrame frame)

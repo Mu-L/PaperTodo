@@ -65,6 +65,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
     private int _nativeMetricsVersion;
     private int _appliedNativeMetricsVersion;
     private bool _experimentalPassive;
+    private bool _interactionLocked;
     private bool _disposed;
     private Window Window { get; }
     private Grid Root { get; }
@@ -873,6 +874,17 @@ internal sealed class EdgeCapsuleHost : IDisposable
         }
     }
 
+    public void SetInteractionLocked(bool enabled)
+    {
+        if (_disposed || _interactionLocked == enabled)
+        {
+            return;
+        }
+
+        _interactionLocked = enabled;
+        WindowNative.SetInputPassthrough(Window, enabled || _experimentalPassive);
+    }
+
     public void SetExperimentalPassive(bool enabled)
     {
         if (_disposed || _experimentalPassive == enabled)
@@ -881,7 +893,7 @@ internal sealed class EdgeCapsuleHost : IDisposable
         }
 
         _experimentalPassive = enabled;
-        WindowNative.SetInputPassthrough(Window, enabled);
+        WindowNative.SetInputPassthrough(Window, enabled || _interactionLocked);
         if (enabled)
         {
             Window.Topmost = false;

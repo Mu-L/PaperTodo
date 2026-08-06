@@ -17,7 +17,11 @@ internal enum ExperimentalShortcutKind
 {
     None,
     CurrentPaperPassive,
-    AllSurfacesPassive
+    AllSurfacesPassive,
+    LockAllPapers,
+    AllPapersTransparent,
+    AllCapsulesTransparent,
+    CurrentPaperTransparent
 }
 
 internal sealed record GlobalShortcutDefinition(
@@ -51,6 +55,10 @@ internal static class GlobalShortcutCatalog
     public const string Exit = "startup.exit";
     public const string CurrentPaperPassive = "labs.passiveCurrent";
     public const string AllSurfacesPassive = "labs.passiveAll";
+    public const string LockAllPapers = "labs.lockAllPapers";
+    public const string AllPapersTransparent = "labs.transparentAllPapers";
+    public const string AllCapsulesTransparent = "labs.transparentAllCapsules";
+    public const string CurrentPaperTransparent = "labs.transparentCurrentPaper";
 
     public static IReadOnlyList<GlobalShortcutDefinition> Definitions { get; } = BuildDefinitions();
 
@@ -218,7 +226,31 @@ internal static class GlobalShortcutCatalog
                 "LabsAllSurfacesPassive",
                 "Ctrl+Alt+Shift+A",
                 GlobalShortcutGroup.Labs,
-                ExperimentalKind: ExperimentalShortcutKind.AllSurfacesPassive)
+                ExperimentalKind: ExperimentalShortcutKind.AllSurfacesPassive),
+            new(
+                LockAllPapers,
+                "LabsLockAllPapers",
+                "Ctrl+Alt+Shift+L",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.LockAllPapers),
+            new(
+                AllPapersTransparent,
+                "LabsAllPapersTransparent",
+                "Ctrl+Alt+Shift+O",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.AllPapersTransparent),
+            new(
+                AllCapsulesTransparent,
+                "LabsAllCapsulesTransparent",
+                "Ctrl+Alt+Shift+C",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.AllCapsulesTransparent),
+            new(
+                CurrentPaperTransparent,
+                "LabsCurrentPaperTransparent",
+                "Ctrl+Alt+Shift+T",
+                GlobalShortcutGroup.Labs,
+                ExperimentalKind: ExperimentalShortcutKind.CurrentPaperTransparent)
         };
 
         for (var ordinal = 1; ordinal <= 9; ordinal++)

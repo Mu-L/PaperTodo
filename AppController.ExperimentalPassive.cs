@@ -49,6 +49,18 @@ public sealed partial class AppController
                         !_experimentalAllSurfacesPassive);
                 }
                 break;
+            case ExperimentalShortcutKind.LockAllPapers:
+                ToggleAdvancedAllPapersLocked();
+                break;
+            case ExperimentalShortcutKind.AllPapersTransparent:
+                ToggleAdvancedAllPapersTransparent();
+                break;
+            case ExperimentalShortcutKind.AllCapsulesTransparent:
+                ToggleAdvancedAllCapsulesTransparent();
+                break;
+            case ExperimentalShortcutKind.CurrentPaperTransparent:
+                ToggleAdvancedCurrentPaperTransparent();
+                break;
         }
     }
 

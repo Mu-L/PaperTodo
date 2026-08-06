@@ -289,6 +289,29 @@ public sealed partial class AppController
         RefreshSettingsRegions("labs.focus");
     }
 
+    private void ToggleExperimentalAllowLockIconUnlock()
+    {
+        State.ExperimentalAllowLockIconUnlock =
+            !State.ExperimentalAllowLockIconUnlock;
+        SaveNow();
+        RefreshAdvancedShortcutSurfaces();
+        RefreshSettingsRegions("labs.passive");
+    }
+
+    private void SetExperimentalShortcutOpacityLevel(double opacity)
+    {
+        var normalized = ExperimentalOpacityLevels.Normalize(opacity, 0.35);
+        if (Math.Abs(State.ExperimentalShortcutOpacityLevel - normalized) < 0.001)
+        {
+            return;
+        }
+
+        State.ExperimentalShortcutOpacityLevel = normalized;
+        SaveNow();
+        RefreshAdvancedShortcutSurfaces();
+        RefreshSettingsRegions("labs.passive");
+    }
+
     private void ToggleExperimentalTodoReminders()
     {
         State.ExperimentalTodoReminders = !State.ExperimentalTodoReminders;
@@ -1390,6 +1413,51 @@ public sealed partial class AppController
                 allPassive,
                 "TipLabsAllSurfacesPassive"));
         }
+
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsInteractionLock"),
+            topMargin: 10));
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.LockAllPapers) is { } lockAll)
+        {
+            content.Children.Add(BuildLabsShortcutSetting(
+                lockAll,
+                "TipLabsLockAllPapers"));
+        }
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsAllowLockIconUnlock"),
+                State.ExperimentalAllowLockIconUnlock,
+                ToggleExperimentalAllowLockIconUnlock),
+            "TipLabsAllowLockIconUnlock"));
+
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsShortcutTransparency"),
+            topMargin: 10));
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsShortcutOpacityLevel"),
+            topMargin: 5));
+        content.Children.Add(CreateLabsPercentageStepper(
+            () => State.ExperimentalShortcutOpacityLevel,
+            SetExperimentalShortcutOpacityLevel,
+            isEnabled: true));
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.AllPapersTransparent) is { } allPapers)
+        {
+            content.Children.Add(BuildLabsShortcutSetting(
+                allPapers,
+                "TipLabsAllPapersTransparent"));
+        }
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.AllCapsulesTransparent) is { } allCapsules)
+        {
+            content.Children.Add(BuildLabsShortcutSetting(
+                allCapsules,
+                "TipLabsAllCapsulesTransparent"));
+        }
+        if (GlobalShortcutCatalog.Find(GlobalShortcutCatalog.CurrentPaperTransparent) is { } currentPaper)
+        {
+            content.Children.Add(BuildLabsShortcutSetting(
+                currentPaper,
+                "TipLabsCurrentPaperTransparent"));
+        }
         card.Child = content;
         return card;
     }
@@ -2063,6 +2131,9 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
         State.ExperimentalCollapsePaperOnDeactivate = false;
+        State.ExperimentalAllowLockIconUnlock = true;
+        State.ExperimentalShortcutOpacityLevel = 0.35;
+        ClearAdvancedShortcutRuntimeState();
         State.ExperimentalTodoReminders = false;
         State.ExperimentalTodoReminderShowButton = true;
         State.ExperimentalTodoReminderQuickMinutes =

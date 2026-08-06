@@ -738,6 +738,7 @@ public sealed partial class PaperWindow
         }
 
         RefreshEffectiveTopmost();
+        UpdateAdvancedInteractionLockVisuals();
         ApplySystemVisibility();
         _controller.MarkDirty();
 

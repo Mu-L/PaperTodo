@@ -475,6 +475,9 @@ public sealed class StateStore
         state.ExperimentalRestingCapsuleOpacityLevel = ExperimentalOpacityLevels.Normalize(
             state.ExperimentalRestingCapsuleOpacityLevel,
             ExperimentalOpacityLevels.DefaultRestingCapsule);
+        state.ExperimentalShortcutOpacityLevel = ExperimentalOpacityLevels.Normalize(
+            state.ExperimentalShortcutOpacityLevel,
+            0.35);
         state.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.NormalizeQuickMinutes(
                 state.ExperimentalTodoReminderQuickMinutes);

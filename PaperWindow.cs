@@ -712,6 +712,7 @@ public sealed partial class PaperWindow : Window
             }
 
             ApplyExperimentalPassiveNativeState();
+            UpdateAdvancedInteractionLockVisuals();
             RefreshEffectiveTopmost();
         };
         Activated += (_, _) =>
@@ -761,6 +762,7 @@ public sealed partial class PaperWindow : Window
         _isShellBuilt = true;
         UpdateToolTipSetting();
         RefreshExperimentalOpacity(animate: false);
+        UpdateAdvancedInteractionLockVisuals();
     }
 
     private void HandleWindowGeometryChanged()

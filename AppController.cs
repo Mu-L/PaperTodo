@@ -1253,6 +1253,7 @@ public sealed partial class AppController : IDisposable
         {
             window.SetExperimentalAllSurfacesPassive(enabled: true);
         }
+        window.SetAdvancedInteractionLocked(_advancedAllPapersLocked);
         window.Closed += (_, _) =>
         {
             NotifyPaperWindowClosed(window);

@@ -124,7 +124,8 @@ public sealed partial class PaperWindow
                 : 1.0);
         if (_isShellBuilt)
         {
-            if (_controller.State.ExperimentalRestingCapsuleOpacity)
+            if (_controller.State.ExperimentalRestingCapsuleOpacity ||
+                _controller.IsAdvancedCapsuleTransparent(_paper))
             {
                 AttachCapsuleShellToExperimentalOpacityHost();
             }
@@ -157,25 +158,28 @@ public sealed partial class PaperWindow
             _titleBarDragSession != null ||
             _todoDrag?.IsDragging == true ||
             _topBarDrag?.IsDragging == true;
-        var paperOpacity =
-            !_controller.State.ExperimentalInactivePaperOpacity ||
-            _paper.IsCollapsed ||
-            expandedPaperInteractive
+        var paperOpacity = _controller.IsAdvancedPaperTransparent(_paper)
+            ? _controller.AdvancedShortcutOpacity
+            : !_controller.State.ExperimentalInactivePaperOpacity ||
+              _paper.IsCollapsed ||
+              expandedPaperInteractive
                 ? 1.0
                 : ExperimentalOpacityLevels.Normalize(
                     _controller.State.ExperimentalInactivePaperOpacityLevel,
                     ExperimentalOpacityLevels.DefaultInactivePaper);
         SetExperimentalVisualOpacity(_paperChrome, paperOpacity, animate);
 
-        if (_controller.State.ExperimentalRestingCapsuleOpacity &&
+        if ((_controller.State.ExperimentalRestingCapsuleOpacity ||
+             _controller.IsAdvancedCapsuleTransparent(_paper)) &&
             _capsuleOpacityHost != null)
         {
             var ordinaryCapsuleInteractive =
                 _capsuleOpacityHost.IsMouseOver ||
                 _capsulePointerState != CapsulePointerState.Idle ||
                 ownMenuOpen;
-            var capsuleOpacity =
-                !_paper.IsCollapsed || ordinaryCapsuleInteractive
+            var capsuleOpacity = _controller.IsAdvancedCapsuleTransparent(_paper)
+                ? _controller.AdvancedShortcutOpacity
+                : !_paper.IsCollapsed || ordinaryCapsuleInteractive
                     ? 1.0
                     : ExperimentalOpacityLevels.Normalize(
                         _controller.State.ExperimentalRestingCapsuleOpacityLevel,
