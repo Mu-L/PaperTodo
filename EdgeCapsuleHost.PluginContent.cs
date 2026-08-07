@@ -50,17 +50,14 @@ internal sealed partial class EdgeCapsuleHost
         var layer = new Border
         {
             Background = null,
-            Padding = new Thickness(0, 0, _options.LeftPadding, 0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             IsHitTestVisible = false,
             ClipToBounds = true,
             Visibility = Visibility.Collapsed
         };
-        Grid.SetColumn(layer, 0);
-        Grid.SetColumnSpan(layer, 2);
         Panel.SetZIndex(layer, 10);
-        ContentGrid.Children.Add(layer);
+        ContentHost.Children.Add(layer);
         return layer;
     }
 }

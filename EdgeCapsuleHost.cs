@@ -74,6 +74,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private Border Outline { get; }
     private Grid Shell { get; }
     private Border ContentArea { get; }
+    private Grid ContentHost { get; }
     private Grid ContentGrid { get; }
     private TextBlock Icon { get; }
     private Border CloseArea { get; }
@@ -89,6 +90,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         Border outline,
         Grid shell,
         Border contentArea,
+        Grid contentHost,
         Grid contentGrid,
         TextBlock icon,
         Border closeArea,
@@ -106,6 +108,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         Outline = outline;
         Shell = shell;
         ContentArea = contentArea;
+        ContentHost = contentHost;
         ContentGrid = contentGrid;
         Icon = icon;
         CloseArea = closeArea;
@@ -531,6 +534,12 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             CornerRadius = new CornerRadius(options.InnerCornerRadius, 0, 0, options.InnerCornerRadius),
             Cursor = Cursors.Hand
         };
+        var contentHost = new Grid
+        {
+            Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
         var contentGrid = new Grid
         {
             VerticalAlignment = VerticalAlignment.Center,
@@ -565,7 +574,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         };
         Grid.SetColumn(label, 1);
         contentGrid.Children.Add(label);
-        contentArea.Child = contentGrid;
+        contentHost.Children.Add(contentGrid);
+        contentArea.Child = contentHost;
         Grid.SetColumn(contentArea, 0);
         shell.Children.Add(contentArea);
 
@@ -641,6 +651,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             outline,
             shell,
             contentArea,
+            contentHost,
             contentGrid,
             icon,
             closeArea,

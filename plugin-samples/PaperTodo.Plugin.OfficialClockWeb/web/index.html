@@ -151,6 +151,8 @@
     let settings = { ...defaults };
     let visible = true;
     let timer = 0;
+    let lastHeaderText = '';
+    let lastCapsuleSignature = '';
 
     const $ = id => document.getElementById(id);
     const hoursElement = $('hours');
@@ -290,16 +292,33 @@
 
       const timeText = `${parts.hour}:${parts.minute}`;
       const title = titleText(timeText, dateText);
-      window.papertodo?.paper?.setHeaderText(title);
-      window.papertodo?.paper?.setCapsulePresentation({
-        preferredWidth: 132,
-        plainText: title,
-        toolTip: title,
-        components: [
-          { kind: 'progressRing', value: percent / 100, tone: 'accent' },
-          { kind: 'text', text: title, fill: true }
-        ]
-      });
+      const paperApi = window.papertodo?.paper;
+      if (paperApi && title !== lastHeaderText) {
+        paperApi.setHeaderText(title);
+        lastHeaderText = title;
+      }
+
+      // The body may render at 4 Hz for a stable second boundary, but host capsule templates do
+      // not need to be rebuilt at that cadence. Update on title changes or each 0.1% of the day.
+      const capsuleProgressStep = Math.round(percent * 10);
+      const capsuleSignature =
+        `${title}\u001f${capsuleProgressStep}\u001f${settings.showDayProgress ? 1 : 0}`;
+      if (paperApi && capsuleSignature !== lastCapsuleSignature) {
+        paperApi.setCapsulePresentation({
+          preferredWidth: 132,
+          plainText: title,
+          toolTip: title,
+          components: settings.showDayProgress
+            ? [
+                { kind: 'progressRing', value: percent / 100, tone: 'accent' },
+                { kind: 'text', text: title, fill: true }
+              ]
+            : [
+                { kind: 'text', text: title, fill: true }
+              ]
+        });
+        lastCapsuleSignature = capsuleSignature;
+      }
     }
 
     function updateTimer() {

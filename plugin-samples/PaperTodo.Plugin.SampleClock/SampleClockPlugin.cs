@@ -12,7 +12,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string Id => "sample.clock.native";
     public string DisplayName => "原生时钟";
     public string Description => "完整的 WPF 时钟示例：时区、日期格式、标题和日进度均可配置。";
-    public Version Version => new(1, 3, 0);
+    public Version Version => new(1, 4, 0);
     public string ApiVersion => "1.7";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
@@ -34,7 +34,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         string CustomTitle,
         double ClockScale);
 
-    private sealed class ClockSession : IPaperBodySession
+    private sealed class ClockSession : IPaperBodySession, IPaperCapsuleViewProvider
     {
         private static readonly IReadOnlyDictionary<string, string> TimeZoneIds =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -60,11 +60,17 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         private PaperBodyTheme _theme;
         private bool _runtimeVisible;
         private string _lastDisplayTitle = "";
+        private string _lastCapsuleSignature = "";
+        private string _capsuleTitle = "时钟";
+        private double _capsuleProgress;
+        private bool _capsuleShowProgress = true;
+        private ClockCapsuleView? _regularCapsuleView;
+        private ClockCapsuleView? _dockedCapsuleView;
 
         public ClockSession(PaperBodyContext context)
         {
             _context = context;
-            _theme = context.Theme;
+            _theme = context.Body.Theme;
             _settings = ReadSettings(context.SettingsJson);
 
             _time = new TextBlock
@@ -128,12 +134,113 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             _timer = new DispatcherTimer(DispatcherPriority.Background);
             _timer.Tick += OnTick;
 
-            ApplyTheme(context.Theme);
+            ApplyTheme(context.Body.Theme);
             ApplySettings(_settings);
             Refresh();
         }
 
         public FrameworkElement View => _root;
+
+        public FrameworkElement? CreateCapsuleView(PaperCapsuleViewContext context)
+        {
+            var view = new ClockCapsuleView(context);
+            view.Update(_capsuleTitle, _capsuleProgress, _capsuleShowProgress);
+            if (context.Surface == PaperCapsuleSurfaceKind.Docked)
+            {
+                _dockedCapsuleView = view;
+            }
+            else
+            {
+                _regularCapsuleView = view;
+            }
+            return view;
+        }
+
+        private sealed class ClockCapsuleView : Grid
+        {
+            private readonly PaperCapsuleSurfaceKind _surface;
+            private readonly TextBlock _label;
+            private readonly Grid _progressHost;
+            private readonly Border _progressTrack;
+            private readonly Border _progressFill;
+            private double _progressValue;
+
+            public ClockCapsuleView(PaperCapsuleViewContext context)
+            {
+                _surface = context.Surface;
+                Background = Brushes.Transparent;
+                ClipToBounds = true;
+                _label = new TextBlock
+                {
+                    Margin = new Thickness(4, 0, 4, 2),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    FontWeight = FontWeights.SemiBold
+                };
+
+                var inset = context.Surface == PaperCapsuleSurfaceKind.Docked ? 4 : 6;
+                _progressHost = new Grid
+                {
+                    Height = 3,
+                    Margin = new Thickness(inset, 0, inset, 3),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    ClipToBounds = true
+                };
+                _progressTrack = new Border
+                {
+                    CornerRadius = new CornerRadius(1.5),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch
+                };
+                _progressFill = new Border
+                {
+                    CornerRadius = new CornerRadius(1.5),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Stretch
+                };
+                _progressHost.Children.Add(_progressTrack);
+                _progressHost.Children.Add(_progressFill);
+                _progressHost.SizeChanged += (_, _) => UpdateProgressWidth();
+
+                Children.Add(_label);
+                Children.Add(_progressHost);
+                ApplyTheme(context.Theme);
+            }
+
+            public void Update(string title, double progress, bool showProgress)
+            {
+                _label.Text = title;
+                _label.Margin = showProgress
+                    ? new Thickness(4, 0, 4, 2)
+                    : new Thickness(4, 0, 4, 0);
+                _progressValue = Math.Clamp(progress, 0, 1);
+                _progressHost.Visibility = showProgress
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                UpdateProgressWidth();
+            }
+
+            public void ApplyTheme(PaperBodyTheme theme)
+            {
+                var scale = Math.Clamp(theme.FontScale, 0.85, 1.2);
+                _label.FontFamily = new FontFamily(theme.FontFamily);
+                _label.FontSize =
+                    (_surface == PaperCapsuleSurfaceKind.Docked ? 11.5 : 12) * scale;
+                _label.Foreground = ToBrush(theme.TextColor, "#202020");
+                var track = ToBrush(theme.WeakTextColor, "#707070");
+                track.Opacity = 0.22;
+                _progressTrack.Background = track;
+                _progressFill.Background = ToBrush(theme.AccentColor, "#B07A31");
+            }
+
+            private void UpdateProgressWidth()
+            {
+                _progressFill.Width = Math.Max(0, _progressHost.ActualWidth * _progressValue);
+            }
+        }
 
         private void OnTick(object? sender, EventArgs e) => Refresh();
 
@@ -186,12 +293,13 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             _zone.Text = TimeZoneLabel();
 
             var seconds = now.TimeOfDay.TotalSeconds;
-            _dayProgress.Value = Math.Clamp(
+            var dayProgress = Math.Clamp(
                 seconds / TimeSpan.FromDays(1).TotalSeconds,
                 0,
                 1);
+            _dayProgress.Value = dayProgress;
 
-            SetPaperStatus(DisplayTitle(now));
+            SetPaperStatus(DisplayTitle(now), dayProgress);
         }
 
         private DateTimeOffset CurrentTime()
@@ -286,6 +394,8 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             _dayProgress.Background = ToBrush(
                 theme.IsDark ? "#28FFFFFF" : "#22000000",
                 "#22000000");
+            _regularCapsuleView?.ApplyTheme(theme);
+            _dockedCapsuleView?.ApplyTheme(theme);
         }
 
         private static ClockSettings ReadSettings(string json)
@@ -347,28 +457,69 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             }
         }
 
-        private void SetPaperStatus(string title)
+        private void SetPaperStatus(string title, double dayProgress)
         {
-            if (string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
+            if (!string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
+            {
+                _lastDisplayTitle = title;
+                _context.Paper.SetHeaderText(title);
+            }
+
+            // The body can refresh at 4 Hz, but a day-progress capsule has no useful visual
+            // change at that cadence. Share one 0.1% quantization boundary between the 1.7
+            // live views and the 1.6 fallback so neither path churns layout unnecessarily.
+            var progressStep = (int)Math.Round(
+                Math.Clamp(dayProgress, 0, 1) * 1000,
+                MidpointRounding.AwayFromZero);
+            var signature =
+                $"{title}\u001f{progressStep}\u001f{_settings.ShowDayProgress}";
+            if (string.Equals(_lastCapsuleSignature, signature, StringComparison.Ordinal))
             {
                 return;
             }
-            _lastDisplayTitle = title;
-            _context.Paper.SetHeaderText(title);
+            _lastCapsuleSignature = signature;
+            _capsuleTitle = title;
+            _capsuleProgress = progressStep / 1000.0;
+            _capsuleShowProgress = _settings.ShowDayProgress;
+            _regularCapsuleView?.Update(
+                _capsuleTitle,
+                _capsuleProgress,
+                _capsuleShowProgress);
+            _dockedCapsuleView?.Update(
+                _capsuleTitle,
+                _capsuleProgress,
+                _capsuleShowProgress);
             _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
             {
                 PreferredWidth = 132,
                 PlainText = title,
                 ToolTip = title,
-                Components =
-                [
-                    new PaperCapsuleComponent
+                Components = _settings.ShowDayProgress
+                    ? new PaperCapsuleComponent[]
                     {
-                        Kind = PaperCapsuleComponentKind.Text,
-                        Text = title,
-                        Fill = true
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.ProgressRing,
+                            Value = _capsuleProgress,
+                            Width = 18,
+                            Tone = PaperCapsuleTone.Accent
+                        },
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.Text,
+                            Text = title,
+                            Fill = true
+                        }
                     }
-                ]
+                    : new PaperCapsuleComponent[]
+                    {
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.Text,
+                            Text = title,
+                            Fill = true
+                        }
+                    }
             });
         }
 
@@ -402,6 +553,8 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         {
             _timer.Stop();
             _timer.Tick -= OnTick;
+            _regularCapsuleView = null;
+            _dockedCapsuleView = null;
         }
     }
 }

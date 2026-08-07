@@ -44,6 +44,31 @@ jobs:
               ConvertFrom-Json -Depth 100
           }
 
+      - name: Validate capsule protocol sample coverage
+        shell: pwsh
+        run: |
+          $sampleDirectories = Get-ChildItem plugin-samples -Directory -Filter "PaperTodo.Plugin.*"
+          foreach ($directory in $sampleDirectories) {
+            $manifestPath = Join-Path $directory.FullName "plugin.json"
+            if (-not (Test-Path $manifestPath)) {
+              continue
+            }
+
+            $source = Get-ChildItem $directory.FullName -File -Recurse |
+              Where-Object { $_.Extension -in ".cs", ".js", ".html" } |
+              ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 } |
+              Out-String
+            if ($source -notmatch 'setCapsulePresentation\s*\(') {
+              throw "$($directory.Name) does not exercise protocol 1.6 capsule presentation."
+            }
+          }
+
+          $clockSource = Get-Content "plugin-samples/PaperTodo.Plugin.SampleClock/SampleClockPlugin.cs" -Raw -Encoding UTF8
+          if ($clockSource -notmatch 'IPaperCapsuleViewProvider' -or
+              $clockSource -notmatch 'CreateCapsuleView\s*\(') {
+            throw "SampleClock must exercise protocol 1.7 native capsule views."
+          }
+
       - name: Validate Web source and runtime copies
         shell: pwsh
         run: |

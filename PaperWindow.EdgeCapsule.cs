@@ -18,7 +18,7 @@ public sealed partial class PaperWindow
             CapsuleInnerCornerRadius,
             DeepCapsuleSlotOutlineThickness,
             DeepCapsuleSlotOutlineOverlap,
-            Math.Max(0, PaperLayoutDefaults.CapsuleHeight - WindowChromeInset),
+            CapsuleBodyHeight,
             CapsuleLeftPadding,
             CapsuleIconGap,
             CapsuleIconText(),

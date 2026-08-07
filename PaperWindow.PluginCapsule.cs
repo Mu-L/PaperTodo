@@ -10,7 +10,6 @@ public sealed partial class PaperWindow
 {
     private const double PluginCapsuleMinContentWidth = 34;
     private const double PluginCapsuleMaxContentWidth = 320;
-    private const double PluginCapsuleBodyHeight = 30;
     private PaperCapsulePresentation? _pluginCapsulePresentation;
     private Grid? _pluginCapsuleRegularHost;
     private UIElement? _pluginCapsuleRegularDefaultContent;
@@ -31,7 +30,6 @@ public sealed partial class PaperWindow
         };
         var layer = new Border
         {
-            Padding = new Thickness(CapsuleLeftPadding, 0, CapsuleRightPadding, 0),
             Background = Brushes.Transparent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
@@ -68,8 +66,16 @@ public sealed partial class PaperWindow
         _paper.BodyCapsuleText = normalized == null
             ? string.Empty
             : CapsulePresentationFallbackText(normalized);
+        var requestedWidth = PluginCapsuleRequestedContentWidth();
+        var geometryChanged = previousRequestedWidth != requestedWidth;
+        if (geometryChanged)
+        {
+            // PaperCapsuleViewContext carries immutable geometry. Recreate 1.7 views only when
+            // that geometry changes; ordinary state, theme and DPI updates keep the same views.
+            ResetPluginCapsuleCustomViews();
+        }
         RefreshCapsuleLabel();
-        if (previousRequestedWidth != PluginCapsuleRequestedContentWidth())
+        if (geometryChanged)
         {
             ApplyCurrentCollapsedCapsuleWidth();
         }
@@ -202,8 +208,30 @@ public sealed partial class PaperWindow
         PaperCapsulePresentation presentation,
         PaperCapsuleSurfaceKind surface)
     {
-        return TryGetPluginCapsuleCustomView(presentation, surface)
-            ?? BuildPluginCapsuleTemplateView(presentation);
+        var customView = TryGetPluginCapsuleCustomView(presentation, surface);
+        if (customView != null)
+        {
+            // Protocol 1.7 owns the complete requested content segment. Do not consume part of
+            // PaperCapsuleViewContext.Width with the host template's visual inset.
+            return customView;
+        }
+
+        // Protocol 1.6 remains host-rendered. Keep PaperTodo's normal visual breathing room
+        // inside the requested segment while leaving the 1.7 custom-view contract exact.
+        return new Border
+        {
+            Padding = new Thickness(
+                CapsuleLeftPadding,
+                0,
+                CapsuleRightPadding,
+                0),
+            Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            IsHitTestVisible = false,
+            ClipToBounds = true,
+            Child = BuildPluginCapsuleTemplateView(presentation)
+        };
     }
 
     private FrameworkElement? TryGetPluginCapsuleCustomView(
@@ -236,7 +264,7 @@ public sealed partial class PaperWindow
             var view = provider.CreateCapsuleView(new PaperCapsuleViewContext(
                 surface,
                 width,
-                PluginCapsuleBodyHeight,
+                CapsuleBodyHeight,
                 CurrentPaperBodyTheme()));
             if (view == null)
             {
@@ -351,7 +379,7 @@ public sealed partial class PaperWindow
             case PaperCapsuleComponentKind.ProgressRing:
             {
                 var diameter = component.Width > 0
-                    ? Math.Min(component.Width, PluginCapsuleBodyHeight)
+                    ? Math.Min(component.Width, CapsuleBodyHeight)
                     : 18;
                 return new CapsuleProgressRing
                 {

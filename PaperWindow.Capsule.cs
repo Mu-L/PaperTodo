@@ -298,7 +298,7 @@ public sealed partial class PaperWindow
         _capsuleShell = new Grid
         {
             Width = CapsuleShellLayoutWidth(),
-            Height = 30,
+            Height = CapsuleBodyHeight,
             Background = Brushes.Transparent
         };
         _capsuleShell.MouseEnter += (_, _) =>

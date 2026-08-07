@@ -14,7 +14,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
     public string Id => "sample.cloudgenshin.native";
     public string DisplayName => "云·原神（实验）";
     public string Description => "在 PaperTodo 纸片中直接打开云·原神网页版。";
-    public Version Version => new(1, 2, 0);
+    public Version Version => new(1, 2, 1);
     public string ApiVersion => "1.7";
     public int StateVersion => 1;
     public PaperBodyRuntimeRequirements RuntimeRequirements => PaperBodyRuntimeRequirements.BackgroundUpdates;
@@ -58,7 +58,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
         {
             _context = context;
             _context.Paper.SetTitle("云·原神");
-            SetPaperStatus("云原神 · 加载中");
+            SetPaperStatus("云原神 · 加载中", PaperCapsuleTone.Muted);
 
             _root = new Grid
             {
@@ -235,7 +235,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             _retryMode = RetryMode.NavigateHome;
             UpdatePresentation();
             ShowStatus("正在加载云·原神…");
-            SetPaperStatus("云原神 · 加载中");
+            SetPaperStatus("云原神 · 加载中", PaperCapsuleTone.Muted);
             _webView.CoreWebView2.Navigate(StartUri.AbsoluteUri);
         }
 
@@ -274,7 +274,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             _documentReady = true;
             _retryMode = RetryMode.NavigateHome;
             _status.Visibility = Visibility.Collapsed;
-            SetPaperStatus("云原神");
+            SetPaperStatus("云原神", PaperCapsuleTone.Accent);
             UpdatePresentation();
             if (_presentationVisible)
             {
@@ -306,8 +306,8 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
                     _documentReady = false;
                     UpdatePresentation();
                     ShowStatus("WebView2 浏览器进程已退出，正在重建…");
-                    SetPaperStatus("云原神 · 正在重启");
-                    _context.RequestReload();
+                    SetPaperStatus("云原神 · 正在重启", PaperCapsuleTone.Warning);
+                    _context.Body.RequestReload();
                     break;
 
                 case CoreWebView2ProcessFailedKind.RenderProcessExited:
@@ -351,7 +351,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             string.Equals(host, domain, StringComparison.OrdinalIgnoreCase) ||
             host.EndsWith('.' + domain, StringComparison.OrdinalIgnoreCase);
 
-        private static void OpenExternal(string? value)
+        private void OpenExternal(string? value)
         {
             if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
                 uri.Scheme is not ("http" or "https" or "mailto"))
@@ -361,11 +361,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
 
             try
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = uri.AbsoluteUri,
-                    UseShellExecute = true
-                });
+                _context.Body.OpenExternal(uri.AbsoluteUri);
             }
             catch
             {
@@ -399,7 +395,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             _statusText.Text = $"云·原神加载失败\n\n{message}";
             _retryButton.Visibility = Visibility.Visible;
             _status.Visibility = Visibility.Visible;
-            SetPaperStatus("云原神 · 错误");
+            SetPaperStatus("云原神 · 错误", PaperCapsuleTone.Danger);
         }
 
         private void UpdatePresentation()
@@ -415,7 +411,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
                 : PaperBodyInputClaims.None);
         }
 
-        private void SetPaperStatus(string text)
+        private void SetPaperStatus(string text, PaperCapsuleTone tone)
         {
             _context.Paper.SetHeaderText(text);
             _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
@@ -428,9 +424,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
                     new PaperCapsuleComponent
                     {
                         Kind = PaperCapsuleComponentKind.StatusDot,
-                        Tone = text.Contains("错误", StringComparison.Ordinal)
-                            ? PaperCapsuleTone.Danger
-                            : PaperCapsuleTone.Accent
+                        Tone = tone
                     },
                     new PaperCapsuleComponent
                     {
@@ -450,7 +444,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             }
 
             _inputClaims = claims;
-            _context.SetInputClaims(claims);
+            _context.Body.SetInputClaims(claims);
         }
 
         private void OnRetryClick(object sender, RoutedEventArgs e)
@@ -472,18 +466,18 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
                         _documentReady = false;
                         UpdatePresentation();
                         ShowStatus("正在重新加载云·原神…");
-                        SetPaperStatus("云原神 · 加载中");
+                        SetPaperStatus("云原神 · 加载中", PaperCapsuleTone.Muted);
                         _webView.CoreWebView2.Reload();
                         break;
 
                     default:
-                        _context.RequestReload();
+                        _context.Body.RequestReload();
                         break;
                 }
             }
             catch
             {
-                _context.RequestReload();
+                _context.Body.RequestReload();
             }
         }
 

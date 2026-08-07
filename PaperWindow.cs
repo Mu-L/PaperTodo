@@ -134,6 +134,8 @@ public sealed partial class PaperWindow : Window
     private double DeepCapsuleGap => _controller.DeepCapsuleGap;
     private const double WindowChromeMargin = EdgeCapsuleLayout.WindowChromeMargin;
     private const double WindowChromeInset = WindowChromeMargin * 2;
+    private const double CapsuleBodyHeight =
+        PaperLayoutDefaults.CapsuleHeight - WindowChromeInset;
     // Grow top bar with overall font scale, but only half as much as full FitChrome (shell zoom).
     private static double TitleBarHeight
     {

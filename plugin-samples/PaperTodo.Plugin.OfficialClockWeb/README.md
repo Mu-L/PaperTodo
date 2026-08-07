@@ -6,9 +6,10 @@
 - 本地、UTC 和多个常用城市时区；
 - 多种日期格式、标题模式和显示缩放；
 - `initialize`、`settingsChanged`、`themeChanged`、`visibilityChanged` 生命周期；
-- `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别同步纸片顶栏和胶囊模板。
+- `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别同步纸片顶栏和 1.6 胶囊模板；
+- 正文可用较高频率对齐秒边界，但对宿主胶囊写入做去重，避免无意义地重复重建同一模板。
 
-Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样副本。仓库中的可加载副本位于：
+Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样副本。协议 1.7 的自由 WPF 胶囊只属于原生插件，因此本示例按设计使用 1.6 宿主模板。仓库中的可加载副本位于：
 
 ```text
 plugins\official.clock.web\

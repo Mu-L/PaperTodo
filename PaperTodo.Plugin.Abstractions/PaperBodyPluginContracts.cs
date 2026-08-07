@@ -70,8 +70,9 @@ public sealed record PaperCapsuleComponent
 }
 
 /// <summary>
-/// Protocol 1.6 host-rendered capsule description. PreferredWidth is the capsule content segment
-/// width; PaperTodo still owns the fixed height, outer chrome, close segment and all input.
+/// Protocol 1.6 host-rendered capsule description. PreferredWidth is the complete capsule content
+/// segment width in DIPs; PaperTodo owns the template's internal visual padding plus the fixed
+/// height, outer chrome, close segment and all input.
 /// </summary>
 public sealed record PaperCapsulePresentation
 {
@@ -88,8 +89,9 @@ public enum PaperCapsuleSurfaceKind
 }
 
 /// <summary>
-/// Geometry and theme of one fixed-height capsule content surface. The host keeps ownership of
-/// outer chrome and input; native custom views receive only this inner content area.
+/// Geometry and theme of one fixed-height capsule content surface. Width and Height are the exact
+/// custom-view layout slot in DIPs: protocol 1.7 does not subtract the protocol 1.6 template's
+/// visual padding. The host keeps ownership of outer chrome and input.
 /// </summary>
 public sealed record PaperCapsuleViewContext(
     PaperCapsuleSurfaceKind Surface,
@@ -99,7 +101,11 @@ public sealed record PaperCapsuleViewContext(
 
 /// <summary>
 /// Optional protocol 1.7 native-session capability. A session may create one fresh WPF view for
-/// each live capsule surface. Returning null falls back to the protocol 1.6 host template.
+/// each live capsule surface. The host attempts each surface at most once per live body session and
+/// caches either the returned view or a null fallback. A PreferredWidth geometry change recreates
+/// the surface with a new context; ordinary presentation data, theme and DPI changes keep the same
+/// view, so plugins that render live state should retain and update it through the session lifecycle.
+/// Returning null falls back to the protocol 1.6 host template.
 /// </summary>
 public interface IPaperCapsuleViewProvider
 {

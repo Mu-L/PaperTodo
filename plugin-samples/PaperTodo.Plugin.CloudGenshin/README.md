@@ -18,7 +18,9 @@ https://ys.mihoyo.com/cloud/#/
 - 新窗口请求在当前纸片内继续打开
 - 按 WebView2 进程类型恢复浏览器或渲染会话
 - 纸片隐藏时不销毁网页会话
-- 仅在完整正文可交互时占用 Esc 和正文右键菜单
+- 仅在完整正文可交互时通过 `context.Body.SetInputClaims` 占用 Esc 和正文右键菜单
+- 外部导航通过 `context.Body.OpenExternal` 交还 PaperTodo 宿主处理
+- 1.6 胶囊状态点区分加载、运行、重启和错误；不把 WebView2 塞进胶囊
 - 插件升级时保留 `.runtime` 登录数据
 
 ## 放置位置

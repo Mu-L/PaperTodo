@@ -41,6 +41,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private bool _disposed;
     private bool _compactLayout;
     private string _lastDisplayTitle = "";
+    private string _lastCapsuleSignature = "";
 
     public ReviewArchiveSession(PaperBodyContext context)
     {
@@ -194,7 +195,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             }
         };
 
-        _subscription = context.Host.Subscribe(
+        _subscription = context.Workspace.Subscribe(
             new PaperTodoEventFilter
             {
                 Kinds = new HashSet<PaperTodoEventKind>
@@ -209,9 +210,9 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             value => ReviewArchiveStore.Apply(value, _settings));
         ReviewArchiveStore.Changed += OnArchiveChanged;
 
-        _ = ReviewArchiveStore.ImportCurrent(context.Host, _settings, manual: false);
+        _ = ReviewArchiveStore.ImportCurrent(context.Workspace, _settings, manual: false);
         ReviewArchiveStore.ApplyRetention(_settings);
-        ApplyTheme(context.Theme);
+        ApplyTheme(context.Body.Theme);
         Refresh();
     }
 
@@ -433,7 +434,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
                 : _settings.FixedTitle,
             _ => $"复盘 · {completedRecords} 项"
         };
-        SetPaperStatus(title);
+        SetPaperStatus(title, openCount);
         ApplyTheme(_theme);
     }
 
@@ -572,7 +573,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
 
     private void OnImport(object sender, RoutedEventArgs e)
     {
-        var changed = ReviewArchiveStore.ImportCurrent(_context.Host, _settings, manual: true);
+        var changed = ReviewArchiveStore.ImportCurrent(_context.Workspace, _settings, manual: true);
         if (!changed)
         {
             _hintText.Text = "当前待办已经全部存在于记录池中。";
@@ -709,7 +710,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _searchBox.Foreground = text;
         _searchBox.Background = surface;
         _searchBox.BorderBrush = border;
-        _context.Controls.ApplySelectStyle(_filterBox, 11.5 * scale);
+        _context.Body.Controls.ApplySelectStyle(_filterBox, 11.5 * scale);
 
         foreach (var card in _insightsPanel.Children.OfType<Border>())
         {
@@ -801,28 +802,51 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         }
     }
 
-    private void SetPaperStatus(string title)
+    private void SetPaperStatus(string title, int openCount)
     {
-        if (string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
+        if (!string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
+        {
+            _lastDisplayTitle = title;
+            _context.Paper.SetHeaderText(title);
+        }
+
+        var signature =
+            $"{title}\u001f{openCount}\u001f{_settings.ShowInsights}";
+        if (string.Equals(_lastCapsuleSignature, signature, StringComparison.Ordinal))
         {
             return;
         }
-        _lastDisplayTitle = title;
-        _context.Paper.SetHeaderText(title);
+        _lastCapsuleSignature = signature;
         _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
         {
-            PreferredWidth = 132,
+            PreferredWidth = 150,
             PlainText = title,
-            ToolTip = title,
-            Components =
-            [
-                new PaperCapsuleComponent
+            ToolTip = $"{title} · 进行中 {openCount}",
+            Components = _settings.ShowInsights
+                ? new PaperCapsuleComponent[]
                 {
-                    Kind = PaperCapsuleComponentKind.Text,
-                    Text = title,
-                    Fill = true
+                    new PaperCapsuleComponent
+                    {
+                        Kind = PaperCapsuleComponentKind.Text,
+                        Text = title,
+                        Fill = true
+                    },
+                    new PaperCapsuleComponent
+                    {
+                        Kind = PaperCapsuleComponentKind.Text,
+                        Text = $"{openCount} 未完",
+                        Tone = PaperCapsuleTone.Muted
+                    }
                 }
-            ]
+                : new PaperCapsuleComponent[]
+                {
+                    new PaperCapsuleComponent
+                    {
+                        Kind = PaperCapsuleComponentKind.Text,
+                        Text = title,
+                        Fill = true
+                    }
+                }
         });
     }
 

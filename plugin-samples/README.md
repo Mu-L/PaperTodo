@@ -12,11 +12,13 @@
 
 ## 示例定位
 
-- `PaperTodo.Plugin.SampleClock`：完整 WPF 时钟，演示多种宿主设置、主题、缩放、后台更新和运行时标题；
-- `PaperTodo.Plugin.OfficialClockWeb`：与原生时钟功能接近的 Web 对照实现；
-- `PaperTodo.Plugin.FocusTimer`：完整 WPF 番茄钟，演示状态恢复、自动轮转、声音和每日统计；
-- `PaperTodo.Plugin.ReviewArchive`：Issue #37 的实现，演示协议 1.3 数据读取、事件监听、插件私有长期存储和 CSV 导出；
-- `PaperTodo.Plugin.CloudGenshin`：WebView2 远程应用嵌入、导航、输入占用和进程恢复示例。
+- `PaperTodo.Plugin.SampleClock`：原生主示例；使用 1.6 模板作为回退，并真正实现 1.7 `IPaperCapsuleViewProvider`，覆盖普通/贴边胶囊、主题和后台更新；
+- `PaperTodo.Plugin.OfficialClockWeb`：Web 对照实现；Web 胶囊按设计停留在 1.6 宿主模板，并演示对高频状态更新去重；
+- `PaperTodo.Plugin.FocusTimer`：完整 WPF 番茄钟；1.6 胶囊同步运行/暂停、倒计时和阶段进度；
+- `PaperTodo.Plugin.ReviewArchive`：Issue #37 的实现；1.6 胶囊同步用户选择的复盘指标，并按“显示复盘指标”设置附带进行中数量；同时演示数据监听与长期存储；
+- `PaperTodo.Plugin.CloudGenshin`：WebView2 远程应用嵌入；1.6 胶囊区分加载、运行、重启和错误，并使用 canonical `Body` 能力处理输入与外链。
+
+所有示例至少使用协议 1.6 的 `SetCapsulePresentation`；只有需要完全自定义 WPF 显示的原生时钟额外使用 1.7。1.6/1.7 胶囊内容都只是显示层，点击、右键、拖动、Hover、关闭和贴边交互始终由 PaperTodo 宿主管理。
 
 ## 原生插件构建与安装
 
@@ -63,7 +65,7 @@ plugins\
 
 ## 协议 1.6 胶囊模板
 
-插件可以为自己的纸片提交一个固定高度的胶囊模板，由 PaperTodo 负责真正绘制外壳、关闭区、Hover、拖动、贴边和 DPI。模板最多包含三个任意顺序的组件，组件可选 `text`、`glyph`、`statusDot`、`progressRing`、`progressBar`；`fill` 可占用剩余横向空间，`width` 可指定固定段宽。插件只请求内容区宽度，宿主把它限制在合理范围内，胶囊高度仍保持 PaperTodo 默认值。
+插件可以为自己的纸片提交一个固定高度的胶囊模板，由 PaperTodo 负责真正绘制外壳、关闭区、Hover、拖动、贴边和 DPI。模板最多包含三个任意顺序的组件，组件可选 `text`、`glyph`、`statusDot`、`progressRing`、`progressBar`；`fill` 可占用剩余横向空间，`width` 可指定固定段宽。`PreferredWidth` 表示完整内容段宽度（DIP），宿主把它限制在合理范围内；1.6 模板的内部视觉留白由宿主管理，胶囊高度仍保持 PaperTodo 默认值。
 
 原生插件使用 `context.Paper.SetCapsulePresentation(...)`；Web 插件使用 `papertodo.paper.setCapsulePresentation(...)`。`plainText` 是启动、拖动过渡和其他纯文字环境的回退文本；自定义模板停止后恢复普通胶囊。
 
@@ -82,9 +84,31 @@ papertodo.paper.setCapsulePresentation({
 
 ## 协议 1.7 原生胶囊自由绘制
 
-原生插件会话可额外实现 `IPaperCapsuleViewProvider`，在协议 1.6 模板之外为普通胶囊和贴边胶囊分别创建一个自由 WPF 内容视图。宿主仍固定胶囊高度，并继续拥有外壳、关闭区、点击、右键、拖动、Hover、贴边、跨屏与 DPI；自定义视图统一禁用命中测试，第一版只负责显示，不拥有按钮、输入框或独立点击区域。
+原生插件会话可额外实现 `IPaperCapsuleViewProvider`，在协议 1.6 模板之外为普通胶囊和贴边胶囊分别创建一个自由 WPF 内容视图。`PaperCapsuleViewContext.Width/Height` 就是该视图最终获得的完整布局槽尺寸（DIP），宿主不会再扣除 1.6 模板的内部留白；插件若需要内边距，应在自己的 View 内实现。宿主仍拥有外壳、关闭区、点击、右键、拖动、Hover、贴边、跨屏与 DPI，自定义视图统一禁用命中测试，不应放置需要独立点击的按钮或输入框。
 
-自由视图创建失败时只回退到 1.6 模板，不会让正文插件失败。插件仍应提供 `PaperCapsulePresentation` 与 `plainText` 作为回退；跨队列拖动的临时浮动胶囊继续使用纯文字回退，避免把自由视图接入高风险的拖拽交接链。Web 插件继续使用 1.6 模板，不在胶囊内创建额外 WebView2。
+宿主在一个正文会话、同一内容槽几何下，对 `Regular`、`Docked` 各最多尝试创建一次，并缓存“成功 View”或 `null` 回退。普通胶囊与贴边胶囊必须返回两个不同的 WPF 对象，不能把同一个已挂载元素重复返回。若 `PreferredWidth` 改变，宿主会丢弃旧缓存并按新 `Width` 重建两种 View；普通状态刷新、主题切换或 DPI 变化不会要求重建。需要实时显示的插件应保留当前 View 引用，在自己的状态更新、`OnThemeChanged` / `OnTypographyChanged` 中原地刷新；只有自定义绘制确实依赖 DPI 细节时才需要额外处理 `OnDpiChanged`。
+
+最小实现可以参考 `PaperTodo.Plugin.SampleClock`：
+
+```csharp
+private sealed class Session : IPaperBodySession, IPaperCapsuleViewProvider
+{
+    private CapsuleView? _regular;
+    private CapsuleView? _docked;
+
+    public FrameworkElement? CreateCapsuleView(PaperCapsuleViewContext context)
+    {
+        var view = new CapsuleView(context);
+        if (context.Surface == PaperCapsuleSurfaceKind.Docked)
+            _docked = view;
+        else
+            _regular = view;
+        return view;
+    }
+}
+```
+
+自由视图创建失败或主动返回 `null` 时只回退到 1.6 模板，不会让正文插件失败。因此 1.7 插件仍应持续提供 `PaperCapsulePresentation` 与 `plainText`；跨队列拖动的临时浮动胶囊也继续使用纯文字回退。Web 插件继续使用 1.6 模板，不在胶囊内创建额外 WebView2。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -148,7 +172,7 @@ papertodo.paper.setCapsulePresentation({
 
 支持：`papers.read/observe/create/delete`、`todos.read/observe/append/update/delete`、`notes.read/observe/append/replace`。写入结果只返回 ID 或内容长度，不会绕过独立的读取权限。
 
-原生插件使用 `PaperBodyContext.Host`；Web 插件使用 `papertodo.request()` 与 `papertodo.onHostEvent()`。
+原生插件使用 canonical `PaperBodyContext.Workspace`；Web 插件使用 `papertodo.workspace.request()` 与 `papertodo.onHostEvent()`。`Host` / 顶层 `request()` 仍是便利别名，但示例代码统一使用 canonical scope，避免把纸片、正文和工作区能力混在一起。
 
 ## Web 插件
 
@@ -184,6 +208,6 @@ papertodo.onEvent(message => console.log(message));
 
 原生插件目录的 `entry` 指向实现 `PaperTodo.Plugin.IPaperBodyPlugin` 的入口 DLL，依赖、`.deps.json`、资源和本地库全部放在同一插件目录。自协议 1.2 起，DLL 必须显式实现 `ApiVersion` 和 `RuntimeRequirements`，并与 `plugin.json` 完全一致；不一致时拒绝加载。PaperTodo 为每个纸片创建新的插件工厂对象，`IPaperBodyPlugin` 不应保存纸片实例状态。
 
-原生会话可通过 `OnPresentationChanged` 判断完整正文是否显示，通过 `OnVisibilityChanged` 判断运行时是否应保持活动，通过 `OnSettingsChanged` 接收全局设置变化，并通过 `PaperBodyContext.SetInputClaims` 动态占用 Esc 或正文右键菜单；正文会话必须在 `Dispose` 中停止计时器、取消任务并解除事件。
+原生会话可通过 `OnPresentationChanged` 判断完整正文是否显示，通过 `OnVisibilityChanged` 判断运行时是否应保持活动，通过 `OnSettingsChanged` 接收全局设置变化，并通过 `PaperBodyContext.Body.SetInputClaims` 动态占用 Esc 或正文右键菜单；正文会话必须在 `Dispose` 中停止计时器、取消任务并解除事件。
 
 未被任何纸片使用的原生插件在启动时只读取 `plugin.json`，不会加载 DLL 或调用构造函数；入口程序集会在首次创建对应正文时加载并校验。

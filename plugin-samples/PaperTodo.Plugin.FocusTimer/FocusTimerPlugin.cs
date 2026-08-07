@@ -16,7 +16,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
     public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
-    public Version Version => new(1, 3, 2);
+    public Version Version => new(1, 3, 3);
     public string ApiVersion => "1.7";
     public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
@@ -127,12 +127,13 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         private bool _disposed;
         private bool _compactLayout;
         private string _lastDisplayTitle = "";
+        private string _lastCapsuleSignature = "";
         private string _todoLoadError = "";
 
         public Session(PaperBodyContext context)
         {
             _context = context;
-            _theme = context.Theme;
+            _theme = context.Body.Theme;
             _settings = ReadSettings(context.SettingsJson);
             _state = ReadState(context.StateJson);
             var stateChanged = InitializeAndNormalizeState();
@@ -321,7 +322,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                         kinds.Add(PaperTodoEventKind.PaperChanged);
                         kinds.Add(PaperTodoEventKind.PaperDeleted);
                     }
-                    _subscription = context.Host.Subscribe(
+                    _subscription = context.Workspace.Subscribe(
                         new PaperTodoEventFilter { Kinds = kinds },
                         _ => QueueTodoRefresh());
                 }
@@ -331,7 +332,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 _todoLoadError = "插件未获得 todos.read 权限，无法关联待办。";
             }
 
-            ApplyTheme(context.Theme);
+            ApplyTheme(context.Body.Theme);
             if (!CompleteExpiredPhase())
             {
                 UpdateView();
@@ -522,7 +523,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
 
             try
             {
-                var current = _context.Host
+                var current = _context.Workspace
                     .ListTodos(_state.LinkedPaperId, includeBlank: false)
                     .FirstOrDefault(item => string.Equals(
                         item.Id,
@@ -536,7 +537,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 }
                 if (!current.Done)
                 {
-                    _context.Host.UpdateTodo(new UpdateTodoRequest
+                    _context.Workspace.UpdateTodo(new UpdateTodoRequest
                     {
                         PaperId = current.PaperId,
                         TodoId = current.Id,
@@ -567,7 +568,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         {
             try
             {
-                var next = _context.Host.ListTodos(includeBlank: false)
+                var next = _context.Workspace.ListTodos(includeBlank: false)
                     .Where(item => !item.Done)
                     .OrderBy(item => item.PaperTitle, StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(item => item.Order)
@@ -761,7 +762,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             {
                 var linkedPaperId = _state.LinkedPaperId;
                 var linkedTodoId = _state.LinkedTodoId;
-                var todos = _context.Host.ListTodos(includeBlank: false)
+                var todos = _context.Workspace.ListTodos(includeBlank: false)
                     .Where(item => !item.Done ||
                         (string.Equals(item.PaperId, linkedPaperId, StringComparison.Ordinal) &&
                          string.Equals(item.Id, linkedTodoId, StringComparison.Ordinal)))
@@ -888,14 +889,18 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             }
 
             UpdateModeButtons();
-            SetPaperStatus(_settings.TitleStyle switch
+            var capsuleTitle = _settings.TitleStyle switch
             {
                 "task" when currentTodo != null =>
                     $"{Compact(currentTodo.Text, 16)} · {minutes:00}:{seconds:00}",
                 "status" => _state.IsRunning ? $"{modeName}中" : $"{modeName}已暂停",
                 "fixed" => "专注计时器",
                 _ => $"{modeName} · {minutes:00}:{seconds:00}"
-            });
+            };
+            var capsuleProgress = full <= 0
+                ? 0
+                : Math.Clamp((full - remaining) / (double)full, 0, 1);
+            SetPaperStatus(capsuleTitle, capsuleProgress, remaining, modeName);
         }
 
         private static string Compact(string text, int limit)
@@ -937,7 +942,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _todoStatusText.Foreground = weak;
             _todoHost.Background = background;
             _todoHost.BorderBrush = border;
-            _context.Controls.ApplySelectStyle(_todoBox, 11.5 * scale);
+            _context.Body.Controls.ApplySelectStyle(_todoBox, 11.5 * scale);
             _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
             _progress.Background = ToBrush("#30707070", "#30707070");
 
@@ -1020,13 +1025,13 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                     Boolean(root, "completeLinkedTodo", false),
                     Boolean(root, "autoSelectNextTodo", false),
                     String(root, "sound", "asterisk"),
-                    String(root, "titleStyle", "countdown"));
+                    String(root, "titleStyle", "task"));
             }
             catch
             {
                 return new Settings(
                     25, 5, 5, 4, false, true, true, true,
-                    true, false, false, "asterisk", "countdown");
+                    true, false, false, "asterisk", "task");
             }
         }
 
@@ -1076,28 +1081,78 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             UpdateView();
         }
 
-        private void SetPaperStatus(string title)
+        private void SetPaperStatus(
+            string title,
+            double progress,
+            int remaining,
+            string modeName)
         {
-            if (_lastDisplayTitle == title)
+            if (!string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
+            {
+                _lastDisplayTitle = title;
+                _context.Paper.SetHeaderText(title);
+            }
+
+            var tone = !_state.IsRunning
+                ? PaperCapsuleTone.Muted
+                : _state.Mode == TimerMode.Focus
+                    ? PaperCapsuleTone.Accent
+                    : PaperCapsuleTone.Default;
+            var progressStep = (int)Math.Round(
+                Math.Clamp(progress, 0, 1) * 1000,
+                MidpointRounding.AwayFromZero);
+            var signature =
+                $"{title}\u001f{remaining}\u001f{progressStep}\u001f{tone}\u001f{_settings.ShowProgress}";
+            if (string.Equals(_lastCapsuleSignature, signature, StringComparison.Ordinal))
             {
                 return;
             }
-            _lastDisplayTitle = title;
-            _context.Paper.SetHeaderText(title);
+            _lastCapsuleSignature = signature;
+
+            var minutes = remaining / 60;
+            var seconds = remaining % 60;
+            var runningText = _state.IsRunning ? "进行中" : "已暂停";
             _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
             {
-                PreferredWidth = 132,
+                PreferredWidth = 150,
                 PlainText = title,
-                ToolTip = title,
-                Components =
-                [
-                    new PaperCapsuleComponent
+                ToolTip = $"{modeName} · {minutes:00}:{seconds:00} · {runningText}",
+                Components = _settings.ShowProgress
+                    ? new PaperCapsuleComponent[]
                     {
-                        Kind = PaperCapsuleComponentKind.Text,
-                        Text = title,
-                        Fill = true
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.StatusDot,
+                            Tone = tone
+                        },
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.Text,
+                            Text = title,
+                            Fill = true
+                        },
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.ProgressBar,
+                            Value = progress,
+                            Width = 30,
+                            Tone = tone
+                        }
                     }
-                ]
+                    : new PaperCapsuleComponent[]
+                    {
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.StatusDot,
+                            Tone = tone
+                        },
+                        new PaperCapsuleComponent
+                        {
+                            Kind = PaperCapsuleComponentKind.Text,
+                            Text = title,
+                            Fill = true
+                        }
+                    }
             });
         }
 
