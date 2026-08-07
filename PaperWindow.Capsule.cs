@@ -212,6 +212,10 @@ public sealed partial class PaperWindow
             return;
         }
 
+        // Script-capsule identity can change while the docked host already exists. Refresh the
+        // host-owned fallback icon together with its label; protocol 1.7 plugin content still
+        // overlays these defaults when a custom capsule view/presentation is active.
+        UpdateDeepCapsuleSlotHostTheme();
         _edgeCapsuleHost.SetLabel(
             _controller.PaperCapsuleTitle(_paper),
             _controller.PaperTitleText(_paper));

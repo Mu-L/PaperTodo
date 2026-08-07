@@ -50,9 +50,57 @@ public sealed partial class PaperWindow
 
     internal void SetAdvancedInteractionLocked(bool locked)
     {
+        var changed = _advancedInteractionLocked != locked;
         _advancedInteractionLocked = locked;
+        if (changed && locked)
+        {
+            CancelExperimentalAutoCollapse();
+            CancelStrictAutoCollapse();
+        }
+
         _edgeCapsuleHost?.SetInteractionLocked(locked);
         UpdateAdvancedInteractionLockVisuals();
+        if (changed && !locked)
+        {
+            CollapseAfterAdvancedInteractionUnlock();
+        }
+    }
+
+    private void CollapseAfterAdvancedInteractionUnlock()
+    {
+        CancelExperimentalAutoCollapse();
+        CancelStrictAutoCollapse();
+        if (!_controller.State.ExperimentalCollapsePaperOnDeactivate ||
+            !_controller.State.UseCapsuleMode ||
+            _paper.IsCollapsed ||
+            !_paper.IsVisible ||
+            !IsVisible ||
+            WindowState == WindowState.Minimized ||
+            !CanDisplayAsCapsule())
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_advancedInteractionLocked ||
+                    _windowLifecycle != PaperWindowLifecycleState.Alive ||
+                    !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
+                    !_controller.State.UseCapsuleMode ||
+                    _paper.IsCollapsed ||
+                    !_paper.IsVisible ||
+                    !IsVisible ||
+                    WindowState == WindowState.Minimized ||
+                    HasExperimentalAutoCollapseBlocker() ||
+                    !CanDisplayAsCapsule())
+                {
+                    return;
+                }
+
+                SetCollapsedState(true);
+            }),
+            System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void EnsureAdvancedInteractionLockVisuals()
@@ -128,8 +176,10 @@ public sealed partial class PaperWindow
                 : 0.78;
         if (_paperIconButton != null)
         {
+            // Keep the pin slot in layout while the lock glyph visually replaces it.
+            // Collapsing this element would let the title slide under the floating lock button.
             _paperIconButton.Visibility = _advancedInteractionLocked
-                ? Visibility.Collapsed
+                ? Visibility.Hidden
                 : Visibility.Visible;
         }
 

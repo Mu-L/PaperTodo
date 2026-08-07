@@ -274,14 +274,21 @@ public sealed partial class AppController
                 root.Children.Add(BuildPluginSettingControl(descriptor, setting));
             }
 
-            var tail = new WrapPanel
+            var tail = new Grid();
+            tail.ColumnDefinitions.Add(new ColumnDefinition
             {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Stretch
-            };
+                Width = new GridLength(1, GridUnitType.Star)
+            });
+            tail.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = GridLength.Auto
+            });
             var finalQuick = BuildPluginSettingControl(descriptor, quick[^1]);
-            finalQuick.Margin = new Thickness(0, 4, 0, 0);
+            finalQuick.Margin = new Thickness(0, 4, 8, 0);
             toggle.Margin = new Thickness(8, 4, 0, 0);
+            toggle.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(finalQuick, 0);
+            Grid.SetColumn(toggle, 1);
             tail.Children.Add(finalQuick);
             tail.Children.Add(toggle);
             root.Children.Add(tail);

@@ -107,6 +107,7 @@ public sealed class MasterCapsuleWindow : Window
             IsPointInsideMasterOwnerSurface);
         ConfigureWindow();
         BuildContent();
+        UpdateExperimentalOpacity();
         UpdateToolTipSetting();
         // Clicking the pill must never pull foreground focus: activating this window would
         // deactivate whatever app was in front, forcing it to repaint — the click "flash".
@@ -360,6 +361,23 @@ public sealed class MasterCapsuleWindow : Window
         ToolTipPreferences.Apply(this, _controller.State.EnableToolTips);
     }
 
+    public void UpdateExperimentalOpacity()
+    {
+        var enabled =
+            _controller.State.ExperimentalRestingCapsuleOpacity &&
+            _controller.State.ExperimentalRestingCapsuleOpacityIncludesMaster;
+        var restingOpacity = enabled
+            ? ExperimentalOpacityLevels.Normalize(
+                _controller.State.ExperimentalRestingCapsuleOpacityLevel,
+                ExperimentalOpacityLevels.DefaultRestingCapsule)
+            : 1.0;
+        var interactive = _isHovering || _gestureState != MasterGestureState.Idle;
+        _pill.Opacity = enabled &&
+            (_controller.State.ExperimentalRestingCapsuleOpacityAlways || !interactive)
+                ? restingOpacity
+                : 1.0;
+    }
+
     internal bool TryMoveToVirtualDesktop(
         VirtualDesktopAdapter adapter,
         Guid desktopId)
@@ -435,6 +453,7 @@ public sealed class MasterCapsuleWindow : Window
         // Hover only changes the pill background (handled in the MouseEnter/Leave handlers);
         // the master pill does not move, so there is nothing to reposition here.
         _isHovering = hovering;
+        UpdateExperimentalOpacity();
     }
 
     private bool FinishMasterGesture(bool commit, bool clearFocus = true)
@@ -468,6 +487,7 @@ public sealed class MasterCapsuleWindow : Window
             ClearCapsuleInteractionKeyboardFocus();
         }
 
+        UpdateExperimentalOpacity();
         return wasDragging;
     }
 

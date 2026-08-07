@@ -420,6 +420,8 @@ public sealed class AppState
     public bool ExperimentalRestingCapsuleOpacity { get; set; }
     public double ExperimentalRestingCapsuleOpacityLevel { get; set; } =
         ExperimentalOpacityLevels.DefaultRestingCapsule;
+    public bool ExperimentalRestingCapsuleOpacityIncludesMaster { get; set; }
+    public bool ExperimentalRestingCapsuleOpacityAlways { get; set; }
     public bool ExperimentalCollapsePaperOnDeactivate { get; set; }
     public bool ExperimentalStrictCollapsePaperAfterShow { get; set; }
     public bool ExperimentalDockedCapsulesNonTopmost { get; set; }

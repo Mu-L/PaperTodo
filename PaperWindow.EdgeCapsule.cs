@@ -179,6 +179,17 @@ public sealed partial class PaperWindow
     {
         var monitor = DeepCapsuleMonitorGeometry();
         var restingWidth = DeepCapsuleVisibleWidth(monitor.DpiScaleY);
+        var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
+            ? ExperimentalOpacityLevels.Normalize(
+                _controller.State.ExperimentalRestingCapsuleOpacityLevel,
+                ExperimentalOpacityLevels.DefaultRestingCapsule)
+            : 1.0;
+        double? forcedOpacity = _controller.IsAdvancedCapsuleTransparent(_paper)
+            ? _controller.AdvancedShortcutOpacity
+            : _controller.State.ExperimentalRestingCapsuleOpacity &&
+              _controller.State.ExperimentalRestingCapsuleOpacityAlways
+                ? restingOpacity
+                : null;
         return EdgeCapsuleLayoutService.Calculate(new EdgeCapsuleLayoutFacts(
             monitor,
             MyDeepCapsuleEdge,
@@ -194,14 +205,8 @@ public sealed partial class PaperWindow
                     monitor.LocalWorkAreaDip.Width)),
             PaperLayoutDefaults.CapsuleHeight,
             _controller.State.HideEdgeCapsuleCloseButtonOnHover,
-            _controller.State.ExperimentalRestingCapsuleOpacity
-                ? ExperimentalOpacityLevels.Normalize(
-                    _controller.State.ExperimentalRestingCapsuleOpacityLevel,
-                    ExperimentalOpacityLevels.DefaultRestingCapsule)
-                : 1.0,
-            _controller.IsAdvancedCapsuleTransparent(_paper)
-                ? _controller.AdvancedShortcutOpacity
-                : null));
+            restingOpacity,
+            forcedOpacity));
     }
 
     private bool ApplyEdgeCapsulePresentationFrame(EdgeCapsulePresentationFrame frame)

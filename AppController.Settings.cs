@@ -257,6 +257,24 @@ public sealed partial class AppController
         RefreshSettingsRegions("labs.focus");
     }
 
+    private void ToggleExperimentalRestingCapsuleOpacityIncludesMaster()
+    {
+        State.ExperimentalRestingCapsuleOpacityIncludesMaster =
+            !State.ExperimentalRestingCapsuleOpacityIncludesMaster;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsRegions("labs.focus");
+    }
+
+    private void ToggleExperimentalRestingCapsuleOpacityAlways()
+    {
+        State.ExperimentalRestingCapsuleOpacityAlways =
+            !State.ExperimentalRestingCapsuleOpacityAlways;
+        SaveNow();
+        RefreshExperimentalOpacitySurfaces();
+        RefreshSettingsRegions("labs.focus");
+    }
+
     private void SetExperimentalRestingCapsuleOpacityLevel(double opacity)
     {
         var normalized = ExperimentalOpacityLevels.Normalize(
@@ -278,6 +296,10 @@ public sealed partial class AppController
         foreach (var window in _windows.Values)
         {
             window.UpdateExperimentalOpacitySettings(animate);
+        }
+        foreach (var master in _masterCapsules.Values)
+        {
+            master.UpdateExperimentalOpacity();
         }
     }
 
@@ -1190,7 +1212,6 @@ public sealed partial class AppController
         if (_settingsPage == SettingsPage.Plugins)
         {
             var pluginsPage = BuildPluginsSettingsPage();
-            MovePluginMoreSettingsButtonsToTail(pluginsPage);
             root.Children.Add(WrapSettingsPageContent(pluginsPage, enableScroll));
             return WrapSettingsWindowContent(root, fittedHeight, enableScroll);
         }
@@ -1412,7 +1433,7 @@ public sealed partial class AppController
             "TipLabsDockedCapsulesNonTopmost"));
 
         content.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsPaperOpacity"),
+            Strings.Get("LabsFocusOpacity"),
             topMargin: 9));
         content.Children.Add(WrapWithHint(
             SettingsToggle(
@@ -1420,6 +1441,13 @@ public sealed partial class AppController
                 State.ExperimentalInactivePaperOpacity,
                 ToggleExperimentalInactivePaperOpacity),
             "TipLabsInactivePaperOpacity"));
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsEnableRestingCapsuleOpacity"),
+                State.ExperimentalRestingCapsuleOpacity,
+                ToggleExperimentalRestingCapsuleOpacity),
+            "TipLabsRestingCapsuleOpacity"));
+
         content.Children.Add(SettingsFieldLabel(
             Strings.Get("LabsInactivePaperOpacityLevel"),
             topMargin: 7));
@@ -1427,16 +1455,6 @@ public sealed partial class AppController
             () => State.ExperimentalInactivePaperOpacityLevel,
             SetExperimentalInactivePaperOpacityLevel,
             State.ExperimentalInactivePaperOpacity));
-
-        content.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsCapsuleOpacity"),
-            topMargin: 2));
-        content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableRestingCapsuleOpacity"),
-                State.ExperimentalRestingCapsuleOpacity,
-                ToggleExperimentalRestingCapsuleOpacity),
-            "TipLabsRestingCapsuleOpacity"));
         content.Children.Add(SettingsFieldLabel(
             Strings.Get("LabsRestingCapsuleOpacityLevel"),
             topMargin: 7));
@@ -1444,6 +1462,21 @@ public sealed partial class AppController
             () => State.ExperimentalRestingCapsuleOpacityLevel,
             SetExperimentalRestingCapsuleOpacityLevel,
             State.ExperimentalRestingCapsuleOpacity));
+
+        var capsuleOpacityOptions = new StackPanel
+        {
+            IsEnabled = State.ExperimentalRestingCapsuleOpacity,
+            Opacity = State.ExperimentalRestingCapsuleOpacity ? 1.0 : 0.55
+        };
+        capsuleOpacityOptions.Children.Add(SettingsToggle(
+            Strings.Get("LabsRestingCapsuleOpacityIncludeMaster"),
+            State.ExperimentalRestingCapsuleOpacityIncludesMaster,
+            ToggleExperimentalRestingCapsuleOpacityIncludesMaster));
+        capsuleOpacityOptions.Children.Add(SettingsToggle(
+            Strings.Get("LabsRestingCapsuleOpacityAlways"),
+            State.ExperimentalRestingCapsuleOpacityAlways,
+            ToggleExperimentalRestingCapsuleOpacityAlways));
+        content.Children.Add(capsuleOpacityOptions);
 
         card.Child = content;
         return card;
@@ -2187,6 +2220,8 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacity = false;
         State.ExperimentalRestingCapsuleOpacityLevel =
             ExperimentalOpacityLevels.DefaultRestingCapsule;
+        State.ExperimentalRestingCapsuleOpacityIncludesMaster = false;
+        State.ExperimentalRestingCapsuleOpacityAlways = false;
         State.ExperimentalCollapsePaperOnDeactivate = false;
         State.ExperimentalStrictCollapsePaperAfterShow = false;
         State.ExperimentalDockedCapsulesNonTopmost = false;

@@ -14,6 +14,7 @@ internal sealed class ExperimentalTetherCapsuleWindow : Window
     private readonly Border _pill;
     private readonly TextBlock _label;
     private double _restingOpacity;
+    private bool _alwaysTransparent;
     private readonly bool _normalTopmost;
     private IntPtr _fullscreenAvoidanceWindow;
     private bool _experimentalPassive;
@@ -82,7 +83,7 @@ internal sealed class ExperimentalTetherCapsuleWindow : Window
         {
             if (!_experimentalPassive)
             {
-                Opacity = 1;
+                Opacity = _alwaysTransparent ? _restingOpacity : 1;
             }
         };
         MouseLeave += (_, _) =>
@@ -208,12 +209,15 @@ internal sealed class ExperimentalTetherCapsuleWindow : Window
             adapter.TryMoveWindowToDesktop(handle, desktopId);
     }
 
-    public void UpdateRestingOpacity(double opacity)
+    public void UpdateRestingOpacity(double opacity, bool alwaysTransparent)
     {
         _restingOpacity = Math.Clamp(opacity, 0.2, 1.0);
-        if (!_experimentalPassive && !IsMouseOver)
+        _alwaysTransparent = alwaysTransparent;
+        if (!_experimentalPassive)
         {
-            Opacity = _restingOpacity;
+            Opacity = _alwaysTransparent || !IsMouseOver
+                ? _restingOpacity
+                : 1.0;
         }
     }
 
@@ -242,7 +246,9 @@ internal sealed class ExperimentalTetherCapsuleWindow : Window
             _normalTopmost &&
             _fullscreenAvoidanceWindow == IntPtr.Zero;
         Topmost = effectiveTopmost;
-        Opacity = _restingOpacity;
+        Opacity = _alwaysTransparent || !IsMouseOver
+            ? _restingOpacity
+            : 1.0;
         if (IsVisible)
         {
             WindowNative.ApplyTopmostZOrder(

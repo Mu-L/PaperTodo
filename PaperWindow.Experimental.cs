@@ -121,7 +121,9 @@ public sealed partial class PaperWindow
                 ? ExperimentalOpacityLevels.Normalize(
                     _controller.State.ExperimentalRestingCapsuleOpacityLevel,
                     ExperimentalOpacityLevels.DefaultRestingCapsule)
-                : 1.0);
+                : 1.0,
+            _controller.State.ExperimentalRestingCapsuleOpacity &&
+            _controller.State.ExperimentalRestingCapsuleOpacityAlways);
         if (_isShellBuilt)
         {
             if (_controller.State.ExperimentalRestingCapsuleOpacity ||
@@ -179,7 +181,9 @@ public sealed partial class PaperWindow
                 ownMenuOpen;
             var capsuleOpacity = _controller.IsAdvancedCapsuleTransparent(_paper)
                 ? _controller.AdvancedShortcutOpacity
-                : !_paper.IsCollapsed || ordinaryCapsuleInteractive
+                : !_paper.IsCollapsed ||
+                  (ordinaryCapsuleInteractive &&
+                   !_controller.State.ExperimentalRestingCapsuleOpacityAlways)
                     ? 1.0
                     : ExperimentalOpacityLevels.Normalize(
                         _controller.State.ExperimentalRestingCapsuleOpacityLevel,
@@ -264,6 +268,7 @@ public sealed partial class PaperWindow
     }
 
     private bool HasExperimentalAutoCollapseBlocker() =>
+        _advancedInteractionLocked ||
         _isEditingTitle ||
         _titleBarDragSession != null ||
         _todoDrag?.IsDragging == true ||

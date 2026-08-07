@@ -1577,6 +1577,10 @@ public sealed partial class PaperWindow
             ActivateExperimentalTetherTarget,
             normalTopmost: true,
             restingOpacity: restingOpacity);
+        capsule.UpdateRestingOpacity(
+            restingOpacity,
+            _controller.State.ExperimentalRestingCapsuleOpacity &&
+            _controller.State.ExperimentalRestingCapsuleOpacityAlways);
         _experimentalTetherCapsule = capsule;
         ToolTipPreferences.Apply(
             capsule,
