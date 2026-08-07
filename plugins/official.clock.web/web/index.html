@@ -291,7 +291,15 @@
       const timeText = `${parts.hour}:${parts.minute}`;
       const title = titleText(timeText, dateText);
       window.papertodo?.paper?.setHeaderText(title);
-      window.papertodo?.paper?.setCapsuleText(title);
+      window.papertodo?.paper?.setCapsulePresentation({
+        preferredWidth: 132,
+        plainText: title,
+        toolTip: title,
+        components: [
+          { kind: 'progressRing', value: percent / 100, tone: 'accent' },
+          { kind: 'text', text: title, fill: true }
+        ]
+      });
     }
 
     function updateTimer() {

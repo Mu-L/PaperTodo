@@ -3429,6 +3429,12 @@ public sealed partial class PaperWindow : Window
 
     private double CapsuleShellWidth()
     {
+        var pluginContentWidth = PluginCapsuleRequestedContentWidth();
+        if (pluginContentWidth.HasValue)
+        {
+            return Math.Ceiling(pluginContentWidth.Value + CapsuleNormalCloseWidth);
+        }
+
         return Math.Ceiling(
             CapsuleLeftPadding +
             MeasureCapsuleIconWidth() +

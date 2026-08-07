@@ -48,7 +48,7 @@ internal sealed record EdgeCapsuleHostCallbacks(
 /// Owns the docked HWND and every visual belonging to it. PaperWindow supplies content and event
 /// callbacks, but host lifetime can no longer be partially cleared across unrelated fields.
 /// </summary>
-internal sealed class EdgeCapsuleHost : IDisposable
+internal sealed partial class EdgeCapsuleHost : IDisposable
 {
     private const int WmNcHitTest = 0x0084;
     private static readonly IntPtr HtTransparent = new(-1);

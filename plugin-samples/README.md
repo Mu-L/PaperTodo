@@ -57,9 +57,34 @@ plugins\
    └─ .runtime\                     # 插件私有缓存或长期数据
 ```
 
-当前 PaperTodo 插件协议为 **1.5**，宿主只加载 **1.5** 插件。1.5 不增加新的产品入口，而是把插件实例的能力按所属纸片、展开正文和整个工作区重新归位；目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+当前 PaperTodo 插件协议为 **1.7**，宿主只加载 **1.7** 插件。1.5 负责整理插件实例的能力范围；1.6 提供宿主绘制的胶囊模板；1.7 允许原生插件在同一固定高度内容区内自由绘制。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
 
 原生插件使用 `PaperBodyContext.Paper`、`PaperBodyContext.Body` 与 `PaperBodyContext.Workspace`。正式标题、展开态运行时标题和折叠态胶囊文字互相独立；Web 插件对应使用 `papertodo.paper.*`、`papertodo.body.*` 与 `papertodo.workspace.request()`。
+
+## 协议 1.6 胶囊模板
+
+插件可以为自己的纸片提交一个固定高度的胶囊模板，由 PaperTodo 负责真正绘制外壳、关闭区、Hover、拖动、贴边和 DPI。模板最多包含三个任意顺序的组件，组件可选 `text`、`glyph`、`statusDot`、`progressRing`、`progressBar`；`fill` 可占用剩余横向空间，`width` 可指定固定段宽。插件只请求内容区宽度，宿主把它限制在合理范围内，胶囊高度仍保持 PaperTodo 默认值。
+
+原生插件使用 `context.Paper.SetCapsulePresentation(...)`；Web 插件使用 `papertodo.paper.setCapsulePresentation(...)`。`plainText` 是启动、拖动过渡和其他纯文字环境的回退文本；自定义模板停止后恢复普通胶囊。
+
+```js
+papertodo.paper.setCapsulePresentation({
+  preferredWidth: 150,
+  plainText: "CPU 42% · 68℃",
+  toolTip: "CPU 42% / GPU 68℃",
+  components: [
+    { kind: "progressRing", value: 0.42, tone: "accent" },
+    { kind: "text", text: "CPU", fill: true },
+    { kind: "text", text: "68℃", tone: "warning" }
+  ]
+});
+```
+
+## 协议 1.7 原生胶囊自由绘制
+
+原生插件会话可额外实现 `IPaperCapsuleViewProvider`，在协议 1.6 模板之外为普通胶囊和贴边胶囊分别创建一个自由 WPF 内容视图。宿主仍固定胶囊高度，并继续拥有外壳、关闭区、点击、右键、拖动、Hover、贴边、跨屏与 DPI；自定义视图统一禁用命中测试，第一版只负责显示，不拥有按钮、输入框或独立点击区域。
+
+自由视图创建失败时只回退到 1.6 模板，不会让正文插件失败。插件仍应提供 `PaperCapsulePresentation` 与 `plainText` 作为回退；跨队列拖动的临时浮动胶囊继续使用纯文字回退，避免把自由视图接入高风险的拖拽交接链。Web 插件继续使用 1.6 模板，不在胶囊内创建额外 WebView2。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -74,7 +99,7 @@ plugins\
   "name": "天气",
   "description": "天气信息面板",
   "version": "1.0.0",
-  "apiVersion": "1.5",
+  "apiVersion": "1.7",
   "stateVersion": 1,
   "entry": "web/index.html",
   "capabilities": ["textZoom"],
@@ -138,7 +163,10 @@ papertodo.saveState({ city: "Shanghai" });
 papertodo.registerStateProvider(() => currentState);
 papertodo.paper.setTitle("上海天气");
 papertodo.paper.setHeaderText("上海天气 · 已更新");
-papertodo.paper.setCapsuleText("26°C 晴");
+papertodo.paper.setCapsulePresentation({
+  plainText: "26°C 晴",
+  components: [{ kind: "text", text: "26°C 晴", fill: true }]
+});
 papertodo.body.setInputClaims(["escapeKey", "contextMenu"]);
 papertodo.setInputClaims([]);
 papertodo.markDirty();
@@ -146,7 +174,7 @@ papertodo.openExternal("https://example.com");
 papertodo.onEvent(message => console.log(message));
 ```
 
-协议 1.5 起，正式标题、展开态运行时标题与折叠态胶囊文字是三个独立概念；`paper.setHeaderText` 与 `paper.setCapsuleText` 分别更新后两者。
+协议 1.5 起，正式标题、展开态运行时标题与折叠态胶囊表现是三个独立概念；协议 1.6 使用 `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别更新后两者。
 
 宿主发送 `initialize`、`stateChanged`、`settingsChanged`、`activated`、`deactivated`、`visibilityChanged`、`presentationChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 提供 `apiVersion`、`stateVersion`、`targetStateVersion`、`settings`、`visible` 和 `presentationVisible`。
 

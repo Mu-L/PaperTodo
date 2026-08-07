@@ -512,10 +512,10 @@ public sealed partial class PaperWindow
             generation,
             providerId,
             () => SetPluginHeaderText(text));
-        Action<string> setCapsuleText = text => InvokePluginContext(
+        Action<PaperCapsulePresentation?> setCapsulePresentation = presentation => InvokePluginContext(
             generation,
             providerId,
-            () => SetPluginCapsuleText(text));
+            () => SetPluginCapsulePresentation(presentation));
         Action<PaperBodyInputClaims> setInputClaims = claims => InvokePluginContext(
             generation,
             providerId,
@@ -548,7 +548,7 @@ public sealed partial class PaperWindow
                 PaperId = _paper.Id,
                 SetTitle = setTitle,
                 SetHeaderText = setHeaderText,
-                SetCapsuleText = setCapsuleText
+                SetCapsulePresentation = setCapsulePresentation
             },
             Body = new PaperBodySurfaceContext
             {
@@ -778,18 +778,6 @@ public sealed partial class PaperWindow
         _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
     }
 
-    private void SetPluginCapsuleText(string? text)
-    {
-        var normalized = NormalizePluginDisplayText(text);
-        if (string.Equals(_paper.BodyCapsuleText, normalized, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _paper.BodyCapsuleText = normalized;
-        RefreshCapsuleLabel();
-    }
-
     private void SetPluginInputClaims(PaperBodyInputClaims claims)
     {
         const PaperBodyInputClaims supportedClaims =
@@ -801,12 +789,19 @@ public sealed partial class PaperWindow
     private void ResetPluginRuntimeState(bool refreshTitle)
     {
         var hadDisplayTitle = !string.IsNullOrEmpty(_pluginDisplayTitle);
+        var hadCapsulePresentation = _pluginCapsulePresentation != null;
         _pluginDisplayTitle = "";
+        _pluginCapsulePresentation = null;
+        ResetPluginCapsuleCustomViews();
         _bodyInputClaims = PaperBodyInputClaims.None;
         _bodyRuntimeVisible = false;
         if (refreshTitle && hadDisplayTitle && _isShellBuilt)
         {
             RefreshPaperTitle();
+        }
+        if (hadCapsulePresentation && _isShellBuilt)
+        {
+            RefreshCapsuleLabel();
         }
         if (hadDisplayTitle)
         {

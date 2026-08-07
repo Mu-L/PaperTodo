@@ -199,6 +199,7 @@ public sealed partial class PaperWindow
         {
             _capsuleShell.Width = CapsuleShellLayoutWidth();
         }
+        RefreshPluginCapsuleRegularContent();
         UpdateCapsuleClosePlacement();
         RefreshExperimentalCapsuleFollowVisual();
         RefreshDeepCapsuleSlotLabel();
@@ -214,6 +215,7 @@ public sealed partial class PaperWindow
         _edgeCapsuleHost.SetLabel(
             _controller.PaperCapsuleTitle(_paper),
             _controller.PaperTitleText(_paper));
+        RefreshPluginCapsuleDockedContent();
         ScheduleDeepCapsuleSlotMeasureRefresh();
     }
 
@@ -346,7 +348,7 @@ public sealed partial class PaperWindow
         RefreshCapsuleLabel();
         leftStack.Children.Add(_capsuleLabelText);
 
-        leftArea.Child = leftStack;
+        leftArea.Child = BuildPluginCapsuleContentHost(leftStack);
 
         leftArea.MouseEnter += (_, _) => leftArea.Background = HoverBrush;
         leftArea.MouseLeave += (_, _) => leftArea.Background = Brushes.Transparent;

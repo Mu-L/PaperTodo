@@ -14,6 +14,12 @@ public sealed partial class PaperWindow
 
     private double DeepCapsuleVisibleWidth(double pixelsPerDip)
     {
+        var pluginContentWidth = PluginCapsuleRequestedContentWidth();
+        if (pluginContentWidth.HasValue)
+        {
+            return Math.Max(34, Math.Ceiling(pluginContentWidth.Value + WindowChromeMargin));
+        }
+
         // A resting edge tag owns exactly the pixels it renders: one interior shadow margin plus
         // icon/title content and its padding. There is no hidden full-width pill behind it.
         var bodyWidth = Math.Ceiling(

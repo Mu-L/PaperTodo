@@ -15,7 +15,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
     public string DisplayName => "云·原神（实验）";
     public string Description => "在 PaperTodo 纸片中直接打开云·原神网页版。";
     public Version Version => new(1, 2, 0);
-    public string ApiVersion => "1.5";
+    public string ApiVersion => "1.7";
     public int StateVersion => 1;
     public PaperBodyRuntimeRequirements RuntimeRequirements => PaperBodyRuntimeRequirements.BackgroundUpdates;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;
@@ -418,7 +418,28 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
         private void SetPaperStatus(string text)
         {
             _context.Paper.SetHeaderText(text);
-            _context.Paper.SetCapsuleText(text);
+            _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
+            {
+                PreferredWidth = 150,
+                PlainText = text,
+                ToolTip = text,
+                Components =
+                [
+                    new PaperCapsuleComponent
+                    {
+                        Kind = PaperCapsuleComponentKind.StatusDot,
+                        Tone = text.Contains("错误", StringComparison.Ordinal)
+                            ? PaperCapsuleTone.Danger
+                            : PaperCapsuleTone.Accent
+                    },
+                    new PaperCapsuleComponent
+                    {
+                        Kind = PaperCapsuleComponentKind.Text,
+                        Text = text,
+                        Fill = true
+                    }
+                ]
+            });
         }
 
         private void SetInputClaims(PaperBodyInputClaims claims)

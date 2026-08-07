@@ -327,7 +327,9 @@ internal sealed class WebPaperBodySession : IPaperBodySession
               const paper = Object.freeze({
                 setTitle(title) { post('setTitle', String(title ?? '')); },
                 setHeaderText(text) { post('setHeaderText', String(text ?? '')); },
-                setCapsuleText(text) { post('setCapsuleText', String(text ?? '')); }
+                setCapsulePresentation(presentation) {
+                  post('setCapsulePresentation', presentation ?? null);
+                }
               });
               const body = Object.freeze({
                 setInputClaims(claims) {
@@ -690,8 +692,13 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 case "setHeaderText":
                     _context.Paper.SetHeaderText(ReadPayloadString(payload));
                     break;
-                case "setCapsuleText":
-                    _context.Paper.SetCapsuleText(ReadPayloadString(payload));
+                case "setCapsulePresentation":
+                    _context.Paper.SetCapsulePresentation(
+                        payload.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+                            ? null
+                            : JsonSerializer.Deserialize<PaperCapsulePresentation>(
+                                payload.GetRawText(),
+                                BridgeJsonOptions));
                     break;
                 case "setInputClaims":
                     _context.SetInputClaims(ReadInputClaims(payload));
@@ -1063,7 +1070,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         _webViewFailed = true;
         UpdateWebViewPresentation();
         _context.Paper.SetHeaderText("");
-        _context.Paper.SetCapsuleText("");
+        _context.Paper.SetCapsulePresentation(null);
         _context.SetInputClaims(PaperBodyInputClaims.None);
         for (var index = _root.Children.Count - 1; index >= 0; index--)
         {

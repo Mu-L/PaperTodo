@@ -4,7 +4,7 @@
   "name": "待办复盘记录池",
   "description": "实时记录待办生命周期、提醒变化和完成趋势，长期保存并导出 Excel 可直接打开的 CSV。",
   "version": "1.1.2",
-  "apiVersion": "1.4",
+  "apiVersion": "1.7",
   "stateVersion": 1,
   "entry": "PaperTodo.Plugin.ReviewArchive.dll",
   "capabilities": ["textZoom"],

@@ -809,7 +809,21 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         }
         _lastDisplayTitle = title;
         _context.Paper.SetHeaderText(title);
-        _context.Paper.SetCapsuleText(title);
+        _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
+        {
+            PreferredWidth = 132,
+            PlainText = title,
+            ToolTip = title,
+            Components =
+            [
+                new PaperCapsuleComponent
+                {
+                    Kind = PaperCapsuleComponentKind.Text,
+                    Text = title,
+                    Fill = true
+                }
+            ]
+        });
     }
 
     private void SaveViewState() =>

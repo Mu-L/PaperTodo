@@ -36,6 +36,76 @@ public sealed record PaperBodyTheme(
     string FontFamily,
     double FontScale);
 
+public enum PaperCapsuleComponentKind
+{
+    Text,
+    Glyph,
+    StatusDot,
+    ProgressRing,
+    ProgressBar
+}
+
+public enum PaperCapsuleTone
+{
+    Default,
+    Muted,
+    Accent,
+    Warning,
+    Danger
+}
+
+/// <summary>
+/// One host-rendered item inside the fixed-height capsule content area. Up to three items are
+/// accepted and their order is preserved. Fill consumes remaining horizontal space.
+/// </summary>
+public sealed record PaperCapsuleComponent
+{
+    public PaperCapsuleComponentKind Kind { get; init; }
+    public string Text { get; init; } = string.Empty;
+    public double Value { get; init; }
+    public double Width { get; init; }
+    public bool Fill { get; init; }
+    public PaperCapsuleTone Tone { get; init; }
+    public string Color { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Protocol 1.6 host-rendered capsule description. PreferredWidth is the capsule content segment
+/// width; PaperTodo still owns the fixed height, outer chrome, close segment and all input.
+/// </summary>
+public sealed record PaperCapsulePresentation
+{
+    public PaperCapsuleComponent[] Components { get; init; } = [];
+    public double PreferredWidth { get; init; } = 110;
+    public string ToolTip { get; init; } = string.Empty;
+    public string PlainText { get; init; } = string.Empty;
+}
+
+public enum PaperCapsuleSurfaceKind
+{
+    Regular,
+    Docked
+}
+
+/// <summary>
+/// Geometry and theme of one fixed-height capsule content surface. The host keeps ownership of
+/// outer chrome and input; native custom views receive only this inner content area.
+/// </summary>
+public sealed record PaperCapsuleViewContext(
+    PaperCapsuleSurfaceKind Surface,
+    double Width,
+    double Height,
+    PaperBodyTheme Theme);
+
+/// <summary>
+/// Optional protocol 1.7 native-session capability. A session may create one fresh WPF view for
+/// each live capsule surface. Returning null falls back to the protocol 1.6 host template.
+/// </summary>
+public interface IPaperCapsuleViewProvider
+{
+    FrameworkElement? CreateCapsuleView(PaperCapsuleViewContext context);
+}
+
 /// <summary>
 /// Host-owned native controls. Plugins provide data and behavior while PaperTodo owns the
 /// shared visual language, popup lifecycle, theme and DPI behavior.
@@ -54,7 +124,7 @@ public sealed class PaperBodyPaperContext
     public required string PaperId { get; init; }
     public required Action<string> SetTitle { get; init; }
     public required Action<string> SetHeaderText { get; init; }
-    public required Action<string> SetCapsuleText { get; init; }
+    public required Action<PaperCapsulePresentation?> SetCapsulePresentation { get; init; }
 }
 
 /// <summary>
