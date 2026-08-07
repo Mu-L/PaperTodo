@@ -433,7 +433,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
                 : _settings.FixedTitle,
             _ => $"复盘 · {completedRecords} 项"
         };
-        SetDisplayTitle(title);
+        SetPaperStatus(title);
         ApplyTheme(_theme);
     }
 
@@ -801,14 +801,15 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         }
     }
 
-    private void SetDisplayTitle(string title)
+    private void SetPaperStatus(string title)
     {
         if (string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
         {
             return;
         }
         _lastDisplayTitle = title;
-        _context.SetDisplayTitle(title);
+        _context.Paper.SetHeaderText(title);
+        _context.Paper.SetCapsuleText(title);
     }
 
     private void SaveViewState() =>

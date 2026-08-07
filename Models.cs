@@ -505,8 +505,12 @@ public sealed class PaperData
 
     // Note body provider.
     public string BodyProviderId { get; set; } = PaperBodyProviderIds.Markdown;
-    // Last plugin-provided display title. Persisting this lightweight cache lets linked todo
-    // badges and capsules show the last known plugin title before the body session is recreated.
+    // Expanded runtime header and folded capsule fallback are independent lightweight caches.
+    // They keep the last plugin presentation before the body session is recreated.
+    [JsonPropertyName("bodyHeaderText")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string BodyHeaderText { get; set; } = "";
+
     [JsonPropertyName("bodyCapsuleText")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string BodyCapsuleText { get; set; } = "";

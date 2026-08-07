@@ -324,7 +324,26 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                   });
                 });
               };
+              const paper = Object.freeze({
+                setTitle(title) { post('setTitle', String(title ?? '')); },
+                setHeaderText(text) { post('setHeaderText', String(text ?? '')); },
+                setCapsuleText(text) { post('setCapsuleText', String(text ?? '')); }
+              });
+              const body = Object.freeze({
+                setInputClaims(claims) {
+                  const values = Array.isArray(claims)
+                    ? claims.map(value => String(value ?? '')).filter(Boolean)
+                    : [];
+                  post('setInputClaims', values);
+                },
+                markDirty() { post('markDirty'); },
+                openExternal(url) { post('openExternal', String(url ?? '')); }
+              });
+              const workspace = Object.freeze({ request });
               window.papertodo = Object.freeze({
+                paper,
+                body,
+                workspace,
                 post,
                 request,
                 saveState,
@@ -333,16 +352,6 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                   stateProvider = typeof provider === 'function' ? provider : null;
                   return () => { if (stateProvider === provider) stateProvider = null; };
                 },
-                setTitle(title) { post('setTitle', String(title ?? '')); },
-                setDisplayTitle(text) { post('setDisplayTitle', String(text ?? '')); },
-                setInputClaims(claims) {
-                  const values = Array.isArray(claims)
-                    ? claims.map(value => String(value ?? '')).filter(Boolean)
-                    : [];
-                  post('setInputClaims', values);
-                },
-                markDirty() { post('markDirty'); },
-                openExternal(url) { post('openExternal', String(url ?? '')); },
                 onHostEvent(types, listener, options = {}) {
                   if (typeof listener !== 'function') return () => {};
                   const values = Array.isArray(types)
@@ -678,8 +687,11 @@ internal sealed class WebPaperBodySession : IPaperBodySession
                 case "setTitle":
                     _context.SetTitle(ReadPayloadString(payload));
                     break;
-                case "setDisplayTitle":
-                    _context.SetDisplayTitle(ReadPayloadString(payload));
+                case "setHeaderText":
+                    _context.Paper.SetHeaderText(ReadPayloadString(payload));
+                    break;
+                case "setCapsuleText":
+                    _context.Paper.SetCapsuleText(ReadPayloadString(payload));
                     break;
                 case "setInputClaims":
                     _context.SetInputClaims(ReadInputClaims(payload));
@@ -1050,7 +1062,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         _pluginDocumentReady = false;
         _webViewFailed = true;
         UpdateWebViewPresentation();
-        _context.SetDisplayTitle("");
+        _context.Paper.SetHeaderText("");
+        _context.Paper.SetCapsuleText("");
         _context.SetInputClaims(PaperBodyInputClaims.None);
         for (var index = _root.Children.Count - 1; index >= 0; index--)
         {

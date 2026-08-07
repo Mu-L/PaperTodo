@@ -17,7 +17,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string DisplayName => "专注计时器";
     public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
     public Version Version => new(1, 3, 2);
-    public string ApiVersion => "1.4";
+    public string ApiVersion => "1.5";
     public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -888,7 +888,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             }
 
             UpdateModeButtons();
-            SetDisplayTitle(_settings.TitleStyle switch
+            SetPaperStatus(_settings.TitleStyle switch
             {
                 "task" when currentTodo != null =>
                     $"{Compact(currentTodo.Text, 16)} · {minutes:00}:{seconds:00}",
@@ -1076,14 +1076,15 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             UpdateView();
         }
 
-        private void SetDisplayTitle(string title)
+        private void SetPaperStatus(string title)
         {
             if (_lastDisplayTitle == title)
             {
                 return;
             }
             _lastDisplayTitle = title;
-            _context.SetDisplayTitle(title);
+            _context.Paper.SetHeaderText(title);
+            _context.Paper.SetCapsuleText(title);
         }
 
         private void SaveState() =>

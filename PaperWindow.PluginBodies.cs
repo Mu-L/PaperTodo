@@ -154,7 +154,15 @@ public sealed partial class PaperWindow
     {
         title = !string.IsNullOrWhiteSpace(_pluginDisplayTitle)
             ? _pluginDisplayTitle
-            : _paper.BodyCapsuleText;
+            : _paper.BodyHeaderText;
+        return !IsCurrentBodyProviderMarkdown &&
+            !_bodyFailed &&
+            !string.IsNullOrWhiteSpace(title);
+    }
+
+    internal bool TryGetPluginCapsuleTitle(out string title)
+    {
+        title = _paper.BodyCapsuleText;
         return !IsCurrentBodyProviderMarkdown &&
             !_bodyFailed &&
             !string.IsNullOrWhiteSpace(title);
@@ -491,9 +499,43 @@ public sealed partial class PaperWindow
                       StringComparison.Ordinal),
             () => _bodyRuntimeVisible);
         _bodyHostApi = hostApi;
+        var controls = _bodyControls ??= new PaperBodyControls(this);
+        var theme = CurrentPaperBodyTheme();
+        Action<string> setTitle = title => InvokePluginContext(
+            generation,
+            providerId,
+            () => _controller.UpdatePaperTitleFromPlugin(
+                _paper,
+                title,
+                providerId));
+        Action<string> setHeaderText = text => InvokePluginContext(
+            generation,
+            providerId,
+            () => SetPluginHeaderText(text));
+        Action<string> setCapsuleText = text => InvokePluginContext(
+            generation,
+            providerId,
+            () => SetPluginCapsuleText(text));
+        Action<PaperBodyInputClaims> setInputClaims = claims => InvokePluginContext(
+            generation,
+            providerId,
+            () => SetPluginInputClaims(claims),
+            System.Windows.Threading.DispatcherPriority.Input);
+        Action markDirty = () => InvokePluginContext(
+            generation,
+            providerId,
+            _controller.MarkDirty);
+        Action<string> openExternal = value => InvokePluginContext(
+            generation,
+            providerId,
+            () => OpenPluginExternal(value));
+        Action requestReload = () => InvokePluginContext(
+            generation,
+            providerId,
+            ReloadCurrentPaperBody);
+
         return new PaperBodyContext
         {
-            PaperId = _paper.Id,
             ProviderId = providerId,
             ApiVersion = descriptor.ApiVersion,
             StateJson = storedState.Json ?? "{}",
@@ -501,42 +543,28 @@ public sealed partial class PaperWindow
             TargetStateVersion = descriptor.StateVersion,
             SettingsJson = _controller.PaperBodyPlugins.DataStore.GetSettingsJson(descriptor),
             GrantedPermissions = hostApi.GrantedPermissions,
-            Host = hostApi,
-            Controls = _bodyControls ??= new PaperBodyControls(this),
-            Theme = CurrentPaperBodyTheme(),
+            Paper = new PaperBodyPaperContext
+            {
+                PaperId = _paper.Id,
+                SetTitle = setTitle,
+                SetHeaderText = setHeaderText,
+                SetCapsuleText = setCapsuleText
+            },
+            Body = new PaperBodySurfaceContext
+            {
+                Controls = controls,
+                Theme = theme,
+                SetInputClaims = setInputClaims,
+                MarkDirty = markDirty,
+                OpenExternal = openExternal,
+                RequestReload = requestReload
+            },
+            Workspace = hostApi,
             SaveStateJson = json => QueuePluginStateSave(
                 generation,
                 providerId,
                 descriptor.StateVersion,
-                json),
-            SetTitle = title => InvokePluginContext(
-                generation,
-                providerId,
-                () => _controller.UpdatePaperTitleFromPlugin(
-                    _paper,
-                    title,
-                    providerId)),
-            SetDisplayTitle = text => InvokePluginContext(
-                generation,
-                providerId,
-                () => SetPluginDisplayTitle(text)),
-            SetInputClaims = claims => InvokePluginContext(
-                generation,
-                providerId,
-                () => SetPluginInputClaims(claims),
-                System.Windows.Threading.DispatcherPriority.Input),
-            MarkDirty = () => InvokePluginContext(
-                generation,
-                providerId,
-                _controller.MarkDirty),
-            OpenExternal = value => InvokePluginContext(
-                generation,
-                providerId,
-                () => OpenPluginExternal(value)),
-            RequestReload = () => InvokePluginContext(
-                generation,
-                providerId,
-                ReloadCurrentPaperBody)
+                json)
         };
     }
 
@@ -722,7 +750,7 @@ public sealed partial class PaperWindow
             normalized);
     }
 
-    private void SetPluginDisplayTitle(string? text)
+    private static string NormalizePluginDisplayText(string? text)
     {
         var normalized = string.Join(
             " ",
@@ -730,19 +758,36 @@ public sealed partial class PaperWindow
                 .Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)
                 .Select(part => part.Trim())
                 .Where(part => part.Length > 0));
-        if (normalized.Length > 120)
-        {
-            normalized = normalized[..119] + "…";
-        }
-        if (string.Equals(_pluginDisplayTitle, normalized, StringComparison.Ordinal))
+        return normalized.Length > 120
+            ? normalized[..119] + "…"
+            : normalized;
+    }
+
+    private void SetPluginHeaderText(string? text)
+    {
+        var normalized = NormalizePluginDisplayText(text);
+        if (string.Equals(_pluginDisplayTitle, normalized, StringComparison.Ordinal) &&
+            string.Equals(_paper.BodyHeaderText, normalized, StringComparison.Ordinal))
         {
             return;
         }
 
         _pluginDisplayTitle = normalized;
-        _paper.BodyCapsuleText = normalized;
+        _paper.BodyHeaderText = normalized;
         RefreshPaperTitle();
         _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
+    }
+
+    private void SetPluginCapsuleText(string? text)
+    {
+        var normalized = NormalizePluginDisplayText(text);
+        if (string.Equals(_paper.BodyCapsuleText, normalized, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _paper.BodyCapsuleText = normalized;
+        RefreshCapsuleLabel();
     }
 
     private void SetPluginInputClaims(PaperBodyInputClaims claims)
@@ -809,6 +854,7 @@ public sealed partial class PaperWindow
         CommitPendingEditsForSave();
         RemoveCurrentPaperBody();
         _paper.BodyProviderId = normalized;
+        _paper.BodyHeaderText = "";
         _paper.BodyCapsuleText = "";
         AttachCurrentPaperBody();
         RefreshPaperBodyChrome();
@@ -933,7 +979,7 @@ public sealed partial class PaperWindow
         {
             _shell.Children.Remove(_bodyElement);
         }
-        ClearPluginCapsuleTextOnFailure();
+        ClearPluginPresentationOnFailure();
         var failedSession = new FailedPaperBodySession(this, providerName, message);
         _paperBodyHost.Attach(failedSession);
         _bodyDescriptor = null;
@@ -946,15 +992,20 @@ public sealed partial class PaperWindow
         _controller.QueuePluginStatusRefresh();
     }
 
-    private void ClearPluginCapsuleTextOnFailure()
+    private void ClearPluginPresentationOnFailure()
     {
-        var hadPersistedTitle = !string.IsNullOrEmpty(_paper.BodyCapsuleText);
+        var hadHeader = !string.IsNullOrEmpty(_paper.BodyHeaderText);
+        var hadCapsule = !string.IsNullOrEmpty(_paper.BodyCapsuleText);
+        _paper.BodyHeaderText = "";
         _paper.BodyCapsuleText = "";
-        RefreshCapsuleLabel();
-        if (hadPersistedTitle)
+        if (hadHeader)
         {
             RefreshPaperTitle();
             _controller.NotifyPaperDisplayTitleChanged(_paper.Id);
+        }
+        if (hadCapsule)
+        {
+            RefreshCapsuleLabel();
         }
     }
 

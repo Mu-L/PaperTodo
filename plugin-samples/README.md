@@ -57,7 +57,9 @@ plugins\
    └─ .runtime\                     # 插件私有缓存或长期数据
 ```
 
-当前 PaperTodo 插件协议为 **1.4**，宿主只加载 **1.2–1.4** 插件；1.2 以下协议已删除。使用 `permissions` 必须声明 1.3，使用宿主统一选择器控件必须声明 1.4。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+当前 PaperTodo 插件协议为 **1.5**，宿主只加载 **1.5** 插件。1.5 不增加新的产品入口，而是把插件实例的能力按所属纸片、展开正文和整个工作区重新归位；目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+
+原生插件使用 `PaperBodyContext.Paper`、`PaperBodyContext.Body` 与 `PaperBodyContext.Workspace`。正式标题、展开态运行时标题和折叠态胶囊文字互相独立；Web 插件对应使用 `papertodo.paper.*`、`papertodo.body.*` 与 `papertodo.workspace.request()`。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -72,7 +74,7 @@ plugins\
   "name": "天气",
   "description": "天气信息面板",
   "version": "1.0.0",
-  "apiVersion": "1.4",
+  "apiVersion": "1.5",
   "stateVersion": 1,
   "entry": "web/index.html",
   "capabilities": ["textZoom"],
@@ -134,16 +136,17 @@ Web 插件的 `entry` 所在目录会成为本地静态根；建议固定使用 
 ```js
 papertodo.saveState({ city: "Shanghai" });
 papertodo.registerStateProvider(() => currentState);
-papertodo.setTitle("上海天气");
-papertodo.setDisplayTitle("26°C 晴");
-papertodo.setInputClaims(["escapeKey", "contextMenu"]);
+papertodo.paper.setTitle("上海天气");
+papertodo.paper.setHeaderText("上海天气 · 已更新");
+papertodo.paper.setCapsuleText("26°C 晴");
+papertodo.body.setInputClaims(["escapeKey", "contextMenu"]);
 papertodo.setInputClaims([]);
 papertodo.markDirty();
 papertodo.openExternal("https://example.com");
 papertodo.onEvent(message => console.log(message));
 ```
 
-`setDisplayTitle` 是纸片顶栏和胶囊共用的运行时显示标题，不写入 `data.json`；传入空字符串会取消覆盖，恢复 `setTitle` 保存的正式标题。
+协议 1.5 起，正式标题、展开态运行时标题与折叠态胶囊文字是三个独立概念；`paper.setHeaderText` 与 `paper.setCapsuleText` 分别更新后两者。
 
 宿主发送 `initialize`、`stateChanged`、`settingsChanged`、`activated`、`deactivated`、`visibilityChanged`、`presentationChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 提供 `apiVersion`、`stateVersion`、`targetStateVersion`、`settings`、`visible` 和 `presentationVisible`。
 

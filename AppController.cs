@@ -760,6 +760,29 @@ public sealed partial class AppController : IDisposable
                 paper.BodyProviderId,
                 PaperBodyProviderIds.Markdown,
                 StringComparison.Ordinal) &&
+            PaperBodyPlugins.TryGet(paper.BodyProviderId, out _))
+        {
+            if (!string.IsNullOrWhiteSpace(paper.BodyHeaderText))
+            {
+                return paper.BodyHeaderText;
+            }
+        }
+
+        return PaperTitleText(paper);
+    }
+
+    public string PaperCapsuleTitle(PaperData paper)
+    {
+        if (_windows.TryGetValue(paper.Id, out var window) &&
+            window.TryGetPluginCapsuleTitle(out var capsuleTitle))
+        {
+            return capsuleTitle;
+        }
+        if (paper.Type == PaperTypes.Note &&
+            !string.Equals(
+                paper.BodyProviderId,
+                PaperBodyProviderIds.Markdown,
+                StringComparison.Ordinal) &&
             PaperBodyPlugins.TryGet(paper.BodyProviderId, out _) &&
             !string.IsNullOrWhiteSpace(paper.BodyCapsuleText))
         {
@@ -768,12 +791,6 @@ public sealed partial class AppController : IDisposable
 
         return PaperTitleText(paper);
     }
-
-    public string PaperCapsuleTitle(PaperData paper)
-    {
-        return PaperDisplayTitle(paper);
-    }
-
 
     public void UpdatePaperTitle(PaperData paper, string title)
     {

@@ -13,7 +13,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string DisplayName => "原生时钟";
     public string Description => "完整的 WPF 时钟示例：时区、日期格式、标题和日进度均可配置。";
     public Version Version => new(1, 3, 0);
-    public string ApiVersion => "1.4";
+    public string ApiVersion => "1.5";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -191,7 +191,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
                 0,
                 1);
 
-            SetDisplayTitle(DisplayTitle(now));
+            SetPaperStatus(DisplayTitle(now));
         }
 
         private DateTimeOffset CurrentTime()
@@ -347,14 +347,15 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             }
         }
 
-        private void SetDisplayTitle(string title)
+        private void SetPaperStatus(string title)
         {
             if (string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
             {
                 return;
             }
             _lastDisplayTitle = title;
-            _context.SetDisplayTitle(title);
+            _context.Paper.SetHeaderText(title);
+            _context.Paper.SetCapsuleText(title);
         }
 
         public void OnSettingsChanged(string settingsJson)

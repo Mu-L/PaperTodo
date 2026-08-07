@@ -46,12 +46,37 @@ public interface IPaperBodyControls
 }
 
 /// <summary>
-/// Narrow host surface exposed to fully trusted, unsandboxed PaperTodo body plugins.
-/// Callbacks are queued onto PaperTodo's UI dispatcher and ignored after the session is replaced.
+/// Operations that belong to the paper carrying this plugin instance. The paper remains the
+/// product-level anchor even when the plugin reads or mutates workspace data.
+/// </summary>
+public sealed class PaperBodyPaperContext
+{
+    public required string PaperId { get; init; }
+    public required Action<string> SetTitle { get; init; }
+    public required Action<string> SetHeaderText { get; init; }
+    public required Action<string> SetCapsuleText { get; init; }
+}
+
+/// <summary>
+/// Operations that belong to the expanded body surface itself.
+/// </summary>
+public sealed class PaperBodySurfaceContext
+{
+    public required IPaperBodyControls Controls { get; init; }
+    public required PaperBodyTheme Theme { get; init; }
+    public required Action<PaperBodyInputClaims> SetInputClaims { get; init; }
+    public required Action MarkDirty { get; init; }
+    public required Action<string> OpenExternal { get; init; }
+    public required Action RequestReload { get; init; }
+}
+
+/// <summary>
+/// One plugin instance is anchored to one paper. Paper contains paper-owned presentation state,
+/// Body contains the expanded body surface, and Workspace exposes PaperTodo-wide data operations.
+/// Paper, Body and Workspace are the canonical capability scopes.
 /// </summary>
 public sealed class PaperBodyContext
 {
-    public required string PaperId { get; init; }
     public required string ProviderId { get; init; }
     public required string ApiVersion { get; init; }
     public required string StateJson { get; init; }
@@ -60,17 +85,22 @@ public sealed class PaperBodyContext
     public string SettingsJson { get; init; } = "{}";
     public IReadOnlySet<string> GrantedPermissions { get; init; } =
         PaperTodoPermissionNames.None;
-    public required IPaperTodoHostApi Host { get; init; }
-    public required IPaperBodyControls Controls { get; init; }
-    public required PaperBodyTheme Theme { get; init; }
-    public required Action<string> SaveStateJson { get; init; }
-    public required Action<string> SetTitle { get; init; }
-    public required Action<string> SetDisplayTitle { get; init; }
-    public required Action<PaperBodyInputClaims> SetInputClaims { get; init; }
-    public required Action MarkDirty { get; init; }
 
-    public required Action<string> OpenExternal { get; init; }
-    public required Action RequestReload { get; init; }
+    public required PaperBodyPaperContext Paper { get; init; }
+    public required PaperBodySurfaceContext Body { get; init; }
+    public required IPaperTodoHostApi Workspace { get; init; }
+    public required Action<string> SaveStateJson { get; init; }
+
+    // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body.
+    public string PaperId => Paper.PaperId;
+    public IPaperTodoHostApi Host => Workspace;
+    public IPaperBodyControls Controls => Body.Controls;
+    public PaperBodyTheme Theme => Body.Theme;
+    public Action<string> SetTitle => Paper.SetTitle;
+    public Action<PaperBodyInputClaims> SetInputClaims => Body.SetInputClaims;
+    public Action MarkDirty => Body.MarkDirty;
+    public Action<string> OpenExternal => Body.OpenExternal;
+    public Action RequestReload => Body.RequestReload;
 }
 
 /// <summary>

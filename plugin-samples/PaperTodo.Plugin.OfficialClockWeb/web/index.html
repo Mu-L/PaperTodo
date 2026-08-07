@@ -289,7 +289,9 @@
       weekElement.textContent = `第 ${isoWeek(parts.year, parts.month, parts.day)} 周`;
 
       const timeText = `${parts.hour}:${parts.minute}`;
-      window.papertodo?.setDisplayTitle(titleText(timeText, dateText));
+      const title = titleText(timeText, dateText);
+      window.papertodo?.paper?.setHeaderText(title);
+      window.papertodo?.paper?.setCapsuleText(title);
     }
 
     function updateTimer() {

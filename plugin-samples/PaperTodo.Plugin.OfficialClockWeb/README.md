@@ -6,7 +6,7 @@
 - 本地、UTC 和多个常用城市时区；
 - 多种日期格式、标题模式和显示缩放；
 - `initialize`、`settingsChanged`、`themeChanged`、`visibilityChanged` 生命周期；
-- `setDisplayTitle` 同步纸片与胶囊标题。
+- `paper.setHeaderText` 与 `paper.setCapsuleText` 分别同步纸片顶栏和胶囊文字。
 
 Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样副本。仓库中的可加载副本位于：
 
