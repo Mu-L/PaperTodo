@@ -7,6 +7,9 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private const int StrictAutoCollapseArmIntervalMilliseconds = 50;
+    private const int StrictAutoCollapsePollIntervalMilliseconds = 200;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct StrictLastInputInfo
     {
@@ -83,7 +86,8 @@ public sealed partial class PaperWindow
                     DispatcherPriority.Background,
                     Dispatcher)
                 {
-                    Interval = TimeSpan.FromMilliseconds(50)
+                    Interval = TimeSpan.FromMilliseconds(
+                        StrictAutoCollapseArmIntervalMilliseconds)
                 };
                 _strictAutoCollapseTimer.Tick += OnStrictAutoCollapseTick;
                 _strictAutoCollapseTimer.Start();
@@ -149,6 +153,13 @@ public sealed partial class PaperWindow
             GetCursorPos(out _strictAutoCollapseCursor);
             _strictAutoCollapseWasForeground = ownsForeground;
             _strictAutoCollapseReady = true;
+            if (_strictAutoCollapseTimer != null)
+            {
+                // Keep the short arming cadence only long enough to let the show gesture
+                // settle, then reduce steady-state polling while the unused paper is pending.
+                _strictAutoCollapseTimer.Interval = TimeSpan.FromMilliseconds(
+                    StrictAutoCollapsePollIntervalMilliseconds);
+            }
             return;
         }
 
