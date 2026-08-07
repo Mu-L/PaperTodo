@@ -2673,6 +2673,7 @@ public sealed partial class AppController : IDisposable
         animate = animate && State.EnableAnimations;
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
+            ResetEdgeCapsulePreviewWithoutArrange();
             foreach (var window in _windows.Values)
             {
                 window.DetachFromDeepCapsuleStack();
@@ -2686,6 +2687,7 @@ public sealed partial class AppController : IDisposable
         var plan = EdgeCapsuleQueueCoordinator.Build(
             capsulePapers.Select(paper => new EdgeCapsuleQueueMember(paper, QueueKey(paper))),
             State.UseCapsuleCollapseAll);
+        plan = ApplyEdgeCapsulePreviewLayout(plan);
         var queueKeys = plan.Queues.Select(queue => queue.Key).ToList();
         RemoveStaleCollapseAllActiveQueues(queueKeys);
         MigrateLegacyCollapseAllActiveQueues(queueKeys);
@@ -3630,6 +3632,7 @@ public sealed partial class AppController : IDisposable
         _forceSaveTimer.Stop();
         StopFullscreenAvoidanceRuntime(restoreTopmost: false);
         _displayMetricsRefreshTimer.Stop();
+        _edgeCapsulePreviewOpenTimer?.Stop();
         StopTodoReminderTimer();
 
         if (!TrySaveNow(sync: true))

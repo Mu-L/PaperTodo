@@ -164,6 +164,7 @@ public sealed partial class PaperWindow
         EdgeCapsuleDirty dirty = EdgeCapsuleDirty.Presentation,
         [CallerMemberName] string reason = "")
     {
+        var wasPointerOver = _edgeCapsule.PointerOverSurface;
         var result = _edgeCapsule.Dispatch(intent, reason);
         if (!result.Accepted)
         {
@@ -172,6 +173,12 @@ public sealed partial class PaperWindow
         if (result.Changed && dirty != EdgeCapsuleDirty.None)
         {
             InvalidateEdgeCapsule(dirty);
+        }
+        if (wasPointerOver != _edgeCapsule.PointerOverSurface)
+        {
+            _controller.NotifyEdgeCapsulePointerOverChanged(
+                this,
+                _edgeCapsule.PointerOverSurface);
         }
         AssertDeepCapsuleModelInvariants();
         return true;

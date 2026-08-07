@@ -41,7 +41,9 @@ internal sealed partial class EdgeCapsuleHost
         {
             _pluginContentLayer.Child = content;
         }
-        _pluginContentLayer.Visibility = Visibility.Visible;
+        _pluginContentLayer.Visibility = _previewVisible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         ContentArea.ToolTip = toolTip;
     }
 

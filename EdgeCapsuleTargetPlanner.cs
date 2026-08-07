@@ -34,21 +34,35 @@ internal static class EdgeCapsuleTargetPlanner
             EdgeCapsuleGestureState.FloatingTransfer or
             EdgeCapsuleGestureState.FloatingReordering or
             EdgeCapsuleGestureState.DockingHandoff;
-        var expanded = !retracted && model.State.Visual is
-            EdgeCapsuleVisualState.Hovered or
-            EdgeCapsuleVisualState.Active;
+        var preview = !retracted &&
+            !dockedSuppressed &&
+            model.Preview == EdgeCapsulePreviewState.Open;
+        var expanded = !preview &&
+            !retracted &&
+            (model.State.Visual is
+                EdgeCapsuleVisualState.Hovered or
+                EdgeCapsuleVisualState.Active);
         var top = model.DockedDragTopDipOverride ??
             (retracted ? layout.MasterTopDip : layout.NormalTopDip);
-        var closeWidth = expanded ? layout.MaximumCloseWidthDip : 0;
+        var closeWidth =
+            preview || expanded
+                ? layout.MaximumCloseWidthDip
+                : 0;
+        var visibleHeight = preview
+            ? layout.PreviewHeightDip
+            : layout.HeightDip;
+        var bodyWidth = preview
+            ? Math.Max(1, layout.PreviewWidthDip - closeWidth)
+            : layout.RestingWidthDip;
         var geometry = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
             layout.Monitor,
             layout.Edge,
             top,
-            layout.RestingWidthDip,
+            bodyWidth,
             closeWidth,
-            layout.HeightDip));
+            visibleHeight));
         var hostBodyWidth = Math.Max(
-            layout.RestingWidthDip,
+            bodyWidth,
             layout.HostWidthDip - layout.MaximumCloseWidthDip);
         var hostGeometry = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
             layout.Monitor,
@@ -56,8 +70,13 @@ internal static class EdgeCapsuleTargetPlanner
             top,
             hostBodyWidth,
             layout.MaximumCloseWidthDip,
-            layout.HeightDip));
-        var surface = SurfaceFor(model, retracted, retracting, dockedSuppressed);
+            visibleHeight));
+        var surface = SurfaceFor(
+            model,
+            preview,
+            retracted,
+            retracting,
+            dockedSuppressed);
         var hitTest = !retracted && !ownsFloatingHost;
         var interactiveBounds = hitTest ? geometry.InteractiveBounds : default;
         var contentOpacity = layout.ForcedContentOpacity is { } forcedOpacity
@@ -79,9 +98,10 @@ internal static class EdgeCapsuleTargetPlanner
             layout.MaximumCloseWidthDip,
             retracted ? 0 : 1,
             dockedSuppressed ? 0 : contentOpacity,
-            !retracted && !dockedSuppressed && model.State.Visual == EdgeCapsuleVisualState.Active,
+            !retracted && !dockedSuppressed &&
+                model.State.Visual == EdgeCapsuleVisualState.Active,
             hitTest,
-            layout.CloseSegmentActsAsContent);
+            preview ? false : layout.CloseSegmentActsAsContent);
 
         var floatingShape = ownsFloatingHost
             ? CreateFloatingShape(layout, model.State.Visual == EdgeCapsuleVisualState.Active)
@@ -91,6 +111,7 @@ internal static class EdgeCapsuleTargetPlanner
 
     private static EdgeCapsuleSurfaceKind SurfaceFor(
         EdgeCapsuleModel model,
+        bool preview,
         bool retracted,
         bool retracting,
         bool dockedSuppressed)
@@ -106,6 +127,10 @@ internal static class EdgeCapsuleTargetPlanner
         if (retracted)
         {
             return EdgeCapsuleSurfaceKind.DockedRetracted;
+        }
+        if (preview)
+        {
+            return EdgeCapsuleSurfaceKind.DockedPreview;
         }
         return model.State.Visual switch
         {

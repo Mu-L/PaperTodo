@@ -83,10 +83,22 @@ public sealed partial class PaperWindow
             return false;
         }
 
+        var openedFromPreview = IsEdgeCapsulePreviewOpen;
         FinishEdgeCapsulePointerInteraction();
+        if (openedFromPreview)
+        {
+            _controller.CloseEdgeCapsulePreviewForActivation(this);
+        }
         try
         {
-            ActivateFromDeepCapsuleSlot();
+            if (openedFromPreview)
+            {
+                ActivateFromEdgeCapsulePreview();
+            }
+            else
+            {
+                ActivateFromDeepCapsuleSlot();
+            }
         }
         finally
         {
@@ -113,6 +125,7 @@ public sealed partial class PaperWindow
 
     private void OnEdgeCapsuleCloseInvoked()
     {
+        _controller.CloseEdgeCapsulePreviewForClose(this);
         _controller.HidePaper(_paper);
         ClearCapsuleInteractionKeyboardFocus();
     }
@@ -767,6 +780,8 @@ public sealed partial class PaperWindow
             return;
         }
 
+        var collapsedPreview =
+            _controller.CloseEdgeCapsulePreviewForDrag(this);
         if (!TryGetEdgeCapsuleDragSession(out var session))
         {
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
@@ -775,7 +790,9 @@ public sealed partial class PaperWindow
         var appliedBounds = _edgeCapsule.AppliedPresentation.Bounds;
         var startMonitorDeviceName = WindowWorkAreaHelper
             .MonitorAtDeviceScreenPoint(session.PointerDownScreenPosition)?.DeviceName ?? "";
-        var pointerOffsetY = currentScreenPos.Y - appliedBounds.Top;
+        var pointerOffsetY = collapsedPreview
+            ? appliedBounds.Height / 2.0
+            : currentScreenPos.Y - appliedBounds.Top;
         var topDip = DeepCapsuleMonitorGeometry().DeviceYToLocalDip(appliedBounds.Top);
         if (!BeginEdgeCapsuleDockedReorder(
                 currentScreenPos,

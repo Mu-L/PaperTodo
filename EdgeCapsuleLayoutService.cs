@@ -10,6 +10,8 @@ internal readonly record struct EdgeCapsuleLayoutFacts(
     double MaximumCloseWidthDip,
     double HostWidthDip,
     double HeightDip,
+    double PreviewWidthDip,
+    double PreviewHeightDip,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
     double? ForcedContentOpacity);
@@ -30,7 +32,8 @@ internal static class EdgeCapsuleLayoutService
                 facts.QueueStartTopMarginDip,
                 localWorkArea,
                 placement.SlotCount,
-                facts.GapDip)
+                facts.GapDip) +
+              placement.TopOffsetDip
             : 0;
         var masterTop = placement.IsPlaced
             ? EdgeCapsuleLayout.TopForIndex(
@@ -49,6 +52,8 @@ internal static class EdgeCapsuleLayoutService
             facts.MaximumCloseWidthDip,
             facts.HostWidthDip,
             facts.HeightDip,
+            facts.PreviewWidthDip,
+            facts.PreviewHeightDip,
             facts.CloseSegmentActsAsContent,
             facts.RestingContentOpacity,
             facts.ForcedContentOpacity);

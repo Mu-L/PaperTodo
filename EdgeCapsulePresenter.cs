@@ -56,6 +56,8 @@ internal sealed class EdgeCapsulePresenter
     public EdgeCapsuleState State => Model.State;
     public EdgeCapsuleDragSession? DragSession => Model.DragSession;
     public EdgeCapsulePlacement Placement => Model.Placement;
+    public EdgeCapsulePreviewState Preview => Model.Preview;
+    public bool PointerOverSurface => Model.PointerOverSurface;
     public bool ContextMenuOpen => Model.ContextMenuOpen;
     private EdgeCapsulePresentationPlan TargetPlan { get; set; } =
         EdgeCapsulePresentationPlan.Hidden;
@@ -348,8 +350,11 @@ internal sealed class EdgeCapsulePresenter
     }
 
     private bool NeedsPointerTracking =>
-        State.Slot == EdgeCapsuleSlotState.CollapsedDocked &&
-        State.Visual == EdgeCapsuleVisualState.Hovered &&
+        (State.Slot is
+            EdgeCapsuleSlotState.CollapsedDocked or
+            EdgeCapsuleSlotState.ExpandedReserved) &&
+        (State.Visual == EdgeCapsuleVisualState.Hovered ||
+         Preview == EdgeCapsulePreviewState.Open) &&
         State.Gesture == EdgeCapsuleGestureState.Idle &&
         !ContextMenuOpen &&
         !_applyRetryExhausted;

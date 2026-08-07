@@ -285,6 +285,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                     : _appliedCloseWidth >= _maximumCloseWidth - 0.5);
         }
 
+        ApplyPreviewPresentation(frame);
         _appliedFrame = frame;
         if (firstShow)
         {
@@ -674,6 +675,12 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
         void BeginContentPointer(MouseButtonEventArgs e)
         {
+            if (IsPreviewInteractiveSource(
+                    e.OriginalSource as DependencyObject))
+            {
+                return;
+            }
+
             callbacks.PointerPressed(PointerScreenPosition(e));
             content.CaptureMouse();
             e.Handled = true;
@@ -681,20 +688,21 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
         void CompleteContentPointer(MouseButtonEventArgs e)
         {
-            if (!callbacks.PointerReleased(PointerScreenPosition(e)))
+            if (!content.IsMouseCaptured ||
+                !callbacks.PointerReleased(PointerScreenPosition(e)))
             {
                 return;
             }
-            if (content.IsMouseCaptured)
-            {
-                content.ReleaseMouseCapture();
-            }
+            content.ReleaseMouseCapture();
             e.Handled = true;
         }
 
         content.MouseEnter += (_, _) =>
         {
-            content.Background = _hoverBrush;
+            if (!_previewVisible)
+            {
+                content.Background = _hoverBrush;
+            }
             if (_appliedFrame.CloseSegmentActsAsContent)
             {
                 close.Background = _hoverBrush;
@@ -713,6 +721,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         content.PreviewMouseLeftButtonDown += (_, e) => BeginContentPointer(e);
         content.PreviewMouseMove += (_, e) =>
         {
+            if (!content.IsMouseCaptured)
+            {
+                return;
+            }
             e.Handled = callbacks.PointerMoved(
                 PointerScreenPosition(e),
                 e.LeftButton == MouseButtonState.Pressed);

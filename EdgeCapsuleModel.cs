@@ -18,6 +18,12 @@ internal enum EdgeCapsuleVisualState
     Active
 }
 
+internal enum EdgeCapsulePreviewState
+{
+    Closed,
+    Open
+}
+
 internal enum EdgeCapsuleGestureState
 {
     Idle,
@@ -113,6 +119,8 @@ internal readonly record struct EdgeCapsuleModel(
     EdgeCapsuleDragSession? DragSession,
     bool ContextMenuOpen,
     bool PeerReorderActive,
+    EdgeCapsulePreviewState Preview,
+    bool PointerOverSurface,
     double? DockedDragTopDipOverride)
 {
     public static EdgeCapsuleModel Initial => new(
@@ -120,6 +128,8 @@ internal readonly record struct EdgeCapsuleModel(
         EdgeCapsulePlacement.None,
         null,
         false,
+        false,
+        EdgeCapsulePreviewState.Closed,
         false,
         null);
 }
@@ -146,6 +156,7 @@ internal abstract record EdgeCapsuleIntent
     internal sealed record DetachQueue : EdgeCapsuleIntent;
     internal sealed record CompleteRetraction : EdgeCapsuleIntent;
     internal sealed record SamplePointer(bool OverInteractiveSurface) : EdgeCapsuleIntent;
+    internal sealed record ChangePreview(bool Open) : EdgeCapsuleIntent;
     internal sealed record ChangeContextMenu(bool Open) : EdgeCapsuleIntent;
     internal sealed record BeginPeerReorder : EdgeCapsuleIntent;
     internal sealed record FinishPeerReorder : EdgeCapsuleIntent;
@@ -198,6 +209,9 @@ internal abstract record EdgeCapsuleIntent
 
     public static EdgeCapsuleIntent PointerSampled(bool overInteractiveSurface) =>
         new SamplePointer(overInteractiveSurface);
+
+    public static EdgeCapsuleIntent PreviewChanged(bool open) =>
+        new ChangePreview(open);
 
     public static EdgeCapsuleIntent ContextMenuChanged(bool open) =>
         new ChangeContextMenu(open);

@@ -183,6 +183,34 @@ public sealed partial class PaperWindow
         }
     }
 
+    private void ActivateFromEdgeCapsulePreview()
+    {
+        CloseDeepCapsuleSlotContextMenu();
+        if (TryRunScriptCapsule())
+        {
+            return;
+        }
+
+        _ = _controller.PreparePaperForCurrentVirtualDesktop(
+            this,
+            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
+        if (_paper.IsCollapsed)
+        {
+            ShowMainWindowForDeepCapsuleActivation();
+            SetCollapsedState(
+                false,
+                alignExpandedToDockedEdge: true,
+                activateOnExpand: true);
+            return;
+        }
+
+        // Preview-card activation never applies the optional active-capsule collapse shortcut.
+        // Its meaning is always “show me the full paper”, including when that paper is on a remote
+        // part of a large or multi-monitor desktop.
+        EnsureExpandedSurfaceGeometry(alignToDockedEdge: true);
+        _controller.BringPaperToFront(_paper);
+    }
+
     public bool TryHandleLinkedPaperRepeatedOpenAsDeepCapsuleToggle()
     {
         if (_paper.IsCollapsed ||

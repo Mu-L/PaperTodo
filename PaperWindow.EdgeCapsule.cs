@@ -179,6 +179,11 @@ public sealed partial class PaperWindow
     {
         var monitor = DeepCapsuleMonitorGeometry();
         var restingWidth = DeepCapsuleVisibleWidth(monitor.DpiScaleY);
+        var previewSize = CurrentEdgeCapsulePreviewSize;
+        var previewWidth = previewSize?.WidthDip ??
+            restingWidth + CapsuleCloseWidth;
+        var previewHeight = previewSize?.HeightDip ??
+            PaperLayoutDefaults.CapsuleHeight;
         var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
             ? ExperimentalOpacityLevels.Normalize(
                 _controller.State.ExperimentalRestingCapsuleOpacityLevel,
@@ -199,11 +204,15 @@ public sealed partial class PaperWindow
             restingWidth,
             CapsuleCloseWidth,
             Math.Max(
-                restingWidth + CapsuleCloseWidth,
+                Math.Max(
+                    restingWidth + CapsuleCloseWidth,
+                    previewWidth),
                 Math.Min(
                     EdgeCapsuleLayout.HostCapacityWidth,
                     monitor.LocalWorkAreaDip.Width)),
             PaperLayoutDefaults.CapsuleHeight,
+            previewWidth,
+            previewHeight,
             _controller.State.HideEdgeCapsuleCloseButtonOnHover,
             restingOpacity,
             forcedOpacity));
@@ -247,16 +256,25 @@ public sealed partial class PaperWindow
     private EdgeCapsuleDirty ReconcileEdgeCapsule(EdgeCapsuleDirty dirty)
     {
         var wasRetracting = IsDeepCapsuleSlotRetracting;
+        var wasPointerOver = _edgeCapsule.PointerOverSurface;
+        var pointer = CaptureEdgeCapsulePointerPosition();
         var remaining = _edgeCapsule.Reconcile(
             dirty,
             CaptureEdgeCapsuleLayoutSnapshot,
-            CaptureEdgeCapsulePointerPosition,
+            () => pointer,
             ApplyEdgeCapsulePresentationFrame);
         if (wasRetracting && !IsDeepCapsuleSlotRetracting)
         {
             UpdateDeepCapsuleSlotHostTheme();
             UpdateCapsuleClosePlacement();
         }
+        if (wasPointerOver != _edgeCapsule.PointerOverSurface)
+        {
+            _controller.NotifyEdgeCapsulePointerOverChanged(
+                this,
+                _edgeCapsule.PointerOverSurface);
+        }
+        _controller.NotifyEdgeCapsulePreviewPointerSample(this, pointer);
         return remaining;
     }
 

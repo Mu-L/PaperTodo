@@ -11,6 +11,7 @@ internal enum EdgeCapsuleTransitionReason
 {
     State,
     Pointer,
+    Preview,
     Placement,
     Measure,
     DisplayMetrics,
@@ -25,6 +26,7 @@ internal enum EdgeCapsuleSurfaceKind
     DockedResting,
     DockedHovered,
     DockedActive,
+    DockedPreview,
     DockedSuppressed,
     DockedRetracted,
     DockedRetracting,
@@ -61,6 +63,8 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     double MaximumCloseWidthDip,
     double HostWidthDip,
     double HeightDip,
+    double PreviewWidthDip,
+    double PreviewHeightDip,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
     double? ForcedContentOpacity)
@@ -69,7 +73,9 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
         !Monitor.WorkArea.IsEmpty &&
         RestingWidthDip > 0 &&
         HostWidthDip > 0 &&
-        HeightDip > 0;
+        HeightDip > 0 &&
+        PreviewWidthDip > 0 &&
+        PreviewHeightDip > 0;
 }
 
 internal readonly record struct EdgeCapsuleFloatingShape(

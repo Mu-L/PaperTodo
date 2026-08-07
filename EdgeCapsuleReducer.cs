@@ -17,6 +17,8 @@ internal static class EdgeCapsuleReducer
             EdgeCapsuleIntent.CompleteRetraction => CompleteRetraction(model),
             EdgeCapsuleIntent.SamplePointer pointer =>
                 SamplePointer(model, pointer.OverInteractiveSurface),
+            EdgeCapsuleIntent.ChangePreview preview =>
+                SetPreview(model, preview.Open),
             EdgeCapsuleIntent.ChangeContextMenu menu => SetContextMenu(model, menu.Open),
             EdgeCapsuleIntent.BeginPeerReorder => ChangePeerReorder(model, active: true),
             EdgeCapsuleIntent.FinishPeerReorder => ChangePeerReorder(model, active: false),
@@ -120,7 +122,8 @@ internal static class EdgeCapsuleReducer
                         ? EdgeCapsuleSlotState.RetractedExpanded
                         : EdgeCapsuleSlotState.RetractedCollapsed,
                     Visual = EdgeCapsuleVisualState.Resting
-                }
+                },
+                Preview = EdgeCapsulePreviewState.Closed
             });
         }
 
@@ -167,7 +170,8 @@ internal static class EdgeCapsuleReducer
             {
                 Slot = target,
                 Visual = EdgeCapsuleVisualState.Resting
-            }
+            },
+            Preview = EdgeCapsulePreviewState.Closed
         });
     }
 
@@ -200,7 +204,39 @@ internal static class EdgeCapsuleReducer
                 EdgeCapsuleVisualState.Hovered,
             _ => EdgeCapsuleVisualState.Resting
         };
-        return Accept(model, model with { State = model.State with { Visual = visual } });
+        return Accept(model, model with
+        {
+            State = model.State with { Visual = visual },
+            PointerOverSurface = overInteractiveSurface
+        });
+    }
+
+    private static EdgeCapsuleDispatchResult SetPreview(
+        EdgeCapsuleModel model,
+        bool open)
+    {
+        if (!open)
+        {
+            return Accept(model, model with
+            {
+                Preview = EdgeCapsulePreviewState.Closed
+            });
+        }
+
+        var canOpen =
+            (model.State.Slot is
+                EdgeCapsuleSlotState.CollapsedDocked or
+                EdgeCapsuleSlotState.ExpandedReserved) &&
+            model.State.Gesture == EdgeCapsuleGestureState.Idle &&
+            !model.PeerReorderActive;
+        return canOpen
+            ? Accept(model, model with
+            {
+                Preview = EdgeCapsulePreviewState.Open
+            })
+            : Reject(
+                model,
+                $"Cannot open edge preview from {model.State.Slot}/{model.State.Gesture}.");
     }
 
     private static EdgeCapsuleDispatchResult ChangePeerReorder(
@@ -300,6 +336,7 @@ internal static class EdgeCapsuleReducer
                     ? EdgeCapsuleVisualState.Active
                     : EdgeCapsuleVisualState.Hovered
             },
+            Preview = EdgeCapsulePreviewState.Closed,
             DragSession = session,
             DockedDragTopDipOverride = intent.TopDip
         });
@@ -436,6 +473,8 @@ internal static class EdgeCapsuleReducer
         DragSession = null,
         ContextMenuOpen = false,
         PeerReorderActive = false,
+        Preview = EdgeCapsulePreviewState.Closed,
+        PointerOverSurface = false,
         DockedDragTopDipOverride = null
     };
 
@@ -447,9 +486,19 @@ internal static class EdgeCapsuleReducer
             EdgeCapsuleGestureState.DockedReordering or
             EdgeCapsuleGestureState.FloatingTransfer or
             EdgeCapsuleGestureState.FloatingReordering;
+        var previewAllowed =
+            (model.State.Slot is
+                EdgeCapsuleSlotState.CollapsedDocked or
+                EdgeCapsuleSlotState.ExpandedReserved) &&
+            (model.State.Gesture is
+                EdgeCapsuleGestureState.Idle or
+                EdgeCapsuleGestureState.PendingClick) &&
+            !model.PeerReorderActive;
         return attached == model.Placement.IsPlaced &&
             (attached || !model.PeerReorderActive) &&
+            (attached || !model.PointerOverSurface) &&
             (hasPointerSession == (model.DragSession != null)) &&
+            (model.Preview != EdgeCapsulePreviewState.Open || previewAllowed) &&
             (model.State.Slot is not (
                 EdgeCapsuleSlotState.RetractedCollapsed or
                 EdgeCapsuleSlotState.RetractedExpanded or
