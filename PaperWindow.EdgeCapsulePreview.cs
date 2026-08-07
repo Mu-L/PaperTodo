@@ -43,9 +43,14 @@ public sealed partial class PaperWindow
             var provider = ResolveEdgeCapsulePreviewProvider();
             var descriptor = provider.Describe(new EdgeCapsulePreviewContext(
                 _paper,
-                _controller.PaperTitleText(_paper),
+                () => _controller.PaperTitleText(_paper),
                 !_paper.IsCollapsed,
-                OpenPaperFromEdgeCapsulePreview));
+                OpenPaperFromEdgeCapsulePreview,
+                CurrentMarkdownTextForEdgeCapsulePreview,
+                SetTodoDoneFromEdgeCapsulePreview,
+                CurrentTodoCheckBoxStyle,
+                CurrentPluginStatusForEdgeCapsulePreview,
+                OpenExternalFromEdgeCapsulePreview));
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
             var size = descriptor.Size.Normalize(
                 Math.Max(
@@ -72,10 +77,20 @@ public sealed partial class PaperWindow
         }
     }
 
-    // Todo and Markdown replace this resolver in the next stages. A future plugin adapter enters
-    // through the same internal seam; queue and host code never branch on content type.
-    private IEdgeCapsulePreviewProvider ResolveEdgeCapsulePreviewProvider() =>
-        DefaultEdgeCapsulePreviewProvider.Instance;
+    // Built-in papers and the plugin fallback all enter through the same internal seam. The
+    // public plugin protocol remains 1.7; a later adapter can replace only this resolver branch.
+    private IEdgeCapsulePreviewProvider ResolveEdgeCapsulePreviewProvider()
+    {
+        if (_paper.Type == PaperTypes.Todo)
+        {
+            return TodoEdgeCapsulePreviewProvider.Instance;
+        }
+        if (_paper.Type == PaperTypes.Note && IsCurrentBodyProviderMarkdown)
+        {
+            return MarkdownEdgeCapsulePreviewProvider.Instance;
+        }
+        return DefaultEdgeCapsulePreviewProvider.Instance;
+    }
 
     internal bool SetEdgeCapsulePreviewOpen(
         EdgeCapsulePreviewRequest request,

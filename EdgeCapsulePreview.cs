@@ -47,9 +47,17 @@ internal sealed record EdgeCapsulePreviewRequest(
 
 internal sealed record EdgeCapsulePreviewContext(
     PaperData Paper,
-    string Title,
+    Func<string> ReadTitle,
     bool PaperExpanded,
-    Action OpenPaper);
+    Action OpenPaper,
+    Func<string> ReadMarkdownText,
+    Func<string, bool, bool> SetTodoDone,
+    Func<Style> ReadTodoCheckStyle,
+    Func<string> ReadPluginStatus,
+    Action<string> OpenExternal)
+{
+    public string Title => ReadTitle();
+}
 
 /// <summary>
 /// Internal content seam for edge preview cards. Protocol 1.8 does not expose this yet: Todo and
@@ -87,126 +95,23 @@ internal sealed class DefaultEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPro
 
     public EdgeCapsulePreviewDescriptor Describe(EdgeCapsulePreviewContext context)
     {
-        var paper = context.Paper;
-        var width = Math.Clamp(
-            Math.Max(PaperLayoutDefaults.MinWidth, paper.Width) * 0.72,
-            280,
-            440);
+        var title = context.Title;
+        var status = context.ReadPluginStatus();
+        var width = EdgeCapsulePreviewMeasure.MeasureWidth(
+            title,
+            status,
+            minimum: 280,
+            maximum: 440);
         var height = Math.Clamp(
-            Math.Max(PaperLayoutDefaults.MinHeight, paper.Height) * 0.58,
-            150,
-            340);
-
-        var status = paper.Type switch
-        {
-            PaperTypes.Todo => TodoStatus(paper),
-            PaperTypes.Note when string.Equals(
-                paper.BodyProviderId,
-                PaperBodyProviderIds.Markdown,
-                StringComparison.Ordinal) =>
-                $"✎ {(paper.Content ?? string.Empty).Length}",
-            PaperTypes.Note => "◇",
-            _ => string.Empty
-        };
+            150 + EdgeCapsulePreviewMeasure.EstimateWrappedLines(
+                status,
+                Math.Max(120, width - 48)) * AppTypography.Scale(20),
+            160,
+            280);
 
         return new EdgeCapsulePreviewDescriptor(
             new EdgeCapsulePreviewSize(width, height),
-            _ => BuildContent(context, status));
-    }
-
-    private static string TodoStatus(PaperData paper)
-    {
-        var meaningful = paper.Items
-            .Where(TodoRules.HasMeaningfulContent)
-            .ToArray();
-        var done = meaningful.Count(item => item.Done);
-        return $"✓ {done}/{meaningful.Length}";
-    }
-
-    private static FrameworkElement BuildContent(
-        EdgeCapsulePreviewContext context,
-        string status)
-    {
-        var root = new Grid
-        {
-            Margin = new Thickness(16, 13, 14, 14),
-            Background = System.Windows.Media.Brushes.Transparent
-        };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition());
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        var heading = new Grid();
-        heading.ColumnDefinitions.Add(new ColumnDefinition());
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var title = new TextBlock
-        {
-            Text = context.Title,
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(13),
-            FontWeight = FontWeights.SemiBold,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
-        heading.Children.Add(title);
-
-        var open = new Button
-        {
-            Content = "↗",
-            Width = 30,
-            Height = 26,
-            Margin = new Thickness(10, 0, 0, 0),
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            Background = System.Windows.Media.Brushes.Transparent,
-            Cursor = Cursors.Hand,
-            Focusable = false,
-            ToolTip = context.Title
-        };
-        open.SetResourceReference(Control.ForegroundProperty, "WeakTextBrushKey");
-        EdgeCapsulePreviewInteraction.SetConsumesPointer(open, true);
-        open.Click += (_, _) => context.OpenPaper();
-        Grid.SetColumn(open, 1);
-        heading.Children.Add(open);
-        Grid.SetRow(heading, 0);
-        root.Children.Add(heading);
-
-        var body = new TextBlock
-        {
-            Text = status,
-            Margin = new Thickness(0, 13, 0, 0),
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(12),
-            TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        body.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
-
-        var scroller = new ScrollViewer
-        {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content = body,
-            Focusable = false
-        };
-        Grid.SetRow(scroller, 1);
-        root.Children.Add(scroller);
-
-        var hint = new TextBlock
-        {
-            Text = context.PaperExpanded ? "●" : "○",
-            Margin = new Thickness(0, 10, 0, 0),
-            FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = AppTypography.Scale(10),
-            HorizontalAlignment = HorizontalAlignment.Right
-        };
-        hint.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
-        Grid.SetRow(hint, 2);
-        root.Children.Add(hint);
-
-        return root;
+            size => new PluginFallbackEdgeCapsulePreviewView(context, size));
     }
 }
 
