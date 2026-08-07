@@ -64,6 +64,7 @@ public sealed partial class PaperWindow : Window
     private Button? _newNoteButton;
     private Button? _openMarkdownButton;
     private Grid? _topBar;
+    private Border? _topBarHost;
     private Grid? _topBarTitleArea;
     private Border? _topBarTitleHost;
     private StackPanel? _topBarButtonsHost;
@@ -763,6 +764,7 @@ public sealed partial class PaperWindow : Window
         _isShellBuilt = true;
         UpdateToolTipSetting();
         RefreshExperimentalOpacity(animate: false);
+        UpdateExperimentalFocusPresentationSettings();
         UpdateAdvancedInteractionLockVisuals();
     }
 
@@ -2272,7 +2274,7 @@ public sealed partial class PaperWindow : Window
         Grid.SetColumn(buttons, 1);
         top.Children.Add(buttons);
 
-        var topHost = new Border
+        var topHost = _topBarHost = new Border
         {
             Margin = new Thickness(0, 0, 0, 1.5),
             BorderThickness = new Thickness(0, 0, 0, 1),

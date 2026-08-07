@@ -26,11 +26,63 @@ public sealed partial class PaperWindow
         }
     }
 
-    internal void RefreshTodoReminderAfterTrigger()
+    internal void RefreshTodoReminderAfterTrigger(
+        IEnumerable<string> itemIds)
     {
         if (_paper.Type == PaperTypes.Todo && _todoDrag == null)
         {
-            RebuildTodoRows(CurrentFocusedTodoItemId());
+            ReconcileTodoRows(itemIds);
+        }
+    }
+
+    internal void PulseTodoReminderSurface()
+    {
+        if (!_controller.State.EnableAnimations || !IsVisible && !IsDeepCapsuleSlotVisible)
+        {
+            return;
+        }
+
+        if (_paper.IsCollapsed && _edgeCapsuleHost?.IsVisible == true)
+        {
+            _edgeCapsuleHost.PulseReminder();
+            return;
+        }
+
+        if (_paperChrome != null)
+        {
+            AnimationHelper.QuickBounce(
+                _paperChrome,
+                scale: _paper.IsCollapsed ? 1.05 : 1.025,
+                duration: 95);
+            if (Theme.DangerBrush is SolidColorBrush danger)
+            {
+                AnimationHelper.FlashHighlight(
+                    _paperChrome,
+                    danger.Color,
+                    duration: 130);
+            }
+        }
+    }
+
+    private void AcknowledgeTriggeredTodoReminder(
+        PaperItem item,
+        Border? row = null)
+    {
+        if (!item.ReminderTriggered)
+        {
+            return;
+        }
+
+        item.ReminderTriggered = false;
+        item.ReminderAt = null;
+        if (_todoReminderCountdowns.TryGetValue(item.Id, out var countdown))
+        {
+            countdown.Visibility = Visibility.Collapsed;
+        }
+        _controller.NotifyTodoReminderChanged(saveImmediately: false);
+        if (row != null)
+        {
+            UpdateTodoRowBackground(row);
         }
     }
 
@@ -463,6 +515,7 @@ public sealed partial class PaperWindow
 
         PushUndoSnapshot();
         item.ReminderAt = reminderAt;
+        item.ReminderTriggered = false;
         _pendingTodoReminderRevealItemId =
             reminderAt.HasValue && _controller.State.EnableAnimations
                 ? itemId

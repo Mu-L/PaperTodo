@@ -193,6 +193,8 @@ public sealed partial class PaperWindow
                 capsuleOpacity,
                 animate);
         }
+
+        RefreshExperimentalFocusPresentation(animate);
     }
 
     private bool HasOpenOwnedContextMenu()

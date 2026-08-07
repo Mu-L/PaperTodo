@@ -63,7 +63,10 @@ public sealed partial class AppController
         var nextReminder = State.Papers
             .Where(paper => paper.Type == PaperTypes.Todo)
             .SelectMany(paper => paper.Items)
-            .Where(item => !item.Done && item.ReminderAt.HasValue)
+            .Where(item =>
+                !item.Done &&
+                !item.ReminderTriggered &&
+                item.ReminderAt.HasValue)
             .Select(item => item.ReminderAt!.Value)
             .DefaultIfEmpty(DateTimeOffset.MaxValue)
             .Min();
@@ -156,6 +159,7 @@ public sealed partial class AppController
             .SelectMany(paper => paper.Items
                 .Where(item =>
                     !item.Done &&
+                    !item.ReminderTriggered &&
                     item.ReminderAt is { } reminderAt &&
                     reminderAt <= now)
                 .Select(item => (Paper: paper, Item: item)))
@@ -193,14 +197,17 @@ public sealed partial class AppController
 
         foreach (var (_, item) in due)
         {
-            item.ReminderAt = null;
+            item.ReminderTriggered = true;
         }
 
-        foreach (var paperId in due.Select(entry => entry.Paper.Id).Distinct(StringComparer.Ordinal))
+        foreach (var paperGroup in due.GroupBy(
+                     entry => entry.Paper.Id,
+                     StringComparer.Ordinal))
         {
-            if (_windows.TryGetValue(paperId, out var window))
+            if (_windows.TryGetValue(paperGroup.Key, out var window))
             {
-                window.RefreshTodoReminderAfterTrigger();
+                window.RefreshTodoReminderAfterTrigger(
+                    paperGroup.Select(entry => entry.Item.Id));
             }
         }
 
@@ -215,6 +222,7 @@ public sealed partial class AppController
         ShowPaper(paper, activate: false);
         if (_windows.TryGetValue(paper.Id, out var window))
         {
+            window.PulseTodoReminderSurface();
             window.OpenTodoReminderItem(item.Id);
         }
     }

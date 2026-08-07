@@ -39,6 +39,9 @@ public sealed partial class PaperWindow
     private static Brush TodoSelectionBrush =>
         Theme.Tint((byte)(Theme.IsDark ? 62 : 42));
 
+    private static Brush TodoReminderActiveBrush =>
+        Theme.Danger((byte)(Theme.IsDark ? 52 : 38));
+
     private bool IsTodoGroupDrag => _todoGroupDragItemIds.Count > 1;
 
     private void EnsureTodoSelectionInputHooks()
@@ -629,9 +632,17 @@ public sealed partial class PaperWindow
     {
         var itemId = row.Tag as string;
         var selected = itemId != null && _selectedTodoItemIds.Contains(itemId);
+        var reminding = itemId != null &&
+            _controller.State.ExperimentalTodoReminders &&
+            _paper.Items.Any(item =>
+                string.Equals(item.Id, itemId, StringComparison.Ordinal) &&
+                !item.Done &&
+                item.ReminderTriggered);
         row.Background = selected
             ? TodoSelectionBrush
-            : row.IsMouseOver ? HoverBrush : Brushes.Transparent;
+            : reminding
+                ? TodoReminderActiveBrush
+                : row.IsMouseOver ? HoverBrush : Brushes.Transparent;
 
         if (itemId == null || !_todoEditors.TryGetValue(itemId, out var text))
         {
@@ -696,6 +707,7 @@ public sealed partial class PaperWindow
             if (done)
             {
                 item.ReminderAt = null;
+                item.ReminderTriggered = false;
             }
         }
 

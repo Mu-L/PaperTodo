@@ -246,6 +246,11 @@ internal sealed class PaperCommandService
             if (text != null)
             {
                 item.Text = text;
+                if (item.ReminderTriggered)
+                {
+                    item.ReminderAt = null;
+                    item.ReminderTriggered = false;
+                }
             }
             if (request.Done.HasValue)
             {
@@ -253,6 +258,7 @@ internal sealed class PaperCommandService
                 if (item.Done)
                 {
                     item.ReminderAt = null;
+                    item.ReminderTriggered = false;
                 }
             }
             if (request.UpdateLinkedPaper)
@@ -312,6 +318,7 @@ internal sealed class PaperCommandService
         using (_controller.SuppressPaperPluginEventScans())
         {
             item.ReminderAt = request.ReminderAt;
+            item.ReminderTriggered = false;
             if (!_controller.TryCommitExternalMutation())
             {
                 snapshot.Restore(paper);
@@ -803,7 +810,8 @@ internal sealed class PaperCommandService
         int Order,
         string? LinkedPaperId,
         string? LinkedPath,
-        DateTimeOffset? ReminderAt)
+        DateTimeOffset? ReminderAt,
+        bool ReminderTriggered)
     {
         public static PaperItemSnapshot Capture(PaperItem item) =>
             new(
@@ -813,7 +821,8 @@ internal sealed class PaperCommandService
                 item.Order,
                 item.LinkedPaperId,
                 item.LinkedPath,
-                item.ReminderAt);
+                item.ReminderAt,
+                item.ReminderTriggered);
 
         public void Restore()
         {
@@ -822,6 +831,7 @@ internal sealed class PaperCommandService
             Item.Order = Order;
             Item.RestoreQuickLaunch(LinkedPaperId, LinkedPath);
             Item.ReminderAt = ReminderAt;
+            Item.ReminderTriggered = ReminderTriggered;
         }
     }
 }

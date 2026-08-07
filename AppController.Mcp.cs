@@ -192,15 +192,28 @@ public sealed partial class AppController
         TryExitCleanup(RefreshTrayMenu);
     }
 
-    private static string BuildCodexMcpConfiguration()
+    private static string BuildAiMcpSkill()
     {
-        var executable = Environment.ProcessPath ??
-            Path.Combine(AppContext.BaseDirectory, "PaperTodo.exe");
         return string.Join(
             Environment.NewLine,
-            "[mcp_servers.papertodo]",
-            $"command = {JsonSerializer.Serialize(executable)}",
-            $"args = [{JsonSerializer.Serialize(McpBridge.CommandLineSwitch)}]");
+            "# PaperTodo MCP Skill",
+            "",
+            "Use the MCP server named `papertodo` as the user's lightweight PaperTodo workspace.",
+            "",
+            "## Workflow",
+            "- Call `list_papers` first when a paper id is unknown.",
+            "- Call `get_paper` before replacing existing todo text, completion state, or note content.",
+            "- Prefer additive operations (`create_todo_paper`, `create_note`, `add_todos`) when they satisfy the request.",
+            "- Use `update_todo`, `write_note`, `set_todo_reminder`, and delete tools only when the requested mutation requires them.",
+            "- Preserve the user's existing paper structure unless the user explicitly asks to reorganize it.",
+            "- Treat permission errors as PaperTodo policy, not as transport failures; do not retry a rejected mutation with a more destructive tool.",
+            "- For reminders, use an explicit future ISO 8601 time with UTC offset.",
+            "",
+            "## Available tools",
+            "`list_papers`, `get_paper`, `create_todo_paper`, `create_note`, `add_todos`,",
+            "`update_todo`, `set_todo_reminder`, `write_note`, `delete_paper`, `delete_todo`.",
+            "",
+            "Connection details are intentionally separate. Use PaperTodo's “Copy JSON config” button to configure the MCP client.");
     }
 
     private static string BuildJsonMcpConfiguration()

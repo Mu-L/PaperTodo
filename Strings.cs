@@ -32,11 +32,16 @@ public static class Strings
             ["TipLabsCurrentPaperTransparent"] = ["只作用于快捷键触发时拥有焦点的普通或插件纸片。", "Affects only the regular or plugin paper focused when the shortcut fires.", "ショートカット実行時にフォーカス中の通常またはプラグインの紙だけに作用します。", "단축키 실행 시 포커스된 일반 또는 플러그인 메모에만 적용됩니다."],
             ["LabsStrictCollapsePaperAfterShow"] = ["严格收起", "Strict collapse", "厳格な自動折りたたみ", "엄격한 자동 접기"],
             ["TipLabsStrictCollapsePaperAfterShow"] = ["新建或显示纸片后，若未使用它便进行了其他操作，立即收起。无需全局键鼠 Hook。", "After a paper is created or shown, collapse it when another action happens before the paper is used. No global input hook is used.", "紙を作成または表示した後、使用せず別の操作をすると直ちに折りたたみます。グローバル入力フックは使用しません。", "메모를 만들거나 표시한 뒤 사용하지 않고 다른 작업을 하면 즉시 접습니다. 전역 입력 훅은 사용하지 않습니다."],
+            ["LabsHideInactiveTopBarButtons"] = ["失焦隐藏顶栏按钮", "Hide inactive top-bar buttons", "非アクティブ時に上部ボタンを隠す", "비활성 상단 버튼 숨기기"],
+            ["TipLabsHideInactiveTopBarButtons"] = ["纸片失去焦点时隐藏顶栏操作按钮；悬停或重新激活时显示，并保留原布局空间。", "Hide top-bar action buttons while the paper is inactive; reveal them on hover or activation without changing layout.", "紙が非アクティブな間は上部の操作ボタンを隠し、ホバーまたは再アクティブ化で表示します。レイアウト幅は保持します。", "메모가 비활성일 때 상단 작업 버튼을 숨기고, 마우스를 올리거나 다시 활성화하면 표시합니다. 레이아웃 공간은 유지합니다."],
+            ["LabsHideInactiveTitleBar"] = ["失焦隐藏标题栏", "Hide inactive title bar", "非アクティブ時にタイトルバーを隠す", "비활성 제목 표시줄 숨기기"],
+            ["TipLabsHideInactiveTitleBar"] = ["纸片失去焦点时隐藏整条标题栏；悬停或重新激活时显示，并保留标题栏占用空间。", "Hide the whole title bar while the paper is inactive; reveal it on hover or activation while preserving its layout space.", "紙が非アクティブな間はタイトルバー全体を隠し、ホバーまたは再アクティブ化で表示します。タイトルバーの領域は保持します。", "메모가 비활성일 때 제목 표시줄 전체를 숨기고, 마우스를 올리거나 다시 활성화하면 표시합니다. 제목 표시줄 공간은 유지합니다."],
             ["LabsDockedCapsulesNonTopmost"] = ["允许贴边胶囊非置顶", "Allow docked capsules below topmost", "端に固定したカプセルの非最前面を許可", "가장자리 캡슐 비고정 허용"],
             ["TipLabsDockedCapsulesNonTopmost"] = ["开启后贴边胶囊和主胶囊不再保持置顶；展开纸片仍按自身置顶设置。", "When enabled, docked and master capsules no longer stay topmost; expanded papers keep their own topmost setting.", "有効にすると端のカプセルとマスターカプセルは最前面を維持せず、展開した紙は個別設定に従います。", "켜면 가장자리 및 마스터 캡슐이 항상 위를 유지하지 않으며 펼친 메모는 자체 설정을 따릅니다."],
             ["LabsFocusOpacity"] = ["失焦与静止透明", "Inactive and resting transparency", "非アクティブ・静止時の透明度", "비활성·정지 투명도"],
             ["LabsRestingCapsuleOpacityIncludeMaster"] = ["覆盖主胶囊", "Include master capsule", "マスターカプセルにも適用", "마스터 캡슐에도 적용"],
-            ["LabsRestingCapsuleOpacityAlways"] = ["无论是否激活都透明", "Keep transparent while active", "操作中も透明を維持", "활성 상태에서도 투명 유지"]
+            ["LabsRestingCapsuleOpacityAlways"] = ["无论是否激活都透明", "Keep transparent while active", "操作中も透明を維持", "활성 상태에서도 투명 유지"],
+            ["LabsMcpCopyAiSkill"] = ["复制 AI Skill", "Copy AI skill", "AI Skill をコピー", "AI Skill 복사"]
         };
 
     public static string Get(string key)

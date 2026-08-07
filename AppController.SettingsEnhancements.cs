@@ -99,7 +99,6 @@ public sealed partial class AppController
         State.DeepCapsuleGapSize = normalized;
         SaveNow();
         ArrangeDeepCapsules(animate: State.EnableAnimations);
-        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateDeepCapsuleGapSegmentSelector()

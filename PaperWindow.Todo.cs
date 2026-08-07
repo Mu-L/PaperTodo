@@ -547,6 +547,7 @@ public sealed partial class PaperWindow
 
         text.TextChanged += (_, _) =>
         {
+            AcknowledgeTriggeredTodoReminder(item, row);
             item.Text = text.Text;
             _controller.MarkDirty();
         };
@@ -583,9 +584,10 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = true;
-            if (item.ReminderAt.HasValue)
+            if (item.ReminderAt.HasValue || item.ReminderTriggered)
             {
                 item.ReminderAt = null;
+                item.ReminderTriggered = false;
                 _controller.NotifyTodoReminderChanged(saveImmediately: false);
             }
             if (reminderButton != null)

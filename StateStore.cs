@@ -656,6 +656,15 @@ public sealed class StateStore
 
                 item.Order = i;
                 item.Text ??= "";
+                if (item.Done)
+                {
+                    item.ReminderAt = null;
+                    item.ReminderTriggered = false;
+                }
+                else if (!item.ReminderAt.HasValue)
+                {
+                    item.ReminderTriggered = false;
+                }
             }
         }
     }

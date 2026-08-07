@@ -424,6 +424,8 @@ public sealed class AppState
     public bool ExperimentalRestingCapsuleOpacityAlways { get; set; }
     public bool ExperimentalCollapsePaperOnDeactivate { get; set; }
     public bool ExperimentalStrictCollapsePaperAfterShow { get; set; }
+    public bool ExperimentalHideInactiveTopBarButtons { get; set; }
+    public bool ExperimentalHideInactiveTitleBar { get; set; }
     public bool ExperimentalDockedCapsulesNonTopmost { get; set; }
     public bool ExperimentalAllowLockIconUnlock { get; set; } = true;
     public double ExperimentalShortcutOpacityLevel { get; set; } = 0.35;
@@ -567,6 +569,9 @@ public sealed class PaperItem
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? ReminderAt { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReminderTriggered { get; set; }
 
     public void LinkPaper(string? paperId)
     {

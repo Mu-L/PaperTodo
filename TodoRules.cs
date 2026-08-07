@@ -10,12 +10,14 @@ internal static class TodoRules
         !string.IsNullOrWhiteSpace(item.Text) ||
         item.Done ||
         item.ReminderAt.HasValue ||
+        item.ReminderTriggered ||
         !string.IsNullOrWhiteSpace(item.LinkedPaperId) ||
         !string.IsNullOrWhiteSpace(item.LinkedPath);
 
     public static bool HasNonTextContent(PaperItem item) =>
         item.Done ||
         item.ReminderAt.HasValue ||
+        item.ReminderTriggered ||
         !string.IsNullOrWhiteSpace(item.LinkedPaperId) ||
         !string.IsNullOrWhiteSpace(item.LinkedPath);
 
@@ -29,7 +31,8 @@ internal static class TodoRules
             Text = item.Text,
             Done = item.Done,
             Order = item.Order,
-            ReminderAt = item.ReminderAt
+            ReminderAt = item.ReminderAt,
+            ReminderTriggered = item.ReminderTriggered
         };
         clone.RestoreQuickLaunch(item.LinkedPaperId, item.LinkedPath);
         return clone;

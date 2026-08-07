@@ -303,6 +303,32 @@ public sealed partial class AppController
         }
     }
 
+    private void ToggleExperimentalHideInactiveTopBarButtons()
+    {
+        State.ExperimentalHideInactiveTopBarButtons =
+            !State.ExperimentalHideInactiveTopBarButtons;
+        SaveNow();
+        RefreshExperimentalFocusPresentationSurfaces();
+        RefreshSettingsRegions("labs.focus");
+    }
+
+    private void ToggleExperimentalHideInactiveTitleBar()
+    {
+        State.ExperimentalHideInactiveTitleBar =
+            !State.ExperimentalHideInactiveTitleBar;
+        SaveNow();
+        RefreshExperimentalFocusPresentationSurfaces();
+        RefreshSettingsRegions("labs.focus");
+    }
+
+    private void RefreshExperimentalFocusPresentationSurfaces()
+    {
+        foreach (var window in _windows.Values)
+        {
+            window.UpdateExperimentalFocusPresentationSettings();
+        }
+    }
+
     private void ToggleExperimentalCollapsePaperOnDeactivate()
     {
         State.ExperimentalCollapsePaperOnDeactivate =
@@ -474,7 +500,6 @@ public sealed partial class AppController
         }
 
         RebuildTrayMenu();
-        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateMarkdownRenderSegmentSelector()
@@ -504,8 +529,6 @@ public sealed partial class AppController
         {
             window.UpdateImageReferenceTextMode();
         }
-
-        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateImageReferenceTextModeSelector()
@@ -534,7 +557,6 @@ public sealed partial class AppController
         State.FullscreenTopmostMode = normalized;
         RefreshFullscreenAvoidanceRuntime();
         SaveNow();
-        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateFullscreenTopmostModeSegmentSelector()
@@ -748,6 +770,8 @@ public sealed partial class AppController
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
+        var selectedKey = activeKey;
+        var refreshSegments = new List<Action>();
         var grid = new Grid();
         for (var i = 0; i < segments.Length; i++)
         {
@@ -758,13 +782,11 @@ public sealed partial class AppController
         {
             var key = segments[i].Key;
             var label = segments[i].Label;
-            var isActive = activeKey == key;
 
             var segmentBorder = new Border
             {
                 CornerRadius = new CornerRadius(5),
                 Margin = new Thickness(1),
-                Background = isActive ? Theme.ActiveBrush : Brushes.Transparent,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
 
@@ -774,33 +796,52 @@ public sealed partial class AppController
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = AppTypography.Scale(12),
-                FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = isActive ? TrayPaperBrush : TrayTextBrush,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
 
             segmentBorder.Child = textBlock;
 
-            if (!isActive)
+            void RefreshSegment()
             {
-                segmentBorder.MouseEnter += (_, _) =>
+                var isActive = string.Equals(
+                    selectedKey,
+                    key,
+                    StringComparison.Ordinal);
+                segmentBorder.Background = isActive
+                    ? Theme.ActiveBrush
+                    : Brushes.Transparent;
+                textBlock.FontWeight = isActive
+                    ? FontWeights.SemiBold
+                    : FontWeights.Normal;
+                textBlock.Foreground = isActive
+                    ? TrayPaperBrush
+                    : TrayTextBrush;
+            }
+            refreshSegments.Add(RefreshSegment);
+            RefreshSegment();
+
+            segmentBorder.MouseEnter += (_, _) =>
+            {
+                if (!string.Equals(selectedKey, key, StringComparison.Ordinal))
                 {
                     segmentBorder.Background = TrayHoverBrush;
-                };
-                segmentBorder.MouseLeave += (_, _) =>
-                {
-                    segmentBorder.Background = Brushes.Transparent;
-                };
-            }
+                }
+            };
+            segmentBorder.MouseLeave += (_, _) => RefreshSegment();
 
             segmentBorder.MouseLeftButtonDown += (_, _) =>
             {
-                if (activeKey == key)
+                if (string.Equals(selectedKey, key, StringComparison.Ordinal))
                 {
                     return;
                 }
 
                 onSelect(key);
+                selectedKey = key;
+                foreach (var refresh in refreshSegments)
+                {
+                    refresh();
+                }
             };
 
             Grid.SetColumn(segmentBorder, i);
@@ -899,7 +940,6 @@ public sealed partial class AppController
         ArrangeDeepCapsules(animate: true);
         SaveNow();
         RebuildTrayMenu();
-        RefreshSettingsWindowContent();
     }
 
     private void ClampPaperTitlesToMaxLength(int maxLength)
@@ -1424,6 +1464,20 @@ public sealed partial class AppController
         content.Children.Add(WrapWithHint(
             strictCollapse,
             "TipLabsStrictCollapsePaperAfterShow"));
+
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsHideInactiveTopBarButtons"),
+                State.ExperimentalHideInactiveTopBarButtons,
+                ToggleExperimentalHideInactiveTopBarButtons),
+            "TipLabsHideInactiveTopBarButtons"));
+
+        content.Children.Add(WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsHideInactiveTitleBar"),
+                State.ExperimentalHideInactiveTitleBar,
+                ToggleExperimentalHideInactiveTitleBar),
+            "TipLabsHideInactiveTitleBar"));
 
         content.Children.Add(WrapWithHint(
             SettingsToggle(
@@ -2108,24 +2162,17 @@ public sealed partial class AppController
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 9, 0, 0)
         };
-        var copyCodex = SettingsTextButton(
-            Strings.Get("LabsMcpCopyCodex"));
         var copyJson = SettingsTextButton(
             Strings.Get("LabsMcpCopyJson"));
-        copyJson.Margin = new Thickness(8, 0, 0, 0);
+        var copySkill = SettingsTextButton(
+            Strings.Get("LabsMcpCopyAiSkill"));
+        copySkill.Margin = new Thickness(8, 0, 0, 0);
         var feedback = new TextBlock
         {
             Foreground = TrayWeakTextBrush,
             FontSize = AppTypography.Scale(11),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(9, 0, 0, 0)
-        };
-        copyCodex.Click += (_, _) =>
-        {
-            feedback.Text = ClipboardHelper.TrySetText(
-                BuildCodexMcpConfiguration())
-                ? Strings.Get("LabsMcpCopied")
-                : Strings.Get("LabsMcpCopyFailed");
         };
         copyJson.Click += (_, _) =>
         {
@@ -2134,8 +2181,15 @@ public sealed partial class AppController
                 ? Strings.Get("LabsMcpCopied")
                 : Strings.Get("LabsMcpCopyFailed");
         };
-        actions.Children.Add(copyCodex);
+        copySkill.Click += (_, _) =>
+        {
+            feedback.Text = ClipboardHelper.TrySetText(
+                BuildAiMcpSkill())
+                ? Strings.Get("LabsMcpCopied")
+                : Strings.Get("LabsMcpCopyFailed");
+        };
         actions.Children.Add(copyJson);
+        actions.Children.Add(copySkill);
         actions.Children.Add(feedback);
         content.Children.Add(actions);
         card.Child = content;
@@ -2224,6 +2278,8 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityAlways = false;
         State.ExperimentalCollapsePaperOnDeactivate = false;
         State.ExperimentalStrictCollapsePaperAfterShow = false;
+        State.ExperimentalHideInactiveTopBarButtons = false;
+        State.ExperimentalHideInactiveTitleBar = false;
         State.ExperimentalDockedCapsulesNonTopmost = false;
         State.ExperimentalAllowLockIconUnlock = true;
         State.ExperimentalShortcutOpacityLevel = 0.35;
@@ -2271,6 +2327,7 @@ public sealed partial class AppController
         RefreshMcpRuntime();
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);
+        RefreshExperimentalFocusPresentationSurfaces();
         RefreshTodoReminderFeature();
         RefreshSettingsWindowContent();
     }
@@ -3597,7 +3654,6 @@ public sealed partial class AppController
         State.ResizeGripMode = normalized;
         SaveNow();
         RefreshApplicationThemeResources();
-        RefreshSettingsWindowContent();
     }
 
     private UIElement CreateResizeGripModeSegmentSelector()
