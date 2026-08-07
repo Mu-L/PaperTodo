@@ -276,10 +276,12 @@ public sealed partial class PaperWindow
             _bodyRuntimeVisible = false;
             _bodyDescriptor = null;
             _bodyFailed = true;
-            return new FailedPaperBodySession(
+            var failedSession = new FailedPaperBodySession(
                 this,
                 descriptor.DisplayName,
                 ex.GetBaseException().Message);
+            ClearPluginPresentationOnFailure();
+            return failedSession;
         }
     }
 
@@ -313,6 +315,7 @@ public sealed partial class PaperWindow
                 this,
                 pluginName,
                 ex.GetBaseException().Message);
+            ClearPluginPresentationOnFailure();
             return WrapPluginBodyView(session.View);
         }
     }
@@ -802,6 +805,7 @@ public sealed partial class PaperWindow
         if (hadCapsulePresentation && _isShellBuilt)
         {
             RefreshCapsuleLabel();
+            ApplyCurrentCollapsedCapsuleWidth();
         }
         if (hadDisplayTitle)
         {
@@ -1001,6 +1005,7 @@ public sealed partial class PaperWindow
         if (hadCapsule)
         {
             RefreshCapsuleLabel();
+            ApplyCurrentCollapsedCapsuleWidth();
         }
     }
 

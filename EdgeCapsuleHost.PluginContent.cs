@@ -54,6 +54,7 @@ internal sealed partial class EdgeCapsuleHost
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             IsHitTestVisible = false,
+            ClipToBounds = true,
             Visibility = Visibility.Collapsed
         };
         Grid.SetColumn(layer, 0);

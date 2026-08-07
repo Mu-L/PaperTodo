@@ -18,8 +18,8 @@ public sealed partial class PaperWindow
     private int _pluginCapsuleCustomViewGeneration = -1;
     private FrameworkElement? _pluginCapsuleRegularCustomView;
     private FrameworkElement? _pluginCapsuleDockedCustomView;
-    private bool _pluginCapsuleRegularCustomViewFailed;
-    private bool _pluginCapsuleDockedCustomViewFailed;
+    private bool _pluginCapsuleRegularCustomViewAttempted;
+    private bool _pluginCapsuleDockedCustomViewAttempted;
 
     private FrameworkElement BuildPluginCapsuleContentHost(UIElement defaultContent)
     {
@@ -36,6 +36,7 @@ public sealed partial class PaperWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             IsHitTestVisible = false,
+            ClipToBounds = true,
             Visibility = Visibility.Collapsed
         };
         host.Children.Add(defaultContent);
@@ -61,12 +62,17 @@ public sealed partial class PaperWindow
 
     private void SetPluginCapsulePresentation(PaperCapsulePresentation? presentation)
     {
+        var previousRequestedWidth = PluginCapsuleRequestedContentWidth();
         var normalized = NormalizePluginCapsulePresentation(presentation);
         _pluginCapsulePresentation = normalized;
         _paper.BodyCapsuleText = normalized == null
             ? string.Empty
             : CapsulePresentationFallbackText(normalized);
         RefreshCapsuleLabel();
+        if (previousRequestedWidth != PluginCapsuleRequestedContentWidth())
+        {
+            ApplyCurrentCollapsedCapsuleWidth();
+        }
     }
 
     private static PaperCapsulePresentation? NormalizePluginCapsulePresentation(
@@ -214,14 +220,15 @@ public sealed partial class PaperWindow
         ref FrameworkElement? cached = ref (surface == PaperCapsuleSurfaceKind.Docked
             ? ref _pluginCapsuleDockedCustomView
             : ref _pluginCapsuleRegularCustomView);
-        ref bool failed = ref (surface == PaperCapsuleSurfaceKind.Docked
-            ? ref _pluginCapsuleDockedCustomViewFailed
-            : ref _pluginCapsuleRegularCustomViewFailed);
-        if (cached != null || failed)
+        ref bool attempted = ref (surface == PaperCapsuleSurfaceKind.Docked
+            ? ref _pluginCapsuleDockedCustomViewAttempted
+            : ref _pluginCapsuleRegularCustomViewAttempted);
+        if (attempted)
         {
             return cached;
         }
 
+        attempted = true;
         try
         {
             var width = PluginCapsuleRequestedContentWidth()
@@ -256,7 +263,6 @@ public sealed partial class PaperWindow
         {
             // Free rendering is an optional presentation layer. A bad custom view falls back to
             // the 1.6 template without replacing or terminating the main plugin body session.
-            failed = true;
             return null;
         }
     }
@@ -276,8 +282,8 @@ public sealed partial class PaperWindow
         _pluginCapsuleCustomViewGeneration = -1;
         _pluginCapsuleRegularCustomView = null;
         _pluginCapsuleDockedCustomView = null;
-        _pluginCapsuleRegularCustomViewFailed = false;
-        _pluginCapsuleDockedCustomViewFailed = false;
+        _pluginCapsuleRegularCustomViewAttempted = false;
+        _pluginCapsuleDockedCustomViewAttempted = false;
     }
 
     private FrameworkElement BuildPluginCapsuleTemplateView(PaperCapsulePresentation presentation)
@@ -287,6 +293,7 @@ public sealed partial class PaperWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             IsHitTestVisible = false,
+            ClipToBounds = true,
             SnapsToDevicePixels = true,
             UseLayoutRounding = true
         };
@@ -342,16 +349,21 @@ public sealed partial class PaperWindow
                     HorizontalAlignment = HorizontalAlignment.Center
                 };
             case PaperCapsuleComponentKind.ProgressRing:
+            {
+                var diameter = component.Width > 0
+                    ? Math.Min(component.Width, PluginCapsuleBodyHeight)
+                    : 18;
                 return new CapsuleProgressRing
                 {
-                    Width = component.Width > 0 ? component.Width : 18,
-                    Height = component.Width > 0 ? component.Width : 18,
+                    Width = diameter,
+                    Height = diameter,
                     Value = component.Value,
                     ForegroundBrush = brush,
                     TrackBrush = Theme.Tint(38),
                     VerticalAlignment = VerticalAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center
                 };
+            }
             case PaperCapsuleComponentKind.ProgressBar:
                 return new CapsuleProgressBar
                 {

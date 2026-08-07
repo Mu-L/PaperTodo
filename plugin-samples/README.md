@@ -168,9 +168,9 @@ papertodo.paper.setCapsulePresentation({
   components: [{ kind: "text", text: "26°C 晴", fill: true }]
 });
 papertodo.body.setInputClaims(["escapeKey", "contextMenu"]);
-papertodo.setInputClaims([]);
-papertodo.markDirty();
-papertodo.openExternal("https://example.com");
+papertodo.body.setInputClaims([]);
+papertodo.body.markDirty();
+papertodo.body.openExternal("https://example.com");
 papertodo.onEvent(message => console.log(message));
 ```
 
