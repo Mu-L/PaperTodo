@@ -463,6 +463,7 @@ public sealed class AppState
     public int DeepCapsuleTitleMeasureCharacterLimit { get; set; }
     public Dictionary<string, string> GlobalHotkeys { get; set; } = new();
     public Dictionary<string, bool> GlobalHotkeyEnabled { get; set; } = new();
+    public bool DistinguishNumpadShortcutDigits { get; set; }
     // When true, edge-queue shortcuts expand the paper centered under the current mouse pointer
     // instead of the docked edge / remembered expanded geometry.
     public bool OpenEdgeCapsuleShortcutAtCursor { get; set; } = true;
