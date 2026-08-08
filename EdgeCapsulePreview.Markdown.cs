@@ -23,11 +23,11 @@ internal sealed class MarkdownEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPr
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             context.Title,
             MarkdownEdgeCapsulePreviewRenderer.MeasureText(text),
-            minimum: 290,
+            minimum: EdgeCapsulePreviewSize.MinimumWidthDip,
             maximum: 460);
         var lines = MarkdownEdgeCapsulePreviewRenderer.EstimateVisualLines(
             text,
-            Math.Max(140, width - 44));
+            Math.Max(72, width - 36));
         var height = Math.Clamp(
             74 + Math.Min(15, lines) * AppTypography.Scale(22),
             150,
@@ -50,7 +50,7 @@ internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewVie
         EdgeCapsulePreviewSize size)
         : base(context, size)
     {
-        Margin = new Thickness(14, 11, 11, 12);
+        Margin = new Thickness(10, 9, 9, 10);
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition());
 

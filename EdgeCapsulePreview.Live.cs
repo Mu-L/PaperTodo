@@ -152,6 +152,7 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
 internal static class EdgeCapsulePreviewMeasure
 {
     private const double ApproximateGlyphWidthDip = 6.4;
+    private const double FixedChromeReserveWidthDip = 72;
 
     public static double MeasureWidth(
         string? title,
@@ -168,7 +169,8 @@ internal static class EdgeCapsulePreviewMeasure
                 .Select(DisplayWidth)
                 .DefaultIfEmpty(0)
                 .Max());
-        var desired = 118 + Math.Min(64, longest) * ApproximateGlyphWidthDip;
+        var desired = FixedChromeReserveWidthDip +
+            Math.Min(64, longest) * ApproximateGlyphWidthDip;
         return Math.Clamp(Math.Ceiling(desired), minimum, maximum);
     }
 
@@ -204,7 +206,7 @@ internal sealed class PluginFallbackEdgeCapsulePreviewView : EdgeCapsuleLivePrev
         EdgeCapsulePreviewSize size)
         : base(context, size)
     {
-        Margin = new Thickness(16, 13, 14, 14);
+        Margin = new Thickness(12, 10, 10, 11);
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition());
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

@@ -54,6 +54,7 @@ public sealed partial class PaperWindow
                 !_paper.IsCollapsed,
                 CurrentMarkdownTextForEdgeCapsulePreview,
                 SetTodoDoneFromEdgeCapsulePreview,
+                OpenTodoLinkedTargetFromEdgeCapsulePreview,
                 CurrentTodoCheckBoxStyle,
                 CurrentPluginStatusForEdgeCapsulePreview,
                 OpenExternalFromEdgeCapsulePreview,

@@ -28,9 +28,9 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             context.Title,
             body,
-            minimum: 280,
+            minimum: EdgeCapsulePreviewSize.MinimumWidthDip,
             maximum: 450);
-        var availableTextWidth = Math.Max(120, width - 88);
+        var availableTextWidth = Math.Max(64, width - 60);
         var estimatedLines = items.Count == 0
             ? 1
             : items.Take(12).Sum(item => Math.Clamp(
@@ -40,7 +40,7 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
                 1,
                 3));
         var height = Math.Clamp(
-            78 + Math.Min(12, estimatedLines) * AppTypography.Scale(28),
+            62 + Math.Min(12, estimatedLines) * AppTypography.Scale(28),
             150,
             400);
 
@@ -63,7 +63,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
     private readonly TextBlock _summary;
     private readonly StackPanel _items;
     private readonly ScrollViewer _scrollViewer;
-    private readonly TextBlock _footer;
     private bool _rebuilding;
 
     public TodoEdgeCapsulePreviewView(
@@ -71,17 +70,17 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         EdgeCapsulePreviewSize size)
         : base(context, size)
     {
-        Margin = new Thickness(13, 11, 11, 12);
+        Margin = new Thickness(10, 9, 9, 10);
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition());
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var heading = new Grid
         {
             Margin = new Thickness(2, 0, 1, 7)
         };
-        heading.ColumnDefinitions.Add(new ColumnDefinition());
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        heading.ColumnDefinitions.Add(new ColumnDefinition());
 
         _title = new TextBlock
         {
@@ -89,14 +88,15 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
             FontSize = AppTypography.Scale(13),
             FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = Math.Max(48, size.WidthDip - 86)
         };
         _title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
         heading.Children.Add(_title);
 
         _summary = new TextBlock
         {
-            Margin = new Thickness(10, 0, 4, 0),
+            Margin = new Thickness(6, 0, 0, 0),
             FontFamily = AppTypography.UiFontFamily,
             FontSize = AppTypography.Scale(11),
             VerticalAlignment = VerticalAlignment.Center
@@ -121,17 +121,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         Grid.SetRow(_scrollViewer, 1);
         Children.Add(_scrollViewer);
 
-        _footer = new TextBlock
-        {
-            Margin = new Thickness(3, 7, 3, 0),
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(10.5),
-            HorizontalAlignment = HorizontalAlignment.Right
-        };
-        _footer.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
-        Grid.SetRow(_footer, 2);
-        Children.Add(_footer);
-
         InitializeLiveContent();
     }
 
@@ -147,11 +136,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         _title.Text = Context.Title;
         _title.ToolTip = Context.Title;
         _summary.Text = $"{done}/{meaningful.Count}";
-        _footer.Text = meaningful.Count == 0
-            ? "—"
-            : meaningful.Count > TodoEdgeCapsulePreviewProvider.MaximumRenderedItems
-                ? $"{done} / {meaningful.Count} · …"
-                : $"{done} / {meaningful.Count}";
 
         _rebuilding = true;
         try
@@ -203,7 +187,7 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -242,7 +226,7 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         var text = new TextBlock
         {
             Text = PreviewItemText(item.Text),
-            Margin = new Thickness(2, 0, 8, 0),
+            Margin = new Thickness(1, 0, 5, 0),
             FontFamily = AppTypography.FontFamilyFor(content: true, bold: false),
             FontSize = AppTypography.Scale(12),
             FontWeight = FontWeights.Normal,
@@ -259,15 +243,7 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
 
-        var marker = new TextBlock
-        {
-            Text = ItemMarker(item),
-            Margin = new Thickness(2, 0, 2, 0),
-            FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = AppTypography.Scale(10.5),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        marker.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+        var marker = BuildItemMarker(item);
         Grid.SetColumn(marker, 2);
         grid.Children.Add(marker);
 
@@ -289,21 +265,67 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
             : text[..(maximum - 1)] + "…";
     }
 
-    private static string ItemMarker(PaperItem item)
+    private FrameworkElement BuildItemMarker(PaperItem item)
     {
-        var marker = string.Empty;
+        var markers = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(1, 0, 1, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
         if (item.ReminderAt.HasValue || item.ReminderTriggered)
         {
-            marker += "◷";
+            markers.Children.Add(CreateMarkerText("◷"));
         }
+
+        string? linkedMarker = null;
         if (!string.IsNullOrWhiteSpace(item.LinkedPaperId))
         {
-            marker += "↗";
+            linkedMarker = "↗";
         }
         else if (!string.IsNullOrWhiteSpace(item.LinkedPath))
         {
-            marker += "⌁";
+            linkedMarker = "⌁";
         }
+
+        if (linkedMarker != null)
+        {
+            var link = CreateMarkerText(linkedMarker);
+            link.Cursor = Cursors.Hand;
+            EdgeCapsulePreviewInteraction.SetConsumesPointer(link, true);
+            link.MouseEnter += (_, _) =>
+                link.SetResourceReference(
+                    TextBlock.ForegroundProperty,
+                    "LinkBrushKey");
+            link.MouseLeave += (_, _) =>
+                link.SetResourceReference(
+                    TextBlock.ForegroundProperty,
+                    "WeakTextBrushKey");
+            link.MouseLeftButtonUp += (_, e) =>
+            {
+                Context.OpenTodoLinkedTarget(item.Id);
+                e.Handled = true;
+            };
+            markers.Children.Add(link);
+        }
+
+        return markers;
+    }
+
+    private static TextBlock CreateMarkerText(string text)
+    {
+        var marker = new TextBlock
+        {
+            Text = text,
+            Margin = new Thickness(1, 0, 1, 0),
+            FontFamily = AppTypography.SymbolFontFamily,
+            FontSize = AppTypography.Scale(10.5),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        marker.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "WeakTextBrushKey");
         return marker;
     }
 }

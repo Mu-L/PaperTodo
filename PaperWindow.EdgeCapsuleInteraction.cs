@@ -83,21 +83,13 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        var openedFromPreview = IsEdgeCapsulePreviewOpen;
         FinishEdgeCapsulePointerInteraction();
         try
         {
-            if (openedFromPreview)
-            {
-                // Opening the full paper does not end the browsing session. If expanded papers
-                // keep their edge reservation, the card stays unchanged until the pointer really
-                // leaves its queue corridor; detaching the slot still closes it structurally.
-                ActivateFromEdgeCapsulePreview();
-            }
-            else
-            {
-                ActivateFromDeepCapsuleSlot();
-            }
+            // Preview is a presentation state, not a second activation semantic. Background
+            // clicks therefore inherit the standard capsule action, including script execution
+            // and the optional "collapse expanded capsule on click" behavior.
+            ActivateFromDeepCapsuleSlot();
         }
         finally
         {

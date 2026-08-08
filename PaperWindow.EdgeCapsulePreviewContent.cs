@@ -60,10 +60,45 @@ public sealed partial class PaperWindow
             return true;
         }
 
+        MoveTodoItemsAfterDoneChange([item], done);
         ReconcileTodoRows(
             new[] { item.Id },
             focusItemId: focusedId);
         return true;
+    }
+
+    private bool OpenTodoLinkedTargetFromEdgeCapsulePreview(string itemId)
+    {
+        if (_paper.Type != PaperTypes.Todo)
+        {
+            return false;
+        }
+
+        var item = _paper.Items.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, itemId, StringComparison.Ordinal));
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (_controller.State.EnableTodoPaperLinks &&
+            _controller.TryGetLinkedPaperTitle(item.LinkedPaperId, out _))
+        {
+            if (!_controller.ShouldRunLinkedScriptCapsule(item.LinkedPaperId) ||
+                !_controller.RunLinkedScriptCapsule(item.LinkedPaperId))
+            {
+                _controller.OpenLinkedPaper(item.LinkedPaperId, this);
+            }
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.LinkedPath))
+        {
+            OpenTodoLinkedPath(item);
+            return true;
+        }
+
+        return false;
     }
 
     private string CurrentPluginStatusForEdgeCapsulePreview()

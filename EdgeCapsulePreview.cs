@@ -8,7 +8,7 @@ internal readonly record struct EdgeCapsulePreviewSize(
     double WidthDip,
     double HeightDip)
 {
-    public const double MinimumWidthDip = 240;
+    public const double MinimumWidthDip = 150;
     public const double MaximumWidthDip = 480;
     public const double MinimumHeightDip = 120;
     public const double MaximumHeightDip = 420;
@@ -63,6 +63,7 @@ internal sealed record EdgeCapsulePreviewContext(
     bool PaperExpanded,
     Func<string> ReadMarkdownText,
     Func<string, bool, bool> SetTodoDone,
+    Func<string, bool> OpenTodoLinkedTarget,
     Func<Style> ReadTodoCheckStyle,
     Func<string> ReadPluginStatus,
     Action<string> OpenExternal,
@@ -112,12 +113,12 @@ internal sealed class DefaultEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPro
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             title,
             status,
-            minimum: 280,
+            minimum: EdgeCapsulePreviewSize.MinimumWidthDip,
             maximum: 440);
         var height = Math.Clamp(
             150 + EdgeCapsulePreviewMeasure.EstimateWrappedLines(
                 status,
-                Math.Max(120, width - 48)) * AppTypography.Scale(20),
+                Math.Max(72, width - 40)) * AppTypography.Scale(20),
             160,
             280);
 
