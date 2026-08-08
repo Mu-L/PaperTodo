@@ -95,6 +95,9 @@ public sealed partial class PaperWindow
         }
         _edgeCapsuleHost.AttachInput(new EdgeCapsuleHostCallbacks(
             InvalidateEdgeCapsulePointer,
+            pointer => _controller.NotifyEdgeCapsulePreviewPointerMoved(
+                this,
+                pointer),
             OnEdgeCapsulePointerPressed,
             OnEdgeCapsulePointerMoved,
             OnEdgeCapsulePointerReleased,

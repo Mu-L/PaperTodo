@@ -13,6 +13,7 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
 {
     private DispatcherOperation? _refreshOperation;
     private bool _contentDirty = true;
+    private bool _hasRenderedContent;
     private bool _subscribed;
     private bool _refreshing;
 
@@ -105,7 +106,9 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
 
         _refreshOperation = Dispatcher.BeginInvoke(
             (Action)RefreshIfDirty,
-            DispatcherPriority.Background);
+            _hasRenderedContent
+                ? DispatcherPriority.Background
+                : DispatcherPriority.Loaded);
     }
 
     private void CancelQueuedRefresh()
@@ -130,6 +133,7 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
         try
         {
             RebuildContent();
+            _hasRenderedContent = true;
         }
         catch
         {

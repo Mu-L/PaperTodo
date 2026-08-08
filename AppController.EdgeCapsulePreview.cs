@@ -8,6 +8,7 @@ public sealed partial class AppController
 
     private EdgeCapsulePreviewLayoutSession? _edgeCapsulePreviewSession;
     private string? _edgeCapsulePreviewOutgoingPaperId;
+    private string? _edgeCapsulePreviewLayoutEnterCandidatePaperId;
     private DeviceScreenPoint? _edgeCapsulePreviewLastTransferPointer;
     private int _edgeCapsulePreviewTransferGeneration;
     private int _edgeCapsulePreviewCloseGeneration;
@@ -95,6 +96,7 @@ public sealed partial class AppController
         ReleaseOutgoingEdgeCapsulePreviewContent();
         var session = _edgeCapsulePreviewSession;
         _edgeCapsulePreviewSession = null;
+        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
         _edgeCapsulePreviewLastTransferPointer = null;
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
@@ -117,6 +119,13 @@ public sealed partial class AppController
 
         if (!pointerOver)
         {
+            if (string.Equals(
+                    _edgeCapsulePreviewLayoutEnterCandidatePaperId,
+                    window.EdgeCapsulePreviewPaperId,
+                    StringComparison.Ordinal))
+            {
+                _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+            }
             return;
         }
 
@@ -137,16 +146,57 @@ public sealed partial class AppController
             }
             if (IsEdgeCapsulePreviewLayoutOnlyEnter())
             {
+                // The queue animation may move this peer under a stationary pointer. Suppress
+                // that automatic transfer, but retain the peer so the next real mouse move can
+                // retry without requiring a leave-and-reenter cycle.
+                _edgeCapsulePreviewLayoutEnterCandidatePaperId =
+                    window.EdgeCapsulePreviewPaperId;
                 return;
             }
 
+            _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
             QueueEdgeCapsulePreviewTransfer(window);
             return;
         }
 
+        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
         // Use the next input turn only to avoid re-entering pointer reconciliation. There is no
         // hover dwell: the shell transition starts as soon as that zero-delay callback runs.
         QueueEdgeCapsulePreviewTransfer(window);
+    }
+
+    internal void NotifyEdgeCapsulePreviewPointerMoved(
+        PaperWindow window,
+        DeviceScreenPoint pointer)
+    {
+        var candidatePaperId =
+            _edgeCapsulePreviewLayoutEnterCandidatePaperId;
+        if (candidatePaperId == null ||
+            _edgeCapsulePreviewSession == null ||
+            !string.Equals(
+                candidatePaperId,
+                window.EdgeCapsulePreviewPaperId,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ClearEdgeCapsulePreviewLayoutSuppressionWhenPointerMoves(pointer);
+        if (_edgeCapsulePreviewLastTransferPointer.HasValue)
+        {
+            return;
+        }
+
+        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+        if (!_windows.TryGetValue(candidatePaperId, out var candidate) ||
+            !ReferenceEquals(candidate, window) ||
+            !candidate.CanEnterEdgeCapsulePreview ||
+            !candidate.IsEdgeCapsulePointerOver)
+        {
+            return;
+        }
+
+        QueueEdgeCapsulePreviewTransfer(candidate);
     }
 
     internal void NotifyEdgeCapsulePreviewPointerSample(
@@ -257,6 +307,13 @@ public sealed partial class AppController
     private void QueueEdgeCapsulePreviewTransfer(PaperWindow window)
     {
         var paperId = window.EdgeCapsulePreviewPaperId;
+        if (string.Equals(
+                _edgeCapsulePreviewLayoutEnterCandidatePaperId,
+                paperId,
+                StringComparison.Ordinal))
+        {
+            _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+        }
         var generation = ++_edgeCapsulePreviewTransferGeneration;
         window.Dispatcher.BeginInvoke(
             (Action)(() =>
@@ -297,6 +354,7 @@ public sealed partial class AppController
 
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
+        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
         // A newly prepared view is already a WPF tree even before it is parented. Retire the
         // oldest shrinking card first so rapid A -> B -> C browsing never retains three trees.
         ReleaseOutgoingEdgeCapsulePreviewContent();
@@ -354,6 +412,7 @@ public sealed partial class AppController
         _edgeCapsulePreviewCloseGeneration++;
         var session = _edgeCapsulePreviewSession;
         _edgeCapsulePreviewSession = null;
+        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
         _edgeCapsulePreviewLastTransferPointer = null;
         if (session != null &&
             _windows.TryGetValue(session.OwnerPaperId, out var owner))
