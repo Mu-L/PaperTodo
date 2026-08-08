@@ -83,7 +83,14 @@ internal static class EdgeCapsuleTransitionPolicy
             target.Edge,
             target.WallDeviceX,
             hostWidth);
-        var interactiveBounds = target.IsHitTestVisible
+        // The old preview tree remains visible while its height shrinks, but it must stop owning
+        // input as soon as the logical preview closes. Keep the outgoing surface identity through
+        // retargets so a compact layout update cannot re-enable the tall card midway through.
+        var outgoingPreview =
+            start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+            target.Surface != EdgeCapsuleSurfaceKind.DockedPreview;
+        var hitTestVisible = target.IsHitTestVisible && !outgoingPreview;
+        var interactiveBounds = hitTestVisible
             ? EdgeCapsuleGeometry.InteractiveBoundsForAppliedBounds(
                 bounds,
                 target.Edge,
@@ -93,7 +100,7 @@ internal static class EdgeCapsuleTransitionPolicy
             : default;
         var frame = new EdgeCapsulePresentationFrame(
             true,
-            target.Surface,
+            outgoingPreview ? start.Surface : target.Surface,
             bounds,
             hostBounds,
             interactiveBounds,
@@ -106,7 +113,7 @@ internal static class EdgeCapsuleTransitionPolicy
             Lerp(start.Opacity, target.Opacity, progress),
             Lerp(start.ContentOpacity, target.ContentOpacity, progress),
             target.OutlineVisible,
-            target.IsHitTestVisible,
+            hitTestVisible,
             target.CloseSegmentActsAsContent);
         return new EdgeCapsuleTransitionSample(frame, false);
     }

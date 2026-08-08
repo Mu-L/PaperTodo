@@ -66,6 +66,8 @@ internal sealed class EdgeCapsulePresenter
     public EdgeCapsuleFloatingShape FloatingShape => TargetPlan.Floating;
     public EdgeCapsulePresentationFrame AppliedPresentation { get; private set; } =
         EdgeCapsulePresentationFrame.Hidden;
+    public int AppliedPresentationVersion { get; private set; }
+    public DeviceScreenPoint? LastPointerSample { get; private set; }
     private EdgeCapsuleTransition? Transition { get; set; }
 
     public EdgeCapsuleDispatchResult Dispatch(
@@ -129,6 +131,7 @@ internal sealed class EdgeCapsulePresenter
         var pointer = _hasFramePointerOverride
             ? _framePointerOverride
             : capturePointer();
+        LastPointerSample = pointer;
 
         // The fixed host is larger than the current visible surface. Every transition frame
         // resamples the real physical interactive rectangle, so transparent reserve pixels never
@@ -249,7 +252,7 @@ internal sealed class EdgeCapsulePresenter
         var applied = !shouldApply || apply(sample.Frame);
         if (applied && shouldApply)
         {
-            AppliedPresentation = sample.Frame;
+            SetAppliedPresentation(sample.Frame);
             _appliedForceApplyVersion = forceApplyVersion;
             ResetApplyRetryWindow();
         }
@@ -277,7 +280,7 @@ internal sealed class EdgeCapsulePresenter
                 var hidden = EdgeCapsulePresentationFrame.Hidden;
                 if (apply(hidden))
                 {
-                    AppliedPresentation = hidden;
+                    SetAppliedPresentation(hidden);
                 }
             }
         }
@@ -327,7 +330,8 @@ internal sealed class EdgeCapsulePresenter
     {
         CancelTransition();
         TargetPlan = EdgeCapsulePresentationPlan.Hidden;
-        AppliedPresentation = EdgeCapsulePresentationFrame.Hidden;
+        SetAppliedPresentation(EdgeCapsulePresentationFrame.Hidden);
+        LastPointerSample = null;
         _layoutSnapshot = null;
         _appliedForceApplyVersion = _forceApplyVersion;
         _pendingMotion = EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
@@ -348,6 +352,21 @@ internal sealed class EdgeCapsulePresenter
                 AppliedPresentation.InteractiveBounds,
                 pointer.Value);
         return Dispatch(EdgeCapsuleIntent.PointerSampled(over)).Changed;
+    }
+
+    private void SetAppliedPresentation(
+        EdgeCapsulePresentationFrame presentation)
+    {
+        if (AppliedPresentation == presentation)
+        {
+            return;
+        }
+
+        AppliedPresentation = presentation;
+        unchecked
+        {
+            AppliedPresentationVersion++;
+        }
     }
 
     private bool NeedsPointerTracking =>

@@ -21,6 +21,11 @@ public sealed partial class AppController
         _edgeCapsulePreviewLayoutSuppressionAnchor;
     private int _edgeCapsulePreviewTransferGeneration;
     private int _edgeCapsulePreviewCloseGeneration;
+    private int _edgeCapsulePreviewPointerResolutionVersion;
+    private EdgeCapsulePreviewLayoutSession?
+        _edgeCapsulePreviewLastResolvedSession;
+    private DeviceScreenPoint? _edgeCapsulePreviewLastResolvedPointer;
+    private int _edgeCapsulePreviewLastResolvedVersion = -1;
 
     private readonly record struct EdgeCapsulePreviewActivationIntent(
         string TargetPaperId,
@@ -34,6 +39,11 @@ public sealed partial class AppController
         double DpiScaleX,
         double DpiScaleY,
         string QueueKey);
+
+    private readonly record struct EdgeCapsulePreviewStableAnchor(
+        DeviceScreenPoint Point,
+        double DpiScaleX,
+        double DpiScaleY);
 
     private readonly record struct EdgeCapsulePreviewPointerResolution(
         PaperWindow? Target,
@@ -245,14 +255,23 @@ public sealed partial class AppController
             return;
         }
 
-        ObserveEdgeCapsulePreviewPointer(window, pointer.Value);
         ClearEdgeCapsulePreviewLayoutSuppressionWhenPointerMoves(pointer.Value);
         if (window.EdgeCapsulePreviewPointerCaptureActive)
         {
+            ForgetEdgeCapsulePreviewPointerResolution();
             CancelEdgeCapsulePreviewActivationIntent();
             CancelQueuedEdgeCapsulePreviewClose();
             return;
         }
+
+        if (CanReuseEdgeCapsulePreviewPointerResolution(
+                session,
+                pointer.Value))
+        {
+            return;
+        }
+
+        ObserveEdgeCapsulePreviewPointer(window, pointer.Value);
 
         var resolution = ResolveEdgeCapsulePreviewPointer(
             session,
@@ -264,6 +283,9 @@ public sealed partial class AppController
                     resolution.Target))
             {
                 CancelEdgeCapsulePreviewActivationIntent();
+                RememberEdgeCapsulePreviewPointerResolution(
+                    session,
+                    pointer.Value);
                 return;
             }
 
@@ -278,35 +300,36 @@ public sealed partial class AppController
         if (resolution.CorridorContains)
         {
             CancelQueuedEdgeCapsulePreviewClose();
+            RememberEdgeCapsulePreviewPointerResolution(
+                session,
+                pointer.Value);
             return;
         }
 
         // Leaving the complete queue corridor is not part of transfer debounce. Close on the next
         // safe dispatcher turn even if the physical pointer is still moving.
+        RememberEdgeCapsulePreviewPointerResolution(
+            session,
+            pointer.Value);
         QueueEdgeCapsulePreviewClose(window, session.OwnerPaperId);
     }
 
-    internal bool CloseEdgeCapsulePreviewForDrag(PaperWindow window)
+    internal bool CloseEdgeCapsulePreviewForDrag(PaperWindow draggedWindow)
     {
-        if (!IsEdgeCapsulePreviewOwner(window))
+        var session = _edgeCapsulePreviewSession;
+        if (session == null)
         {
             return false;
         }
 
+        var draggedWindowWasOwner = string.Equals(
+            session.OwnerPaperId,
+            draggedWindow.EdgeCapsulePreviewPaperId,
+            StringComparison.Ordinal);
+        _windows.TryGetValue(session.OwnerPaperId, out var owner);
         CloseEdgeCapsulePreview(animate: false, arrange: true);
-        window.FlushEdgeCapsulePreviewCompactPresentation();
-        return true;
-    }
-
-    internal void CloseEdgeCapsulePreviewForActivation(PaperWindow window)
-    {
-        if (!IsEdgeCapsulePreviewOwner(window))
-        {
-            return;
-        }
-
-        CloseEdgeCapsulePreview(animate: false, arrange: true);
-        window.FlushEdgeCapsulePreviewCompactPresentation();
+        owner?.FlushEdgeCapsulePreviewCompactPresentation();
+        return draggedWindowWasOwner;
     }
 
     internal void CloseEdgeCapsulePreviewForClose(PaperWindow window)
@@ -391,7 +414,8 @@ public sealed partial class AppController
 
     private void QueueEdgeCapsulePreviewTransfer(
         PaperWindow window,
-        string? expectedOwnerPaperId = null)
+        string? expectedOwnerPaperId = null,
+        EdgeCapsulePreviewStableAnchor? stableAnchor = null)
     {
         var paperId = window.EdgeCapsulePreviewPaperId;
         if (string.Equals(
@@ -422,7 +446,13 @@ public sealed partial class AppController
                     !ReferenceEquals(current, window) ||
                     !current.CanEnterEdgeCapsulePreview ||
                     !WindowNative.TryGetCursorScreenPosition(out var pointer) ||
-                    !current.IsEdgeCapsuleInteractiveAt(pointer))
+                    !current.IsEdgeCapsuleInteractiveAt(pointer) ||
+                    (stableAnchor.HasValue &&
+                     EdgeCapsulePreviewPointerMovedBeyondTolerance(
+                         stableAnchor.Value.Point,
+                         pointer,
+                         stableAnchor.Value.DpiScaleX,
+                         stableAnchor.Value.DpiScaleY)))
                 {
                     return;
                 }
@@ -754,7 +784,52 @@ public sealed partial class AppController
         _edgeCapsulePreviewActivationIntent = null;
         QueueEdgeCapsulePreviewTransfer(
             target,
-            expectedOwnerPaperId);
+            expectedOwnerPaperId,
+            new EdgeCapsulePreviewStableAnchor(
+                currentIntent.StableAnchor,
+                targetGeometry.DpiScaleX,
+                targetGeometry.DpiScaleY));
+    }
+
+    internal void InvalidateEdgeCapsulePreviewPointerResolution()
+    {
+        unchecked
+        {
+            _edgeCapsulePreviewPointerResolutionVersion++;
+        }
+        ForgetEdgeCapsulePreviewPointerResolution();
+    }
+
+    private bool CanReuseEdgeCapsulePreviewPointerResolution(
+        EdgeCapsulePreviewLayoutSession session,
+        DeviceScreenPoint pointer) =>
+        // Rendering still advances at the monitor's native refresh rate. Only an unchanged,
+        // settled hit-test result is reused; pending intent and every presentation/input change
+        // continue through the full physical queue resolver.
+        _edgeCapsulePreviewActivationIntent == null &&
+        _edgeCapsulePreviewQueuedTransferPaperId == null &&
+        ReferenceEquals(
+            _edgeCapsulePreviewLastResolvedSession,
+            session) &&
+        _edgeCapsulePreviewLastResolvedPointer == pointer &&
+        _edgeCapsulePreviewLastResolvedVersion ==
+            _edgeCapsulePreviewPointerResolutionVersion;
+
+    private void RememberEdgeCapsulePreviewPointerResolution(
+        EdgeCapsulePreviewLayoutSession session,
+        DeviceScreenPoint pointer)
+    {
+        _edgeCapsulePreviewLastResolvedSession = session;
+        _edgeCapsulePreviewLastResolvedPointer = pointer;
+        _edgeCapsulePreviewLastResolvedVersion =
+            _edgeCapsulePreviewPointerResolutionVersion;
+    }
+
+    private void ForgetEdgeCapsulePreviewPointerResolution()
+    {
+        _edgeCapsulePreviewLastResolvedSession = null;
+        _edgeCapsulePreviewLastResolvedPointer = null;
+        _edgeCapsulePreviewLastResolvedVersion = -1;
     }
 
     private void ObserveEdgeCapsulePreviewPointer(

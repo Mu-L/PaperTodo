@@ -186,7 +186,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             motion.VerticalDominance <
                 sensitivityProfile.MinimumVerticalDominance)
         {
-            return candidateElapsedMilliseconds >=
+            return stableElapsedMilliseconds >=
                 profile.MinimumDelayMilliseconds
                 ? EdgeCapsuleHoverIntentDecision.NoExtraDelay
                 : EdgeCapsuleHoverIntentDecision.Delay;
@@ -225,9 +225,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         }
 
         // hoverIntent style adaptive dwell: faster, persistent motion consumes more of the bounded
-        // delay budget. A clear braking trend sharply reduces the remaining delay, so stopping on
-        // a capsule normally releases the gate on the next frame instead of waiting the profile's
-        // full delay budget.
+        // delay budget. A clear braking trend selects the short end of that budget, while the
+        // stable clock prevents time accumulated during earlier movement from authorizing the
+        // target immediately after the pointer shifts again.
         var risk = Math.Clamp(
             1 - timeToExit / profile.DynamicDelayHorizonMilliseconds,
             0,
@@ -248,7 +248,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         var requiredDelay = profile.MinimumDelayMilliseconds +
             (profile.MaximumDelayMilliseconds -
                 profile.MinimumDelayMilliseconds) * risk;
-        return candidateElapsedMilliseconds >= requiredDelay
+        return stableElapsedMilliseconds >= requiredDelay
             ? EdgeCapsuleHoverIntentDecision.NoExtraDelay
             : EdgeCapsuleHoverIntentDecision.Delay;
     }

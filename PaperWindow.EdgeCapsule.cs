@@ -256,6 +256,10 @@ public sealed partial class PaperWindow
 
     private void InvalidateEdgeCapsule(EdgeCapsuleDirty dirty)
     {
+        if ((dirty & EdgeCapsuleDirty.Pointer) != 0)
+        {
+            _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        }
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.Invalidate(dirty, dispatcher, ReconcileEdgeCapsule);
     }
@@ -264,12 +268,19 @@ public sealed partial class PaperWindow
     {
         var wasRetracting = IsDeepCapsuleSlotRetracting;
         var wasPointerOver = _edgeCapsule.PointerOverSurface;
-        var pointer = CaptureEdgeCapsulePointerPosition();
+        var appliedPresentationVersion =
+            _edgeCapsule.AppliedPresentationVersion;
         var remaining = _edgeCapsule.Reconcile(
             dirty,
             CaptureEdgeCapsuleLayoutSnapshot,
-            () => pointer,
+            CaptureEdgeCapsulePointerPosition,
             ApplyEdgeCapsulePresentationFrame);
+        var pointer = _edgeCapsule.LastPointerSample;
+        if (appliedPresentationVersion !=
+            _edgeCapsule.AppliedPresentationVersion)
+        {
+            _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        }
         if (wasRetracting && !IsDeepCapsuleSlotRetracting)
         {
             UpdateDeepCapsuleSlotHostTheme();

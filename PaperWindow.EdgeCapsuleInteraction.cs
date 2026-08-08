@@ -85,14 +85,13 @@ public sealed partial class PaperWindow
 
         var openedFromPreview = IsEdgeCapsulePreviewOpen;
         FinishEdgeCapsulePointerInteraction();
-        if (openedFromPreview)
-        {
-            _controller.CloseEdgeCapsulePreviewForActivation(this);
-        }
         try
         {
             if (openedFromPreview)
             {
+                // Opening the full paper does not end the browsing session. If expanded papers
+                // keep their edge reservation, the card stays unchanged until the pointer really
+                // leaves its queue corridor; detaching the slot still closes it structurally.
                 ActivateFromEdgeCapsulePreview();
             }
             else
