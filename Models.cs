@@ -250,6 +250,18 @@ public static class ExperimentalOpacityLevels
     }
 }
 
+public static class EdgeCapsuleHoverIntentSensitivities
+{
+    public const string Low = "low";
+    public const string Medium = "medium";
+    public const string High = "high";
+
+    public static string Normalize(string? sensitivity)
+    {
+        return sensitivity is Low or High ? sensitivity : Medium;
+    }
+}
+
 public static class ExperimentalTodoReminderOptions
 {
     public const int MinimumQuickMinutes = 5;
@@ -427,6 +439,9 @@ public sealed class AppState
     public bool ExperimentalHideInactiveTopBarButtons { get; set; }
     public bool ExperimentalHideInactiveTitleBar { get; set; }
     public bool ExperimentalDockedCapsulesNonTopmost { get; set; }
+    public bool ExperimentalEdgeCapsuleHoverIntent { get; set; } = true;
+    public string ExperimentalEdgeCapsuleHoverIntentSensitivity { get; set; } =
+        EdgeCapsuleHoverIntentSensitivities.Medium;
     public bool ExperimentalAllowLockIconUnlock { get; set; } = true;
     public double ExperimentalShortcutOpacityLevel { get; set; } = 0.35;
     public bool ExperimentalTodoReminders { get; set; }

@@ -26,33 +26,43 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     private const double HistoryWindowMilliseconds = 64;
     private const double StaleHistoryMilliseconds = 180;
     private const double DuplicateSampleMilliseconds = 1.5;
-    private const double StableFallbackMilliseconds = 50;
-    private const double MinimumDirectionalSpeedDevicePerMillisecond = 0.10;
-    private const double MinimumDirectionConsistency = 0.72;
-    private const double MinimumVerticalDominance = 0.55;
     private const double BrakingRatio = 0.72;
-    private const double BrakingDeltaDevicePerMillisecond = 0.06;
+    private const double BrakingDeltaDipPerMillisecond = 0.05;
     private const double AccelerationRatio = 1.15;
-    private const double AccelerationDeltaDevicePerMillisecond = 0.05;
+    private const double AccelerationDeltaDipPerMillisecond = 0.04;
 
-    private static readonly IntentProfile InitialProfile = new(
-        MinimumObservationMilliseconds: 8,
-        MinimumDelayMilliseconds: 8,
-        MaximumDelayMilliseconds: 32,
-        PassThroughVetoHorizonMilliseconds: 80,
-        DynamicDelayHorizonMilliseconds: 180);
+    private static readonly IntentSensitivityProfile HighProfile = new(
+        Initial: new IntentProfile(8, 8, 32, 80, 180),
+        Transfer: new IntentProfile(12, 12, 50, 120, 240),
+        StableFallbackMilliseconds: 50,
+        MinimumDirectionalSpeedDipPerMillisecond: 0.10,
+        MinimumDirectionConsistency: 0.72,
+        MinimumVerticalDominance: 0.55);
 
-    private static readonly IntentProfile TransferProfile = new(
-        MinimumObservationMilliseconds: 12,
-        MinimumDelayMilliseconds: 12,
-        MaximumDelayMilliseconds: 50,
-        PassThroughVetoHorizonMilliseconds: 120,
-        DynamicDelayHorizonMilliseconds: 240);
+    private static readonly IntentSensitivityProfile MediumProfile = new(
+        Initial: new IntentProfile(8, 10, 36, 90, 200),
+        Transfer: new IntentProfile(14, 20, 66, 155, 310),
+        StableFallbackMilliseconds: 60,
+        MinimumDirectionalSpeedDipPerMillisecond: 0.075,
+        MinimumDirectionConsistency: 0.68,
+        MinimumVerticalDominance: 0.50);
+
+    // "Low" describes activation sensitivity: it applies longer waits and recognizes less
+    // pronounced residual motion as pass-through risk, so stopping must be more deliberate.
+    private static readonly IntentSensitivityProfile LowProfile = new(
+        Initial: new IntentProfile(10, 14, 44, 110, 240),
+        Transfer: new IntentProfile(18, 34, 90, 205, 410),
+        StableFallbackMilliseconds: 85,
+        MinimumDirectionalSpeedDipPerMillisecond: 0.055,
+        MinimumDirectionConsistency: 0.64,
+        MinimumVerticalDominance: 0.45);
 
     private readonly PointerSample[] _samples =
         new PointerSample[SampleCapacity];
     private int _sampleStart;
     private int _sampleCount;
+    private double _dpiScaleX = 1;
+    private double _dpiScaleY = 1;
 
     private readonly record struct PointerSample(
         DeviceScreenPoint Point,
@@ -65,11 +75,19 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         double PassThroughVetoHorizonMilliseconds,
         double DynamicDelayHorizonMilliseconds);
 
+    private readonly record struct IntentSensitivityProfile(
+        IntentProfile Initial,
+        IntentProfile Transfer,
+        double StableFallbackMilliseconds,
+        double MinimumDirectionalSpeedDipPerMillisecond,
+        double MinimumDirectionConsistency,
+        double MinimumVerticalDominance);
+
     private readonly record struct MotionEstimate(
         bool HasMotion,
-        double SignedVerticalSpeedDevicePerMillisecond,
-        double RecentVerticalSpeedDevicePerMillisecond,
-        double PriorVerticalSpeedDevicePerMillisecond,
+        double SignedVerticalSpeedDipPerMillisecond,
+        double RecentVerticalSpeedDipPerMillisecond,
+        double PriorVerticalSpeedDipPerMillisecond,
         double DirectionConsistency,
         double VerticalDominance,
         bool HasSpeedTrend);
@@ -78,16 +96,39 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     {
         _sampleStart = 0;
         _sampleCount = 0;
+        _dpiScaleX = 1;
+        _dpiScaleY = 1;
     }
 
-    public void Reset(DeviceScreenPoint pointer, long timestamp)
+    public void Reset(
+        DeviceScreenPoint pointer,
+        long timestamp,
+        double dpiScaleX,
+        double dpiScaleY)
     {
         Reset();
+        _dpiScaleX = NormalizeDpiScale(dpiScaleX);
+        _dpiScaleY = NormalizeDpiScale(dpiScaleY);
         AddSample(new PointerSample(pointer, timestamp));
     }
 
-    public void Observe(DeviceScreenPoint pointer, long timestamp)
+    public void Observe(
+        DeviceScreenPoint pointer,
+        long timestamp,
+        double dpiScaleX,
+        double dpiScaleY)
     {
+        var nextScaleX = NormalizeDpiScale(dpiScaleX);
+        var nextScaleY = NormalizeDpiScale(dpiScaleY);
+        if (_sampleCount > 0 &&
+            (Math.Abs(_dpiScaleX - nextScaleX) > 0.001 ||
+             Math.Abs(_dpiScaleY - nextScaleY) > 0.001))
+        {
+            Reset();
+        }
+        _dpiScaleX = nextScaleX;
+        _dpiScaleY = nextScaleY;
+
         if (_sampleCount == 0)
         {
             AddSample(new PointerSample(pointer, timestamp));
@@ -98,7 +139,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         var elapsed = ElapsedMilliseconds(latest.Timestamp, timestamp);
         if (elapsed < 0 || elapsed > StaleHistoryMilliseconds)
         {
-            Reset(pointer, timestamp);
+            Reset(pointer, timestamp, nextScaleX, nextScaleY);
             return;
         }
         if (elapsed < DuplicateSampleMilliseconds)
@@ -111,21 +152,25 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
     public EdgeCapsuleHoverIntentDecision Evaluate(
         EdgeCapsuleHoverIntentMode mode,
+        string sensitivity,
         DeviceScreenRect targetBounds,
         DeviceScreenPoint pointer,
         double candidateElapsedMilliseconds,
         double stableElapsedMilliseconds)
     {
+        var sensitivityProfile = ResolveSensitivityProfile(sensitivity);
+        var profile = mode == EdgeCapsuleHoverIntentMode.Initial
+            ? sensitivityProfile.Initial
+            : sensitivityProfile.Transfer;
+
         // This is a deterministic escape hatch, not a positive prediction. Even a noisy motion
         // estimate cannot keep a genuinely settled pointer pending forever.
-        if (stableElapsedMilliseconds >= StableFallbackMilliseconds)
+        if (stableElapsedMilliseconds >=
+            sensitivityProfile.StableFallbackMilliseconds)
         {
             return EdgeCapsuleHoverIntentDecision.NoExtraDelay;
         }
 
-        var profile = mode == EdgeCapsuleHoverIntentMode.Initial
-            ? InitialProfile
-            : TransferProfile;
         if (candidateElapsedMilliseconds <
             profile.MinimumObservationMilliseconds)
         {
@@ -134,33 +179,40 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
         var motion = EstimateMotion();
         if (!motion.HasMotion ||
-            motion.RecentVerticalSpeedDevicePerMillisecond <
-                MinimumDirectionalSpeedDevicePerMillisecond ||
-            motion.DirectionConsistency < MinimumDirectionConsistency ||
-            motion.VerticalDominance < MinimumVerticalDominance)
+            motion.RecentVerticalSpeedDipPerMillisecond <
+                sensitivityProfile.MinimumDirectionalSpeedDipPerMillisecond ||
+            motion.DirectionConsistency <
+                sensitivityProfile.MinimumDirectionConsistency ||
+            motion.VerticalDominance <
+                sensitivityProfile.MinimumVerticalDominance)
         {
-            return EdgeCapsuleHoverIntentDecision.NoExtraDelay;
+            return candidateElapsedMilliseconds >=
+                profile.MinimumDelayMilliseconds
+                ? EdgeCapsuleHoverIntentDecision.NoExtraDelay
+                : EdgeCapsuleHoverIntentDecision.Delay;
         }
 
         var braking = motion.HasSpeedTrend &&
-            motion.RecentVerticalSpeedDevicePerMillisecond <=
-                motion.PriorVerticalSpeedDevicePerMillisecond * BrakingRatio &&
-            motion.PriorVerticalSpeedDevicePerMillisecond -
-                motion.RecentVerticalSpeedDevicePerMillisecond >=
-                BrakingDeltaDevicePerMillisecond;
+            motion.RecentVerticalSpeedDipPerMillisecond <=
+                motion.PriorVerticalSpeedDipPerMillisecond * BrakingRatio &&
+            motion.PriorVerticalSpeedDipPerMillisecond -
+                motion.RecentVerticalSpeedDipPerMillisecond >=
+                BrakingDeltaDipPerMillisecond;
         var accelerating = motion.HasSpeedTrend &&
-            motion.RecentVerticalSpeedDevicePerMillisecond >=
-                motion.PriorVerticalSpeedDevicePerMillisecond *
+            motion.RecentVerticalSpeedDipPerMillisecond >=
+                motion.PriorVerticalSpeedDipPerMillisecond *
                     AccelerationRatio &&
-            motion.RecentVerticalSpeedDevicePerMillisecond -
-                motion.PriorVerticalSpeedDevicePerMillisecond >=
-                AccelerationDeltaDevicePerMillisecond;
+            motion.RecentVerticalSpeedDipPerMillisecond -
+                motion.PriorVerticalSpeedDipPerMillisecond >=
+                AccelerationDeltaDipPerMillisecond;
 
-        var distanceToExit = motion.SignedVerticalSpeedDevicePerMillisecond < 0
+        var distanceToExitDevice =
+            motion.SignedVerticalSpeedDipPerMillisecond < 0
             ? pointer.Y - targetBounds.Top
             : targetBounds.Bottom - pointer.Y;
-        var timeToExit = Math.Max(0, distanceToExit) /
-            motion.RecentVerticalSpeedDevicePerMillisecond;
+        var distanceToExitDip = distanceToExitDevice / _dpiScaleY;
+        var timeToExit = Math.Max(0, distanceToExitDip) /
+            motion.RecentVerticalSpeedDipPerMillisecond;
 
         // menu-aim style negative protection: a coherent, non-braking trajectory that will leave
         // this physical target soon is a pass-through, so it cannot activate this target. Strong
@@ -174,7 +226,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
         // hoverIntent style adaptive dwell: faster, persistent motion consumes more of the bounded
         // delay budget. A clear braking trend sharply reduces the remaining delay, so stopping on
-        // a capsule normally releases the gate on the next frame instead of waiting the full 50ms.
+        // a capsule normally releases the gate on the next frame instead of waiting the profile's
+        // full delay budget.
         var risk = Math.Clamp(
             1 - timeToExit / profile.DynamicDelayHorizonMilliseconds,
             0,
@@ -232,13 +285,14 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         {
             var previous = SampleAt(index - 1).Point;
             var current = SampleAt(index).Point;
-            var deltaX = current.X - previous.X;
-            var deltaY = current.Y - previous.Y;
+            var deltaX = (current.X - previous.X) / _dpiScaleX;
+            var deltaY = (current.Y - previous.Y) / _dpiScaleY;
             totalDistance += Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
             totalVerticalDistance += Math.Abs(deltaY);
         }
 
-        var netVerticalDistance = latest.Point.Y - first.Point.Y;
+        var netVerticalDistance =
+            (latest.Point.Y - first.Point.Y) / _dpiScaleY;
         var absoluteNetVerticalDistance = Math.Abs(netVerticalDistance);
         if (totalDistance <= double.Epsilon ||
             totalVerticalDistance <= double.Epsilon)
@@ -271,7 +325,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             recentDuration = duration;
         }
 
-        var recentVerticalDelta = latest.Point.Y - midpoint.Point.Y;
+        var recentVerticalDelta =
+            (latest.Point.Y - midpoint.Point.Y) / _dpiScaleY;
         var recentSignedVerticalSpeed =
             recentVerticalDelta / recentDuration;
         var recentVerticalSpeed = Math.Abs(recentSignedVerticalSpeed);
@@ -279,16 +334,18 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             first.Timestamp,
             midpoint.Timestamp);
         var priorVerticalSpeed = priorDuration > 0
-            ? Math.Abs(midpoint.Point.Y - first.Point.Y) / priorDuration
+            ? Math.Abs(midpoint.Point.Y - first.Point.Y) /
+                _dpiScaleY /
+                priorDuration
             : recentVerticalSpeed;
 
         return new MotionEstimate(
             HasMotion: true,
-            SignedVerticalSpeedDevicePerMillisecond:
+            SignedVerticalSpeedDipPerMillisecond:
                 recentSignedVerticalSpeed,
-            RecentVerticalSpeedDevicePerMillisecond:
+            RecentVerticalSpeedDipPerMillisecond:
                 recentVerticalSpeed,
-            PriorVerticalSpeedDevicePerMillisecond:
+            PriorVerticalSpeedDipPerMillisecond:
                 priorVerticalSpeed,
             DirectionConsistency:
                 absoluteNetVerticalDistance / totalVerticalDistance,
@@ -296,6 +353,20 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
                 absoluteNetVerticalDistance / totalDistance,
             HasSpeedTrend: priorDuration > 0);
     }
+
+    private static IntentSensitivityProfile ResolveSensitivityProfile(
+        string sensitivity)
+    {
+        return EdgeCapsuleHoverIntentSensitivities.Normalize(sensitivity) switch
+        {
+            EdgeCapsuleHoverIntentSensitivities.Low => LowProfile,
+            EdgeCapsuleHoverIntentSensitivities.High => HighProfile,
+            _ => MediumProfile
+        };
+    }
+
+    private static double NormalizeDpiScale(double scale) =>
+        double.IsFinite(scale) ? Math.Max(1, scale) : 1;
 
     private void AddSample(PointerSample sample)
     {

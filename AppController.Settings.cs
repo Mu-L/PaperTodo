@@ -375,6 +375,33 @@ public sealed partial class AppController
         RefreshSettingsRegions("labs.focus");
     }
 
+    private void ToggleExperimentalEdgeCapsuleHoverIntent()
+    {
+        State.ExperimentalEdgeCapsuleHoverIntent =
+            !State.ExperimentalEdgeCapsuleHoverIntent;
+        SaveNow();
+        RefreshEdgeCapsuleHoverIntentRuntime();
+        RefreshSettingsRegions("labs.edgePreviewIntent");
+    }
+
+    private void SetExperimentalEdgeCapsuleHoverIntentSensitivity(
+        string sensitivity)
+    {
+        var normalized =
+            EdgeCapsuleHoverIntentSensitivities.Normalize(sensitivity);
+        if (string.Equals(
+                State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
+                normalized,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        State.ExperimentalEdgeCapsuleHoverIntentSensitivity = normalized;
+        SaveNow();
+        RefreshEdgeCapsuleHoverIntentRuntime();
+    }
+
     private void ToggleExperimentalAllowLockIconUnlock()
     {
         State.ExperimentalAllowLockIconUnlock =
@@ -1299,6 +1326,12 @@ public sealed partial class AppController
             BuildSettingsLiveRegion("labs.focus", BuildLabsFocusBehaviorSettings));
         AddLabsMajorSection(
             leftColumn,
+            Strings.Get("LabsEdgeCapsuleHoverIntent"),
+            BuildSettingsLiveRegion(
+                "labs.edgePreviewIntent",
+                BuildLabsEdgeCapsuleHoverIntentSettings));
+        AddLabsMajorSection(
+            leftColumn,
             Strings.Get("LabsWindowCoordination"),
             BuildSettingsLiveRegion("labs.window", BuildLabsWindowCoordinationSettings));
 
@@ -1532,6 +1565,59 @@ public sealed partial class AppController
             ToggleExperimentalRestingCapsuleOpacityAlways));
         content.Children.Add(capsuleOpacityOptions);
 
+        card.Child = content;
+        return card;
+    }
+
+    private UIElement BuildLabsEdgeCapsuleHoverIntentSettings()
+    {
+        var edgePreviewAvailable =
+            State.UseCapsuleMode && State.UseDeepCapsuleMode;
+        var enabled = State.ExperimentalEdgeCapsuleHoverIntent;
+        var card = new Border
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
+        };
+        var content = new StackPanel();
+        var toggle = SettingsToggle(
+            Strings.Get("LabsEnableEdgeCapsuleHoverIntent"),
+            enabled,
+            ToggleExperimentalEdgeCapsuleHoverIntent);
+        toggle.IsEnabled = edgePreviewAvailable;
+        toggle.Opacity = edgePreviewAvailable ? 1.0 : 0.55;
+        content.Children.Add(WrapWithHint(
+            toggle,
+            "TipLabsEdgeCapsuleHoverIntent"));
+
+        var optionsEnabled = edgePreviewAvailable && enabled;
+        var options = new StackPanel
+        {
+            IsEnabled = optionsEnabled,
+            Opacity = optionsEnabled ? 1.0 : 0.55
+        };
+        options.Children.Add(new Border
+        {
+            Margin = new Thickness(0, 4, 0, 0),
+            Child = WrapWithHint(
+                SettingsFieldLabel(
+                    Strings.Get("LabsEdgeCapsuleHoverIntentSensitivity")),
+                "TipLabsEdgeCapsuleHoverIntentSensitivity")
+        });
+        options.Children.Add(CreateSegmentSelector(
+            [
+                (EdgeCapsuleHoverIntentSensitivities.Low,
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityLow")),
+                (EdgeCapsuleHoverIntentSensitivities.Medium,
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityMedium")),
+                (EdgeCapsuleHoverIntentSensitivities.High,
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityHigh"))
+            ],
+            EdgeCapsuleHoverIntentSensitivities.Normalize(
+                State.ExperimentalEdgeCapsuleHoverIntentSensitivity),
+            SetExperimentalEdgeCapsuleHoverIntentSensitivity));
+        content.Children.Add(options);
         card.Child = content;
         return card;
     }
@@ -2281,6 +2367,9 @@ public sealed partial class AppController
         State.ExperimentalHideInactiveTopBarButtons = false;
         State.ExperimentalHideInactiveTitleBar = false;
         State.ExperimentalDockedCapsulesNonTopmost = false;
+        State.ExperimentalEdgeCapsuleHoverIntent = true;
+        State.ExperimentalEdgeCapsuleHoverIntentSensitivity =
+            EdgeCapsuleHoverIntentSensitivities.Medium;
         State.ExperimentalAllowLockIconUnlock = true;
         State.ExperimentalShortcutOpacityLevel = 0.35;
         ClearAdvancedShortcutRuntimeState();
@@ -2324,6 +2413,7 @@ public sealed partial class AppController
         }
         RefreshExperimentalWindowRuntime();
         RefreshExperimentalVirtualDesktopRuntime();
+        RefreshEdgeCapsuleHoverIntentRuntime();
         RefreshMcpRuntime();
         SaveNow();
         RefreshExperimentalOpacitySurfaces(animate: false);

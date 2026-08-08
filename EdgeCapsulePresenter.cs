@@ -59,6 +59,7 @@ internal sealed class EdgeCapsulePresenter
     public EdgeCapsulePreviewState Preview => Model.Preview;
     public bool PointerOverSurface => Model.PointerOverSurface;
     public bool ContextMenuOpen => Model.ContextMenuOpen;
+    public bool PeerReorderActive => Model.PeerReorderActive;
     private EdgeCapsulePresentationPlan TargetPlan { get; set; } =
         EdgeCapsulePresentationPlan.Hidden;
     private EdgeCapsuleTargetPresentation TargetPresentation => TargetPlan.Docked;
@@ -353,7 +354,7 @@ internal sealed class EdgeCapsulePresenter
         (State.Slot is
             EdgeCapsuleSlotState.CollapsedDocked or
             EdgeCapsuleSlotState.ExpandedReserved) &&
-        (State.Visual == EdgeCapsuleVisualState.Hovered ||
+        (PointerOverSurface ||
          Preview == EdgeCapsulePreviewState.Open) &&
         State.Gesture == EdgeCapsuleGestureState.Idle &&
         !ContextMenuOpen &&

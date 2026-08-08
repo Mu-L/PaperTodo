@@ -762,6 +762,30 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsFocusBehavior" xml:space="preserve">
     <value>Focus and idle behavior</value>
   </data>
+  <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>Edge preview hover intent</value>
+  </data>
+  <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>Enable pointer-intent prediction</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>Uses pointer speed, direction, and braking to delay or suppress previews during a fast pass. It never predicts or chooses a target for you. When off, the first preview opens immediately and later transfers use a fixed 50 ms stability wait.</value>
+  </data>
+  <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>Activation sensitivity</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>Low requires a clearer stop. Medium is the more conservative recommended balance. High opens more readily and is close to the previous default.</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
+    <value>Low</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityMedium" xml:space="preserve">
+    <value>Medium</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
+    <value>High</value>
+  </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>Window coordination</value>
   </data>

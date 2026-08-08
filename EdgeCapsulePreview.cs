@@ -45,6 +45,11 @@ internal sealed record EdgeCapsulePreviewRequest(
     EdgeCapsulePreviewSize Size,
     FrameworkElement Content);
 
+internal readonly record struct EdgeCapsulePreviewScreenGeometry(
+    DeviceScreenRect Bounds,
+    double DpiScaleX,
+    double DpiScaleY);
+
 internal sealed class EdgeCapsulePreviewInvalidationSource
 {
     public event Action? Invalidated;

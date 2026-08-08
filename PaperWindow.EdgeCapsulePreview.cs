@@ -15,8 +15,8 @@ public sealed partial class PaperWindow
         _edgeCapsule.PointerOverSurface;
     internal bool IsEdgeCapsulePreviewOpen =>
         _edgeCapsule.Preview == EdgeCapsulePreviewState.Open;
-    internal bool EdgeCapsulePreviewInteractionActive =>
-        _edgeCapsuleHost?.IsPreviewInteractionActive == true;
+    internal bool EdgeCapsulePreviewPointerCaptureActive =>
+        _edgeCapsuleHost?.IsPreviewPointerCaptureActive == true;
 
     internal bool CanEnterEdgeCapsulePreview =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
@@ -27,6 +27,7 @@ public sealed partial class PaperWindow
         !IsDeepCapsuleRetractedIntoMaster &&
         !IsDeepCapsuleSlotRetracting &&
         !IsDeepCapsuleReordering &&
+        !_edgeCapsule.PeerReorderActive &&
         !IsDeepCapsuleDockingHandoff &&
         (!_edgeCapsule.ContextMenuOpen || IsEdgeCapsulePreviewOpen) &&
         (EdgeCapsuleGesture == EdgeCapsuleGestureState.Idle ||
@@ -162,12 +163,15 @@ public sealed partial class PaperWindow
     internal EdgeCapsulePreviewSize? CurrentEdgeCapsulePreviewSize =>
         _edgeCapsulePreviewRequest?.Size;
 
-    internal bool TryGetEdgeCapsuleAppliedBounds(
-        out DeviceScreenRect bounds)
+    internal bool TryGetEdgeCapsuleAppliedGeometry(
+        out EdgeCapsulePreviewScreenGeometry geometry)
     {
         var frame = _edgeCapsule.AppliedPresentation;
-        bounds = frame.Bounds;
-        return frame.Visible && !bounds.IsEmpty;
+        geometry = new EdgeCapsulePreviewScreenGeometry(
+            frame.Bounds,
+            frame.DpiScaleX,
+            frame.DpiScaleY);
+        return frame.Visible && !frame.Bounds.IsEmpty;
     }
 
     internal bool IsEdgeCapsuleInteractiveAt(DeviceScreenPoint pointer)
@@ -178,15 +182,21 @@ public sealed partial class PaperWindow
             EdgeCapsuleGeometry.Contains(frame.InteractiveBounds, pointer);
     }
 
-    internal bool TryGetEdgeCapsuleInteractiveBounds(
-        out DeviceScreenRect bounds)
+    internal bool TryGetEdgeCapsuleInteractiveGeometry(
+        out EdgeCapsulePreviewScreenGeometry geometry)
     {
         var frame = _edgeCapsule.AppliedPresentation;
-        bounds = frame.InteractiveBounds;
+        geometry = new EdgeCapsulePreviewScreenGeometry(
+            frame.InteractiveBounds,
+            frame.DpiScaleX,
+            frame.DpiScaleY);
         return frame.Visible &&
             frame.IsHitTestVisible &&
-            !bounds.IsEmpty;
+            !frame.InteractiveBounds.IsEmpty;
     }
+
+    internal void RefreshEdgeCapsuleHoverIntentSettings() =>
+        InvalidateEdgeCapsulePointer();
 
     internal void FlushEdgeCapsulePreviewCompactPresentation()
     {

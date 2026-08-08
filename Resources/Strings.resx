@@ -775,6 +775,30 @@
   <data name="LabsFocusBehavior" xml:space="preserve">
     <value>失焦与静置</value>
   </data>
+  <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>边缘预览悬停</value>
+  </data>
+  <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>启用鼠标意图预测</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>根据鼠标速度、方向和减速趋势，延迟或阻止快速掠过时的预览展开；不会预测或替你选择目标。关闭后首次预览立即展开，后续切换使用固定 50 毫秒稳定等待。</value>
+  </data>
+  <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>触发敏感度</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>低档需要更明确地停向目标；中档是更克制的推荐平衡；高档更容易展开，接近此前主线的触发强度。</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
+    <value>低</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityMedium" xml:space="preserve">
+    <value>中</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
+    <value>高</value>
+  </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>窗口联动系统</value>
   </data>

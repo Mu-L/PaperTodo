@@ -762,6 +762,30 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsFocusBehavior" xml:space="preserve">
     <value>포커스 및 유휴 동작</value>
   </data>
+  <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>가장자리 미리보기 호버 의도</value>
+  </data>
+  <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>포인터 의도 예측 사용</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
+    <value>포인터 속도, 방향 및 감속 추세를 사용해 빠르게 지나갈 때 미리보기 펼치기를 지연하거나 억제합니다. 대상을 예측하거나 대신 선택하지는 않습니다. 끄면 첫 미리보기는 즉시 열리고 이후 전환에는 고정 50ms 안정 대기를 사용합니다.</value>
+  </data>
+  <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>활성화 민감도</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
+    <value>낮음은 더 분명하게 멈춰야 합니다. 중간은 더 신중한 권장 균형입니다. 높음은 더 쉽게 펼쳐지며 이전 기본값과 비슷합니다.</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
+    <value>낮음</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityMedium" xml:space="preserve">
+    <value>중간</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
+    <value>높음</value>
+  </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>창 연동 시스템</value>
   </data>

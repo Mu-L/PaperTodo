@@ -13,18 +13,13 @@ internal sealed partial class EdgeCapsuleHost
     private FrameworkElement? _previewContent;
     private bool _previewVisible;
 
-    public bool IsPreviewInteractionActive
+    public bool IsPreviewPointerCaptureActive
     {
         get
         {
             if (_disposed || !_previewVisible || _previewContent == null)
             {
                 return false;
-            }
-
-            if (_previewContent.IsKeyboardFocusWithin)
-            {
-                return true;
             }
 
             return Mouse.Captured is DependencyObject captured &&
