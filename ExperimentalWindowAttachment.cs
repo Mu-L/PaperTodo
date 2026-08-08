@@ -659,8 +659,7 @@ public sealed partial class PaperWindow
 {
     private readonly record struct
         ExperimentalAttachmentFormContinuation(
-            ExternalWindowIdentity Target,
-            ExperimentalAttachmentEdge Edge);
+            ExperimentalWindowAttachmentSession Session);
 
     private ExperimentalWindowAttachmentSession? _experimentalWindowAttachment;
     // One-shot handoff while the existing paper-form transition owns HWND
@@ -711,7 +710,9 @@ public sealed partial class PaperWindow
         ExperimentalAttachmentOwner.WindowTether;
 
     internal bool SuppressesExpandedDeepCapsuleSlot =>
-        HasExperimentalWindowTether && !_paper.IsCollapsed;
+        HasExperimentalWindowTether ||
+        _experimentalAttachmentFormContinuation?.Session.Owner ==
+            ExperimentalAttachmentOwner.WindowTether;
 
     internal bool TracksExperimentalExternalWindow(IntPtr handle) =>
         handle != IntPtr.Zero &&
@@ -754,11 +755,12 @@ public sealed partial class PaperWindow
         }
 
         targetHandle = session.ExternalWindow.Handle;
-        var targetAvailable =
+        var hasSnapshot =
             ExternalWindowNative.TryGetSnapshot(
                 session.ExternalWindow,
-                out var snapshot) &&
-            snapshot.IsUsableTarget;
+                out var snapshot);
+        var targetAvailable =
+            hasSnapshot && snapshot.IsUsableTarget;
         if (!targetAvailable)
         {
             if (session.Owner ==
@@ -770,7 +772,11 @@ public sealed partial class PaperWindow
                 return false;
             }
 
-            return true;
+            if (hasSnapshot)
+            {
+                SuppressExperimentalTetherPresentation(snapshot);
+            }
+            return _experimentalWindowAttachment != null;
         }
 
         var targetChanged =
@@ -784,8 +790,17 @@ public sealed partial class PaperWindow
             ReconcileExperimentalWindowAttachment(snapshot);
         }
 
+        var presentationChanged = false;
+        if (session.Owner == ExperimentalAttachmentOwner.WindowTether &&
+            _experimentalTetherPresentationSuppressed)
+        {
+            RestoreExperimentalTetherPresentation();
+            presentationChanged = true;
+        }
+
         changed =
             targetChanged ||
+            presentationChanged ||
             AdvanceExperimentalCapsuleFollowTransition();
         return _experimentalWindowAttachment != null;
     }
@@ -1063,17 +1078,25 @@ public sealed partial class PaperWindow
             _controller.State.ExperimentalCapsuleMagnetism &&
             _controller.State.ExperimentalCapsuleMagnetWindowEdges &&
             _controller.State.ExperimentalWindowTethering;
-        if (!continuesFromMagnet)
+        var continuesFromWindowTether =
+            session is
+            {
+                Owner: ExperimentalAttachmentOwner.WindowTether,
+                TargetKind:
+                    ExperimentalAttachmentTargetKind.ExternalWindow
+            } &&
+            _controller.State.ExperimentalWindowTethering;
+        if (!continuesFromMagnet && !continuesFromWindowTether)
         {
             DetachExperimentalWindowAttachment(savePosition: false);
             return;
         }
 
         var continuation =
-            new ExperimentalAttachmentFormContinuation(
-                session!.ExternalWindow,
-                session.Edge);
-        DetachExperimentalWindowAttachment(savePosition: false);
+            new ExperimentalAttachmentFormContinuation(session!);
+        DetachExperimentalWindowAttachment(
+            savePosition: false,
+            reconcileDeepCapsules: false);
         _experimentalAttachmentFormContinuation = continuation;
     }
 
@@ -1090,14 +1113,96 @@ public sealed partial class PaperWindow
 
         if (!collapsed)
         {
-            _ = AttachExperimentalWindowTether(
-                continuation.Value.Target,
-                continuation.Value.Edge);
+            RestoreExperimentalWindowTetherAfterFormTransition(
+                continuation.Value);
+            return;
+        }
+
+        if (continuation.Value.Session.Owner ==
+            ExperimentalAttachmentOwner.WindowTether)
+        {
+            RestoreExperimentalWindowTetherCapsuleAfterFormTransition(
+                continuation.Value);
             return;
         }
 
         RestoreExperimentalCapsuleMagnetAfterInterruptedTransition(
             continuation.Value);
+    }
+
+    private void RestoreExperimentalWindowTetherAfterFormTransition(
+        ExperimentalAttachmentFormContinuation continuation)
+    {
+        var source = continuation.Session;
+        if (!_controller.State.ExperimentalWindowTethering ||
+            source.TargetKind !=
+                ExperimentalAttachmentTargetKind.ExternalWindow ||
+            !ExternalWindowNative.TryGetSnapshot(
+                source.ExternalWindow,
+                out var target))
+        {
+            return;
+        }
+
+        if (target.IsUsableTarget)
+        {
+            _ = AttachExperimentalWindowTether(
+                source.ExternalWindow,
+                source.Edge);
+            return;
+        }
+
+        SetExperimentalWindowAttachment(source with
+        {
+            Owner = ExperimentalAttachmentOwner.WindowTether,
+            LastTargetBounds = target.Bounds.IsEmpty
+                ? source.LastTargetBounds
+                : target.Bounds,
+            TargetTitle = target.Title
+        });
+        _experimentalTetherReplanPending = false;
+        SuppressExperimentalTetherPresentation(target);
+        RefreshExperimentalAttachmentMenus();
+    }
+
+    private void RestoreExperimentalWindowTetherCapsuleAfterFormTransition(
+        ExperimentalAttachmentFormContinuation continuation)
+    {
+        var source = continuation.Session;
+        if (!_controller.State.ExperimentalWindowTethering ||
+            source.Owner != ExperimentalAttachmentOwner.WindowTether ||
+            source.TargetKind !=
+                ExperimentalAttachmentTargetKind.ExternalWindow ||
+            !_paper.IsCollapsed ||
+            IsPaperFormTransitioning ||
+            !IsVisible ||
+            !ExternalWindowNative.TryGetSnapshot(
+                source.ExternalWindow,
+                out var target))
+        {
+            return;
+        }
+
+        SetExperimentalWindowAttachment(source with
+        {
+            Owner = ExperimentalAttachmentOwner.WindowTether,
+            LastTargetBounds = target.Bounds.IsEmpty
+                ? source.LastTargetBounds
+                : target.Bounds,
+            TargetTitle = target.Title
+        });
+        _experimentalTetherReplanPending = false;
+        if (target.IsUsableTarget)
+        {
+            ReconcileExperimentalWindowAttachment(
+                target,
+                animateCapsulePresentation: false);
+        }
+        else
+        {
+            SuppressExperimentalTetherPresentation(target);
+        }
+        RefreshExperimentalAttachmentMenus();
     }
 
     private void RestoreExperimentalCapsuleMagnetAfterInterruptedTransition(
@@ -1113,13 +1218,13 @@ public sealed partial class PaperWindow
                 this,
                 out var capsuleBounds) ||
             !ExternalWindowNative.TryGetSnapshot(
-                continuation.Target,
+                continuation.Session.ExternalWindow,
                 out var target) ||
             !ExperimentalWindowAttachmentGeometry
                 .TryPlanCapsuleMagnetForExternalTarget(
                     capsuleBounds,
                     target,
-                    continuation.Edge,
+                    continuation.Session.Edge,
                     ExperimentalWindowAttachmentOptions
                         .DefaultWindowGap,
                     out var plan))
@@ -1145,9 +1250,6 @@ public sealed partial class PaperWindow
 
         var isWindowTether =
             session.Owner == ExperimentalAttachmentOwner.WindowTether;
-        var visibilityLinked =
-            isWindowTether &&
-            _controller.State.ExperimentalTetherVisibilityLink;
         if (isWindowTether &&
             (windowEvent.Kind & ExternalWindowEventKind.Foreground) != 0 &&
             ExternalWindowNative.IsSameProcess(
@@ -1159,7 +1261,7 @@ public sealed partial class PaperWindow
             foregroundTarget.IsUsableTarget)
         {
             ReconcileExperimentalWindowAttachment(foregroundTarget);
-            if (visibilityLinked)
+            if (_experimentalTetherPresentationSuppressed)
             {
                 RestoreExperimentalTetherPresentation();
             }
@@ -1191,7 +1293,7 @@ public sealed partial class PaperWindow
             (windowEvent.Kind &
              (ExternalWindowEventKind.MinimizeStarted |
               ExternalWindowEventKind.Cloaked)) != 0;
-        if (visibilityLinked &&
+        if (isWindowTether &&
             (targetUnavailable || targetBecameUnavailable))
         {
             SuppressExperimentalTetherPresentation(snapshot);
@@ -1208,7 +1310,7 @@ public sealed partial class PaperWindow
         }
 
         ReconcileExperimentalWindowAttachment(snapshot);
-        if (visibilityLinked)
+        if (isWindowTether)
         {
             RestoreExperimentalTetherPresentation();
         }
@@ -1258,7 +1360,11 @@ public sealed partial class PaperWindow
     internal void DisableExperimentalCapsuleMagnet()
     {
         EndExperimentalCapsuleMagnetDragPreview();
-        _experimentalAttachmentFormContinuation = null;
+        if (_experimentalAttachmentFormContinuation?.Session.Owner ==
+            ExperimentalAttachmentOwner.CapsuleMagnet)
+        {
+            _experimentalAttachmentFormContinuation = null;
+        }
         if (HasExperimentalCapsuleMagnet)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -1271,7 +1377,11 @@ public sealed partial class PaperWindow
         EndTopBarDragGesture(
             commit: false,
             TopBarDragKind.WindowBinding);
-        _experimentalAttachmentFormContinuation = null;
+        if (_experimentalAttachmentFormContinuation?.Session.Owner ==
+            ExperimentalAttachmentOwner.WindowTether)
+        {
+            _experimentalAttachmentFormContinuation = null;
+        }
         if (HasExperimentalWindowTether)
         {
             DetachExperimentalWindowAttachment(savePosition: true);
@@ -1281,45 +1391,36 @@ public sealed partial class PaperWindow
 
     internal void DisableExperimentalTetherVisibilityLink()
     {
-        RestoreExperimentalTetherPresentation();
+        RefreshExperimentalTetherVisibilityOptions();
     }
 
     internal void RefreshExperimentalTetherVisibilityOptions()
     {
-        if (!_controller.State.ExperimentalTetherVisibilityLink)
+        var session = _experimentalWindowAttachment;
+        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether ||
+            !ExternalWindowNative.TryGetSnapshot(
+                session.ExternalWindow,
+                out var snapshot))
         {
-            RestoreExperimentalTetherPresentation();
             return;
         }
 
-        if (!_experimentalTetherPresentationSuppressed)
+        if (snapshot.IsMinimized ||
+            snapshot.IsCloaked ||
+            !snapshot.IsVisible)
         {
-            var session = _experimentalWindowAttachment;
-            if (session?.Owner == ExperimentalAttachmentOwner.WindowTether &&
-                ExternalWindowNative.TryGetSnapshot(
-                    session.ExternalWindow,
-                    out var snapshot) &&
-                (snapshot.IsMinimized ||
-                 snapshot.IsCloaked ||
-                 !snapshot.IsVisible))
-            {
-                SuppressExperimentalTetherPresentation(snapshot);
-            }
+            SuppressExperimentalTetherPresentation(snapshot);
             return;
         }
 
-        CloseExperimentalTetherCapsule();
-        if (_controller.State.ExperimentalTetherMinimizedBehavior ==
-            ExperimentalTetherVisibilityModes.Capsule)
-        {
-            ShowExperimentalTetherCapsule();
-        }
+        RestoreExperimentalTetherPresentation();
     }
 
     internal void RefreshExperimentalWindowTetherOptions()
     {
         var session = _experimentalWindowAttachment;
-        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether)
+        if (session?.Owner != ExperimentalAttachmentOwner.WindowTether ||
+            _paper.IsCollapsed)
         {
             return;
         }
@@ -1350,7 +1451,9 @@ public sealed partial class PaperWindow
         SaveGeometryForCurrentPresentation();
     }
 
-    internal void DetachExperimentalWindowAttachment(bool savePosition)
+    internal void DetachExperimentalWindowAttachment(
+        bool savePosition,
+        bool reconcileDeepCapsules = true)
     {
         _experimentalAttachmentFormContinuation = null;
         var session = _experimentalWindowAttachment;
@@ -1366,7 +1469,7 @@ public sealed partial class PaperWindow
             EndTitleBarDragGesture();
             RestoreExperimentalTetherPresentation();
         }
-        else
+        if (!wasWindowTether || _paper.IsCollapsed)
         {
             PrepareExperimentalCapsuleFollowForDetach();
         }
@@ -1379,7 +1482,7 @@ public sealed partial class PaperWindow
         {
             SaveGeometryForCurrentPresentation();
         }
-        if (wasWindowTether)
+        if (wasWindowTether && reconcileDeepCapsules)
         {
             // Clearing the session makes the paper eligible for its configured
             // expanded edge slot again. Let the queue coordinator restore it.
@@ -1403,7 +1506,14 @@ public sealed partial class PaperWindow
 
     internal void RestoreExperimentalTetherPresentationForExplicitShow()
     {
-        RestoreExperimentalTetherPresentation();
+        if (!_experimentalTetherPresentationSuppressed)
+        {
+            return;
+        }
+
+        // Explicit user show requests break a temporarily hidden binding instead
+        // of reviving the paper while its target is still unavailable.
+        DetachExperimentalWindowAttachment(savePosition: true);
     }
 
     private void ReconcileExperimentalWindowAttachment(
@@ -1422,7 +1532,30 @@ public sealed partial class PaperWindow
             snapshot.Bounds,
             currentBounds,
             snapshot.DpiScale);
-        if (session.Owner == ExperimentalAttachmentOwner.WindowTether &&
+        var usesCapsuleFollow = false;
+        if (_paper.IsCollapsed &&
+            session.TargetKind ==
+                ExperimentalAttachmentTargetKind.ExternalWindow &&
+            TryGetTargetMonitor(snapshot, out var capsuleMonitor))
+        {
+            var followPlan =
+                ExperimentalWindowAttachmentGeometry
+                    .ResolveCapsuleFollow(
+                        session,
+                        snapshot.Bounds,
+                        currentBounds,
+                        capsuleMonitor,
+                        WindowWorkAreaHelper
+                            .ConnectedMonitorGeometries(),
+                        reveal:
+                            _capsuleShell?.IsMouseOver == true);
+            desired = followPlan.Bounds;
+            usesCapsuleFollow = true;
+            SetExperimentalCapsuleFollowPresentation(
+                followPlan,
+                animateCapsulePresentation);
+        }
+        else if (session.Owner == ExperimentalAttachmentOwner.WindowTether &&
             TryGetTargetMonitor(snapshot, out var monitor))
         {
             var shouldReplan =
@@ -1462,26 +1595,6 @@ public sealed partial class PaperWindow
             }
             ClearExperimentalCapsuleFollowPresentation();
         }
-        else if (session.Owner ==
-                ExperimentalAttachmentOwner.CapsuleMagnet &&
-            TryGetTargetMonitor(snapshot, out var capsuleMonitor))
-        {
-            var followPlan =
-                ExperimentalWindowAttachmentGeometry
-                    .ResolveCapsuleFollow(
-                        session,
-                        snapshot.Bounds,
-                        currentBounds,
-                        capsuleMonitor,
-                        WindowWorkAreaHelper
-                            .ConnectedMonitorGeometries(),
-                        reveal:
-                            _capsuleShell?.IsMouseOver == true);
-            desired = followPlan.Bounds;
-            SetExperimentalCapsuleFollowPresentation(
-                followPlan,
-                animateCapsulePresentation);
-        }
         else
         {
             ClearExperimentalCapsuleFollowPresentation();
@@ -1491,8 +1604,8 @@ public sealed partial class PaperWindow
             LastTargetBounds = snapshot.Bounds,
             TargetTitle = snapshot.Title
         });
-        if (session.Owner !=
-            ExperimentalAttachmentOwner.CapsuleMagnet)
+        if (!usesCapsuleFollow &&
+            session.Owner != ExperimentalAttachmentOwner.CapsuleMagnet)
         {
             ApplyExperimentalAttachmentBounds(desired);
         }
@@ -1542,13 +1655,9 @@ public sealed partial class PaperWindow
         }
         SaveGeometryForCurrentPresentation();
         _experimentalTetherPresentationSuppressed = true;
+        CloseExperimentalTetherCapsule();
         MoveWindowWithoutGeometrySave(Hide);
         ReleaseHiddenNoteImages();
-        if (_controller.State.ExperimentalTetherMinimizedBehavior ==
-            ExperimentalTetherVisibilityModes.Capsule)
-        {
-            ShowExperimentalTetherCapsule();
-        }
     }
 
     private void ShowExperimentalTetherCapsule()
@@ -1668,6 +1777,7 @@ public sealed partial class PaperWindow
     private void BringExperimentalTetherAboveTargetNoActivate()
     {
         if (!HasExperimentalWindowTether ||
+            _paper.IsCollapsed ||
             _experimentalTetherPresentationSuppressed ||
             !IsVisible ||
             IsExperimentalPassive)

@@ -35,9 +35,9 @@ public sealed partial class PaperWindow
             .KeepBehindTargetUntilComplete == true;
 
     private IntPtr ExperimentalCapsuleFollowTargetHandle =>
+        _paper.IsCollapsed &&
         _experimentalWindowAttachment is
         {
-            Owner: ExperimentalAttachmentOwner.CapsuleMagnet,
             TargetKind:
                 ExperimentalAttachmentTargetKind.ExternalWindow
         } session
@@ -79,8 +79,8 @@ public sealed partial class PaperWindow
         }
 
         var session = _experimentalWindowAttachment;
-        if (session?.Owner != ExperimentalAttachmentOwner.CapsuleMagnet ||
-            session.TargetKind !=
+        if (!_paper.IsCollapsed ||
+            session?.TargetKind !=
                 ExperimentalAttachmentTargetKind.ExternalWindow ||
             !ExternalWindowNative.TryGetSnapshot(
                 session.ExternalWindow,
@@ -237,8 +237,8 @@ public sealed partial class PaperWindow
     private void PrepareExperimentalCapsuleFollowForDetach()
     {
         var session = _experimentalWindowAttachment;
-        if (session?.Owner != ExperimentalAttachmentOwner.CapsuleMagnet ||
-            session.TargetKind !=
+        if (!_paper.IsCollapsed ||
+            session?.TargetKind !=
                 ExperimentalAttachmentTargetKind.ExternalWindow ||
             !WindowNative.TryGetWindowDeviceBounds(
                 this,

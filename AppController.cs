@@ -1007,6 +1007,7 @@ public sealed partial class AppController : IDisposable
                 return;
             }
 
+            window.RestoreExperimentalTetherPresentationForExplicitShow();
             paper.IsVisible = true;
             RescuePaperIfOffScreen(paper, State.Papers.IndexOf(paper));
             window.CancelPendingVisibilityTransitions();
@@ -1488,7 +1489,12 @@ public sealed partial class AppController : IDisposable
     {
         if (!_windows.TryGetValue(paper.Id, out var window) || !window.IsVisible)
         {
-            if (paper.IsVisible && window?.IsDeepCapsuleSlotVisible == true)
+            if (paper.IsVisible &&
+                window?.IsExperimentalTetherPresentationSuppressed == true)
+            {
+                ShowPaper(paper);
+            }
+            else if (paper.IsVisible && window?.IsDeepCapsuleSlotVisible == true)
             {
                 ShowPaper(paper);
             }

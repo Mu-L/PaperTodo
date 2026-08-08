@@ -372,7 +372,7 @@ public sealed partial class AppController
         {
             master.RefreshEffectiveTopmost();
         }
-        RefreshSettingsRegions("labs.focus");
+        RefreshSettingsRegions("labs.dockedCapsule");
     }
 
     private void ToggleExperimentalEdgeCapsuleHoverPreview()
@@ -1373,6 +1373,12 @@ public sealed partial class AppController
 
         AddLabsMajorSection(
             rightColumn,
+            Strings.Get("LabsDockedCapsuleBehavior"),
+            BuildSettingsLiveRegion(
+                "labs.dockedCapsule",
+                BuildLabsDockedCapsuleBehaviorSettings));
+        AddLabsMajorSection(
+            rightColumn,
             Strings.Get("LabsVirtualDesktops"),
             BuildSettingsLiveRegion("labs.virtualDesktop", BuildLabsVirtualDesktopSettings));
         AddLabsMajorSection(
@@ -1497,9 +1503,25 @@ public sealed partial class AppController
     {
         var content = new StackPanel();
         content.Children.Add(BuildLabsWindowTetherSettings());
-        content.Children.Add(BuildLabsTetherVisibilitySettings());
         content.Children.Add(BuildLabsCapsuleMagnetSettings());
         return content;
+    }
+
+    private UIElement BuildLabsDockedCapsuleBehaviorSettings()
+    {
+        var card = new Border
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0, 3, 0, 5),
+            Margin = new Thickness(0, 1, 0, 3)
+        };
+        card.Child = WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsDockedCapsulesNonTopmost"),
+                State.ExperimentalDockedCapsulesNonTopmost,
+                ToggleExperimentalDockedCapsulesNonTopmost),
+            "TipLabsDockedCapsulesNonTopmost");
+        return card;
     }
 
     private UIElement BuildLabsFocusBehaviorSettings()
@@ -1511,6 +1533,9 @@ public sealed partial class AppController
             Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
+
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsFocusInactiveGroup")));
 
         var autoCollapse = SettingsToggle(
             Strings.Get("LabsCollapsePaperOnDeactivate"),
@@ -1530,9 +1555,13 @@ public sealed partial class AppController
             State.UseCapsuleMode &&
             State.ExperimentalCollapsePaperOnDeactivate;
         strictCollapse.Opacity = strictCollapse.IsEnabled ? 1.0 : 0.55;
-        content.Children.Add(WrapWithHint(
-            strictCollapse,
-            "TipLabsStrictCollapsePaperAfterShow"));
+        content.Children.Add(new Border
+        {
+            Margin = new Thickness(22, 0, 0, 0),
+            Child = WrapWithHint(
+                strictCollapse,
+                "TipLabsStrictCollapsePaperAfterShow")
+        });
 
         content.Children.Add(WrapWithHint(
             SettingsToggle(
@@ -1548,57 +1577,46 @@ public sealed partial class AppController
                 ToggleExperimentalHideInactiveTitleBar),
             "TipLabsHideInactiveTitleBar"));
 
-        content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsDockedCapsulesNonTopmost"),
-                State.ExperimentalDockedCapsulesNonTopmost,
-                ToggleExperimentalDockedCapsulesNonTopmost),
-            "TipLabsDockedCapsulesNonTopmost"));
-
-        content.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsFocusOpacity"),
-            topMargin: 9));
-        content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableInactivePaperOpacity"),
-                State.ExperimentalInactivePaperOpacity,
-                ToggleExperimentalInactivePaperOpacity),
-            "TipLabsInactivePaperOpacity"));
-        content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableRestingCapsuleOpacity"),
-                State.ExperimentalRestingCapsuleOpacity,
-                ToggleExperimentalRestingCapsuleOpacity),
-            "TipLabsRestingCapsuleOpacity"));
-
-        content.Children.Add(CompactSettingsField(
-            Strings.Get("LabsInactivePaperOpacityLevel"),
+        content.Children.Add(CompactSettingsToggleField(
+            Strings.Get("LabsEnableInactivePaperOpacity"),
+            State.ExperimentalInactivePaperOpacity,
+            ToggleExperimentalInactivePaperOpacity,
+            "TipLabsInactivePaperOpacity",
             CreateLabsPercentageStepper(
                 () => State.ExperimentalInactivePaperOpacityLevel,
                 SetExperimentalInactivePaperOpacityLevel,
                 State.ExperimentalInactivePaperOpacity),
-            editorWidth: 132,
-            topMargin: 7));
-        content.Children.Add(CompactSettingsField(
-            Strings.Get("LabsRestingCapsuleOpacityLevel"),
+            editorWidth: 112,
+            topMargin: 6));
+
+        content.Children.Add(SettingsFieldLabel(
+            Strings.Get("LabsFocusRestingGroup"),
+            topMargin: 10));
+
+        content.Children.Add(CompactSettingsToggleField(
+            Strings.Get("LabsFocusRestingOpacity"),
+            State.ExperimentalRestingCapsuleOpacity,
+            ToggleExperimentalRestingCapsuleOpacity,
+            "TipLabsFocusRestingOpacity",
             CreateLabsPercentageStepper(
                 () => State.ExperimentalRestingCapsuleOpacityLevel,
                 SetExperimentalRestingCapsuleOpacityLevel,
                 State.ExperimentalRestingCapsuleOpacity),
-            editorWidth: 132,
-            topMargin: 7));
+            editorWidth: 112,
+            topMargin: 4));
 
         var capsuleOpacityOptions = new StackPanel
         {
+            Margin = new Thickness(22, 1, 0, 0),
             IsEnabled = State.ExperimentalRestingCapsuleOpacity,
             Opacity = State.ExperimentalRestingCapsuleOpacity ? 1.0 : 0.55
         };
         capsuleOpacityOptions.Children.Add(SettingsToggle(
-            Strings.Get("LabsRestingCapsuleOpacityIncludeMaster"),
+            Strings.Get("LabsFocusRestingIncludeMaster"),
             State.ExperimentalRestingCapsuleOpacityIncludesMaster,
             ToggleExperimentalRestingCapsuleOpacityIncludesMaster));
         capsuleOpacityOptions.Children.Add(SettingsToggle(
-            Strings.Get("LabsRestingCapsuleOpacityAlways"),
+            Strings.Get("LabsFocusRestingAlways"),
             State.ExperimentalRestingCapsuleOpacityAlways,
             ToggleExperimentalRestingCapsuleOpacityAlways));
         content.Children.Add(capsuleOpacityOptions);
@@ -1908,7 +1926,7 @@ public sealed partial class AppController
                 Strings.Get("LabsEnableWindowTethering"),
                 enabled,
                 ToggleExperimentalWindowTethering),
-            "TipLabsWindowTethering"));
+            "TipLabsWindowTetheringFixed"));
 
         var options = new StackPanel
         {
@@ -2024,50 +2042,6 @@ public sealed partial class AppController
             ExperimentalWindowTetherOptions.GapStep));
         container.Child = grid;
         return container;
-    }
-
-    private UIElement BuildLabsTetherVisibilitySettings()
-    {
-        var tetherEnabled = State.ExperimentalWindowTethering;
-        var enabled = State.ExperimentalTetherVisibilityLink;
-        var card = new Border
-        {
-            Background = Brushes.Transparent,
-            Padding = new Thickness(0, 3, 0, 5),
-            Margin = new Thickness(0, 1, 0, 3),
-            IsEnabled = tetherEnabled,
-            Opacity = tetherEnabled ? 1.0 : 0.55
-        };
-        var content = new StackPanel();
-        content.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("LabsEnableTetherVisibility"),
-                enabled,
-                ToggleExperimentalTetherVisibilityLink),
-            "TipLabsTetherVisibility"));
-
-        var options = new StackPanel
-        {
-            IsEnabled = enabled,
-            Opacity = enabled ? 1.0 : 0.55
-        };
-        options.Children.Add(CompactSettingsField(
-            Strings.Get("LabsTetherMinimizedBehavior"),
-            CreateSegmentSelector(
-                [
-                    (ExperimentalTetherVisibilityModes.Hide,
-                        Strings.Get("LabsTetherMinimizedHide")),
-                    (ExperimentalTetherVisibilityModes.Capsule,
-                        Strings.Get("LabsTetherMinimizedCapsule"))
-                ],
-                ExperimentalTetherVisibilityModes.Normalize(
-                    State.ExperimentalTetherMinimizedBehavior),
-                SetExperimentalTetherMinimizedBehavior),
-            editorWidth: 156,
-            topMargin: 8));
-        content.Children.Add(options);
-        card.Child = content;
-        return card;
     }
 
     private UIElement BuildLabsVirtualDesktopSettings()
@@ -3474,6 +3448,51 @@ public sealed partial class AppController
         }
         Grid.SetColumn(labelHost, 0);
         row.Children.Add(labelHost);
+
+        if (editor is FrameworkElement element)
+        {
+            element.Width = editorWidth;
+            element.Margin = new Thickness(10, 0, 0, 0);
+            element.HorizontalAlignment = HorizontalAlignment.Right;
+            element.VerticalAlignment = VerticalAlignment.Center;
+        }
+        Grid.SetColumn(editor, 1);
+        row.Children.Add(editor);
+        return row;
+    }
+
+    private UIElement CompactSettingsToggleField(
+        string labelText,
+        bool isChecked,
+        Action onToggle,
+        string tipKey,
+        UIElement editor,
+        double editorWidth = 132,
+        double topMargin = 4)
+    {
+        var row = new Grid
+        {
+            Margin = new Thickness(0, topMargin, 0, 2)
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = GridLength.Auto
+        });
+
+        var toggle = SettingsToggle(labelText, isChecked, onToggle);
+        toggle.Margin = new Thickness(0);
+        var toggleHost = WrapWithHint(toggle, tipKey);
+        if (toggleHost is FrameworkElement toggleElement)
+        {
+            toggleElement.Margin = new Thickness(0);
+            toggleElement.VerticalAlignment = VerticalAlignment.Center;
+        }
+        Grid.SetColumn(toggleHost, 0);
+        row.Children.Add(toggleHost);
 
         if (editor is FrameworkElement element)
         {
