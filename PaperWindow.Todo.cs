@@ -612,6 +612,12 @@ public sealed partial class PaperWindow
                 return;
             }
 
+            if (MoveTodoItemsAfterDoneChange([item], done: true))
+            {
+                ReconcileTodoRows([item.Id]);
+                return;
+            }
+
             // 完成动画：只淡化，不缩小
             if (_controller.State.EnableAnimations)
             {
@@ -641,6 +647,12 @@ public sealed partial class PaperWindow
             text.IsDone = false;
             text.Foreground = TextBrush;
             _controller.MarkDirty();
+
+            if (MoveTodoItemsAfterDoneChange([item], done: false))
+            {
+                ReconcileTodoRows([item.Id]);
+                return;
+            }
 
             // 取消完成动画
             if (_controller.State.EnableAnimations)

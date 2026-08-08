@@ -484,6 +484,9 @@ public sealed class StateStore
         state.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.NormalizeQuickMinutes(
                 state.ExperimentalTodoReminderQuickMinutes);
+        state.ExperimentalTodoReminderSound =
+            TodoReminderSoundOptions.Normalize(
+                state.ExperimentalTodoReminderSound);
         state.ExperimentalCapsuleMagnetDistance =
             ExperimentalWindowAttachmentOptions.NormalizeSnapDistance(
                 state.ExperimentalCapsuleMagnetDistance);

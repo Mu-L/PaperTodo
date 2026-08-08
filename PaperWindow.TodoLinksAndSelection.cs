@@ -690,6 +690,47 @@ public sealed partial class PaperWindow
         return true;
     }
 
+    private bool MoveTodoItemsAfterDoneChange(
+        IReadOnlyCollection<PaperItem> changedItems,
+        bool done)
+    {
+        if (!_controller.State.AutoMoveCompletedTodosToBottom ||
+            changedItems.Count == 0)
+        {
+            return false;
+        }
+
+        var changedIds = changedItems
+            .Select(item => item.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var before = OrderedItems().ToList();
+        var moved = before
+            .Where(item => changedIds.Contains(item.Id))
+            .ToList();
+        var remaining = before
+            .Where(item => !changedIds.Contains(item.Id))
+            .ToList();
+
+        var insertIndex = done
+            ? remaining.Count
+            : remaining.FindIndex(item => item.Done);
+        if (insertIndex < 0)
+        {
+            insertIndex = remaining.Count;
+        }
+        remaining.InsertRange(insertIndex, moved);
+
+        if (before.Select(item => item.Id)
+            .SequenceEqual(remaining.Select(item => item.Id)))
+        {
+            return false;
+        }
+
+        _paper.Items = remaining;
+        TodoRules.NormalizeOrders(_paper.Items);
+        return true;
+    }
+
     private void ApplyDoneToSelectedTodos(bool done)
     {
         var selected = SelectedTodoItems();
@@ -720,6 +761,11 @@ public sealed partial class PaperWindow
                 _paper.Items.Add(new PaperItem());
             }
             _selectedTodoItemIds.Clear();
+        }
+        else
+        {
+            // Move the whole changed block once so batch completion keeps its relative order.
+            MoveTodoItemsAfterDoneChange(selected, done);
         }
 
         NormalizeTodoItems();

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Media;
 using System.Windows.Threading;
 using Hardcodet.Wpf.TaskbarNotification;
 using Application = System.Windows.Application;
@@ -6,10 +8,14 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private const long TodoReminderMaximumCustomSoundBytes = 10 * 1024 * 1024;
     private static readonly TimeSpan TodoReminderMaximumTimerInterval =
         TimeSpan.FromMinutes(1);
     private static readonly TimeSpan TodoReminderMinimumTimerInterval =
         TimeSpan.FromMilliseconds(250);
+    private SoundPlayer? _todoReminderCustomSoundPlayer;
+    private long _todoReminderCustomSoundLength = -1;
+    private DateTime _todoReminderCustomSoundWriteTimeUtc;
 
     internal void NotifyTodoReminderChanged(bool saveImmediately)
     {
@@ -195,6 +201,10 @@ public sealed partial class AppController
             return;
         }
 
+        // Sound is an optional presentation channel. A bad custom file or unavailable system
+        // sound must never keep a successfully surfaced reminder pending.
+        PlayTodoReminderSound();
+
         foreach (var (_, item) in due)
         {
             item.ReminderTriggered = true;
@@ -251,6 +261,115 @@ public sealed partial class AppController
             message,
             BalloonIcon.Info);
         return true;
+    }
+
+    private void PlayTodoReminderSound()
+    {
+        if (!State.ExperimentalTodoReminderSoundEnabled)
+        {
+            return;
+        }
+
+        if (TryPlayCustomTodoReminderSound())
+        {
+            return;
+        }
+
+        try
+        {
+            TodoReminderSystemSound().Play();
+        }
+        catch
+        {
+            // Reminder delivery has already succeeded. Sound is best effort only.
+        }
+    }
+
+    private bool TryPlayCustomTodoReminderSound()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "papertodo.wav");
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists ||
+                info.Length < 12 ||
+                info.Length > TodoReminderMaximumCustomSoundBytes)
+            {
+                ResetTodoReminderCustomSoundCache();
+                return false;
+            }
+
+            if (_todoReminderCustomSoundPlayer != null &&
+                _todoReminderCustomSoundLength == info.Length &&
+                _todoReminderCustomSoundWriteTimeUtc == info.LastWriteTimeUtc)
+            {
+                _todoReminderCustomSoundPlayer.Play();
+                return true;
+            }
+
+            ResetTodoReminderCustomSoundCache();
+            if (!HasWaveHeader(path))
+            {
+                return false;
+            }
+
+            var player = new SoundPlayer(path);
+            player.Load();
+            _todoReminderCustomSoundPlayer = player;
+            _todoReminderCustomSoundLength = info.Length;
+            _todoReminderCustomSoundWriteTimeUtc = info.LastWriteTimeUtc;
+            player.Play();
+            return true;
+        }
+        catch
+        {
+            ResetTodoReminderCustomSoundCache();
+            return false;
+        }
+    }
+
+    private static bool HasWaveHeader(string path)
+    {
+        Span<byte> header = stackalloc byte[12];
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        if (stream.Read(header) != header.Length)
+        {
+            return false;
+        }
+
+        return header[0] == (byte)'R' &&
+            header[1] == (byte)'I' &&
+            header[2] == (byte)'F' &&
+            header[3] == (byte)'F' &&
+            header[8] == (byte)'W' &&
+            header[9] == (byte)'A' &&
+            header[10] == (byte)'V' &&
+            header[11] == (byte)'E';
+    }
+
+    private SystemSound TodoReminderSystemSound()
+    {
+        return TodoReminderSoundOptions.Normalize(
+            State.ExperimentalTodoReminderSound) switch
+        {
+            TodoReminderSoundOptions.Beep => SystemSounds.Beep,
+            TodoReminderSoundOptions.Exclamation => SystemSounds.Exclamation,
+            TodoReminderSoundOptions.Hand => SystemSounds.Hand,
+            TodoReminderSoundOptions.Question => SystemSounds.Question,
+            _ => SystemSounds.Asterisk
+        };
+    }
+
+    private void ResetTodoReminderCustomSoundCache()
+    {
+        _todoReminderCustomSoundPlayer?.Dispose();
+        _todoReminderCustomSoundPlayer = null;
+        _todoReminderCustomSoundLength = -1;
+        _todoReminderCustomSoundWriteTimeUtc = default;
     }
 
     private void ScheduleTodoReminderRetry()

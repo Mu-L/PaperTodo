@@ -25,6 +25,8 @@ public sealed partial class MarkdownTextBox : TextEditor
     private const double ImageBlockHorizontalPadding = 2;
     private static readonly string[] EncodedClipboardImageFormats =
         ["PNG", "image/png", "JFIF", "image/jpeg", "image/jpg", "GIF", "image/gif"];
+    private static readonly string[] BareWebLinkPrefixes =
+        ["https://", "http://"];
 
     private bool _acceptsReturn = true;
     private bool _acceptsTab = true;
@@ -893,6 +895,159 @@ public sealed partial class MarkdownTextBox : TextEditor
         }
 
         return false;
+    }
+
+    public bool TryGetOpenableLinkFromTextViewPoint(Point point, out string url)
+    {
+        if (TryGetMarkdownLinkFromTextViewPoint(point, out url))
+        {
+            return true;
+        }
+
+        url = "";
+        if (Document == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            EnsureVisualLines();
+            var textView = TextArea.TextView;
+            if (!textView.VisualLinesValid)
+            {
+                return false;
+            }
+
+            foreach (var visualLine in textView.VisualLines)
+            {
+                for (var line = visualLine.FirstDocumentLine;
+                     line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
+                     line = line.NextLine)
+                {
+                    var text = Document.GetText(line);
+                    foreach (var link in EnumerateBareWebLinks(text))
+                    {
+                        var segment = new TextSegment
+                        {
+                            StartOffset = line.Offset + link.Start,
+                            Length = link.End - link.Start
+                        };
+                        foreach (var rect in BackgroundGeometryBuilder.GetRectsForSegment(
+                                     textView,
+                                     segment,
+                                     true))
+                        {
+                            var hitRect = new Rect(
+                                rect.X - 2,
+                                rect.Y - 2,
+                                rect.Width + 4,
+                                rect.Height + 4);
+                            if (hitRect.Contains(point))
+                            {
+                                url = link.Url;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<(int Start, int End, string Url)> EnumerateBareWebLinks(
+        string text)
+    {
+        foreach (var prefix in BareWebLinkPrefixes)
+        {
+            var searchFrom = 0;
+            while (searchFrom < text.Length)
+            {
+                var start = text.IndexOf(
+                    prefix,
+                    searchFrom,
+                    StringComparison.OrdinalIgnoreCase);
+                if (start < 0)
+                {
+                    break;
+                }
+
+                var end = start + prefix.Length;
+                while (end < text.Length && !char.IsWhiteSpace(text[end]))
+                {
+                    end++;
+                }
+                end = TrimBareWebLinkEnd(text, start, end);
+
+                if (end > start + prefix.Length)
+                {
+                    var candidate = text[start..end];
+                    if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) &&
+                        (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        yield return (start, end, candidate);
+                    }
+                }
+
+                searchFrom = Math.Max(start + prefix.Length, end);
+            }
+        }
+    }
+
+    private static int TrimBareWebLinkEnd(string text, int start, int end)
+    {
+        while (end > start)
+        {
+            var last = text[end - 1];
+            if (last is '.' or ',' or '!' or ';' or ':' or '"' or '\'' or
+                '，' or '。' or '！' or '？' or '；' or '：' or '、' or
+                '”' or '’' or '》' or '）' or '】' or '>')
+            {
+                end--;
+                continue;
+            }
+
+            if ((last == ')' && HasUnmatchedClosingDelimiter(text, start, end, '(', ')')) ||
+                (last == ']' && HasUnmatchedClosingDelimiter(text, start, end, '[', ']')) ||
+                (last == '}' && HasUnmatchedClosingDelimiter(text, start, end, '{', '}')))
+            {
+                end--;
+                continue;
+            }
+
+            break;
+        }
+
+        return end;
+    }
+
+    private static bool HasUnmatchedClosingDelimiter(
+        string text,
+        int start,
+        int end,
+        char open,
+        char close)
+    {
+        var balance = 0;
+        for (var index = start; index < end; index++)
+        {
+            if (text[index] == open)
+            {
+                balance++;
+            }
+            else if (text[index] == close)
+            {
+                balance--;
+            }
+        }
+        return balance < 0;
     }
 
     public new void ScrollToLine(int lineIndex)

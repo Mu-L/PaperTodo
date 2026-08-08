@@ -1,58 +1,16 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Media;
 
 namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private T MarkAdvancedSetting<T>(T element)
+    private static T MarkAdvancedSetting<T>(T element)
         where T : FrameworkElement
     {
-        if (element is CheckBox { Content: string text } checkBox)
-        {
-            var content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            content.Children.Add(new TextBlock
-            {
-                Text = text,
-                Foreground = TrayTextBrush,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            content.Children.Add(new TextBlock
-            {
-                Text = "◇",
-                Foreground = TrayWeakTextBrush,
-                FontFamily = AppTypography.SymbolFontFamily,
-                FontSize = AppTypography.Scale(10.5),
-                Opacity = 0.52,
-                Margin = new Thickness(6, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = BuildSettingsHintTooltip(
-                    Strings.Get("AdvancedFeatureBadgeTip"))
-            });
-            checkBox.Content = content;
-        }
-        else if (element is TextBlock label && !string.IsNullOrWhiteSpace(label.Text))
-        {
-            var labelText = label.Text;
-            label.Inlines.Clear();
-            label.Inlines.Add(new Run(labelText));
-            label.Inlines.Add(new Run("  ◇")
-            {
-                Foreground = TrayWeakTextBrush,
-                FontFamily = AppTypography.SymbolFontFamily,
-                FontSize = AppTypography.Scale(10.5),
-                FontWeight = FontWeights.Normal
-            });
-            label.ToolTip ??= BuildSettingsHintTooltip(
-                Strings.Get("AdvancedFeatureBadgeTip"));
-        }
-
+        // Advanced sections already have a distinct background. Keep their controls on the same
+        // alignment line as ordinary settings instead of adding a per-item badge.
         return element;
     }
 
@@ -70,8 +28,10 @@ public sealed partial class AppController
             BorderBrush = Theme.Tint((byte)(Theme.IsDark ? 42 : 28)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
+            // The negative horizontal margin grows only the background. Matching padding keeps
+            // every control aligned with the ordinary settings above and below this block.
             Padding = new Thickness(8, 5, 8, 8),
-            Margin = new Thickness(0, 5, 0, 7),
+            Margin = new Thickness(-8, 5, -8, 7),
             Child = content
         };
     }

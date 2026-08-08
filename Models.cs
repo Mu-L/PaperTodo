@@ -281,6 +281,22 @@ public static class ExperimentalTodoReminderOptions
     }
 }
 
+public static class TodoReminderSoundOptions
+{
+    public const string Asterisk = "asterisk";
+    public const string Beep = "beep";
+    public const string Exclamation = "exclamation";
+    public const string Hand = "hand";
+    public const string Question = "question";
+
+    public static string Normalize(string? sound)
+    {
+        return sound is Beep or Exclamation or Hand or Question
+            ? sound
+            : Asterisk;
+    }
+}
+
 public static class ExperimentalWindowAttachmentOptions
 {
     public const int MinimumSnapDistance = 6;
@@ -386,6 +402,7 @@ public sealed class AppState
     public string ImageReferenceTextMode { get; set; } = ImageReferenceTextModes.Always;
     public string TodoVisualSize { get; set; } = TodoVisualSizes.Medium;
     public bool AutoClearCompletedTodos { get; set; }
+    public bool AutoMoveCompletedTodosToBottom { get; set; }
     public bool AutoCompressLargeImages { get; set; } = true;
     public string UiFontPreset { get; set; } = UiFontPresets.Default;
     public string TextRenderingProfile { get; set; } = TextRenderingProfiles.Standard;
@@ -448,6 +465,9 @@ public sealed class AppState
     public bool ExperimentalTodoReminderShowButton { get; set; } = true;
     public int ExperimentalTodoReminderQuickMinutes { get; set; } =
         ExperimentalTodoReminderOptions.DefaultQuickMinutes;
+    public bool ExperimentalTodoReminderSoundEnabled { get; set; }
+    public string ExperimentalTodoReminderSound { get; set; } =
+        TodoReminderSoundOptions.Asterisk;
     public bool McpEnabled { get; set; }
     public bool McpAllowBlankWrites { get; set; }
     public bool McpAllowFullWrites { get; set; }

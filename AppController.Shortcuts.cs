@@ -375,12 +375,29 @@ public sealed partial class AppController
         {
             rows.Children.Add(BuildShortcutRow(definition));
         }
-        rows.Children.Add(WrapWithHint(
-            SettingsToggle(
-                Strings.Get("SettingsDistinguishNumpadShortcutDigits"),
-                State.DistinguishNumpadShortcutDigits,
-                ToggleDistinguishNumpadShortcutDigits),
-            "TipSettingsDistinguishNumpadShortcutDigits"));
+        var distinguishNumpadToggle = SettingsToggle(
+            Strings.Get("SettingsDistinguishNumpadShortcutDigits"),
+            State.DistinguishNumpadShortcutDigits,
+            ToggleDistinguishNumpadShortcutDigits);
+        distinguishNumpadToggle.Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = Strings.Get("SettingsDistinguishNumpadShortcutDigits"),
+                    Foreground = TrayTextBrush,
+                    FontSize = AppTypography.Scale(13),
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                CreateSettingsHintGlyph(
+                    "TipSettingsDistinguishNumpadShortcutDigits",
+                    new Thickness(4, 0, 0, 0))
+            }
+        };
+        rows.Children.Add(distinguishNumpadToggle);
 
         // Align the edge group title with "常用" (left edge of the page), tip glued to text.
         // Left/right queue command tips share a min width so their ⓘ stay level with each other.

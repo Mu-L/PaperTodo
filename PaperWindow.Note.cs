@@ -804,7 +804,7 @@ public sealed partial class PaperWindow
 
                 box.ClearImageSelection();
                 if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control &&
-                    box.TryGetMarkdownLinkFromTextViewPoint(textViewPoint, out var editUrl))
+                    box.TryGetOpenableLinkFromTextViewPoint(textViewPoint, out var editUrl))
                 {
                     OpenMarkdownLink(editUrl);
                     e.Handled = true;
@@ -812,7 +812,7 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            if (box.TryGetMarkdownLinkFromTextViewPoint(textViewPoint, out var url))
+            if (box.TryGetOpenableLinkFromTextViewPoint(textViewPoint, out var url))
             {
                 OpenMarkdownLink(url);
                 e.Handled = true;
@@ -842,7 +842,9 @@ public sealed partial class PaperWindow
 
         box.MouseMove += (sender, e) =>
         {
-            var isOverLink = box.TryGetMarkdownLinkFromTextViewPoint(e.GetPosition(box.TextArea.TextView), out _);
+            var isOverLink = box.TryGetOpenableLinkFromTextViewPoint(
+                e.GetPosition(box.TextArea.TextView),
+                out _);
             if (isPreviewing)
             {
                 box.SetInteractionCursor(isOverLink ? Cursors.Hand : Cursors.Arrow);

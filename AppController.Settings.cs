@@ -456,6 +456,29 @@ public sealed partial class AppController
         RefreshSettingsRegions("labs.reminders");
     }
 
+    private void ToggleExperimentalTodoReminderSoundEnabled()
+    {
+        State.ExperimentalTodoReminderSoundEnabled =
+            !State.ExperimentalTodoReminderSoundEnabled;
+        SaveNow();
+        RefreshSettingsRegions("labs.reminders");
+    }
+
+    private void SetExperimentalTodoReminderSound(string sound)
+    {
+        var normalized = TodoReminderSoundOptions.Normalize(sound);
+        if (string.Equals(
+                State.ExperimentalTodoReminderSound,
+                normalized,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        State.ExperimentalTodoReminderSound = normalized;
+        SaveNow();
+    }
+
     private void SetTitleTextSize(string size)
     {
         var normalized = VisualTextSizes.Normalize(size);
@@ -1535,20 +1558,22 @@ public sealed partial class AppController
                 ToggleExperimentalRestingCapsuleOpacity),
             "TipLabsRestingCapsuleOpacity"));
 
-        content.Children.Add(SettingsFieldLabel(
+        content.Children.Add(CompactSettingsField(
             Strings.Get("LabsInactivePaperOpacityLevel"),
+            CreateLabsPercentageStepper(
+                () => State.ExperimentalInactivePaperOpacityLevel,
+                SetExperimentalInactivePaperOpacityLevel,
+                State.ExperimentalInactivePaperOpacity),
+            editorWidth: 132,
             topMargin: 7));
-        content.Children.Add(CreateLabsPercentageStepper(
-            () => State.ExperimentalInactivePaperOpacityLevel,
-            SetExperimentalInactivePaperOpacityLevel,
-            State.ExperimentalInactivePaperOpacity));
-        content.Children.Add(SettingsFieldLabel(
+        content.Children.Add(CompactSettingsField(
             Strings.Get("LabsRestingCapsuleOpacityLevel"),
+            CreateLabsPercentageStepper(
+                () => State.ExperimentalRestingCapsuleOpacityLevel,
+                SetExperimentalRestingCapsuleOpacityLevel,
+                State.ExperimentalRestingCapsuleOpacity),
+            editorWidth: 132,
             topMargin: 7));
-        content.Children.Add(CreateLabsPercentageStepper(
-            () => State.ExperimentalRestingCapsuleOpacityLevel,
-            SetExperimentalRestingCapsuleOpacityLevel,
-            State.ExperimentalRestingCapsuleOpacity));
 
         var capsuleOpacityOptions = new StackPanel
         {
@@ -1748,10 +1773,11 @@ public sealed partial class AppController
         targets.Children.Add(windowEdges);
         content.Children.Add(targets);
 
-        content.Children.Add(SettingsFieldLabel(
+        content.Children.Add(CompactSettingsField(
             Strings.Get("LabsMagnetDistance"),
+            CreateLabsMagnetDistanceStepper(enabled),
+            editorWidth: 132,
             topMargin: 8));
-        content.Children.Add(CreateLabsMagnetDistanceStepper(enabled));
         card.Child = content;
         return card;
     }
@@ -1859,9 +1885,11 @@ public sealed partial class AppController
             Strings.Get("LabsWindowTetherPreferredEdge"),
             topMargin: 8));
         options.Children.Add(CreateLabsWindowTetherEdgeSelector());
-        options.Children.Add(SettingsFieldLabel(
-            Strings.Get("LabsWindowTetherGap")));
-        options.Children.Add(CreateLabsWindowTetherGapStepper());
+        options.Children.Add(CompactSettingsField(
+            Strings.Get("LabsWindowTetherGap"),
+            CreateLabsWindowTetherGapStepper(),
+            editorWidth: 132,
+            topMargin: 4));
         content.Children.Add(options);
         card.Child = content;
         return card;
@@ -1989,19 +2017,20 @@ public sealed partial class AppController
             IsEnabled = enabled,
             Opacity = enabled ? 1.0 : 0.55
         };
-        options.Children.Add(SettingsFieldLabel(
+        options.Children.Add(CompactSettingsField(
             Strings.Get("LabsTetherMinimizedBehavior"),
+            CreateSegmentSelector(
+                [
+                    (ExperimentalTetherVisibilityModes.Hide,
+                        Strings.Get("LabsTetherMinimizedHide")),
+                    (ExperimentalTetherVisibilityModes.Capsule,
+                        Strings.Get("LabsTetherMinimizedCapsule"))
+                ],
+                ExperimentalTetherVisibilityModes.Normalize(
+                    State.ExperimentalTetherMinimizedBehavior),
+                SetExperimentalTetherMinimizedBehavior),
+            editorWidth: 156,
             topMargin: 8));
-        options.Children.Add(CreateSegmentSelector(
-            [
-                (ExperimentalTetherVisibilityModes.Hide,
-                    Strings.Get("LabsTetherMinimizedHide")),
-                (ExperimentalTetherVisibilityModes.Capsule,
-                    Strings.Get("LabsTetherMinimizedCapsule"))
-            ],
-            ExperimentalTetherVisibilityModes.Normalize(
-                State.ExperimentalTetherMinimizedBehavior),
-            SetExperimentalTetherMinimizedBehavior));
         content.Children.Add(options);
         card.Child = content;
         return card;
@@ -2094,6 +2123,7 @@ public sealed partial class AppController
                 State.ExperimentalTodoReminders,
                 ToggleExperimentalTodoReminders),
             "TipLabsTodoReminders"));
+
         var showButtonToggle = WrapWithHint(
             SettingsToggle(
                 Strings.Get("LabsTodoReminderShowButton"),
@@ -2104,10 +2134,36 @@ public sealed partial class AppController
         showButtonToggle.Opacity =
             State.ExperimentalTodoReminders ? 1.0 : 0.55;
         content.Children.Add(showButtonToggle);
-        content.Children.Add(SettingsFieldLabel(
+
+        var soundToggle = WrapWithHint(
+            SettingsToggle(
+                Strings.Get("LabsTodoReminderSoundEnabled"),
+                State.ExperimentalTodoReminderSoundEnabled,
+                ToggleExperimentalTodoReminderSoundEnabled),
+            "TipLabsTodoReminderSoundEnabled");
+        soundToggle.IsEnabled = State.ExperimentalTodoReminders;
+        soundToggle.Opacity =
+            State.ExperimentalTodoReminders ? 1.0 : 0.55;
+        content.Children.Add(soundToggle);
+
+        content.Children.Add(CompactSettingsField(
             Strings.Get("LabsTodoReminderQuickMinutes"),
+            CreateLabsTodoReminderMinutesStepper(),
+            editorWidth: 132,
             topMargin: 7));
-        content.Children.Add(CreateLabsTodoReminderMinutesStepper());
+
+        var soundSelector = CreateTodoReminderSoundSelector();
+        soundSelector.IsEnabled =
+            State.ExperimentalTodoReminders &&
+            State.ExperimentalTodoReminderSoundEnabled;
+        soundSelector.Opacity = soundSelector.IsEnabled ? 1.0 : 0.55;
+        content.Children.Add(CompactSettingsField(
+            Strings.Get("LabsTodoReminderSound"),
+            soundSelector,
+            editorWidth: 156,
+            tipKey: "TipLabsTodoReminderSound",
+            topMargin: 7));
+
         card.Child = content;
         return card;
     }
@@ -2187,6 +2243,63 @@ public sealed partial class AppController
             ExperimentalTodoReminderOptions.QuickMinutesStep));
         container.Child = grid;
         return container;
+    }
+
+    private UIElement CreateTodoReminderSoundSelector()
+    {
+        var choices = new[]
+        {
+            (TodoReminderSoundOptions.Asterisk,
+                Strings.Get("TodoReminderSoundAsterisk")),
+            (TodoReminderSoundOptions.Beep,
+                Strings.Get("TodoReminderSoundBeep")),
+            (TodoReminderSoundOptions.Exclamation,
+                Strings.Get("TodoReminderSoundExclamation")),
+            (TodoReminderSoundOptions.Hand,
+                Strings.Get("TodoReminderSoundHand")),
+            (TodoReminderSoundOptions.Question,
+                Strings.Get("TodoReminderSoundQuestion"))
+        };
+        var selectedKey = TodoReminderSoundOptions.Normalize(
+            State.ExperimentalTodoReminderSound);
+        var combo = new ComboBox
+        {
+            Height = AppTypography.FitChrome(28),
+            Foreground = TrayTextBrush,
+            Background = TrayPaperBrush,
+            BorderBrush = TrayBorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(7, 1, 4, 1),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Focusable = false
+        };
+
+        ComboBoxItem? selected = null;
+        foreach (var (key, label) in choices)
+        {
+            var item = new ComboBoxItem
+            {
+                Tag = key,
+                Content = label,
+                Foreground = TrayTextBrush,
+                Background = TrayPaperBrush
+            };
+            combo.Items.Add(item);
+            if (string.Equals(key, selectedKey, StringComparison.Ordinal))
+            {
+                selected = item;
+            }
+        }
+        combo.SelectedItem = selected ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string key })
+            {
+                SetExperimentalTodoReminderSound(key);
+            }
+        };
+        return combo;
     }
 
     private UIElement BuildLabsMcpSettings()
@@ -2377,6 +2490,9 @@ public sealed partial class AppController
         State.ExperimentalTodoReminderShowButton = true;
         State.ExperimentalTodoReminderQuickMinutes =
             ExperimentalTodoReminderOptions.DefaultQuickMinutes;
+        State.ExperimentalTodoReminderSoundEnabled = false;
+        State.ExperimentalTodoReminderSound =
+            TodoReminderSoundOptions.Asterisk;
         State.McpEnabled = false;
         State.McpAllowBlankWrites = false;
         State.McpAllowFullWrites = false;
@@ -2465,8 +2581,12 @@ public sealed partial class AppController
             leftColumn.Children.Add(AdvancedSettingsBlock(
                 WrapWithHint(_settingsHidePapersFromTaskbarCheckBox, "TipHidePapersFromTaskbar"),
                 WrapWithHint(_settingsHidePapersFromWindowSwitcherCheckBox, "TipHidePapersFromWindowSwitcher"),
-                WrapWithHint(MarkAdvancedSetting(SettingsFieldLabel(Strings.Get("SettingsFullscreenTopmostMode"), topMargin: 8)), "TipFullscreenTopmostMode"),
-                CreateFullscreenTopmostModeSegmentSelector()));
+                CompactSettingsField(
+                    Strings.Get("SettingsFullscreenTopmostMode"),
+                    CreateFullscreenTopmostModeSegmentSelector(),
+                    editorWidth: 156,
+                    tipKey: "TipFullscreenTopmostMode",
+                    topMargin: 8)));
         }
 
         leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("TrayMarkdownRenderMode"), topMargin: 8), "TipMarkdownRender"));
@@ -2515,10 +2635,18 @@ public sealed partial class AppController
                         State.HideEdgeCapsuleCloseButtonOnHover,
                         ToggleHideEdgeCapsuleCloseButtonOnHover)),
                     "TipHideEdgeCapsuleCloseButtonOnHover"),
-                WrapWithHint(MarkAdvancedSetting(SettingsFieldLabel(Strings.Get("SettingsMaxTitleLength"), topMargin: 8)), "TipMaxTitleLength"),
-                CreateMaxTitleLengthStepper(),
-                WrapWithHint(MarkAdvancedSetting(SettingsFieldLabel(Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"), topMargin: 8)), "TipDeepCapsuleTitleMeasureLimit"),
-                CreateDeepCapsuleTitleMeasureLimitStepper()));
+                CompactSettingsField(
+                    Strings.Get("SettingsMaxTitleLength"),
+                    CreateMaxTitleLengthStepper(),
+                    editorWidth: 132,
+                    tipKey: "TipMaxTitleLength",
+                    topMargin: 8),
+                CompactSettingsField(
+                    Strings.Get("SettingsDeepCapsuleTitleMeasureLimit"),
+                    CreateDeepCapsuleTitleMeasureLimitStepper(),
+                    editorWidth: 132,
+                    tipKey: "TipDeepCapsuleTitleMeasureLimit",
+                    topMargin: 8)));
         }
 
         rightColumn.Children.Add(BuildSettingsLiveRegion(
@@ -2563,6 +2691,18 @@ public sealed partial class AppController
                 State.AutoClearCompletedTodos,
                 ToggleAutoClearCompletedTodos),
             "TipAutoClearCompletedTodos"));
+
+        var autoMoveCompletedToggle = SettingsToggle(
+            Strings.Get("SettingsAutoMoveCompletedTodosToBottom"),
+            State.AutoMoveCompletedTodosToBottom,
+            ToggleAutoMoveCompletedTodosToBottom);
+        autoMoveCompletedToggle.IsEnabled = !State.AutoClearCompletedTodos;
+        autoMoveCompletedToggle.Opacity =
+            autoMoveCompletedToggle.IsEnabled ? 1.0 : 0.55;
+        content.Children.Add(WrapWithHint(
+            autoMoveCompletedToggle,
+            "TipAutoMoveCompletedTodosToBottom"));
+
         content.Children.Add(WrapWithHint(
             SettingsToggle(
                 Strings.Get("SettingsEnableTodoPaperLinks"),
@@ -2666,8 +2806,12 @@ public sealed partial class AppController
             (AppTypography.HasCustomFont && AppTypography.HasCustomBoldFont) ||
             State.CustomFontEnhancedBold;
         leftColumn.Children.Add(WrapWithHint(customBoldToggle, "TipCustomFontEnhancedBold"));
-        leftColumn.Children.Add(WrapWithHint(SettingsFieldLabel(Strings.Get("SettingsOverallFontScale")), "TipOverallFontScale"));
-        leftColumn.Children.Add(CreateOverallFontScaleStepper());
+        leftColumn.Children.Add(CompactSettingsField(
+            Strings.Get("SettingsOverallFontScale"),
+            CreateOverallFontScaleStepper(),
+            editorWidth: 132,
+            tipKey: "TipOverallFontScale",
+            topMargin: 7));
         if (State.AdvancedSettingsMode)
         {
             leftColumn.Children.Add(AdvancedSettingsBlock(
@@ -2809,6 +2953,7 @@ public sealed partial class AppController
         State.DeepCapsuleTitleMeasureCharacterLimit = 0;
         State.AutoCompressLargeImages = true;
         State.AutoClearCompletedTodos = false;
+        State.AutoMoveCompletedTodosToBottom = false;
         State.EnableTodoPaperLinks = true;
         State.ShowLinkedPaperName = false;
         State.AllowLongLinkedPaperTitles = false;
@@ -3255,6 +3400,60 @@ public sealed partial class AppController
             FontWeight = FontWeights.Medium,
             Margin = new Thickness(0, topMargin, 0, 0)
         };
+    }
+
+    private UIElement CompactSettingsField(
+        string labelText,
+        UIElement editor,
+        double editorWidth = 136,
+        string? tipKey = null,
+        double topMargin = 7)
+    {
+        var row = new Grid
+        {
+            Margin = new Thickness(0, topMargin, 0, 2)
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = GridLength.Auto
+        });
+
+        var labelHost = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        labelHost.Children.Add(new TextBlock
+        {
+            Text = labelText,
+            Foreground = TrayWeakTextBrush,
+            FontSize = AppTypography.Scale(11),
+            FontWeight = FontWeights.Medium,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        if (!string.IsNullOrWhiteSpace(tipKey))
+        {
+            labelHost.Children.Add(CreateSettingsHintGlyph(
+                tipKey,
+                new Thickness(4, 0, 0, 0)));
+        }
+        Grid.SetColumn(labelHost, 0);
+        row.Children.Add(labelHost);
+
+        if (editor is FrameworkElement element)
+        {
+            element.Width = editorWidth;
+            element.Margin = new Thickness(10, 0, 0, 0);
+            element.HorizontalAlignment = HorizontalAlignment.Right;
+            element.VerticalAlignment = VerticalAlignment.Center;
+        }
+        Grid.SetColumn(editor, 1);
+        row.Children.Add(editor);
+        return row;
     }
 
     private CheckBox SettingsToggle(string text, bool isChecked, Action onToggle)
@@ -3765,6 +3964,43 @@ public sealed partial class AppController
     {
         State.AutoClearCompletedTodos = !State.AutoClearCompletedTodos;
         SaveNow();
+        RefreshSettingsRegions("general.todos");
+    }
+
+    private void ToggleAutoMoveCompletedTodosToBottom()
+    {
+        State.AutoMoveCompletedTodosToBottom =
+            !State.AutoMoveCompletedTodosToBottom;
+
+        if (State.AutoMoveCompletedTodosToBottom)
+        {
+            foreach (var paper in State.Papers.Where(
+                         paper => paper.Type == PaperTypes.Todo))
+            {
+                var ordered = paper.Items
+                    .OrderBy(item => item.Order)
+                    .ToList();
+                var regrouped = ordered
+                    .Where(item => !item.Done)
+                    .Concat(ordered.Where(item => item.Done))
+                    .ToList();
+                if (ordered.Select(item => item.Id)
+                    .SequenceEqual(regrouped.Select(item => item.Id)))
+                {
+                    continue;
+                }
+
+                paper.Items = regrouped;
+                TodoRules.NormalizeOrders(paper.Items);
+                if (_windows.TryGetValue(paper.Id, out var window))
+                {
+                    window.RefreshTodoRowsForExternalChange();
+                }
+            }
+        }
+
+        SaveNow();
+        RefreshSettingsRegions("general.todos");
     }
 
     private void ToggleAutoCompressLargeImages()
@@ -3890,7 +4126,8 @@ public sealed partial class AppController
         if (!State.UseCapsuleMode)
         {
             State.UseDeepCapsuleMode = false;
-            State.UseCapsuleCollapseAll = false;
+            // Preserve the user's "show master capsule" preference. Disabling capsule mode only
+            // clears live collapse state; the dependent setting remains checked and disabled.
             State.CapsuleCollapseAllActive = false;
             State.CapsuleCollapseAllActiveQueues.Clear();
             ResetDeepCapsuleStartTopMargins();
@@ -4045,7 +4282,7 @@ public sealed partial class AppController
         }
         else if (!State.UseDeepCapsuleMode)
         {
-            State.UseCapsuleCollapseAll = false;
+            // Keep the stored master-capsule preference while the docked mode is unavailable.
             State.CapsuleCollapseAllActive = false;
             State.CapsuleCollapseAllActiveQueues.Clear();
             ResetDeepCapsuleStartTopMargins();
