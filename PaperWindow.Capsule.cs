@@ -584,6 +584,11 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (collapsed)
+        {
+            RestoreExperimentalInactiveTitleBarGeometry();
+        }
+
         PrepareExperimentalAttachmentForFormTransition(collapsed);
 
         double? interruptedVisualWidth = null;

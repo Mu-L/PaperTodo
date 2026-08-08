@@ -224,6 +224,17 @@ public sealed partial class AppController
         _shortcutApplyFailureStatus = null;
     }
 
+    private void RefreshShortcutSettingsUi()
+    {
+        if (_settingsPage == SettingsPage.Labs)
+        {
+            RefreshSettingsRegions("labs.passive");
+            return;
+        }
+
+        RefreshSettingsWindowContent();
+    }
+
     private void RollbackShortcutDraftAfterFailure(
         string? failedCommandId,
         GlobalShortcutRegistrationFailure registrationFailure,
@@ -235,7 +246,7 @@ public sealed partial class AppController
         _shortcutApplyFailureId = failedCommandId;
         _shortcutApplyFailure = registrationFailure;
         _shortcutApplyFailureStatus = status;
-        RefreshSettingsWindowContent();
+        RefreshShortcutSettingsUi();
     }
 
     private void DiscardShortcutDraft()
@@ -262,7 +273,7 @@ public sealed partial class AppController
         if (key == Key.Escape)
         {
             _shortcutRecordingCommandId = null;
-            RefreshSettingsWindowContent();
+            RefreshShortcutSettingsUi();
             return;
         }
 
@@ -501,7 +512,7 @@ public sealed partial class AppController
         {
             _shortcutRecordingCommandId = definition.Id;
             ClearShortcutApplyFailure();
-            RefreshSettingsWindowContent();
+            RefreshShortcutSettingsUi();
             FocusShortcutRecorder();
         };
         Grid.SetColumn(keyButton, 1);
@@ -1201,7 +1212,7 @@ public sealed partial class AppController
         HandleExperimentalShortcutFeatureChanged(definition, enabled);
         ClearShortcutApplyFailure();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshShortcutSettingsUi();
     }
 
     private GlobalHotkeyManager EnsureGlobalHotkeyManager()
@@ -1252,7 +1263,7 @@ public sealed partial class AppController
         _shortcutEnabledDraft = new Dictionary<string, bool>(desiredEnabled, StringComparer.Ordinal);
         ClearShortcutApplyFailure();
         SaveNow();
-        RefreshSettingsWindowContent();
+        RefreshShortcutSettingsUi();
     }
 
     private void RestoreLabsShortcutDefaults()

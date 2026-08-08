@@ -223,7 +223,9 @@ public sealed partial class PaperWindow : Window
     // queue/display rearrangement deferred until the verified docked surface owns presentation.
     public bool IsDeepCapsuleReorderDragInProgress =>
         IsDeepCapsuleReordering || IsDeepCapsuleDockingReveal;
-    public bool SuppressGeometrySave => _suppressGeometrySave;
+    public bool SuppressGeometrySave =>
+        _suppressGeometrySave ||
+        _experimentalInactiveTitleBarCollapsed;
     internal string PaperId => _paper.Id;
     // Ordinary collapsed capsules are the main PaperWindow and should still save X/Y.
     // Deep capsules use the slot-host window for docked geometry, so the hidden/parked
@@ -1601,6 +1603,9 @@ public sealed partial class PaperWindow : Window
 
     public void UpdateTypography()
     {
+        var reapplyInactiveTitleBar =
+            BeginExperimentalInactiveTitleBarLayoutChange();
+
         FontFamily = AppTypography.UiFontFamily;
         FontSize = AppTypography.Scale(12);
         Language = AppTypography.Language;
@@ -1705,6 +1710,7 @@ public sealed partial class PaperWindow : Window
         RefreshPaperTitle();
         UpdateTopBarResponsiveLayout();
         ApplyCurrentCollapsedCapsuleWidth();
+        EndExperimentalInactiveTitleBarLayoutChange(reapplyInactiveTitleBar);
     }
 
     private void ApplyCurrentCollapsedCapsuleWidth()
