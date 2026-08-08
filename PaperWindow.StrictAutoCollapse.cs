@@ -39,6 +39,7 @@ public sealed partial class PaperWindow
     private static extern bool GetCursorPos(out StrictNativePoint point);
 
     private DispatcherTimer? _strictAutoCollapseTimer;
+    private readonly List<int> _strictAutoCollapseOpeningKeys = [];
     private int _strictAutoCollapseGeneration;
     private bool _strictAutoCollapsePending;
     private bool _strictAutoCollapseReady;
@@ -68,10 +69,13 @@ public sealed partial class PaperWindow
             _paper.IsVisible;
         _strictAutoCollapseReady = false;
         _strictAutoCollapseSettledTicks = 0;
+        _strictAutoCollapseOpeningKeys.Clear();
         if (!_strictAutoCollapsePending)
         {
             return;
         }
+
+        CaptureStrictAutoCollapseOpeningKeys();
 
         Dispatcher.BeginInvoke(
             (Action)(() =>
@@ -101,6 +105,7 @@ public sealed partial class PaperWindow
         _strictAutoCollapsePending = false;
         _strictAutoCollapseReady = false;
         _strictAutoCollapseSettledTicks = 0;
+        _strictAutoCollapseOpeningKeys.Clear();
         StopStrictAutoCollapseTimer();
     }
 
@@ -133,8 +138,18 @@ public sealed partial class PaperWindow
         var lastInputTime = ReadStrictLastInputTime();
         if (!_strictAutoCollapseReady)
         {
-            // Wait for a short input-idle boundary after show. This lets the shortcut/mouse
-            // action that opened the paper finish without scanning the whole virtual-key table.
+            // Key-up events from the shortcut that showed the paper are part of that opening
+            // gesture, not the later operation that should collapse an unused paper.
+            if (HasHeldStrictAutoCollapseOpeningKey())
+            {
+                _strictAutoCollapseLastInputTime = lastInputTime;
+                _strictAutoCollapseSettledTicks = 0;
+                GetCursorPos(out _strictAutoCollapseCursor);
+                _strictAutoCollapseWasForeground = ownsForeground;
+                return;
+            }
+
+            // Wait for a short input-idle boundary after the opening keys have been released.
             if (_strictAutoCollapseLastInputTime != lastInputTime)
             {
                 _strictAutoCollapseLastInputTime = lastInputTime;
@@ -219,6 +234,41 @@ public sealed partial class PaperWindow
         };
         return GetLastInputInfo(ref info) ? info.Time : 0;
     }
+
+    private void CaptureStrictAutoCollapseOpeningKeys()
+    {
+        const int firstKeyboardVirtualKey = 0x08;
+        const int lastKeyboardVirtualKey = 0xFE;
+
+        for (var key = firstKeyboardVirtualKey; key <= lastKeyboardVirtualKey; key++)
+        {
+            if (IsStrictKeyDown(key))
+            {
+                _strictAutoCollapseOpeningKeys.Add(key);
+            }
+        }
+    }
+
+    private bool HasHeldStrictAutoCollapseOpeningKey()
+    {
+        var anyHeld = false;
+        for (var i = _strictAutoCollapseOpeningKeys.Count - 1; i >= 0; i--)
+        {
+            if (IsStrictKeyDown(_strictAutoCollapseOpeningKeys[i]))
+            {
+                anyHeld = true;
+            }
+            else
+            {
+                _strictAutoCollapseOpeningKeys.RemoveAt(i);
+            }
+        }
+
+        return anyHeld;
+    }
+
+    private static bool IsStrictKeyDown(int virtualKey) =>
+        (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
     private static bool HasStrictPointerButtonActivity()
     {

@@ -1386,7 +1386,7 @@ public sealed partial class AppController
         AddLabsMajorSection(
             rightColumn,
             Strings.Get("LabsAdvancedShortcuts"),
-            BuildLabsPassiveModeSettings());
+            BuildSettingsLiveRegion("labs.passive", BuildLabsPassiveModeSettings));
 
         var separator = new Border
         {

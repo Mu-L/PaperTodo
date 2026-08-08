@@ -1864,7 +1864,8 @@ public sealed partial class PaperWindow : Window
         _capsuleShell.Margin = new Thickness(WindowChromeMargin);
         _capsuleShell.HorizontalAlignment = HorizontalAlignment.Left;
         _capsuleShell.VerticalAlignment = VerticalAlignment.Top;
-        if (_controller.State.ExperimentalRestingCapsuleOpacity)
+        if (_controller.State.ExperimentalRestingCapsuleOpacity ||
+            _controller.IsAdvancedCapsuleTransparent(_paper))
         {
             AttachCapsuleShellToExperimentalOpacityHost();
         }

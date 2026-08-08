@@ -151,9 +151,12 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         window.SourceInitialized += (_, _) =>
         {
             WindowNative.ApplyNoActivateStyle(window);
+            // Lock/passive state can be set before WPF creates this host's HWND.
+            WindowNative.SetInputPassthrough(
+                window,
+                _interactionLocked || _experimentalPassive);
             if (_experimentalPassive)
             {
-                WindowNative.SetInputPassthrough(window, enabled: true);
                 WindowNative.ApplyBottomZOrder(window);
             }
             if (PresentationSource.FromVisual(window) is HwndSource source)

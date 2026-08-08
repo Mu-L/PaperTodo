@@ -7,6 +7,7 @@ public sealed partial class AppController
     private readonly HashSet<string> _advancedTransparentPaperIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _advancedTransparentCapsuleIds = new(StringComparer.Ordinal);
     private bool _advancedAllPapersLocked;
+    private bool _advancedMasterCapsulesTransparent;
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -21,6 +22,9 @@ public sealed partial class AppController
 
     internal bool IsAdvancedCapsuleTransparent(PaperData paper) =>
         _advancedTransparentCapsuleIds.Contains(paper.Id);
+
+    internal bool AreAdvancedMasterCapsulesTransparent =>
+        _advancedMasterCapsulesTransparent;
 
     private void ToggleAdvancedAllPapersLocked() =>
         SetAdvancedAllPapersLocked(!_advancedAllPapersLocked);
@@ -84,19 +88,23 @@ public sealed partial class AppController
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (paperIds.Length == 0)
+        if (paperIds.Length == 0 && !_advancedMasterCapsulesTransparent)
         {
             return;
         }
 
-        var allTransparent = paperIds.All(_advancedTransparentCapsuleIds.Contains);
+        var allTransparent =
+            _advancedMasterCapsulesTransparent &&
+            paperIds.All(_advancedTransparentCapsuleIds.Contains);
         if (allTransparent)
         {
             _advancedTransparentCapsuleIds.ExceptWith(paperIds);
+            _advancedMasterCapsulesTransparent = false;
         }
         else
         {
             _advancedTransparentCapsuleIds.UnionWith(paperIds);
+            _advancedMasterCapsulesTransparent = true;
         }
 
         RefreshAdvancedShortcutSurfaces();
@@ -133,12 +141,17 @@ public sealed partial class AppController
             window.SetAdvancedInteractionLocked(_advancedAllPapersLocked);
             window.UpdateExperimentalOpacitySettings(animate);
         }
+        foreach (var master in _masterCapsules.Values.ToList())
+        {
+            master.UpdateExperimentalOpacity();
+        }
     }
 
     private void ClearAdvancedShortcutRuntimeState()
     {
         _advancedTransparentPaperIds.Clear();
         _advancedTransparentCapsuleIds.Clear();
+        _advancedMasterCapsulesTransparent = false;
         SetAdvancedAllPapersLocked(false);
         RefreshAdvancedShortcutSurfaces(animate: false);
     }

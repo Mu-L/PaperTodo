@@ -363,6 +363,12 @@ public sealed class MasterCapsuleWindow : Window
 
     public void UpdateExperimentalOpacity()
     {
+        if (_controller.AreAdvancedMasterCapsulesTransparent)
+        {
+            _pill.Opacity = _controller.AdvancedShortcutOpacity;
+            return;
+        }
+
         var enabled =
             _controller.State.ExperimentalRestingCapsuleOpacity &&
             _controller.State.ExperimentalRestingCapsuleOpacityIncludesMaster;
