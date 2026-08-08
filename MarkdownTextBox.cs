@@ -925,7 +925,13 @@ public sealed partial class MarkdownTextBox : TextEditor
                      line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
                      line = line.NextLine)
                 {
-                    var text = Document.GetText(line);
+                    var analysis = GetLineAnalysis(Document, line);
+                    if (analysis.Style.Kind is MarkdownLineKind.CodeFence or MarkdownLineKind.CodeBlock)
+                    {
+                        continue;
+                    }
+
+                    var text = analysis.Text;
                     foreach (var link in EnumerateBareWebLinks(text))
                     {
                         var segment = new TextSegment
@@ -964,6 +970,7 @@ public sealed partial class MarkdownTextBox : TextEditor
     private static IEnumerable<(int Start, int End, string Url)> EnumerateBareWebLinks(
         string text)
     {
+        var ignoredSpans = EnumerateClosedInlineCodeSpans(text).ToList();
         foreach (var prefix in BareWebLinkPrefixes)
         {
             var searchFrom = 0;
@@ -985,7 +992,8 @@ public sealed partial class MarkdownTextBox : TextEditor
                 }
                 end = TrimBareWebLinkEnd(text, start, end);
 
-                if (end > start + prefix.Length)
+                if (end > start + prefix.Length &&
+                    !IsIgnored(ignoredSpans, start, end - start))
                 {
                     var candidate = text[start..end];
                     if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) &&
@@ -1003,29 +1011,87 @@ public sealed partial class MarkdownTextBox : TextEditor
 
     private static int TrimBareWebLinkEnd(string text, int start, int end)
     {
-        while (end > start)
+        var changed = true;
+        while (changed && end > start)
         {
-            var last = text[end - 1];
-            if (last is '.' or ',' or '!' or ';' or ':' or '"' or '\'' or
-                '，' or '。' or '！' or '？' or '；' or '：' or '、' or
-                '”' or '’' or '》' or '）' or '】' or '>')
+            changed = false;
+            while (end > start)
             {
-                end--;
-                continue;
+                var last = text[end - 1];
+                if (last is '.' or ',' or '!' or ';' or ':' or '"' or '\'' or
+                    '，' or '。' or '！' or '？' or '；' or '：' or '、' or
+                    '”' or '’' or '》' or '）' or '】' or '>' ||
+                    (last == ')' && HasUnmatchedClosingDelimiter(text, start, end, '(', ')')) ||
+                    (last == ']' && HasUnmatchedClosingDelimiter(text, start, end, '[', ']')) ||
+                    (last == '}' && HasUnmatchedClosingDelimiter(text, start, end, '{', '}')))
+                {
+                    end--;
+                    changed = true;
+                    continue;
+                }
+
+                break;
             }
 
-            if ((last == ')' && HasUnmatchedClosingDelimiter(text, start, end, '(', ')')) ||
-                (last == ']' && HasUnmatchedClosingDelimiter(text, start, end, '[', ']')) ||
-                (last == '}' && HasUnmatchedClosingDelimiter(text, start, end, '{', '}')))
+            var delimiterLength = PairedMarkdownDelimiterLength(text, start, end);
+            if (delimiterLength > 0)
             {
-                end--;
-                continue;
+                end -= delimiterLength;
+                changed = true;
             }
-
-            break;
         }
 
         return end;
+    }
+
+    private static int PairedMarkdownDelimiterLength(string text, int start, int end)
+    {
+        if (start <= 0 || end <= start)
+        {
+            return 0;
+        }
+
+        var marker = text[start - 1];
+        if (marker is not ('*' or '_' or '~'))
+        {
+            return 0;
+        }
+
+        var openingStart = start - 1;
+        while (openingStart > 0 && text[openingStart - 1] == marker)
+        {
+            openingStart--;
+        }
+
+        if (openingStart > 0 &&
+            !char.IsWhiteSpace(text[openingStart - 1]) &&
+            !char.IsPunctuation(text[openingStart - 1]))
+        {
+            return 0;
+        }
+
+        var closingStart = end;
+        while (closingStart > start && text[closingStart - 1] == marker)
+        {
+            closingStart--;
+        }
+
+        var openingLength = start - openingStart;
+        var closingLength = end - closingStart;
+        var pairedLength = Math.Min(openingLength, closingLength);
+        if (pairedLength == 0 || (marker == '~' && pairedLength < 2))
+        {
+            return 0;
+        }
+
+        if (end < text.Length &&
+            !char.IsWhiteSpace(text[end]) &&
+            !char.IsPunctuation(text[end]))
+        {
+            return 0;
+        }
+
+        return pairedLength;
     }
 
     private static bool HasUnmatchedClosingDelimiter(
