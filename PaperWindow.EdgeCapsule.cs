@@ -115,7 +115,14 @@ public sealed partial class PaperWindow
             TextBrush,
             WeakTextBrush,
             CapsuleIconText(),
-            CapsuleIconFontSizeForCurrentPaper());
+            CapsuleIconFontSizeForCurrentPaper(),
+            new EdgeCapsulePreviewThemeResources(
+                Theme.LinkBrush,
+                CheckBoxBorderBrush,
+                Theme.ActiveBrush,
+                Theme.CheckBoxHoverBorderBrush,
+                Theme.CheckBoxUncheckedHoverBgBrush,
+                Theme.CheckBoxActiveHoverBrush));
     }
 
     public void UpdateEdgeCapsuleCloseButtonMode()

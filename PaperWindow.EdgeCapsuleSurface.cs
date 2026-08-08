@@ -186,10 +186,6 @@ public sealed partial class PaperWindow
     private void ActivateFromEdgeCapsulePreview()
     {
         CloseDeepCapsuleSlotContextMenu();
-        if (TryRunScriptCapsule())
-        {
-            return;
-        }
 
         _ = _controller.PreparePaperForCurrentVirtualDesktop(
             this,

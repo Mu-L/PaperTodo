@@ -32,7 +32,9 @@ internal sealed partial class EdgeCapsuleHost
         }
     }
 
-    public void SetPreviewContent(FrameworkElement content)
+    // Stages the view tree only. Geometry, opacity, visibility and pointer eligibility remain
+    // exclusively derived from the next Apply(frame) call.
+    public void StagePreviewContent(FrameworkElement content)
     {
         if (_disposed)
         {
@@ -59,8 +61,22 @@ internal sealed partial class EdgeCapsuleHost
         _previewContentLayer.Child = content;
     }
 
+    public void ClearPreviewContent()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        DetachPreviewContent();
+    }
+
     private Border CreatePreviewContentLayer()
     {
+        // Transparent is intentional here: blank preview-body pixels must route the normal
+        // left-click action. The layer is confined to ContentArea's shell column, so it cannot
+        // cover CloseArea; native pixels outside the applied interactive bounds are still handled
+        // by WM_NCHITTEST before WPF hit testing.
         var layer = new Border
         {
             Background = Brushes.Transparent,
@@ -95,13 +111,6 @@ internal sealed partial class EdgeCapsuleHost
             0,
             windowHeightDip - outlineMargin * 2);
 
-        if (_previewContentLayer == null ||
-            _previewContent == null)
-        {
-            _previewVisible = false;
-            return;
-        }
-
         var heightExpanded =
             bodyHeight > _options.BodyHeight + 0.5;
         var previewSurface =
@@ -112,28 +121,65 @@ internal sealed partial class EdgeCapsuleHost
             0,
             1);
 
-        _previewVisible = visible;
+        var hasContent = _previewContentLayer != null && _previewContent != null;
+        _previewVisible = visible && hasContent;
+        ApplyPreviewLayerState(
+            _previewVisible,
+            _previewVisible ? progress : 0,
+            _previewVisible && frame.IsHitTestVisible);
+        ApplyCompactContentVisibility(suppressed: visible);
+
+        if (!visible && hasContent)
+        {
+            // Keep the outgoing tree during the shrink, then release it on the first fully compact
+            // frame. The controller may call ClearPreviewContent earlier for a rapid third card.
+            DetachPreviewContent();
+        }
+    }
+
+    private void ApplyPreviewLayerState(
+        bool visible,
+        double progress,
+        bool hitTestVisible)
+    {
+        if (_previewContentLayer == null)
+        {
+            return;
+        }
+
         _previewContentLayer.Visibility =
             visible ? Visibility.Visible : Visibility.Collapsed;
         _previewContentLayer.Opacity = visible ? progress : 0;
-        _previewContentLayer.IsHitTestVisible =
-            visible && frame.IsHitTestVisible;
+        _previewContentLayer.IsHitTestVisible = visible && hitTestVisible;
+    }
 
+    private void ApplyCompactContentVisibility(bool suppressed)
+    {
         ContentGrid.Visibility =
-            visible ? Visibility.Collapsed : Visibility.Visible;
+            suppressed ? Visibility.Collapsed : Visibility.Visible;
         if (_pluginContentLayer != null)
         {
-            _pluginContentLayer.Visibility = visible
+            _pluginContentLayer.Visibility = suppressed
                 ? Visibility.Collapsed
                 : _pluginContentLayer.Child != null
                     ? Visibility.Visible
                     : Visibility.Collapsed;
         }
 
-        if (visible)
+        if (suppressed)
         {
             ContentArea.Background = Brushes.Transparent;
         }
+    }
+
+    private void DetachPreviewContent()
+    {
+        if (_previewContentLayer != null)
+        {
+            _previewContentLayer.Child = null;
+        }
+        _previewContent = null;
+        _previewVisible = false;
     }
 
     private bool IsPreviewInteractiveSource(

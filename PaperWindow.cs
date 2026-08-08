@@ -1506,6 +1506,7 @@ public sealed partial class PaperWindow : Window
         Resources["TextBrushKey"] = TextBrush;
         Resources["WeakTextBrushKey"] = WeakTextBrush;
         Resources["HoverBrushKey"] = HoverBrush;
+        Resources["LinkBrushKey"] = Theme.LinkBrush;
         Resources["DropIndicatorBrushKey"] = DropIndicatorBrush;
         Resources["AppendDropBrushKey"] = AppendDropBrush;
         Resources["MenuHoverBrushKey"] = MenuHoverBrush;

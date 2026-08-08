@@ -182,6 +182,7 @@ public sealed partial class PaperWindow
 
     private void RefreshCapsuleLabel()
     {
+        InvalidateEdgeCapsulePreviewContent();
         if (_capsuleLabelText == null)
         {
             return;

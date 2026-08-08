@@ -63,6 +63,7 @@ public sealed partial class PaperWindow
 
     private void RebuildTodoRows(string? focusItemId = null, TodoFocusPlacement focusPlacement = TodoFocusPlacement.End)
     {
+        InvalidateEdgeCapsulePreviewContent();
         if (_todoPanel == null)
         {
             return;
@@ -106,6 +107,7 @@ public sealed partial class PaperWindow
         string? focusItemId = null,
         TodoFocusPlacement focusPlacement = TodoFocusPlacement.End)
     {
+        InvalidateEdgeCapsulePreviewContent();
         if (_todoPanel == null)
         {
             return;
@@ -549,6 +551,7 @@ public sealed partial class PaperWindow
         {
             AcknowledgeTriggeredTodoReminder(item, row);
             item.Text = text.Text;
+            InvalidateEdgeCapsulePreviewContent();
             _controller.MarkDirty();
         };
 
@@ -584,6 +587,7 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = true;
+            InvalidateEdgeCapsulePreviewContent();
             if (item.ReminderAt.HasValue || item.ReminderTriggered)
             {
                 item.ReminderAt = null;
@@ -619,6 +623,7 @@ public sealed partial class PaperWindow
         {
             PushUndoSnapshot();
             item.Done = false;
+            InvalidateEdgeCapsulePreviewContent();
             if (reminderButton != null)
             {
                 reminderButton.Visibility = Visibility.Visible;

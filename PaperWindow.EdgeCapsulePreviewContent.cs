@@ -4,6 +4,9 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private void InvalidateEdgeCapsulePreviewContent() =>
+        _edgeCapsulePreviewInvalidationSource.Invalidate();
+
     private string CurrentMarkdownTextForEdgeCapsulePreview()
     {
         if (_paper.Type != PaperTypes.Note || !IsCurrentBodyProviderMarkdown)
@@ -37,6 +40,7 @@ public sealed partial class PaperWindow
         var focusedId = CurrentFocusedTodoItemId();
         PushUndoSnapshot();
         item.Done = done;
+        InvalidateEdgeCapsulePreviewContent();
 
         if (done && (item.ReminderAt.HasValue || item.ReminderTriggered))
         {

@@ -36,6 +36,14 @@ internal sealed record EdgeCapsuleHostOptions(
     XmlLanguage Language,
     bool Topmost);
 
+internal sealed record EdgeCapsulePreviewThemeResources(
+    Brush LinkBrush,
+    Brush CheckBoxBorderBrush,
+    Brush CheckBoxActiveBrush,
+    Brush CheckBoxUncheckedHoverBorderBrush,
+    Brush CheckBoxUncheckedHoverBackgroundBrush,
+    Brush CheckBoxActiveHoverBrush);
+
 internal sealed record EdgeCapsuleHostCallbacks(
     Action PointerInvalidated,
     Action<DeviceScreenPoint> PointerPressed,
@@ -189,6 +197,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             {
                 root.IsHitTestVisible = false;
             }
+            DetachPreviewContent();
             _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
             return true;
         }
@@ -987,7 +996,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         Brush strongTextBrush,
         Brush weakTextBrush,
         string iconText,
-        double iconFontSize)
+        double iconFontSize,
+        EdgeCapsulePreviewThemeResources previewResources)
     {
         if (_disposed)
         {
@@ -1004,6 +1014,26 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         Icon.FontSize = iconFontSize;
         Icon.Foreground = iconBrush;
         CloseGlyph.Foreground = weakTextBrush;
+        Window.Foreground = strongTextBrush;
+
+        // Preview content lives in this standalone HWND rather than in PaperWindow, so every
+        // DynamicResource used by the shared Markdown/Todo views must be rooted here as well.
+        Window.Resources["PaperBrushKey"] = paperBrush;
+        Window.Resources["PaperBorderBrushKey"] = paperBorderBrush;
+        Window.Resources["TextBrushKey"] = strongTextBrush;
+        Window.Resources["WeakTextBrushKey"] = weakTextBrush;
+        Window.Resources["HoverBrushKey"] = hoverBrush;
+        Window.Resources["LinkBrushKey"] = previewResources.LinkBrush;
+        Window.Resources["CheckBoxBorderBrushKey"] =
+            previewResources.CheckBoxBorderBrush;
+        Window.Resources["CheckBoxActiveBrushKey"] =
+            previewResources.CheckBoxActiveBrush;
+        Window.Resources["CheckBoxUncheckedHoverBorderBrushKey"] =
+            previewResources.CheckBoxUncheckedHoverBorderBrush;
+        Window.Resources["CheckBoxUncheckedHoverBgKey"] =
+            previewResources.CheckBoxUncheckedHoverBackgroundBrush;
+        Window.Resources["CheckBoxActiveHoverBrushKey"] =
+            previewResources.CheckBoxActiveHoverBrush;
     }
 
     private void ApplyFixedLayout(EdgeCapsuleEdge edge)
@@ -1174,6 +1204,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             return;
         }
 
+        DetachPreviewContent();
         _disposed = true;
         Window.Content = null;
         Window.Close();

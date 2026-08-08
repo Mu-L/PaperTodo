@@ -8,6 +8,11 @@ namespace PaperTodo;
 
 internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvider
 {
+    // Keep row creation bounded; totals still describe the complete model and the paper remains
+    // the place for browsing the full list.
+    internal const int MaximumRenderedItems = 12;
+    internal const int MaximumItemCharacters = 512;
+
     public static TodoEdgeCapsulePreviewProvider Instance { get; } = new();
 
     private TodoEdgeCapsulePreviewProvider()
@@ -48,6 +53,7 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
         paper.Items
             .Where(TodoRules.HasMeaningfulContent)
             .OrderBy(item => item.Order)
+            .Take(MaximumRenderedItems)
             .ToList();
 }
 
@@ -58,7 +64,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
     private readonly StackPanel _items;
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _footer;
-    private readonly Button _open;
     private bool _rebuilding;
 
     public TodoEdgeCapsulePreviewView(
@@ -76,7 +81,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
             Margin = new Thickness(2, 0, 1, 7)
         };
         heading.ColumnDefinitions.Add(new ColumnDefinition());
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         _title = new TextBlock
@@ -100,23 +104,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         _summary.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
         Grid.SetColumn(_summary, 1);
         heading.Children.Add(_summary);
-
-        _open = new Button
-        {
-            Content = "↗",
-            Width = 28,
-            Height = 25,
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent,
-            Cursor = Cursors.Hand,
-            Focusable = false
-        };
-        _open.SetResourceReference(Control.ForegroundProperty, "WeakTextBrushKey");
-        EdgeCapsulePreviewInteraction.SetConsumesPointer(_open, true);
-        _open.Click += (_, _) => Context.OpenPaper();
-        Grid.SetColumn(_open, 2);
-        heading.Children.Add(_open);
         Children.Add(heading);
 
         _items = new StackPanel
@@ -148,24 +135,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
         InitializeLiveContent();
     }
 
-    protected override int CaptureContentStamp()
-    {
-        var hash = new HashCode();
-        hash.Add(Context.Title, StringComparer.Ordinal);
-        foreach (var item in Context.Paper.Items.OrderBy(item => item.Order))
-        {
-            hash.Add(item.Id, StringComparer.Ordinal);
-            hash.Add(item.Text, StringComparer.Ordinal);
-            hash.Add(item.Done);
-            hash.Add(item.Order);
-            hash.Add(item.ReminderAt);
-            hash.Add(item.ReminderTriggered);
-            hash.Add(item.LinkedPaperId, StringComparer.Ordinal);
-            hash.Add(item.LinkedPath, StringComparer.Ordinal);
-        }
-        return hash.ToHashCode();
-    }
-
     protected override void RebuildContent()
     {
         var offset = _scrollViewer.VerticalOffset;
@@ -177,9 +146,12 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 
         _title.Text = Context.Title;
         _title.ToolTip = Context.Title;
-        _open.ToolTip = Context.Title;
         _summary.Text = $"{done}/{meaningful.Count}";
-        _footer.Text = meaningful.Count == 0 ? "—" : $"{done} / {meaningful.Count}";
+        _footer.Text = meaningful.Count == 0
+            ? "—"
+            : meaningful.Count > TodoEdgeCapsulePreviewProvider.MaximumRenderedItems
+                ? $"{done} / {meaningful.Count} · …"
+                : $"{done} / {meaningful.Count}";
 
         _rebuilding = true;
         try
@@ -200,7 +172,8 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
             }
             else
             {
-                foreach (var item in meaningful)
+                foreach (var item in meaningful.Take(
+                    TodoEdgeCapsulePreviewProvider.MaximumRenderedItems))
                 {
                     _items.Children.Add(BuildRow(item));
                 }
@@ -263,13 +236,12 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
                 _rebuilding = false;
                 return;
             }
-            RefreshNow();
         };
         grid.Children.Add(check);
 
         var text = new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(item.Text) ? "—" : item.Text,
+            Text = PreviewItemText(item.Text),
             Margin = new Thickness(2, 0, 8, 0),
             FontFamily = AppTypography.FontFamilyFor(content: true, bold: false),
             FontSize = AppTypography.Scale(12),
@@ -301,6 +273,20 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 
         row.Child = grid;
         return row;
+    }
+
+    private static string PreviewItemText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "—";
+        }
+
+        var text = value.Trim();
+        var maximum = TodoEdgeCapsulePreviewProvider.MaximumItemCharacters;
+        return text.Length <= maximum
+            ? text
+            : text[..(maximum - 1)] + "…";
     }
 
     private static string ItemMarker(PaperItem item)

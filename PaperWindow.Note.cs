@@ -668,6 +668,7 @@ public sealed partial class PaperWindow
             }
 
             _noteContentDirty = true;
+            InvalidateEdgeCapsulePreviewContent();
             var wasScriptCapsule = _liveIsScriptCapsule;
             var isScriptCapsule = IsScriptCapsuleDocument(box);
             _liveIsScriptCapsule = isScriptCapsule;

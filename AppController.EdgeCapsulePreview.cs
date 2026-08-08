@@ -4,12 +4,10 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private const int EdgeCapsulePreviewOpenDelayMilliseconds = 130;
     private const int EdgeCapsulePreviewCorridorToleranceDevice = 10;
 
     private EdgeCapsulePreviewLayoutSession? _edgeCapsulePreviewSession;
-    private DispatcherTimer? _edgeCapsulePreviewOpenTimer;
-    private string? _edgeCapsulePreviewCandidatePaperId;
+    private string? _edgeCapsulePreviewOutgoingPaperId;
     private DeviceScreenPoint? _edgeCapsulePreviewLastTransferPointer;
     private int _edgeCapsulePreviewTransferGeneration;
     private int _edgeCapsulePreviewCloseGeneration;
@@ -94,7 +92,7 @@ public sealed partial class AppController
 
     private void ResetEdgeCapsulePreviewWithoutArrange()
     {
-        CancelEdgeCapsulePreviewCandidate();
+        ReleaseOutgoingEdgeCapsulePreviewContent();
         var session = _edgeCapsulePreviewSession;
         _edgeCapsulePreviewSession = null;
         _edgeCapsulePreviewLastTransferPointer = null;
@@ -104,6 +102,7 @@ public sealed partial class AppController
             _windows.TryGetValue(session.OwnerPaperId, out var owner))
         {
             owner.SetEdgeCapsulePreviewClosed(animate: false);
+            _edgeCapsulePreviewOutgoingPaperId = session.OwnerPaperId;
         }
     }
 
@@ -118,13 +117,6 @@ public sealed partial class AppController
 
         if (!pointerOver)
         {
-            if (string.Equals(
-                    _edgeCapsulePreviewCandidatePaperId,
-                    window.EdgeCapsulePreviewPaperId,
-                    StringComparison.Ordinal))
-            {
-                CancelEdgeCapsulePreviewCandidate();
-            }
             return;
         }
 
@@ -152,7 +144,9 @@ public sealed partial class AppController
             return;
         }
 
-        ScheduleEdgeCapsulePreviewCandidate(window);
+        // Use the next input turn only to avoid re-entering pointer reconciliation. There is no
+        // hover dwell: the shell transition starts as soon as that zero-delay callback runs.
+        QueueEdgeCapsulePreviewTransfer(window);
     }
 
     internal void NotifyEdgeCapsulePreviewPointerSample(
@@ -292,54 +286,6 @@ public sealed partial class AppController
             DispatcherPriority.Input);
     }
 
-    private void ScheduleEdgeCapsulePreviewCandidate(PaperWindow window)
-    {
-        _edgeCapsulePreviewCandidatePaperId =
-            window.EdgeCapsulePreviewPaperId;
-        var timer = EnsureEdgeCapsulePreviewOpenTimer();
-        timer.Stop();
-        timer.Start();
-    }
-
-    private DispatcherTimer EnsureEdgeCapsulePreviewOpenTimer()
-    {
-        if (_edgeCapsulePreviewOpenTimer != null)
-        {
-            return _edgeCapsulePreviewOpenTimer;
-        }
-
-        var timer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(
-                EdgeCapsulePreviewOpenDelayMilliseconds)
-        };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            var candidateId = _edgeCapsulePreviewCandidatePaperId;
-            _edgeCapsulePreviewCandidatePaperId = null;
-            if (IsExiting ||
-                candidateId == null ||
-                _edgeCapsulePreviewSession != null ||
-                !_windows.TryGetValue(candidateId, out var candidate) ||
-                !candidate.CanEnterEdgeCapsulePreview ||
-                !candidate.IsEdgeCapsulePointerOver)
-            {
-                return;
-            }
-
-            OpenOrTransferEdgeCapsulePreview(candidate);
-        };
-        _edgeCapsulePreviewOpenTimer = timer;
-        return timer;
-    }
-
-    private void CancelEdgeCapsulePreviewCandidate()
-    {
-        _edgeCapsulePreviewCandidatePaperId = null;
-        _edgeCapsulePreviewOpenTimer?.Stop();
-    }
-
     private void OpenOrTransferEdgeCapsulePreview(PaperWindow window)
     {
         if (IsExiting ||
@@ -349,9 +295,11 @@ public sealed partial class AppController
             return;
         }
 
-        CancelEdgeCapsulePreviewCandidate();
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
+        // A newly prepared view is already a WPF tree even before it is parented. Retire the
+        // oldest shrinking card first so rapid A -> B -> C browsing never retains three trees.
+        ReleaseOutgoingEdgeCapsulePreviewContent();
         var request = window.PrepareEdgeCapsulePreview();
         if (request == null)
         {
@@ -385,10 +333,13 @@ public sealed partial class AppController
             !string.Equals(
                 previous.OwnerPaperId,
                 next.OwnerPaperId,
-                StringComparison.Ordinal) &&
-            _windows.TryGetValue(previous.OwnerPaperId, out var oldOwner))
+                StringComparison.Ordinal))
         {
-            oldOwner.SetEdgeCapsulePreviewClosed(animate: true);
+            _edgeCapsulePreviewOutgoingPaperId = previous.OwnerPaperId;
+            if (_windows.TryGetValue(previous.OwnerPaperId, out var oldOwner))
+            {
+                oldOwner.SetEdgeCapsulePreviewClosed(animate: true);
+            }
         }
 
         _edgeCapsulePreviewSession = next;
@@ -398,7 +349,7 @@ public sealed partial class AppController
 
     private void CloseEdgeCapsulePreview(bool animate, bool arrange)
     {
-        CancelEdgeCapsulePreviewCandidate();
+        ReleaseOutgoingEdgeCapsulePreviewContent();
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
         var session = _edgeCapsulePreviewSession;
@@ -408,11 +359,27 @@ public sealed partial class AppController
             _windows.TryGetValue(session.OwnerPaperId, out var owner))
         {
             owner.SetEdgeCapsulePreviewClosed(animate);
+            _edgeCapsulePreviewOutgoingPaperId = session.OwnerPaperId;
         }
 
         if (arrange)
         {
             ArrangeDeepCapsules(animate);
+        }
+    }
+
+    private void ReleaseOutgoingEdgeCapsulePreviewContent()
+    {
+        var outgoingPaperId = _edgeCapsulePreviewOutgoingPaperId;
+        _edgeCapsulePreviewOutgoingPaperId = null;
+        if (outgoingPaperId == null)
+        {
+            return;
+        }
+
+        if (_windows.TryGetValue(outgoingPaperId, out var outgoing))
+        {
+            outgoing.ClearEdgeCapsulePreviewContent();
         }
     }
 

@@ -3632,7 +3632,6 @@ public sealed partial class AppController : IDisposable
         _forceSaveTimer.Stop();
         StopFullscreenAvoidanceRuntime(restoreTopmost: false);
         _displayMetricsRefreshTimer.Stop();
-        _edgeCapsulePreviewOpenTimer?.Stop();
         StopTodoReminderTimer();
 
         if (!TrySaveNow(sync: true))

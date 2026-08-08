@@ -1,20 +1,19 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Threading;
 
 namespace PaperTodo;
 
 /// <summary>
 /// One live preview surface. Size is frozen by the queue session, while the content may refresh
-/// from the current paper model. The timer exists only while the single global preview is visible.
+/// from the current paper model. Model notifications are coalesced on the Dispatcher so content
+/// construction never delays the shell's first expansion frame.
 /// </summary>
 internal abstract class EdgeCapsuleLivePreviewView : Grid
 {
-    private const int RefreshIntervalMilliseconds = 180;
-
-    private readonly DispatcherTimer _refreshTimer;
-    private int _lastContentStamp = int.MinValue;
+    private DispatcherOperation? _refreshOperation;
+    private bool _contentDirty = true;
+    private bool _subscribed;
     private bool _refreshing;
 
     protected EdgeCapsuleLivePreviewView(
@@ -26,18 +25,25 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
         Background = System.Windows.Media.Brushes.Transparent;
         ClipToBounds = true;
 
-        _refreshTimer = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(RefreshIntervalMilliseconds),
-            DispatcherPriority.Background,
-            (_, _) => RefreshIfChanged(),
-            Dispatcher)
+        Loaded += (_, _) =>
         {
-            IsEnabled = false
+            Subscribe();
+            QueueRefresh();
         };
-
-        Loaded += (_, _) => UpdateRefreshState();
-        Unloaded += (_, _) => _refreshTimer.Stop();
-        IsVisibleChanged += (_, _) => UpdateRefreshState();
+        Unloaded += (_, _) =>
+        {
+            Unsubscribe();
+            CancelQueuedRefresh();
+            _contentDirty = true;
+        };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible)
+            {
+                _contentDirty = true;
+            }
+            QueueRefresh();
+        };
     }
 
     protected EdgeCapsulePreviewContext Context { get; }
@@ -45,64 +51,97 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
 
     protected void InitializeLiveContent()
     {
-        RefreshNow();
-        UpdateRefreshState();
+        _contentDirty = true;
+        QueueRefresh();
     }
 
-    protected void RefreshNow()
-    {
-        _lastContentStamp = int.MinValue;
-        RefreshIfChanged();
-    }
-
-    protected abstract int CaptureContentStamp();
     protected abstract void RebuildContent();
 
-    private void UpdateRefreshState()
+    private void Subscribe()
     {
-        if (IsLoaded && IsVisible)
-        {
-            if (!_refreshTimer.IsEnabled)
-            {
-                _refreshTimer.Start();
-            }
-            RefreshIfChanged();
-        }
-        else
-        {
-            _refreshTimer.Stop();
-        }
-    }
-
-    private void RefreshIfChanged()
-    {
-        if (_refreshing)
+        if (_subscribed)
         {
             return;
         }
 
+        Context.InvalidationSource.Invalidated += OnContentInvalidated;
+        _subscribed = true;
+    }
+
+    private void Unsubscribe()
+    {
+        if (!_subscribed)
+        {
+            return;
+        }
+
+        Context.InvalidationSource.Invalidated -= OnContentInvalidated;
+        _subscribed = false;
+    }
+
+    private void OnContentInvalidated()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(
+                (Action)OnContentInvalidated,
+                DispatcherPriority.Background);
+            return;
+        }
+
+        _contentDirty = true;
+        QueueRefresh();
+    }
+
+    private void QueueRefresh()
+    {
+        if (!_contentDirty ||
+            !IsLoaded ||
+            !IsVisible ||
+            _refreshOperation is { Status: DispatcherOperationStatus.Pending or DispatcherOperationStatus.Executing })
+        {
+            return;
+        }
+
+        _refreshOperation = Dispatcher.BeginInvoke(
+            (Action)RefreshIfDirty,
+            DispatcherPriority.Background);
+    }
+
+    private void CancelQueuedRefresh()
+    {
+        if (_refreshOperation is { Status: DispatcherOperationStatus.Pending })
+        {
+            _refreshOperation.Abort();
+        }
+        _refreshOperation = null;
+    }
+
+    private void RefreshIfDirty()
+    {
+        _refreshOperation = null;
+        if (!_contentDirty || !IsLoaded || !IsVisible || _refreshing)
+        {
+            return;
+        }
+
+        _contentDirty = false;
         _refreshing = true;
         try
         {
-            var stamp = CaptureContentStamp();
-            if (stamp == _lastContentStamp)
-            {
-                return;
-            }
-
             RebuildContent();
-            _lastContentStamp = CaptureContentStamp();
         }
         catch
         {
             // The preview is optional. A model refresh racing this UI pass retries on the next
-            // tick instead of taking down the owning paper or the edge queue.
-            _lastContentStamp = int.MinValue;
+            // invalidation or visibility transition instead of taking down the paper or queue.
         }
         finally
         {
             _refreshing = false;
         }
+
+        QueueRefresh();
     }
 }
 
@@ -155,7 +194,6 @@ internal sealed class PluginFallbackEdgeCapsulePreviewView : EdgeCapsuleLivePrev
 {
     private readonly TextBlock _title;
     private readonly TextBlock _status;
-    private readonly Button _open;
 
     public PluginFallbackEdgeCapsulePreviewView(
         EdgeCapsulePreviewContext context,
@@ -167,10 +205,6 @@ internal sealed class PluginFallbackEdgeCapsulePreviewView : EdgeCapsuleLivePrev
         RowDefinitions.Add(new RowDefinition());
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var heading = new Grid();
-        heading.ColumnDefinitions.Add(new ColumnDefinition());
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
         _title = new TextBlock
         {
             FontFamily = AppTypography.UiFontFamily,
@@ -180,26 +214,7 @@ internal sealed class PluginFallbackEdgeCapsulePreviewView : EdgeCapsuleLivePrev
             VerticalAlignment = VerticalAlignment.Center
         };
         _title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
-        heading.Children.Add(_title);
-
-        _open = new Button
-        {
-            Content = "↗",
-            Width = 30,
-            Height = 26,
-            Margin = new Thickness(10, 0, 0, 0),
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            Background = System.Windows.Media.Brushes.Transparent,
-            Cursor = Cursors.Hand,
-            Focusable = false
-        };
-        _open.SetResourceReference(Control.ForegroundProperty, "WeakTextBrushKey");
-        EdgeCapsulePreviewInteraction.SetConsumesPointer(_open, true);
-        _open.Click += (_, _) => Context.OpenPaper();
-        Grid.SetColumn(_open, 1);
-        heading.Children.Add(_open);
-        Children.Add(heading);
+        Children.Add(_title);
 
         _status = new TextBlock
         {
@@ -228,21 +243,12 @@ internal sealed class PluginFallbackEdgeCapsulePreviewView : EdgeCapsuleLivePrev
         InitializeLiveContent();
     }
 
-    protected override int CaptureContentStamp()
-    {
-        var hash = new HashCode();
-        hash.Add(Context.Title, StringComparer.Ordinal);
-        hash.Add(Context.ReadPluginStatus(), StringComparer.Ordinal);
-        return hash.ToHashCode();
-    }
-
     protected override void RebuildContent()
     {
         var title = Context.Title;
         var status = Context.ReadPluginStatus();
         _title.Text = title;
         _title.ToolTip = title;
-        _open.ToolTip = title;
         _status.Text = string.IsNullOrWhiteSpace(status) ? "◇" : status;
     }
 }

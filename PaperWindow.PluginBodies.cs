@@ -1199,6 +1199,7 @@ public sealed partial class PaperWindow
         }
         _noteBox.CaretIndex = caret;
         _noteContentDirty = false;
+        InvalidateEdgeCapsulePreviewContent();
 
         var wasScriptCapsule = _liveIsScriptCapsule;
         _liveIsScriptCapsule = IsScriptCapsuleDocument(_noteBox);

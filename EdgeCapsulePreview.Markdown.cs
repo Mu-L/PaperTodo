@@ -42,7 +42,6 @@ internal sealed class MarkdownEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPr
 internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 {
     private readonly TextBlock _title;
-    private readonly Button _open;
     private readonly StackPanel _body;
     private readonly ScrollViewer _scrollViewer;
 
@@ -59,8 +58,6 @@ internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewVie
         {
             Margin = new Thickness(2, 0, 1, 8)
         };
-        heading.ColumnDefinitions.Add(new ColumnDefinition());
-        heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         _title = new TextBlock
         {
@@ -72,23 +69,6 @@ internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewVie
         };
         _title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
         heading.Children.Add(_title);
-
-        _open = new Button
-        {
-            Content = "↗",
-            Width = 28,
-            Height = 25,
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent,
-            Cursor = Cursors.Hand,
-            Focusable = false
-        };
-        _open.SetResourceReference(Control.ForegroundProperty, "WeakTextBrushKey");
-        EdgeCapsulePreviewInteraction.SetConsumesPointer(_open, true);
-        _open.Click += (_, _) => Context.OpenPaper();
-        Grid.SetColumn(_open, 1);
-        heading.Children.Add(_open);
         Children.Add(heading);
 
         _body = new StackPanel
@@ -111,22 +91,12 @@ internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewVie
         InitializeLiveContent();
     }
 
-    protected override int CaptureContentStamp()
-    {
-        var text = Context.ReadMarkdownText();
-        return HashCode.Combine(
-            StringComparer.Ordinal.GetHashCode(Context.Title),
-            StringComparer.Ordinal.GetHashCode(text),
-            text.Length);
-    }
-
     protected override void RebuildContent()
     {
         var offset = _scrollViewer.VerticalOffset;
         var title = Context.Title;
         _title.Text = title;
         _title.ToolTip = title;
-        _open.ToolTip = title;
         MarkdownEdgeCapsulePreviewRenderer.RenderInto(
             _body,
             Context.ReadMarkdownText(),
@@ -139,6 +109,16 @@ internal sealed class MarkdownEdgeCapsulePreviewView : EdgeCapsuleLivePreviewVie
 
 internal static partial class MarkdownEdgeCapsulePreviewRenderer
 {
+    // The preview is a navigation surface, not a second document renderer. Bound both visual
+    // nodes and source text so one pathological note cannot stall the hover transition.
+    private const int MaximumMeasuredLines = 24;
+    private const int MaximumRenderedBlocks = 12;
+    private const int MaximumRenderedCharacters = 4096;
+    private const int MaximumBlockCharacters = 512;
+    private const int MaximumCodeCharacters = 2048;
+
+    private readonly record struct PreviewLine(string Text, bool Truncated);
+
     private static readonly Regex InlinePattern = new(
         @"!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|~~(.+?)~~|`([^`]+)`|\*(.+?)\*|_([^_]+)_",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -157,43 +137,59 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
     private static readonly Regex HorizontalRulePattern = new(
         @"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex ImageOnlyPattern = new(
-        @"^!\[([^\]]*)\]\(([^)]+)\)\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public static string MeasureText(string? markdown)
     {
         return string.Join(
             Environment.NewLine,
             NormalizeLines(markdown)
-                .Where(line => !string.IsNullOrWhiteSpace(line))
-                .Take(24)
-                .Select(StripBlockPrefix));
+                .Where(line => !string.IsNullOrWhiteSpace(line.Text))
+                .Take(MaximumMeasuredLines)
+                .Select(line => CompactText(StripBlockPrefix(line.Text))));
     }
 
     public static int EstimateVisualLines(string? markdown, double widthDip)
     {
         var estimate = 0;
-        var inFence = false;
-        foreach (var raw in NormalizeLines(markdown).Take(120))
+        var measuredCharacters = 0;
+        var fencedCodeState = default(MarkdownFencedCodeState);
+        foreach (var previewLine in NormalizeLines(markdown).Take(MaximumMeasuredLines))
         {
+            var original = previewLine.Text;
+            var wasInsideFence = fencedCodeState.IsInside;
+            var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
+                original,
+                fencedCodeState,
+                out fencedCodeState);
+            var raw = LimitText(
+                original,
+                Math.Min(
+                    MaximumBlockCharacters,
+                    MaximumRenderedCharacters - measuredCharacters),
+                out var limitedLine);
+            var lineTruncated = previewLine.Truncated || limitedLine;
+            measuredCharacters += raw.Length + 1;
             var trimmed = raw.Trim();
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            if (fenceKind is MarkdownFenceLineKind.Opening or MarkdownFenceLineKind.Closing)
             {
-                inFence = !inFence;
                 estimate += 1;
-                continue;
             }
-            if (trimmed.Length == 0 || HorizontalRulePattern.IsMatch(trimmed))
+            else if (trimmed.Length == 0 || HorizontalRulePattern.IsMatch(trimmed))
             {
                 estimate += 1;
-                continue;
+            }
+            else
+            {
+                var lines = EdgeCapsulePreviewMeasure.EstimateWrappedLines(
+                    StripBlockPrefix(trimmed),
+                    widthDip);
+                estimate += wasInsideFence ? Math.Min(3, lines) : Math.Min(4, lines);
             }
 
-            var lines = EdgeCapsulePreviewMeasure.EstimateWrappedLines(
-                StripBlockPrefix(trimmed),
-                widthDip);
-            estimate += inFence ? Math.Min(3, lines) : Math.Min(4, lines);
+            if (lineTruncated || measuredCharacters >= MaximumRenderedCharacters)
+            {
+                break;
+            }
         }
         return Math.Max(1, estimate);
     }
@@ -211,41 +207,76 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
         }
 
         var code = new StringBuilder();
-        var inFence = false;
-        foreach (var rawLine in NormalizeLines(markdown))
+        var fencedCodeState = default(MarkdownFencedCodeState);
+        var renderedBlocks = 0;
+        var renderedCharacters = 0;
+        var truncated = false;
+        foreach (var previewLine in NormalizeLines(markdown))
         {
-            var line = rawLine.TrimEnd();
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            if (renderedBlocks >= MaximumRenderedBlocks ||
+                renderedCharacters >= MaximumRenderedCharacters)
             {
-                if (inFence)
-                {
-                    target.Children.Add(BuildCodeBlock(code.ToString()));
-                    code.Clear();
-                    inFence = false;
-                }
-                else
-                {
-                    inFence = true;
-                }
-                continue;
+                truncated = true;
+                break;
             }
 
-            if (inFence)
+            var sourceLine = previewLine.Text.TrimEnd();
+            var wasInsideFence = fencedCodeState.IsInside;
+            var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
+                sourceLine,
+                fencedCodeState,
+                out fencedCodeState);
+            var line = LimitText(
+                sourceLine,
+                Math.Min(
+                    MaximumBlockCharacters,
+                    MaximumRenderedCharacters - renderedCharacters),
+                out var limitedLine);
+            var lineTruncated = previewLine.Truncated || limitedLine;
+            renderedCharacters += line.Length + 1;
+            if (fenceKind == MarkdownFenceLineKind.Opening)
             {
-                if (code.Length > 0)
+                code.Clear();
+            }
+            else if (fenceKind == MarkdownFenceLineKind.Closing)
+            {
+                target.Children.Add(BuildCodeBlock(code.ToString()));
+                renderedBlocks++;
+                code.Clear();
+            }
+            else if (wasInsideFence)
+            {
+                var codeLineTruncated = AppendCodeLine(code, line);
+                if (codeLineTruncated)
                 {
-                    code.AppendLine();
+                    truncated = true;
                 }
-                code.Append(line);
-                continue;
+            }
+            else
+            {
+                target.Children.Add(BuildBlock(line, openExternal));
+                renderedBlocks++;
             }
 
-            target.Children.Add(BuildBlock(line, openExternal));
+            if (lineTruncated || truncated)
+            {
+                truncated = true;
+                break;
+            }
         }
-        if (inFence || code.Length > 0)
+        if ((fencedCodeState.IsInside || code.Length > 0) &&
+            renderedBlocks < MaximumRenderedBlocks)
         {
             target.Children.Add(BuildCodeBlock(code.ToString()));
+            renderedBlocks++;
+        }
+        else if (code.Length > 0)
+        {
+            truncated = true;
+        }
+        if (truncated)
+        {
+            AddTruncationState(target);
         }
         if (target.Children.Count == 0)
         {
@@ -260,6 +291,15 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
         empty.HorizontalAlignment = HorizontalAlignment.Center;
         empty.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
         target.Children.Add(empty);
+    }
+
+    private static void AddTruncationState(Panel target)
+    {
+        var more = NewTextBlock("…", AppTypography.Scale(14));
+        more.Margin = new Thickness(4, 6, 4, 2);
+        more.HorizontalAlignment = HorizontalAlignment.Center;
+        more.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+        target.Children.Add(more);
     }
 
     private static FrameworkElement BuildBlock(
@@ -283,10 +323,11 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
             return rule;
         }
 
-        var image = ImageOnlyPattern.Match(trimmed);
-        if (image.Success || trimmed.StartsWith("i:", StringComparison.OrdinalIgnoreCase))
+        if (MarkdownImageReferences.TryParseReferenceLine(
+                trimmed,
+                out var imageReference))
         {
-            var label = image.Success ? image.Groups[1].Value : string.Empty;
+            var label = imageReference.Label;
             var text = NewTextBlock(
                 string.IsNullOrWhiteSpace(label) ? "▧" : $"▧ {label}",
                 AppTypography.Scale(11.5));
@@ -515,11 +556,85 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
         return link;
     }
 
-    private static string[] NormalizeLines(string? markdown) =>
-        (markdown ?? string.Empty)
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n');
+    private static IEnumerable<PreviewLine> NormalizeLines(string? markdown)
+    {
+        markdown ??= string.Empty;
+        var lineStart = 0;
+        while (lineStart <= markdown.Length)
+        {
+            var lineEnd = lineStart;
+            var scanEnd = lineStart + Math.Min(
+                MaximumBlockCharacters,
+                markdown.Length - lineStart);
+            while (lineEnd < scanEnd &&
+                markdown[lineEnd] is not ('\r' or '\n'))
+            {
+                lineEnd++;
+            }
+
+            var truncated = lineEnd < markdown.Length &&
+                markdown[lineEnd] is not ('\r' or '\n');
+            yield return new PreviewLine(
+                markdown[lineStart..lineEnd],
+                truncated);
+            if (truncated)
+            {
+                yield break;
+            }
+            if (lineEnd >= markdown.Length)
+            {
+                yield break;
+            }
+
+            lineStart = lineEnd + 1;
+            if (markdown[lineEnd] == '\r' &&
+                lineStart < markdown.Length &&
+                markdown[lineStart] == '\n')
+            {
+                lineStart++;
+            }
+        }
+    }
+
+    private static bool AppendCodeLine(StringBuilder target, string line)
+    {
+        var separatorLength = target.Length > 0 ? Environment.NewLine.Length : 0;
+        var remaining = MaximumCodeCharacters - target.Length - separatorLength;
+        if (remaining <= 0)
+        {
+            return true;
+        }
+
+        var value = LimitText(line, remaining, out var truncated);
+        if (separatorLength > 0)
+        {
+            target.AppendLine();
+        }
+        target.Append(value);
+        return truncated;
+    }
+
+    private static string CompactText(string value) =>
+        LimitText(value, MaximumBlockCharacters, out _);
+
+    private static string LimitText(string value, int maximumLength, out bool truncated)
+    {
+        maximumLength = Math.Max(0, maximumLength);
+        truncated = value.Length > maximumLength;
+        if (!truncated)
+        {
+            return value;
+        }
+        if (maximumLength == 0)
+        {
+            return string.Empty;
+        }
+        if (maximumLength == 1)
+        {
+            return "…";
+        }
+        return value[..(maximumLength - 1)] + "…";
+    }
 
     private static string StripBlockPrefix(string line)
     {

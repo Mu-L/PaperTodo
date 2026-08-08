@@ -4,6 +4,8 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private readonly EdgeCapsulePreviewInvalidationSource
+        _edgeCapsulePreviewInvalidationSource = new();
     private EdgeCapsulePreviewRequest? _edgeCapsulePreviewRequest;
 
     internal PaperData EdgeCapsulePreviewPaper => _paper;
@@ -45,12 +47,12 @@ public sealed partial class PaperWindow
                 _paper,
                 () => _controller.PaperTitleText(_paper),
                 !_paper.IsCollapsed,
-                OpenPaperFromEdgeCapsulePreview,
                 CurrentMarkdownTextForEdgeCapsulePreview,
                 SetTodoDoneFromEdgeCapsulePreview,
                 CurrentTodoCheckBoxStyle,
                 CurrentPluginStatusForEdgeCapsulePreview,
-                OpenExternalFromEdgeCapsulePreview));
+                OpenExternalFromEdgeCapsulePreview,
+                _edgeCapsulePreviewInvalidationSource));
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
             var size = descriptor.Size.Normalize(
                 Math.Max(
@@ -104,7 +106,7 @@ public sealed partial class PaperWindow
         }
 
         _edgeCapsulePreviewRequest = request;
-        EnsureDeepCapsuleSlotHost().SetPreviewContent(request.Content);
+        EnsureDeepCapsuleSlotHost().StagePreviewContent(request.Content);
         RequestEdgeCapsulePresentation(
             animate,
             EdgeCapsuleTransitionReason.Preview,
@@ -136,6 +138,9 @@ public sealed partial class PaperWindow
             refreshLayout: true);
     }
 
+    internal void ClearEdgeCapsulePreviewContent() =>
+        _edgeCapsuleHost?.ClearPreviewContent();
+
     internal EdgeCapsulePreviewSize? CurrentEdgeCapsulePreviewSize =>
         _edgeCapsulePreviewRequest?.Size;
 
@@ -155,9 +160,4 @@ public sealed partial class PaperWindow
             EdgeCapsuleDirty.Measure);
     }
 
-    private void OpenPaperFromEdgeCapsulePreview()
-    {
-        _controller.CloseEdgeCapsulePreviewForActivation(this);
-        ActivateFromEdgeCapsulePreview();
-    }
 }

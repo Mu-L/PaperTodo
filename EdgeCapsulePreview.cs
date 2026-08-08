@@ -45,16 +45,23 @@ internal sealed record EdgeCapsulePreviewRequest(
     EdgeCapsulePreviewSize Size,
     FrameworkElement Content);
 
+internal sealed class EdgeCapsulePreviewInvalidationSource
+{
+    public event Action? Invalidated;
+
+    public void Invalidate() => Invalidated?.Invoke();
+}
+
 internal sealed record EdgeCapsulePreviewContext(
     PaperData Paper,
     Func<string> ReadTitle,
     bool PaperExpanded,
-    Action OpenPaper,
     Func<string> ReadMarkdownText,
     Func<string, bool, bool> SetTodoDone,
     Func<Style> ReadTodoCheckStyle,
     Func<string> ReadPluginStatus,
-    Action<string> OpenExternal)
+    Action<string> OpenExternal,
+    EdgeCapsulePreviewInvalidationSource InvalidationSource)
 {
     public string Title => ReadTitle();
 }
@@ -180,6 +187,10 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
 
         var newHeight = Math.Max(compactHeight, size.HeightDip);
         var tops = currentTops.ToArray();
+
+        // Accepted temporary 1.8 behavior: preview browsing preserves the queue-relative motion
+        // even when a tall card or its followers extend beyond the monitor work area. Do not clamp
+        // the card height or shrink the whole corridor here; that policy needs a separate design.
 
         if (oldIndex < 0)
         {
