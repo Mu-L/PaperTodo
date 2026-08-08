@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 
 namespace PaperTodo;
@@ -20,6 +21,8 @@ public sealed partial class PaperWindow
     internal bool CanEnterEdgeCapsulePreview =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         _paper.IsVisible &&
+        !IsExperimentalPassive &&
+        !_advancedInteractionLocked &&
         HasDeepCapsuleSlotPlacement &&
         !IsDeepCapsuleRetractedIntoMaster &&
         !IsDeepCapsuleSlotRetracting &&
@@ -40,9 +43,10 @@ public sealed partial class PaperWindow
             return null;
         }
 
+        IEdgeCapsulePreviewProvider? provider = null;
         try
         {
-            var provider = ResolveEdgeCapsulePreviewProvider();
+            provider = ResolveEdgeCapsulePreviewProvider();
             var descriptor = provider.Describe(new EdgeCapsulePreviewContext(
                 _paper,
                 () => _controller.PaperTitleText(_paper),
@@ -66,6 +70,13 @@ public sealed partial class PaperWindow
                 content is Window ||
                 content.Parent != null)
             {
+                Trace.TraceWarning(
+                    "Edge capsule preview provider returned invalid content. " +
+                    "PaperId={0}; PaperType={1}; Provider={2}; ContentType={3}",
+                    _paper.Id,
+                    _paper.Type,
+                    provider.GetType().FullName,
+                    content?.GetType().FullName ?? "<null>");
                 return null;
             }
 
@@ -73,8 +84,15 @@ public sealed partial class PaperWindow
             content.VerticalAlignment = VerticalAlignment.Stretch;
             return new EdgeCapsulePreviewRequest(size, content);
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceError(
+                "Edge capsule preview creation failed. " +
+                "PaperId={0}; PaperType={1}; Provider={2}; Exception={3}",
+                _paper.Id,
+                _paper.Type,
+                provider?.GetType().FullName ?? "<unresolved>",
+                ex);
             return null;
         }
     }

@@ -131,8 +131,8 @@ internal sealed record EdgeCapsulePreviewLayoutSession(
 
 /// <summary>
 /// Pure preview placement policy. The compact queue remains the base plan. During one browsing
-/// session only the owner has a non-standard height; transfers reuse the old preview space and move
-/// the opposite side only when overlap makes it necessary. Full compaction happens only on exit.
+/// session only the owner has a non-standard height. Downward transfers preserve the target's lower
+/// anchor to avoid visual reordering; upward transfers may compact space released by the old owner.
 /// </summary>
 internal static class EdgeCapsulePreviewLayoutCoordinator
 {
@@ -233,19 +233,22 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         }
         else if (newIndex < oldIndex)
         {
-            // Moving upward: keep the upper side fixed and grow downward. Existing lower gaps are
-            // retained; members only move when the new card would overlap them.
-            var minimumTop = newIndex > 0
-                ? tops[newIndex - 1] + compactHeight + gap
-                : baseTops[newIndex];
-            tops[newIndex] = Math.Max(currentTops[newIndex], minimumTop);
-            PushFollowingMembers(
+            // Moving upward cannot invert any crossed member. Compact from the new owner downward
+            // so followers fill space released by a taller old card. The downward branch above
+            // intentionally remains anchored because compacting below a skipped target can make a
+            // follower appear to pass that target during the shared transition.
+            for (var index = 0; index <= newIndex; index++)
+            {
+                tops[index] = baseTops[index];
+            }
+            PlaceFollowingMembers(
                 tops,
                 currentTops,
                 newIndex,
                 newHeight,
                 compactHeight,
-                gap);
+                gap,
+                retainExistingGaps: false);
         }
         else
         {
@@ -296,7 +299,24 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         int ownerIndex,
         double ownerHeight,
         double compactHeight,
-        double gap)
+        double gap) =>
+        PlaceFollowingMembers(
+            tops,
+            currentTops,
+            ownerIndex,
+            ownerHeight,
+            compactHeight,
+            gap,
+            retainExistingGaps: true);
+
+    private static void PlaceFollowingMembers(
+        double[] tops,
+        double[] currentTops,
+        int ownerIndex,
+        double ownerHeight,
+        double compactHeight,
+        double gap,
+        bool retainExistingGaps)
     {
         for (var index = ownerIndex + 1; index < tops.Length; index++)
         {
@@ -304,7 +324,9 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
                 ? ownerHeight
                 : compactHeight;
             var minimumTop = tops[index - 1] + previousHeight + gap;
-            tops[index] = Math.Max(currentTops[index], minimumTop);
+            tops[index] = retainExistingGaps
+                ? Math.Max(currentTops[index], minimumTop)
+                : minimumTop;
         }
     }
 
