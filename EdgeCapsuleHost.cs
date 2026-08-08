@@ -46,7 +46,6 @@ internal sealed record EdgeCapsulePreviewThemeResources(
 
 internal sealed record EdgeCapsuleHostCallbacks(
     Action PointerInvalidated,
-    Action<DeviceScreenPoint> PreviewPointerMoved,
     Action<DeviceScreenPoint> PointerPressed,
     Func<DeviceScreenPoint, bool, bool> PointerMoved,
     Func<DeviceScreenPoint, bool> PointerReleased,
@@ -728,8 +727,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         };
         shell.MouseEnter += (_, _) => callbacks.PointerInvalidated();
         shell.MouseLeave += (_, _) => callbacks.PointerInvalidated();
-        shell.PreviewMouseMove += (_, e) =>
-            callbacks.PreviewPointerMoved(PointerScreenPosition(e));
         content.PreviewMouseLeftButtonDown += (_, e) => BeginContentPointer(e);
         content.PreviewMouseMove += (_, e) =>
         {

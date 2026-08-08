@@ -152,6 +152,14 @@ public sealed partial class PaperWindow
         return frame.Visible && !bounds.IsEmpty;
     }
 
+    internal bool IsEdgeCapsuleInteractiveAt(DeviceScreenPoint pointer)
+    {
+        var frame = _edgeCapsule.AppliedPresentation;
+        return frame.Visible &&
+            frame.IsHitTestVisible &&
+            EdgeCapsuleGeometry.Contains(frame.InteractiveBounds, pointer);
+    }
+
     internal void FlushEdgeCapsulePreviewCompactPresentation()
     {
         FlushEdgeCapsulePresentation(

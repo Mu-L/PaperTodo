@@ -8,7 +8,7 @@ public sealed partial class AppController
 
     private EdgeCapsulePreviewLayoutSession? _edgeCapsulePreviewSession;
     private string? _edgeCapsulePreviewOutgoingPaperId;
-    private string? _edgeCapsulePreviewLayoutEnterCandidatePaperId;
+    private string? _edgeCapsulePreviewQueuedTransferPaperId;
     private DeviceScreenPoint? _edgeCapsulePreviewLastTransferPointer;
     private int _edgeCapsulePreviewTransferGeneration;
     private int _edgeCapsulePreviewCloseGeneration;
@@ -96,7 +96,7 @@ public sealed partial class AppController
         ReleaseOutgoingEdgeCapsulePreviewContent();
         var session = _edgeCapsulePreviewSession;
         _edgeCapsulePreviewSession = null;
-        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+        _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewLastTransferPointer = null;
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
@@ -119,13 +119,6 @@ public sealed partial class AppController
 
         if (!pointerOver)
         {
-            if (string.Equals(
-                    _edgeCapsulePreviewLayoutEnterCandidatePaperId,
-                    window.EdgeCapsulePreviewPaperId,
-                    StringComparison.Ordinal))
-            {
-                _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
-            }
             return;
         }
 
@@ -146,57 +139,19 @@ public sealed partial class AppController
             }
             if (IsEdgeCapsulePreviewLayoutOnlyEnter())
             {
-                // The queue animation may move this peer under a stationary pointer. Suppress
-                // that automatic transfer, but retain the peer so the next real mouse move can
-                // retry without requiring a leave-and-reenter cycle.
-                _edgeCapsulePreviewLayoutEnterCandidatePaperId =
-                    window.EdgeCapsulePreviewPaperId;
+                // The owner keeps sampling the global pointer while its preview is open. Once the
+                // pointer really moves, that single sampling path resolves the peer directly from
+                // its applied interactive bounds; no WPF enter candidate needs to be retained.
                 return;
             }
 
-            _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
             QueueEdgeCapsulePreviewTransfer(window);
             return;
         }
 
-        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
-        // Use the next input turn only to avoid re-entering pointer reconciliation. There is no
-        // hover dwell: the shell transition starts as soon as that zero-delay callback runs.
+        // Use the next Dispatcher turn only to avoid re-entering pointer reconciliation. There is
+        // no hover dwell: the shell transition starts as soon as that zero-delay callback runs.
         QueueEdgeCapsulePreviewTransfer(window);
-    }
-
-    internal void NotifyEdgeCapsulePreviewPointerMoved(
-        PaperWindow window,
-        DeviceScreenPoint pointer)
-    {
-        var candidatePaperId =
-            _edgeCapsulePreviewLayoutEnterCandidatePaperId;
-        if (candidatePaperId == null ||
-            _edgeCapsulePreviewSession == null ||
-            !string.Equals(
-                candidatePaperId,
-                window.EdgeCapsulePreviewPaperId,
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        ClearEdgeCapsulePreviewLayoutSuppressionWhenPointerMoves(pointer);
-        if (_edgeCapsulePreviewLastTransferPointer.HasValue)
-        {
-            return;
-        }
-
-        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
-        if (!_windows.TryGetValue(candidatePaperId, out var candidate) ||
-            !ReferenceEquals(candidate, window) ||
-            !candidate.CanEnterEdgeCapsulePreview ||
-            !candidate.IsEdgeCapsulePointerOver)
-        {
-            return;
-        }
-
-        QueueEdgeCapsulePreviewTransfer(candidate);
     }
 
     internal void NotifyEdgeCapsulePreviewPointerSample(
@@ -216,7 +171,9 @@ public sealed partial class AppController
 
         ClearEdgeCapsulePreviewLayoutSuppressionWhenPointerMoves(pointer.Value);
         if (!_edgeCapsulePreviewLastTransferPointer.HasValue &&
-            TryTransferEdgeCapsulePreviewToHoveredPeer(session))
+            TryTransferEdgeCapsulePreviewToPointerPeer(
+                session,
+                pointer.Value))
         {
             return;
         }
@@ -292,8 +249,9 @@ public sealed partial class AppController
                     return;
                 }
 
-                if (TryTransferEdgeCapsulePreviewToHoveredPeer(
+                if (TryTransferEdgeCapsulePreviewToPointerPeer(
                         session,
+                        pointer,
                         sameQueueOnly: false))
                 {
                     return;
@@ -308,22 +266,34 @@ public sealed partial class AppController
     {
         var paperId = window.EdgeCapsulePreviewPaperId;
         if (string.Equals(
-                _edgeCapsulePreviewLayoutEnterCandidatePaperId,
+                _edgeCapsulePreviewQueuedTransferPaperId,
                 paperId,
                 StringComparison.Ordinal))
         {
-            _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+            return;
         }
+
+        _edgeCapsulePreviewQueuedTransferPaperId = paperId;
         var generation = ++_edgeCapsulePreviewTransferGeneration;
         window.Dispatcher.BeginInvoke(
             (Action)(() =>
             {
                 if (IsExiting ||
                     generation != _edgeCapsulePreviewTransferGeneration ||
-                    !_windows.TryGetValue(paperId, out var current) ||
+                    !string.Equals(
+                        _edgeCapsulePreviewQueuedTransferPaperId,
+                        paperId,
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _edgeCapsulePreviewQueuedTransferPaperId = null;
+                if (!_windows.TryGetValue(paperId, out var current) ||
                     !ReferenceEquals(current, window) ||
                     !current.CanEnterEdgeCapsulePreview ||
-                    !current.IsEdgeCapsulePointerOver)
+                    !WindowNative.TryGetCursorScreenPosition(out var pointer) ||
+                    !current.IsEdgeCapsuleInteractiveAt(pointer))
                 {
                     return;
                 }
@@ -338,23 +308,25 @@ public sealed partial class AppController
                     return;
                 }
 
-                OpenOrTransferEdgeCapsulePreview(current);
+                OpenOrTransferEdgeCapsulePreview(current, pointer);
             }),
-            DispatcherPriority.Input);
+            DispatcherPriority.Loaded);
     }
 
-    private void OpenOrTransferEdgeCapsulePreview(PaperWindow window)
+    private void OpenOrTransferEdgeCapsulePreview(
+        PaperWindow window,
+        DeviceScreenPoint pointer)
     {
         if (IsExiting ||
             !window.CanEnterEdgeCapsulePreview ||
-            !window.IsEdgeCapsulePointerOver)
+            !window.IsEdgeCapsuleInteractiveAt(pointer))
         {
             return;
         }
 
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
-        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+        _edgeCapsulePreviewQueuedTransferPaperId = null;
         // A newly prepared view is already a WPF tree even before it is parented. Retire the
         // oldest shrinking card first so rapid A -> B -> C browsing never retains three trees.
         ReleaseOutgoingEdgeCapsulePreviewContent();
@@ -412,7 +384,7 @@ public sealed partial class AppController
         _edgeCapsulePreviewCloseGeneration++;
         var session = _edgeCapsulePreviewSession;
         _edgeCapsulePreviewSession = null;
-        _edgeCapsulePreviewLayoutEnterCandidatePaperId = null;
+        _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewLastTransferPointer = null;
         if (session != null &&
             _windows.TryGetValue(session.OwnerPaperId, out var owner))
@@ -485,8 +457,9 @@ public sealed partial class AppController
         }
     }
 
-    private bool TryTransferEdgeCapsulePreviewToHoveredPeer(
+    private bool TryTransferEdgeCapsulePreviewToPointerPeer(
         EdgeCapsulePreviewLayoutSession session,
+        DeviceScreenPoint pointer,
         bool sameQueueOnly = true)
     {
         foreach (var paper in DeepCapsulePapersInOrder())
@@ -502,7 +475,7 @@ public sealed partial class AppController
                      StringComparison.Ordinal)) ||
                 !_windows.TryGetValue(paper.Id, out var peer) ||
                 !peer.CanEnterEdgeCapsulePreview ||
-                !peer.IsEdgeCapsulePointerOver)
+                !peer.IsEdgeCapsuleInteractiveAt(pointer))
             {
                 continue;
             }
