@@ -19,6 +19,7 @@ public sealed partial class PaperWindow
         _edgeCapsuleHost?.IsPreviewPointerCaptureActive == true;
 
     internal bool CanEnterEdgeCapsulePreview =>
+        _controller.State.ExperimentalEdgeCapsuleHoverPreview &&
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         _paper.IsVisible &&
         !IsExperimentalPassive &&

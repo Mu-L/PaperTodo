@@ -765,6 +765,12 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>Edge preview hover intent</value>
   </data>
+  <data name="LabsEnableEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>Enable hover preview</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>Controls whether edge capsules can expand into previews on hover. Turning it off closes the current preview immediately without changing click, drag, or capsule behavior.</value>
+  </data>
   <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>Enable pointer-intent prediction</value>
   </data>
@@ -775,7 +781,10 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Activation sensitivity</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>Low requires a clearer stop. Medium is the more conservative recommended balance. High opens more readily and is close to the previous default.</value>
+    <value>Five levels from Very low to Very high. Lower levels require a clearer stop; higher levels open more readily. Medium remains the recommended balance.</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryLow" xml:space="preserve">
+    <value>Very low</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
     <value>Low</value>
@@ -785,6 +794,9 @@ When off, only hides those items; selected values stay unchanged.</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
     <value>High</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryHigh" xml:space="preserve">
+    <value>Very high</value>
   </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>Window coordination</value>

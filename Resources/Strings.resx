@@ -778,6 +778,12 @@
   <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>边缘预览悬停</value>
   </data>
+  <data name="LabsEnableEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>启用悬停预览</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>控制边缘胶囊是否可通过悬停展开预览。关闭后会立即收起当前预览，但不影响点击、拖动或胶囊本身。</value>
+  </data>
   <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>启用鼠标意图预测</value>
   </data>
@@ -788,7 +794,10 @@
     <value>触发敏感度</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>低档需要更明确地停向目标；中档是更克制的推荐平衡；高档更容易展开，接近此前主线的触发强度。</value>
+    <value>从极低到极高共 5 档。越低越需要明确停向目标，越高越容易展开；中档保持推荐平衡。</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryLow" xml:space="preserve">
+    <value>极低</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
     <value>低</value>
@@ -798,6 +807,9 @@
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
     <value>高</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryHigh" xml:space="preserve">
+    <value>极高</value>
   </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>窗口联动系统</value>

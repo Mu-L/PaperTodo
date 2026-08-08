@@ -765,6 +765,12 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>エッジプレビューのホバー判定</value>
   </data>
+  <data name="LabsEnableEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>ホバープレビューを有効にする</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>エッジカプセルをホバーでプレビュー展開するかを制御します。オフにすると現在のプレビューを直ちに閉じますが、クリック、ドラッグ、カプセル自体の動作には影響しません。</value>
+  </data>
   <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>ポインター意図予測を有効にする</value>
   </data>
@@ -775,7 +781,10 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>起動感度</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>「低」はより明確な停止が必要です。「中」は控えめな推奨バランスです。「高」はより開きやすく、以前の既定値に近い反応です。</value>
+    <value>「最低」から「最高」までの 5 段階です。低いほど明確な停止が必要で、高いほど開きやすくなります。「中」は推奨バランスです。</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryLow" xml:space="preserve">
+    <value>最低</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
     <value>低</value>
@@ -785,6 +794,9 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
     <value>高</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryHigh" xml:space="preserve">
+    <value>最高</value>
   </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>ウィンドウ連携システム</value>

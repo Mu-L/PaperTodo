@@ -765,6 +765,12 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>가장자리 미리보기 호버 의도</value>
   </data>
+  <data name="LabsEnableEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>호버 미리보기 사용</value>
+  </data>
+  <data name="TipLabsEdgeCapsuleHoverPreview" xml:space="preserve">
+    <value>가장자리 캡슐을 호버했을 때 미리보기를 펼칠지 제어합니다. 끄면 현재 미리보기를 즉시 닫지만 클릭, 드래그 또는 캡슐 자체 동작에는 영향을 주지 않습니다.</value>
+  </data>
   <data name="LabsEnableEdgeCapsuleHoverIntent" xml:space="preserve">
     <value>포인터 의도 예측 사용</value>
   </data>
@@ -775,7 +781,10 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>활성화 민감도</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>낮음은 더 분명하게 멈춰야 합니다. 중간은 더 신중한 권장 균형입니다. 높음은 더 쉽게 펼쳐지며 이전 기본값과 비슷합니다.</value>
+    <value>매우 낮음부터 매우 높음까지 5단계입니다. 낮을수록 더 분명하게 멈춰야 하고, 높을수록 더 쉽게 열립니다. 중간은 권장 균형입니다.</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryLow" xml:space="preserve">
+    <value>매우 낮음</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityLow" xml:space="preserve">
     <value>낮음</value>
@@ -785,6 +794,9 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityHigh" xml:space="preserve">
     <value>높음</value>
+  </data>
+  <data name="EdgeCapsuleHoverIntentSensitivityVeryHigh" xml:space="preserve">
+    <value>매우 높음</value>
   </data>
   <data name="LabsWindowCoordination" xml:space="preserve">
     <value>창 연동 시스템</value>

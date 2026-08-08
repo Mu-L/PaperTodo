@@ -36,6 +36,27 @@ internal static class PaperSelectControl
             fontSize);
     }
 
+    /// <summary>
+    /// Reuse the same host-owned dropdown chrome for PaperTodo's own settings surfaces.
+    /// </summary>
+    public static void ApplyAppTheme(
+        ComboBox comboBox,
+        double fontSize)
+    {
+        ApplyCore(
+            comboBox,
+            Theme.PaperBrush,
+            Theme.TextBrush,
+            Theme.WeakTextBrush,
+            Theme.PaperBorderBrush,
+            Theme.ActiveBrush,
+            Theme.Tint((byte)(Theme.IsDark ? 24 : 14)),
+            Theme.HoverBrush,
+            Theme.Tint((byte)(Theme.IsDark ? 62 : 40)),
+            AppTypography.UiFontFamily,
+            fontSize);
+    }
+
     private static void ApplyCore(
         ComboBox comboBox,
         Brush paper,

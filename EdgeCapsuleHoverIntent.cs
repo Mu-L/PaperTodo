@@ -31,6 +31,14 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     private const double AccelerationRatio = 1.15;
     private const double AccelerationDeltaDipPerMillisecond = 0.04;
 
+    private static readonly IntentSensitivityProfile VeryHighProfile = new(
+        Initial: new IntentProfile(6, 4, 22, 55, 135),
+        Transfer: new IntentProfile(10, 8, 38, 90, 190),
+        StableFallbackMilliseconds: 38,
+        MinimumDirectionalSpeedDipPerMillisecond: 0.13,
+        MinimumDirectionConsistency: 0.76,
+        MinimumVerticalDominance: 0.60);
+
     private static readonly IntentSensitivityProfile HighProfile = new(
         Initial: new IntentProfile(8, 8, 32, 80, 180),
         Transfer: new IntentProfile(12, 12, 50, 120, 240),
@@ -56,6 +64,14 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionalSpeedDipPerMillisecond: 0.055,
         MinimumDirectionConsistency: 0.64,
         MinimumVerticalDominance: 0.45);
+
+    private static readonly IntentSensitivityProfile VeryLowProfile = new(
+        Initial: new IntentProfile(12, 18, 54, 135, 300),
+        Transfer: new IntentProfile(22, 48, 115, 255, 500),
+        StableFallbackMilliseconds: 110,
+        MinimumDirectionalSpeedDipPerMillisecond: 0.040,
+        MinimumDirectionConsistency: 0.60,
+        MinimumVerticalDominance: 0.40);
 
     private readonly PointerSample[] _samples =
         new PointerSample[SampleCapacity];
@@ -359,8 +375,10 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     {
         return EdgeCapsuleHoverIntentSensitivities.Normalize(sensitivity) switch
         {
+            EdgeCapsuleHoverIntentSensitivities.VeryLow => VeryLowProfile,
             EdgeCapsuleHoverIntentSensitivities.Low => LowProfile,
             EdgeCapsuleHoverIntentSensitivities.High => HighProfile,
+            EdgeCapsuleHoverIntentSensitivities.VeryHigh => VeryHighProfile,
             _ => MediumProfile
         };
     }

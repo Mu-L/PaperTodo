@@ -375,6 +375,19 @@ public sealed partial class AppController
         RefreshSettingsRegions("labs.focus");
     }
 
+    private void ToggleExperimentalEdgeCapsuleHoverPreview()
+    {
+        State.ExperimentalEdgeCapsuleHoverPreview =
+            !State.ExperimentalEdgeCapsuleHoverPreview;
+        SaveNow();
+        if (!State.ExperimentalEdgeCapsuleHoverPreview)
+        {
+            CloseEdgeCapsulePreview(animate: false, arrange: true);
+        }
+        RefreshEdgeCapsuleHoverIntentRuntime();
+        RefreshSettingsRegions("labs.edgePreviewIntent");
+    }
+
     private void ToggleExperimentalEdgeCapsuleHoverIntent()
     {
         State.ExperimentalEdgeCapsuleHoverIntent =
@@ -1598,7 +1611,10 @@ public sealed partial class AppController
     {
         var edgePreviewAvailable =
             State.UseCapsuleMode && State.UseDeepCapsuleMode;
-        var enabled = State.ExperimentalEdgeCapsuleHoverIntent;
+        var previewEnabled =
+            State.ExperimentalEdgeCapsuleHoverPreview;
+        var intentEnabled =
+            State.ExperimentalEdgeCapsuleHoverIntent;
         var card = new Border
         {
             Background = Brushes.Transparent,
@@ -1606,17 +1622,31 @@ public sealed partial class AppController
             Margin = new Thickness(0, 1, 0, 3)
         };
         var content = new StackPanel();
+
+        var previewToggle = SettingsToggle(
+            Strings.Get("LabsEnableEdgeCapsuleHoverPreview"),
+            previewEnabled,
+            ToggleExperimentalEdgeCapsuleHoverPreview);
+        previewToggle.IsEnabled = edgePreviewAvailable;
+        previewToggle.Opacity = edgePreviewAvailable ? 1.0 : 0.55;
+        content.Children.Add(WrapWithHint(
+            previewToggle,
+            "TipLabsEdgeCapsuleHoverPreview"));
+
         var toggle = SettingsToggle(
             Strings.Get("LabsEnableEdgeCapsuleHoverIntent"),
-            enabled,
+            intentEnabled,
             ToggleExperimentalEdgeCapsuleHoverIntent);
-        toggle.IsEnabled = edgePreviewAvailable;
-        toggle.Opacity = edgePreviewAvailable ? 1.0 : 0.55;
+        var intentToggleEnabled =
+            edgePreviewAvailable && previewEnabled;
+        toggle.IsEnabled = intentToggleEnabled;
+        toggle.Opacity = intentToggleEnabled ? 1.0 : 0.55;
         content.Children.Add(WrapWithHint(
             toggle,
             "TipLabsEdgeCapsuleHoverIntent"));
 
-        var optionsEnabled = edgePreviewAvailable && enabled;
+        var optionsEnabled =
+            edgePreviewAvailable && previewEnabled && intentEnabled;
         var options = new StackPanel
         {
             IsEnabled = optionsEnabled,
@@ -1632,12 +1662,16 @@ public sealed partial class AppController
         });
         options.Children.Add(CreateSegmentSelector(
             [
+                (EdgeCapsuleHoverIntentSensitivities.VeryLow,
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityVeryLow")),
                 (EdgeCapsuleHoverIntentSensitivities.Low,
                     Strings.Get("EdgeCapsuleHoverIntentSensitivityLow")),
                 (EdgeCapsuleHoverIntentSensitivities.Medium,
                     Strings.Get("EdgeCapsuleHoverIntentSensitivityMedium")),
                 (EdgeCapsuleHoverIntentSensitivities.High,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityHigh"))
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityHigh")),
+                (EdgeCapsuleHoverIntentSensitivities.VeryHigh,
+                    Strings.Get("EdgeCapsuleHoverIntentSensitivityVeryHigh"))
             ],
             EdgeCapsuleHoverIntentSensitivities.Normalize(
                 State.ExperimentalEdgeCapsuleHoverIntentSensitivity),
@@ -2265,15 +2299,13 @@ public sealed partial class AppController
         var combo = new ComboBox
         {
             Height = AppTypography.FitChrome(28),
-            Foreground = TrayTextBrush,
-            Background = TrayPaperBrush,
-            BorderBrush = TrayBorderBrush,
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(7, 1, 4, 1),
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Focusable = false
         };
+        PaperSelectControl.ApplyAppTheme(
+            combo,
+            AppTypography.Scale(12));
 
         ComboBoxItem? selected = null;
         foreach (var (key, label) in choices)
@@ -2281,9 +2313,7 @@ public sealed partial class AppController
             var item = new ComboBoxItem
             {
                 Tag = key,
-                Content = label,
-                Foreground = TrayTextBrush,
-                Background = TrayPaperBrush
+                Content = label
             };
             combo.Items.Add(item);
             if (string.Equals(key, selectedKey, StringComparison.Ordinal))
@@ -2480,6 +2510,7 @@ public sealed partial class AppController
         State.ExperimentalHideInactiveTopBarButtons = false;
         State.ExperimentalHideInactiveTitleBar = false;
         State.ExperimentalDockedCapsulesNonTopmost = false;
+        State.ExperimentalEdgeCapsuleHoverPreview = true;
         State.ExperimentalEdgeCapsuleHoverIntent = true;
         State.ExperimentalEdgeCapsuleHoverIntentSensitivity =
             EdgeCapsuleHoverIntentSensitivities.Medium;

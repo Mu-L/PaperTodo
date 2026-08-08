@@ -252,13 +252,17 @@ public static class ExperimentalOpacityLevels
 
 public static class EdgeCapsuleHoverIntentSensitivities
 {
+    public const string VeryLow = "veryLow";
     public const string Low = "low";
     public const string Medium = "medium";
     public const string High = "high";
+    public const string VeryHigh = "veryHigh";
 
     public static string Normalize(string? sensitivity)
     {
-        return sensitivity is Low or High ? sensitivity : Medium;
+        return sensitivity is VeryLow or Low or High or VeryHigh
+            ? sensitivity
+            : Medium;
     }
 }
 
@@ -456,6 +460,7 @@ public sealed class AppState
     public bool ExperimentalHideInactiveTopBarButtons { get; set; }
     public bool ExperimentalHideInactiveTitleBar { get; set; }
     public bool ExperimentalDockedCapsulesNonTopmost { get; set; }
+    public bool ExperimentalEdgeCapsuleHoverPreview { get; set; } = true;
     public bool ExperimentalEdgeCapsuleHoverIntent { get; set; } = true;
     public string ExperimentalEdgeCapsuleHoverIntentSensitivity { get; set; } =
         EdgeCapsuleHoverIntentSensitivities.Medium;
