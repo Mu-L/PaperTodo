@@ -178,6 +178,16 @@ public sealed partial class PaperWindow
             EdgeCapsuleGeometry.Contains(frame.InteractiveBounds, pointer);
     }
 
+    internal bool TryGetEdgeCapsuleInteractiveBounds(
+        out DeviceScreenRect bounds)
+    {
+        var frame = _edgeCapsule.AppliedPresentation;
+        bounds = frame.InteractiveBounds;
+        return frame.Visible &&
+            frame.IsHitTestVisible &&
+            !bounds.IsEmpty;
+    }
+
     internal void FlushEdgeCapsulePreviewCompactPresentation()
     {
         FlushEdgeCapsulePresentation(
