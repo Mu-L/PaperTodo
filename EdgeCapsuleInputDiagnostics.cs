@@ -506,8 +506,8 @@ public sealed partial class AppController
         try
         {
             return WindowFromPoint(new EdgeCapsuleInputDiagnosticNativePoint(
-                pointer.X,
-                pointer.Y));
+                (int)Math.Round(pointer.X),
+                (int)Math.Round(pointer.Y)));
         }
         finally
         {

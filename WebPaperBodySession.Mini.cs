@@ -115,9 +115,9 @@ internal sealed partial class WebPaperBodySession
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
-                Opacity = 0,
                 IsHitTestVisible = false
             };
+            _webView.SetValue(UIElement.OpacityProperty, 0.0);
             PaperMiniViewInteraction.SetConsumesPointer(_webView, true);
             Children.Add(_fallback);
             Children.Add(_webView);
@@ -600,7 +600,7 @@ internal sealed partial class WebPaperBodySession
             // after miniVisibilityChanged(false); only input stops immediately. Hiding the WebView
             // here would manufacture an empty frame while the card is still shrinking.
             var painted = _documentReady && _pluginReady && !_disposed;
-            _webView.Opacity = painted ? 1 : 0;
+            _webView.SetValue(UIElement.OpacityProperty, painted ? 1.0 : 0.0);
             _webView.IsHitTestVisible = painted && _visible;
             if (!_pluginReady)
             {
@@ -617,7 +617,7 @@ internal sealed partial class WebPaperBodySession
             _pluginReady = false;
             _pluginReportedReady = false;
             _fallback.Visibility = Visibility.Visible;
-            _webView.Opacity = 0;
+            _webView.SetValue(UIElement.OpacityProperty, 0.0);
             _webView.IsHitTestVisible = false;
         }
 
