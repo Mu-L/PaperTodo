@@ -70,7 +70,7 @@ internal static class EdgeCapsuleTargetPlanner
             top,
             hostBodyWidth,
             layout.MaximumCloseWidthDip,
-            visibleHeight));
+            Math.Max(visibleHeight, layout.HostHeightDip)));
         var surface = SurfaceFor(
             model,
             preview,

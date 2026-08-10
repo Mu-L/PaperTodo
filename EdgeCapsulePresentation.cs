@@ -62,6 +62,7 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     double RestingWidthDip,
     double MaximumCloseWidthDip,
     double HostWidthDip,
+    double HostHeightDip,
     double HeightDip,
     double PreviewWidthDip,
     double PreviewHeightDip,
@@ -73,6 +74,7 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
         !Monitor.WorkArea.IsEmpty &&
         RestingWidthDip > 0 &&
         HostWidthDip > 0 &&
+        HostHeightDip > 0 &&
         HeightDip > 0 &&
         PreviewWidthDip > 0 &&
         PreviewHeightDip > 0;
@@ -99,9 +101,9 @@ internal readonly record struct EdgeCapsuleFloatingShape(
 
 /// <summary>
 /// One immutable docked target. Bounds is the real visible capsule rectangle; HostBounds is the
-/// stable transparent composition surface that can hold the fully expanded capsule. Body width is
-/// distinct from the visible width; the only permitted close segment is visible device width minus
-/// BodyWindowWidthDevice.
+/// stable transparent composition surface that can hold the fully expanded capsule in both axes.
+/// Body width is distinct from the visible width; the only permitted close segment is visible
+/// device width minus BodyWindowWidthDevice.
 /// </summary>
 internal readonly record struct EdgeCapsuleTargetPresentation(
     bool Visible,
@@ -170,7 +172,7 @@ internal readonly record struct EdgeCapsulePresentationPlan(
 /// <summary>
 /// Complete Host.Apply contract. HostBounds is native capacity while Bounds is the actual visible
 /// capsule. Interactive bounds, body/close segmentation, opacity and input state still advance from
-/// this one frame; horizontal animation never resizes the native host.
+/// this one frame; size animation never resizes the native host.
 /// </summary>
 internal readonly record struct EdgeCapsulePresentationFrame(
     bool Visible,

@@ -170,8 +170,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     /// <summary>
     /// The only docked-surface effect entry. The native HWND owns stable expanded capacity while
-    /// the real, wall-aligned visual surface follows frame.Bounds. Horizontal animation therefore
-    /// changes only one WPF tree and never races a native resize.
+    /// the real, wall-aligned visual surface follows frame.Bounds. Size animation therefore changes
+    /// only one WPF tree and never races a native resize.
     /// </summary>
     public bool Apply(EdgeCapsulePresentationFrame frame)
     {
@@ -210,8 +210,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         Debug.Assert(
             frame.HostBounds.Width >= frame.Bounds.Width &&
+            frame.HostBounds.Height >= frame.Bounds.Height &&
             frame.HostBounds.Top == frame.Bounds.Top &&
-            frame.HostBounds.Bottom == frame.Bounds.Bottom &&
             (frame.Edge == EdgeCapsuleEdge.Left
                 ? frame.HostBounds.Left == frame.Bounds.Left
                 : frame.HostBounds.Right == frame.Bounds.Right),

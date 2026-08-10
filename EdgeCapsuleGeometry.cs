@@ -179,17 +179,20 @@ internal static class EdgeCapsuleGeometry
         point.Y < bounds.Bottom;
 
     /// <summary>
-    /// Keeps the transparent composition host pinned to the same wall and vertical frame as the
-    /// visible capsule. Capacity comes from the fully expanded target and does not follow hover
-    /// width, so a horizontal transition never moves or resizes the HWND.
+    /// Keeps the transparent composition host pinned to the same wall and top anchor as the visible
+    /// capsule. Capacity comes from the fully expanded target in both axes, so a size transition
+    /// changes only the inner visual surface and never resizes the HWND.
     /// </summary>
     public static DeviceScreenRect HostBoundsForVisibleBounds(
         DeviceScreenRect visibleBounds,
         EdgeCapsuleEdge edge,
         int wallDeviceX,
-        int hostWidthDevice)
+        int hostWidthDevice,
+        int hostHeightDevice)
     {
-        if (visibleBounds.IsEmpty || hostWidthDevice <= 0)
+        if (visibleBounds.IsEmpty ||
+            hostWidthDevice <= 0 ||
+            hostHeightDevice <= 0)
         {
             return default;
         }
@@ -201,7 +204,7 @@ internal static class EdgeCapsuleGeometry
             left,
             visibleBounds.Top,
             left + hostWidthDevice,
-            visibleBounds.Bottom);
+            visibleBounds.Top + hostHeightDevice);
     }
 
     /// <summary>

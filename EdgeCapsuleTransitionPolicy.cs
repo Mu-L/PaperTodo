@@ -74,15 +74,19 @@ internal static class EdgeCapsuleTransitionPolicy
             ? target.WallDeviceX + width
             : target.WallDeviceX;
         var bounds = new DeviceScreenRect(left, top, right, top + height);
-        // Capacity may grow immediately, but it never contracts around an in-flight wider visual.
+        // Capacity may grow immediately, but it never contracts around an in-flight larger visual.
         var hostWidth = Math.Max(
             bounds.Width,
             Math.Max(start.HostBounds.Width, target.HostBounds.Width));
+        var hostHeight = Math.Max(
+            bounds.Height,
+            Math.Max(start.HostBounds.Height, target.HostBounds.Height));
         var hostBounds = EdgeCapsuleGeometry.HostBoundsForVisibleBounds(
             bounds,
             target.Edge,
             target.WallDeviceX,
-            hostWidth);
+            hostWidth,
+            hostHeight);
         // The old preview tree remains visible while its height shrinks, but it must stop owning
         // input as soon as the logical preview closes. Keep the outgoing surface identity through
         // retargets so a compact layout update cannot re-enable the tall card midway through.

@@ -201,6 +201,28 @@ public sealed partial class PaperWindow
             restingWidth + CapsuleCloseWidth;
         var previewHeight = previewSize?.HeightDip ??
             PaperLayoutDefaults.CapsuleHeight;
+        var requestedHostWidth = Math.Max(
+            Math.Max(
+                restingWidth + CapsuleCloseWidth,
+                previewWidth),
+            Math.Min(
+                EdgeCapsuleLayout.HostCapacityWidth,
+                monitor.LocalWorkAreaDip.Width));
+        var applied = _edgeCapsule.AppliedPresentation;
+        var appliedHostWidth = applied.Visible && !applied.HostBounds.IsEmpty
+            ? applied.HostBounds.Width / Math.Max(1, applied.DpiScaleX)
+            : 0;
+        var appliedHostHeight = applied.Visible && !applied.HostBounds.IsEmpty
+            ? applied.HostBounds.Height / Math.Max(1, applied.DpiScaleY)
+            : 0;
+
+        // HostBounds is transparent composition capacity, not the current card. It may grow before
+        // a larger preview starts, but it does not contract while this host remains visible. Opening
+        // and closing therefore resize only VisualSurface; queue placement may still move the HWND.
+        var hostWidth = Math.Max(requestedHostWidth, appliedHostWidth);
+        var hostHeight = Math.Max(
+            Math.Max(PaperLayoutDefaults.CapsuleHeight, previewHeight),
+            appliedHostHeight);
         var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
             ? ExperimentalOpacityLevels.Normalize(
                 _controller.State.ExperimentalRestingCapsuleOpacityLevel,
@@ -220,13 +242,8 @@ public sealed partial class PaperWindow
             DeepCapsuleGap,
             restingWidth,
             CapsuleCloseWidth,
-            Math.Max(
-                Math.Max(
-                    restingWidth + CapsuleCloseWidth,
-                    previewWidth),
-                Math.Min(
-                    EdgeCapsuleLayout.HostCapacityWidth,
-                    monitor.LocalWorkAreaDip.Width)),
+            hostWidth,
+            hostHeight,
             PaperLayoutDefaults.CapsuleHeight,
             previewWidth,
             previewHeight,
