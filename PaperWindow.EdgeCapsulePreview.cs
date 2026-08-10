@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace PaperTodo;
 
@@ -128,11 +129,16 @@ public sealed partial class PaperWindow
 
         _edgeCapsulePreviewRequest = request;
         EnsureDeepCapsuleSlotHost().StagePreviewContent(request.Content);
-        RequestEdgeCapsulePresentation(
-            animate,
-            EdgeCapsuleTransitionReason.Preview,
-            EdgeCapsuleLayout.SlotMoveMilliseconds,
-            refreshLayout: true);
+
+        // Do not put a standalone preview reconcile ahead of the controller's immediate queue
+        // arrange. Open/transfer changes the owner and the displaced placements as one logical
+        // operation; deferring this fallback lets ArrangeDeepCapsules stage every presenter first,
+        // so the preview growth and peer movement start on the same composition batch. Paths that
+        // intentionally do not arrange still receive this presentation on the next Loaded turn.
+        QueueEdgeCapsulePreviewPresentation(
+            expectedOpen: true,
+            expectedRequest: request,
+            animate);
         return true;
     }
 
@@ -152,11 +158,49 @@ public sealed partial class PaperWindow
         }
 
         _edgeCapsulePreviewRequest = null;
-        RequestEdgeCapsulePresentation(
-            animate,
-            EdgeCapsuleTransitionReason.Preview,
-            EdgeCapsuleLayout.SlotMoveMilliseconds,
-            refreshLayout: true);
+        QueueEdgeCapsulePreviewPresentation(
+            expectedOpen: false,
+            expectedRequest: null,
+            animate);
+    }
+
+    private void QueueEdgeCapsulePreviewPresentation(
+        bool expectedOpen,
+        EdgeCapsulePreviewRequest? expectedRequest,
+        bool animate)
+    {
+        var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
+        dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+                    IsClosed ||
+                    IsEdgeCapsulePreviewOpen != expectedOpen)
+                {
+                    return;
+                }
+
+                if (expectedOpen)
+                {
+                    if (!ReferenceEquals(
+                            _edgeCapsulePreviewRequest,
+                            expectedRequest))
+                    {
+                        return;
+                    }
+                }
+                else if (_edgeCapsulePreviewRequest != null)
+                {
+                    return;
+                }
+
+                RequestEdgeCapsulePresentation(
+                    animate,
+                    EdgeCapsuleTransitionReason.Preview,
+                    EdgeCapsuleLayout.SlotMoveMilliseconds,
+                    refreshLayout: true);
+            }),
+            DispatcherPriority.Loaded);
     }
 
     internal void ClearEdgeCapsulePreviewContent() =>

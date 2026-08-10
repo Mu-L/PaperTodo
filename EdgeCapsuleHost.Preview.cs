@@ -122,7 +122,12 @@ internal sealed partial class EdgeCapsuleHost
             _previewVisible,
             _previewVisible ? progress : 0,
             _previewVisible && frame.IsHitTestVisible);
-        ApplyCompactContentVisibility(suppressed: visible);
+
+        // The old compact body used to disappear as soon as height exceeded the resting pill by
+        // half a DIP, while the preview layer was still almost transparent. That produces a brief
+        // blank frame that reads as flicker. Cross-fade the compact body out over the same progress
+        // as the preview fades in, and mirror the fade while shrinking back to compact form.
+        ApplyCompactContentProgress(_previewVisible ? progress : 0);
 
         if (!visible && hasContent)
         {
@@ -148,20 +153,27 @@ internal sealed partial class EdgeCapsuleHost
         _previewContentLayer.IsHitTestVisible = visible && hitTestVisible;
     }
 
-    private void ApplyCompactContentVisibility(bool suppressed)
+    private void ApplyCompactContentProgress(double previewProgress)
     {
+        var progress = Math.Clamp(previewProgress, 0, 1);
+        var compactOpacity = 1 - progress;
+        var compactVisible = compactOpacity > 0.001;
+
         ContentGrid.Visibility =
-            suppressed ? Visibility.Collapsed : Visibility.Visible;
+            compactVisible ? Visibility.Visible : Visibility.Collapsed;
+        ContentGrid.Opacity = compactOpacity;
+
         if (_pluginContentLayer != null)
         {
-            _pluginContentLayer.Visibility = suppressed
-                ? Visibility.Collapsed
-                : _pluginContentLayer.Child != null
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
+            var pluginVisible =
+                compactVisible && _pluginContentLayer.Child != null;
+            _pluginContentLayer.Visibility = pluginVisible
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            _pluginContentLayer.Opacity = compactOpacity;
         }
 
-        if (suppressed)
+        if (progress > 0.001)
         {
             ContentArea.Background = Brushes.Transparent;
         }
