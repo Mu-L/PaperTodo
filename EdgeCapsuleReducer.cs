@@ -294,13 +294,15 @@ internal static class EdgeCapsuleReducer
         var action = model.State.Gesture switch
         {
             EdgeCapsuleGestureState.DockedReordering =>
-                captureLoss.LeftButtonPressed
+                captureLoss.Reason ==
+                    EdgeCapsuleCaptureLossReason.AcquisitionFailed
+                    ? EdgeCapsuleCaptureAction.CancelDrag
+                    : captureLoss.LeftButtonPressed
                     ? EdgeCapsuleCaptureAction.Recapture
                     : EdgeCapsuleCaptureAction.CancelDrag,
             EdgeCapsuleGestureState.FloatingTransfer or
             EdgeCapsuleGestureState.FloatingReordering =>
-                captureLoss.Reason == EdgeCapsuleCaptureLossReason.NativeDragTransfer ||
-                captureLoss.LeftButtonPressed
+                captureLoss.Reason == EdgeCapsuleCaptureLossReason.NativeDragTransfer
                     ? EdgeCapsuleCaptureAction.IgnoreExpectedTransfer
                     : EdgeCapsuleCaptureAction.CancelDrag,
             _ => EdgeCapsuleCaptureAction.None

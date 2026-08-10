@@ -13,6 +13,7 @@ internal sealed partial class EdgeCapsuleHost
     private Border? _previewViewportLayer;
     private Border? _previewContentLayer;
     private FrameworkElement? _previewContent;
+    private int _previewContentStageGeneration;
     private bool _previewVisible;
     private bool _previewInteractiveCaptureLease;
     private long _previewInteractiveCaptureGraceUntil;
@@ -80,14 +81,14 @@ internal sealed partial class EdgeCapsuleHost
     // Stage and prepare the final-size preview tree before the visual transaction begins. The
     // viewport changes size during the shell animation, but the content tree itself keeps its final
     // layout size so shrinking never makes a ScrollViewer or wrapped text reflow frame-by-frame.
-    public void StagePreviewContent(
+    public bool StagePreviewContent(
         FrameworkElement content,
         double contentWidthDip,
         double contentHeightDip)
     {
         if (_disposed)
         {
-            return;
+            return false;
         }
         if (content is Window ||
             (content.Parent != null &&
@@ -100,8 +101,10 @@ internal sealed partial class EdgeCapsuleHost
         EnsurePreviewLayers();
         if (_previewContentLayer == null)
         {
-            return;
+            return false;
         }
+
+        var stageGeneration = unchecked(++_previewContentStageGeneration);
 
         if (!ReferenceEquals(_previewContent, content))
         {
@@ -113,31 +116,118 @@ internal sealed partial class EdgeCapsuleHost
             !ReferenceEquals(_previewContentLayer.Child, content))
         {
             _previewContentLayer.Child = null;
+            if (!IsPreviewContentStageCurrent(stageGeneration))
+            {
+                return false;
+            }
         }
 
         contentWidthDip = Math.Max(1, contentWidthDip);
         contentHeightDip = Math.Max(1, contentHeightDip);
         _previewContentLayer.Width = contentWidthDip;
+        if (!IsPreviewContentStageCurrent(stageGeneration))
+        {
+            return false;
+        }
         _previewContentLayer.Height = contentHeightDip;
+        if (!IsPreviewContentStageCurrent(stageGeneration))
+        {
+            return false;
+        }
         content.HorizontalAlignment = HorizontalAlignment.Stretch;
+        if (!IsPreviewContentStageCurrent(stageGeneration))
+        {
+            return false;
+        }
         content.VerticalAlignment = VerticalAlignment.Stretch;
+        if (!IsPreviewContentStageCurrent(stageGeneration))
+        {
+            return false;
+        }
 
         if (content is EdgeCapsuleLivePreviewView livePreview)
         {
             livePreview.PrepareForFirstDisplay();
         }
+        // Live rebuilds and dependency-property callbacks are application/plugin code and may pump
+        // messages. If one closed/replaced this preview, do not let the older Stage resume and
+        // overwrite the newer child.
+        if (!IsPreviewContentStageCurrent(stageGeneration))
+        {
+            return false;
+        }
 
         _previewContent = content;
         _previewContentLayer.Child = content;
+        if (_disposed ||
+            stageGeneration != _previewContentStageGeneration ||
+            !OwnsPreviewContent(content))
+        {
+            return false;
+        }
         if (_previewViewportLayer != null)
         {
             // Join layout before the transaction can make the layer opaque. The compact tree stays
             // painted at progress zero, so the first compositor frame still has valid content even
             // if this newly mounted tree needs one layout pass.
             _previewViewportLayer.Visibility = Visibility.Visible;
+            if (_disposed ||
+                stageGeneration != _previewContentStageGeneration ||
+                !OwnsPreviewContent(content))
+            {
+                return false;
+            }
             _previewViewportLayer.Opacity = 0;
+            if (_disposed ||
+                stageGeneration != _previewContentStageGeneration ||
+                !OwnsPreviewContent(content))
+            {
+                return false;
+            }
             _previewViewportLayer.IsHitTestVisible = false;
         }
+        return IsPreviewContentStageCurrent(stageGeneration) &&
+            OwnsPreviewContent(content);
+    }
+
+    private bool IsPreviewContentStageCurrent(int generation) =>
+        !_disposed && generation == _previewContentStageGeneration;
+
+    public bool ReplacePreviewContent(
+        FrameworkElement expectedContent,
+        FrameworkElement content,
+        double contentWidthDip,
+        double contentHeightDip)
+    {
+        if (_disposed || !OwnsPreviewContent(expectedContent))
+        {
+            return false;
+        }
+
+        // Preserve the layer state already produced through Apply(frame). Replacing a staged tree
+        // is content lifecycle work, not a second presentation entry point, and therefore cannot
+        // advance geometry from an uncommitted native batch.
+        var wasVisible = _previewVisible;
+        var progress = _previewViewportLayer?.Opacity ?? 0;
+        var wasHitTestVisible = _previewViewportLayer?.IsHitTestVisible == true;
+        if (!StagePreviewContent(content, contentWidthDip, contentHeightDip))
+        {
+            return false;
+        }
+
+        var replacementGeneration = _previewContentStageGeneration;
+        _previewVisible = wasVisible;
+        ApplyPreviewLayerState(wasVisible, progress, wasHitTestVisible);
+        if (_disposed ||
+            replacementGeneration != _previewContentStageGeneration ||
+            !OwnsPreviewContent(content))
+        {
+            return false;
+        }
+        ApplyCompactContentProgress(wasVisible ? progress : 0);
+        return !_disposed &&
+            replacementGeneration == _previewContentStageGeneration &&
+            OwnsPreviewContent(content);
     }
 
     public void ClearPreviewContent()
@@ -147,8 +237,10 @@ internal sealed partial class EdgeCapsuleHost
             return;
         }
 
-        DetachPreviewContent();
-        ApplyCompactContentProgress(0);
+        if (DetachPreviewContent())
+        {
+            ApplyCompactContentProgress(0);
+        }
     }
 
     private void EnsurePreviewLayers()
@@ -183,9 +275,10 @@ internal sealed partial class EdgeCapsuleHost
         _previewViewportLayer = viewportLayer;
     }
 
-    private void ApplyPreviewPresentation(
+    private bool ApplyPreviewPresentation(
         EdgeCapsulePresentationFrame frame)
     {
+        var presentationContentGeneration = _previewContentStageGeneration;
         var dpiScaleY = Math.Max(1, frame.DpiScaleY);
         var chromeMarginDevice = Math.Max(
             0,
@@ -208,8 +301,31 @@ internal sealed partial class EdgeCapsuleHost
         Outline.VerticalAlignment = VerticalAlignment.Stretch;
         Outline.Height = double.NaN;
 
+        var compactBoundsHeightDevice = Math.Max(
+            1,
+            (int)Math.Round(
+                (_options.BodyHeight + _options.WindowChromeMargin * 2) * dpiScaleY,
+                MidpointRounding.AwayFromZero));
+        var compactBodyHeight = Math.Max(
+            1,
+            compactBoundsHeightDevice - chromeMarginDevice * 2) / dpiScaleY;
+        var previewBodyHeight = compactBodyHeight + 1;
+        if (_previewContentLayer is { Height: var contentHeight } &&
+            double.IsFinite(contentHeight) &&
+            contentHeight > 0)
+        {
+            var previewBoundsHeightDevice = Math.Max(
+                1,
+                (int)Math.Round(
+                    (contentHeight + _options.WindowChromeMargin * 2) * dpiScaleY,
+                    MidpointRounding.AwayFromZero));
+            previewBodyHeight = Math.Max(
+                1,
+                previewBoundsHeightDevice - chromeMarginDevice * 2) / dpiScaleY;
+        }
+
         var heightExpanded =
-            bodyHeight > _options.BodyHeight + 0.5;
+            bodyHeight > compactBodyHeight + 0.5;
         var previewSurface =
             frame.Surface == EdgeCapsuleSurfaceKind.DockedPreview;
         // Opening starts with the old compact bounds, while an outgoing preview deliberately keeps
@@ -217,7 +333,8 @@ internal sealed partial class EdgeCapsuleHost
         // not the intermediate height threshold, therefore owns the preview tree's lifetime.
         var retainPreview = previewSurface || heightExpanded;
         var previewProgress = Math.Clamp(
-            (bodyHeight - _options.BodyHeight) / 48.0,
+            (bodyHeight - compactBodyHeight) /
+                Math.Max(1, previewBodyHeight - compactBodyHeight),
             0,
             1);
 
@@ -239,6 +356,10 @@ internal sealed partial class EdgeCapsuleHost
             _previewVisible &&
                 previewProgress > 0.001 &&
                 frame.IsHitTestVisible);
+        if (!IsPreviewContentStageCurrent(presentationContentGeneration))
+        {
+            return false;
+        }
 
         // Keep one painted tree on both ends of the transition. At the opening compact frame the
         // staged preview has not necessarily completed its first WPF layout/render pass yet; while
@@ -246,14 +367,22 @@ internal sealed partial class EdgeCapsuleHost
         // cross-fade prevents either visibility hand-off from becoming a blank frame.
         ApplyCompactContentProgress(
             _previewVisible ? previewProgress : 0);
+        if (!IsPreviewContentStageCurrent(presentationContentGeneration))
+        {
+            return false;
+        }
 
         if (!retainPreview && hasContent)
         {
             // Keep the outgoing final-size tree while the viewport shrinks, then release it on the
             // common final compact frame. Each host owns this lifetime independently, so a rapid
             // third-card transfer cannot expose an older still-shrinking shell without content.
-            DetachPreviewContent();
+            if (!DetachPreviewContent())
+            {
+                return false;
+            }
         }
+        return true;
     }
 
     private void ApplyPreviewLayerState(
@@ -298,13 +427,30 @@ internal sealed partial class EdgeCapsuleHost
                 : Brushes.Transparent;
     }
 
-    private void DetachPreviewContent()
+    private bool DetachPreviewContent()
     {
+        int detachGeneration;
+        unchecked
+        {
+            detachGeneration = ++_previewContentStageGeneration;
+        }
         if (_previewContentLayer != null)
         {
             _previewContentLayer.Child = null;
+            if (!IsPreviewContentStageCurrent(detachGeneration))
+            {
+                return false;
+            }
             _previewContentLayer.Width = double.NaN;
+            if (!IsPreviewContentStageCurrent(detachGeneration))
+            {
+                return false;
+            }
             _previewContentLayer.Height = double.NaN;
+            if (!IsPreviewContentStageCurrent(detachGeneration))
+            {
+                return false;
+            }
         }
         _previewContent = null;
         _previewVisible = false;
@@ -313,9 +459,18 @@ internal sealed partial class EdgeCapsuleHost
         if (_previewViewportLayer != null)
         {
             _previewViewportLayer.Visibility = Visibility.Collapsed;
+            if (!IsPreviewContentStageCurrent(detachGeneration))
+            {
+                return false;
+            }
             _previewViewportLayer.Opacity = 0;
+            if (!IsPreviewContentStageCurrent(detachGeneration))
+            {
+                return false;
+            }
             _previewViewportLayer.IsHitTestVisible = false;
         }
+        return IsPreviewContentStageCurrent(detachGeneration);
     }
 
     private bool IsPreviewInteractiveSource(

@@ -16,6 +16,8 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
     private bool _hasRenderedContent;
     private bool _subscribed;
     private bool _refreshing;
+    private long _invalidationVersion;
+    private Action? _invalidationHandler;
 
     protected EdgeCapsuleLivePreviewView(
         EdgeCapsulePreviewContext context,
@@ -56,7 +58,11 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
             return;
         }
 
+        // Subscribe before detached preparation. An invalidation between this rebuild and Loaded
+        // must leave the view dirty instead of being silently absorbed by the mounting gap.
+        Subscribe();
         CancelQueuedRefresh();
+        var rebuildVersion = Interlocked.Read(ref _invalidationVersion);
         _contentDirty = false;
         _refreshing = true;
         try
@@ -73,6 +79,10 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
         finally
         {
             _refreshing = false;
+            if (Interlocked.Read(ref _invalidationVersion) != rebuildVersion)
+            {
+                _contentDirty = true;
+            }
         }
     }
 
@@ -85,7 +95,22 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
             return;
         }
 
-        Context.InvalidationSource.Invalidated += OnContentInvalidated;
+        var source = Context.InvalidationSource;
+        var weakView = new WeakReference<EdgeCapsuleLivePreviewView>(this);
+        Action? handler = null;
+        handler = () =>
+        {
+            if (weakView.TryGetTarget(out var view))
+            {
+                view.OnContentInvalidated();
+            }
+            else if (handler != null)
+            {
+                source.Invalidated -= handler;
+            }
+        };
+        _invalidationHandler = handler;
+        source.Invalidated += handler;
         _subscribed = true;
     }
 
@@ -96,20 +121,30 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
             return;
         }
 
-        Context.InvalidationSource.Invalidated -= OnContentInvalidated;
+        if (_invalidationHandler != null)
+        {
+            Context.InvalidationSource.Invalidated -= _invalidationHandler;
+            _invalidationHandler = null;
+        }
         _subscribed = false;
     }
 
     private void OnContentInvalidated()
     {
+        Interlocked.Increment(ref _invalidationVersion);
         if (!Dispatcher.CheckAccess())
         {
             Dispatcher.BeginInvoke(
-                (Action)OnContentInvalidated,
+                (Action)MarkContentDirty,
                 DispatcherPriority.Background);
             return;
         }
 
+        MarkContentDirty();
+    }
+
+    private void MarkContentDirty()
+    {
         _contentDirty = true;
         QueueRefresh();
     }
@@ -148,6 +183,7 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
             return;
         }
 
+        var rebuildVersion = Interlocked.Read(ref _invalidationVersion);
         _contentDirty = false;
         _refreshing = true;
         try
@@ -157,13 +193,16 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
         }
         catch
         {
-            // The preview is optional. A model refresh racing this UI pass retries on the next
-            // invalidation instead of taking down the paper or queue.
-            _contentDirty = true;
+            // The preview is optional. Do not immediately queue the same failing rebuild forever;
+            // only a real invalidation that happened during or after this attempt may retry it.
         }
         finally
         {
             _refreshing = false;
+            if (Interlocked.Read(ref _invalidationVersion) != rebuildVersion)
+            {
+                _contentDirty = true;
+            }
         }
 
         QueueRefresh();

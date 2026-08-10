@@ -200,7 +200,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             {
                 root.IsHitTestVisible = false;
             }
-            DetachPreviewContent();
+            if (!DetachPreviewContent())
+            {
+                ResetForFreshApply();
+                return false;
+            }
             _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
             return true;
         }
@@ -297,7 +301,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                     : _appliedCloseWidth >= _maximumCloseWidth - 0.5);
         }
 
-        ApplyPreviewPresentation(frame);
+        if (!ApplyPreviewPresentation(frame))
+        {
+            ResetForFreshApply();
+            return false;
+        }
         _appliedFrame = frame;
         if (firstShow)
         {
@@ -446,6 +454,21 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         Root.Opacity = 1;
         Root.IsHitTestVisible = false;
         _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
+    }
+
+    internal void RejectNativeBatchApply()
+    {
+        if (!_disposed)
+        {
+            ResetForFreshApply();
+        }
+    }
+
+    internal bool TryGetAppliedPresentation(
+        out EdgeCapsulePresentationFrame presentation)
+    {
+        presentation = _appliedFrame;
+        return !_disposed;
     }
 
     private bool ContainsScreenPoint(DeviceScreenPoint point)
@@ -695,7 +718,12 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             }
 
             callbacks.PointerPressed(PointerScreenPosition(e));
-            content.CaptureMouse();
+            if (!content.CaptureMouse())
+            {
+                callbacks.CaptureLost(new EdgeCapsuleCaptureLoss(
+                    LeftButtonPressed: true,
+                    EdgeCapsuleCaptureLossReason.AcquisitionFailed));
+            }
             e.Handled = true;
         }
 
@@ -760,9 +788,16 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             var action = callbacks.CaptureLost(new EdgeCapsuleCaptureLoss(
                 Mouse.LeftButton == MouseButtonState.Pressed,
                 reason));
-            if (action == EdgeCapsuleCaptureAction.Recapture && content.IsVisible && content.IsEnabled)
+            if (action == EdgeCapsuleCaptureAction.Recapture)
             {
-                content.CaptureMouse();
+                if (!content.IsVisible ||
+                    !content.IsEnabled ||
+                    !content.CaptureMouse())
+                {
+                    callbacks.CaptureLost(new EdgeCapsuleCaptureLoss(
+                        Mouse.LeftButton == MouseButtonState.Pressed,
+                        EdgeCapsuleCaptureLossReason.AcquisitionFailed));
+                }
             }
         };
 

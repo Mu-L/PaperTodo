@@ -21,10 +21,11 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
 
     public EdgeCapsulePreviewDescriptor Describe(EdgeCapsulePreviewContext context)
     {
-        var items = MeaningfulItems(context.Paper);
+        var snapshot = CaptureSnapshot(context.Paper);
+        var items = snapshot.Items;
         var body = string.Join(
             Environment.NewLine,
-            items.Take(12).Select(item => item.Text));
+            items.Select(item => PreviewItemText(item.Text)));
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             context.Title,
             body,
@@ -33,16 +34,17 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
         var availableTextWidth = Math.Max(64, width - 60);
         var estimatedLines = items.Count == 0
             ? 1
-            : items.Take(12).Sum(item => Math.Clamp(
+            : items.Sum(item => Math.Clamp(
                 EdgeCapsulePreviewMeasure.EstimateWrappedLines(
-                    item.Text,
+                    PreviewItemText(item.Text),
                     availableTextWidth),
                 1,
                 3));
         var height = items.Count == 0
             ? 120
             : Math.Clamp(
-                62 + Math.Min(12, estimatedLines) * AppTypography.Scale(28),
+                62 + Math.Min(MaximumRenderedItems, estimatedLines) *
+                    AppTypography.Scale(28),
                 150,
                 400);
         if (items.Count == 0)
@@ -52,16 +54,89 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
 
         return new EdgeCapsulePreviewDescriptor(
             new EdgeCapsulePreviewSize(width, height),
-            size => new TodoEdgeCapsulePreviewView(context, size));
+            size => new TodoEdgeCapsulePreviewView(context, size, snapshot));
     }
 
-    private static List<PaperItem> MeaningfulItems(PaperData paper) =>
-        paper.Items
-            .Where(TodoRules.HasMeaningfulContent)
-            .OrderBy(item => item.Order)
-            .Take(MaximumRenderedItems)
-            .ToList();
+    internal static TodoEdgeCapsulePreviewSnapshot CaptureSnapshot(PaperData paper)
+    {
+        var selected = new List<PaperItem>(MaximumRenderedItems);
+        var total = 0;
+        var done = 0;
+        foreach (var item in paper.Items)
+        {
+            if (!TodoRules.HasMeaningfulContent(item))
+            {
+                continue;
+            }
+
+            total++;
+            if (item.Done)
+            {
+                done++;
+            }
+
+            // Keep only the stable first 12 items by Order. With a fixed-size insertion list this
+            // is one model pass, O(n * 12), and never sorts/materializes the complete todo model.
+            var insertionIndex = selected.Count;
+            for (var index = 0; index < selected.Count; index++)
+            {
+                if (item.Order < selected[index].Order)
+                {
+                    insertionIndex = index;
+                    break;
+                }
+            }
+            if (insertionIndex == selected.Count)
+            {
+                if (selected.Count < MaximumRenderedItems)
+                {
+                    selected.Add(item);
+                }
+                continue;
+            }
+
+            selected.Insert(insertionIndex, item);
+            if (selected.Count > MaximumRenderedItems)
+            {
+                selected.RemoveAt(MaximumRenderedItems);
+            }
+        }
+
+        return new TodoEdgeCapsulePreviewSnapshot(selected, total, done);
+    }
+
+    internal static string PreviewItemText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "—";
+        }
+
+        // Bound work before trimming/measuring. A single malformed or pasted multi-megabyte item
+        // must not make opening the preview proportional to its complete text length.
+        var truncated = value.Length > MaximumItemCharacters;
+        var bounded = truncated
+            ? value[..MaximumItemCharacters]
+            : value;
+        var text = bounded.Trim();
+        if (text.Length == 0)
+        {
+            return truncated ? "…" : "—";
+        }
+        if (!truncated)
+        {
+            return text;
+        }
+        return text.Length < MaximumItemCharacters
+            ? text + "…"
+            : text[..(MaximumItemCharacters - 1)] + "…";
+    }
 }
+
+internal sealed record TodoEdgeCapsulePreviewSnapshot(
+    IReadOnlyList<PaperItem> Items,
+    int Total,
+    int Done);
 
 internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 {
@@ -70,12 +145,15 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
     private readonly StackPanel _items;
     private readonly ScrollViewer _scrollViewer;
     private bool _rebuilding;
+    private TodoEdgeCapsulePreviewSnapshot? _initialSnapshot;
 
     public TodoEdgeCapsulePreviewView(
         EdgeCapsulePreviewContext context,
-        EdgeCapsulePreviewSize size)
+        EdgeCapsulePreviewSize size,
+        TodoEdgeCapsulePreviewSnapshot initialSnapshot)
         : base(context, size)
     {
+        _initialSnapshot = initialSnapshot;
         Margin = new Thickness(10, 9, 9, 10);
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition());
@@ -133,15 +211,14 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
     protected override void RebuildContent()
     {
         var offset = _scrollViewer.VerticalOffset;
-        var meaningful = Context.Paper.Items
-            .Where(TodoRules.HasMeaningfulContent)
-            .OrderBy(item => item.Order)
-            .ToList();
-        var done = meaningful.Count(item => item.Done);
+        var snapshot = _initialSnapshot ??
+            TodoEdgeCapsulePreviewProvider.CaptureSnapshot(Context.Paper);
+        _initialSnapshot = null;
+        var meaningful = snapshot.Items;
 
         _title.Text = Context.Title;
         _title.ToolTip = Context.Title;
-        _summary.Text = $"{done}/{meaningful.Count}";
+        _summary.Text = $"{snapshot.Done}/{snapshot.Total}";
 
         _rebuilding = true;
         try
@@ -162,8 +239,7 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
             }
             else
             {
-                foreach (var item in meaningful.Take(
-                    TodoEdgeCapsulePreviewProvider.MaximumRenderedItems))
+                foreach (var item in meaningful)
                 {
                     _items.Children.Add(BuildRow(item));
                 }
@@ -231,7 +307,7 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 
         var text = new TextBlock
         {
-            Text = PreviewItemText(item.Text),
+            Text = TodoEdgeCapsulePreviewProvider.PreviewItemText(item.Text),
             Margin = new Thickness(1, 0, 5, 0),
             FontFamily = AppTypography.FontFamilyFor(content: true, bold: false),
             FontSize = AppTypography.Scale(12),
@@ -255,20 +331,6 @@ internal sealed class TodoEdgeCapsulePreviewView : EdgeCapsuleLivePreviewView
 
         row.Child = grid;
         return row;
-    }
-
-    private static string PreviewItemText(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "—";
-        }
-
-        var text = value.Trim();
-        var maximum = TodoEdgeCapsulePreviewProvider.MaximumItemCharacters;
-        return text.Length <= maximum
-            ? text
-            : text[..(maximum - 1)] + "…";
     }
 
     private FrameworkElement BuildItemMarker(PaperItem item)

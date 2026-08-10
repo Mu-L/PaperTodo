@@ -62,7 +62,8 @@ internal enum EdgeCapsuleCaptureAction
 internal enum EdgeCapsuleCaptureLossReason
 {
     Unplanned,
-    NativeDragTransfer
+    NativeDragTransfer,
+    AcquisitionFailed
 }
 
 internal readonly record struct EdgeCapsuleCaptureLoss(

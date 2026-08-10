@@ -5,6 +5,14 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private bool _edgeCapsuleReconcileNotificationPending;
+    private bool _edgeCapsulePresentationChangePending;
+    private bool _edgeCapsulePointerOverChangePending;
+    private bool _edgeCapsulePendingPointerOverBaseline;
+    private bool _edgeCapsulePendingPointerOver;
+    private DeviceScreenPoint? _edgeCapsulePendingPointerSample;
+    private bool _edgeCapsuleVisualTransactionNotificationDeferred;
+
     private EdgeCapsuleHost EnsureDeepCapsuleSlotHost()
     {
         if (_edgeCapsuleHost != null)
@@ -40,6 +48,10 @@ public sealed partial class PaperWindow
             _controller.FullscreenAvoidanceWindowForQueue(
                 _paper.CapsuleMonitorDeviceName) == IntPtr.Zero));
         var host = _edgeCapsuleHost;
+        _edgeCapsule.SetNativeBatchApplyRejectedCallback(
+            RejectEdgeCapsuleNativeBatchApply);
+        _edgeCapsule.SetNativeBatchApplyDeferredCallback(
+            RecoverDeferredEdgeCapsuleNativeBatchApply);
         host.SetExperimentalPassive(IsExperimentalPassive);
         host.SetInteractionLocked(_advancedInteractionLocked);
         AttachDeepCapsuleSlotHostInput();
@@ -48,6 +60,29 @@ public sealed partial class PaperWindow
             CloseDeepCapsuleSlotContextMenu);
         UpdateDeepCapsuleSlotHostTheme();
         return host;
+    }
+
+    private void RejectEdgeCapsuleNativeBatchApply() =>
+        _edgeCapsuleHost?.RejectNativeBatchApply();
+
+    private void RecoverDeferredEdgeCapsuleNativeBatchApply()
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        {
+            return;
+        }
+        if (EdgeCapsuleGesture is
+            EdgeCapsuleGestureState.DockedReordering or
+            EdgeCapsuleGestureState.FloatingTransfer or
+            EdgeCapsuleGestureState.FloatingReordering)
+        {
+            CancelDeepCapsuleReorderDrag(restoreLayout: true);
+            return;
+        }
+
+        // The gesture may have ended between the deferred frame and this Send callback. Any
+        // invalidation wakes the retained shared-batch retry without consuming it standalone.
+        InvalidateEdgeCapsule(EdgeCapsuleDirty.Presentation);
     }
 
     private IntPtr OnDeepCapsuleSlotHostMessage(
@@ -313,30 +348,72 @@ public sealed partial class PaperWindow
             CaptureEdgeCapsulePointerPosition,
             ApplyEdgeCapsulePresentationFrame);
         var pointer = _edgeCapsule.LastPointerSample;
-        if (appliedPresentationVersion !=
-            _edgeCapsule.AppliedPresentationVersion)
+        if (!_edgeCapsuleReconcileNotificationPending)
         {
-            _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+            _edgeCapsulePendingPointerOverBaseline = wasPointerOver;
         }
+        _edgeCapsuleReconcileNotificationPending = true;
+        _edgeCapsulePresentationChangePending |= appliedPresentationVersion !=
+            _edgeCapsule.AppliedPresentationVersion;
+        _edgeCapsulePendingPointerOver = _edgeCapsule.PointerOverSurface;
+        _edgeCapsulePointerOverChangePending =
+            _edgeCapsulePendingPointerOverBaseline !=
+            _edgeCapsulePendingPointerOver;
+        _edgeCapsulePendingPointerSample = pointer;
         if (wasRetracting && !IsDeepCapsuleSlotRetracting)
         {
             UpdateDeepCapsuleSlotHostTheme();
             UpdateCapsuleClosePlacement();
         }
-        if (wasPointerOver != _edgeCapsule.PointerOverSurface)
+
+        // Shared-frame Apply updates every presenter's immutable frame before the native HWND batch
+        // is committed. Delay controller observers so their queue-wide scans cannot see a mixture
+        // of this frame and the previous one. A normal reconcile has no shared batch and preserves
+        // the existing immediate notification behavior.
+        if (!_edgeCapsuleVisualTransactionNotificationDeferred &&
+            !_edgeCapsule.TryDeferSharedFramePostCommit(
+                PublishEdgeCapsuleReconcileNotifications) &&
+            (remaining & EdgeCapsuleDirty.ApplyRetry) == 0)
         {
-            _controller.NotifyEdgeCapsulePointerOverChanged(
-                this,
-                _edgeCapsule.PointerOverSurface);
+            PublishEdgeCapsuleReconcileNotifications();
         }
-        _controller.NotifyEdgeCapsulePreviewPointerSample(this, pointer);
         return remaining;
     }
+
+    private void PublishEdgeCapsuleReconcileNotifications()
+    {
+        if (!_edgeCapsuleReconcileNotificationPending)
+        {
+            return;
+        }
+
+        var presentationChanged = _edgeCapsulePresentationChangePending;
+        var pointerOverChanged = _edgeCapsulePointerOverChangePending;
+        var pointerOver = _edgeCapsulePendingPointerOver;
+        var pointer = _edgeCapsulePendingPointerSample;
+        _edgeCapsuleReconcileNotificationPending = false;
+        _edgeCapsulePresentationChangePending = false;
+        _edgeCapsulePointerOverChangePending = false;
+
+        if (presentationChanged)
+        {
+            _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        }
+        if (pointerOverChanged)
+        {
+            _controller.NotifyEdgeCapsulePointerOverChanged(this, pointerOver);
+        }
+        _controller.NotifyEdgeCapsulePreviewPointerSample(this, pointer);
+    }
+
+    internal void PublishEdgeCapsuleVisualTransactionNotifications() =>
+        PublishEdgeCapsuleReconcileNotifications();
 
     private void CloseExpandedDeepCapsuleSlotHostForReal()
     {
         CancelDeepCapsuleReorderDrag();
         CloseDeepCapsuleSlotContextMenu();
+        ClearEdgeCapsulePreviewContent();
         _edgeCapsule.Reset();
         _edgeCapsuleHost?.Dispose();
         _edgeCapsuleHost = null;

@@ -98,6 +98,11 @@ internal sealed partial class WebPaperBodySession
         private bool _pluginReady;
         private bool _disposed;
         private int _documentGeneration;
+        private ulong _documentNavigationId;
+        private bool _hasDocumentNavigation;
+        private int _queuedShowGeneration = -1;
+        private int _readyProbeGeneration = -1;
+        private string? _readyProbeToken;
 
         public WebPluginMiniViewHost(
             WebPaperBodySession owner,
@@ -322,7 +327,13 @@ internal sealed partial class WebPaperBodySession
                     markDirty() { post('markDirty'); },
                     openExternal(url) { post('openExternal', String(url ?? '')); }
                   });
-                  const mini = Object.freeze({ ready() { post('miniReady'); } });
+                  let miniReady = false;
+                  const mini = Object.freeze({
+                    ready() {
+                      miniReady = true;
+                      post('miniReady');
+                    }
+                  });
                   window.papertodo = Object.freeze({
                     surface: 'mini', paper, body, mini,
                     workspace: Object.freeze({ request }),
@@ -340,6 +351,12 @@ internal sealed partial class WebPaperBodySession
                   window.chrome.webview.addEventListener('message', event => {
                     const message = event.data;
                     if (message?.type === 'commitRequested') flushState();
+                    if (message?.type === 'miniReadyProbe') {
+                      post('miniReadyProbeResult', {
+                        token: String(message.token ?? ''),
+                        ready: miniReady
+                      });
+                    }
                     if (message?.type === 'hostResponse') {
                       const waiter = pending.get(message.requestId);
                       if (waiter) {
@@ -391,7 +408,10 @@ internal sealed partial class WebPaperBodySession
                 return;
             }
 
+            CancelQueuedShowPlugin();
             _documentGeneration++;
+            _documentNavigationId = e.NavigationId;
+            _hasDocumentNavigation = true;
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
@@ -402,13 +422,26 @@ internal sealed partial class WebPaperBodySession
             object? sender,
             CoreWebView2NavigationCompletedEventArgs e)
         {
-            if (!ReferenceEquals(sender, _webView.CoreWebView2) || !e.IsSuccess)
+            if (!ReferenceEquals(sender, _webView.CoreWebView2) ||
+                !_hasDocumentNavigation ||
+                e.NavigationId != _documentNavigationId)
             {
+                // A host-cancelled external navigation still raises NavigationCompleted. It does
+                // not replace the healthy mini document and must not tear its painted surface down.
+                return;
+            }
+            if (!e.IsSuccess)
+            {
+                _documentReady = false;
                 ShowFallback();
                 return;
             }
             _documentReady = true;
             SendInitialize();
+            // mini.ready() is allowed before NavigationCompleted. The current document's bridge
+            // remembers that call. A challenge sent to the currently committed document recovers
+            // it without allowing an old same-origin document to authorize the new generation.
+            RequestMiniReadyProbe();
         }
 
         private void OnProcessFailed(
@@ -419,7 +452,9 @@ internal sealed partial class WebPaperBodySession
             {
                 return;
             }
+            CancelQueuedShowPlugin();
             _documentGeneration++;
+            _hasDocumentNavigation = false;
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
@@ -453,6 +488,25 @@ internal sealed partial class WebPaperBodySession
                 switch (type)
                 {
                     case "miniReady":
+                        // Do not trust the source URL alone: a retiring same-origin document can
+                        // still have a queued message. Challenge the currently committed document
+                        // and promote only its answer.
+                        RequestMiniReadyProbe();
+                        break;
+                    case "miniReadyProbeResult":
+                        if (!_documentReady ||
+                            _readyProbeGeneration != _documentGeneration ||
+                            !string.Equals(
+                                PayloadString(payload, "token"),
+                                _readyProbeToken,
+                                StringComparison.Ordinal) ||
+                            !payload.TryGetProperty("ready", out var readyValue) ||
+                            readyValue.ValueKind != JsonValueKind.True)
+                        {
+                            break;
+                        }
+                        _readyProbeGeneration = -1;
+                        _readyProbeToken = null;
                         _pluginReportedReady = true;
                         QueueShowPlugin();
                         break;
@@ -569,22 +623,57 @@ internal sealed partial class WebPaperBodySession
                 return;
             }
             var generation = _documentGeneration;
-            _ = Dispatcher.BeginInvoke(
-                (Action)(() =>
-                {
-                    if (_disposed ||
-                        generation != _documentGeneration ||
-                        !_documentReady ||
-                        !_pluginReportedReady ||
-                        !_visible)
-                    {
-                        return;
-                    }
-                    _pluginReady = true;
-                    _fallback.Visibility = Visibility.Collapsed;
-                    UpdatePresentation();
-                }),
-                DispatcherPriority.Render);
+            if (_queuedShowGeneration == generation)
+            {
+                return;
+            }
+
+            CancelQueuedShowPlugin();
+            _queuedShowGeneration = generation;
+            CompositionTarget.Rendering += OnCompositionRendering;
+        }
+
+        private void RequestMiniReadyProbe()
+        {
+            if (!_documentReady || _disposed)
+            {
+                return;
+            }
+
+            _readyProbeGeneration = _documentGeneration;
+            _readyProbeToken = Guid.NewGuid().ToString("N");
+            Send(new { type = "miniReadyProbe", token = _readyProbeToken });
+        }
+
+        private void OnCompositionRendering(object? sender, EventArgs e)
+        {
+            CompositionTarget.Rendering -= OnCompositionRendering;
+            var generation = _queuedShowGeneration;
+            _queuedShowGeneration = -1;
+            if (_disposed ||
+                generation != _documentGeneration ||
+                !_documentReady ||
+                !_pluginReportedReady ||
+                !_visible)
+            {
+                return;
+            }
+
+            // Do not replace the fallback from a DispatcherPriority.Render callback. This event is
+            // the first real composition frame after the current document reported ready.
+            _pluginReady = true;
+            _fallback.Visibility = Visibility.Collapsed;
+            UpdatePresentation();
+        }
+
+        private void CancelQueuedShowPlugin()
+        {
+            if (_queuedShowGeneration < 0)
+            {
+                return;
+            }
+            CompositionTarget.Rendering -= OnCompositionRendering;
+            _queuedShowGeneration = -1;
         }
 
         private bool IsAllowedSource(string? value) =>
@@ -614,6 +703,9 @@ internal sealed partial class WebPaperBodySession
             {
                 return;
             }
+            CancelQueuedShowPlugin();
+            _readyProbeGeneration = -1;
+            _readyProbeToken = null;
             _pluginReady = false;
             _pluginReportedReady = false;
             _fallback.Visibility = Visibility.Visible;
@@ -645,6 +737,7 @@ internal sealed partial class WebPaperBodySession
             }
             Send(new { type = "commitRequested" });
             _disposed = true;
+            CancelQueuedShowPlugin();
             _lifetime.Cancel();
             Loaded -= OnLoaded;
             SizeChanged -= OnSizeChanged;
