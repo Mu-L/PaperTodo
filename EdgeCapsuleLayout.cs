@@ -112,11 +112,50 @@ public static class EdgeCapsuleLayout
         int slotCount,
         double gap)
     {
-        var desiredTop = area.Top +
+        return area.Top +
             NormalizeStartTopMargin(startTopMargin, area, slotCount, gap) +
             Math.Max(0, index) * SlotHeight(gap);
-        var maxTop = Math.Max(area.Top + TopMargin, area.Bottom - PaperLayoutDefaults.CapsuleHeight - TopMargin);
-        return Math.Min(desiredTop, maxTop);
+    }
+
+    /// <summary>
+    /// Maximum number of compact visual slots that can share one page while still leaving enough
+    /// vertical capacity for any one slot to grow to the protocol's maximum preview height. On a
+    /// very short work area, keep two slots when they can still host the protocol's minimum preview;
+    /// the request is then normalized to the actual remaining height. The result includes queue
+    /// chrome such as the master/page header; the coordinator decides how many slots remain for
+    /// real papers.
+    /// </summary>
+    public static int SafeVisualSlotCount(Rect area, double gap)
+    {
+        var height = area.Height;
+        if (!double.IsFinite(height) || height <= 0)
+        {
+            return 1;
+        }
+
+        var compactHeight = PaperLayoutDefaults.CapsuleHeight;
+        var previewExpansion = Math.Max(
+            0,
+            EdgeCapsulePreviewSize.MaximumHeightDip - compactHeight);
+        var availableHeight = Math.Max(0, height - TopMargin * 2);
+        var remainingHeight = availableHeight - compactHeight - previewExpansion;
+        var minimumTwoSlotHeight = EdgeCapsulePreviewSize.MinimumHeightDip +
+            SlotHeight(gap);
+        if (remainingHeight <= 0)
+        {
+            return availableHeight >= minimumTwoSlotHeight ? 2 : 1;
+        }
+
+        var additionalSlots = Math.Floor(remainingHeight / SlotHeight(gap));
+        if (additionalSlots >= int.MaxValue - 1)
+        {
+            return int.MaxValue;
+        }
+
+        var maximumSlots = Math.Max(1, 1 + (int)additionalSlots);
+        return maximumSlots == 1 && availableHeight >= minimumTwoSlotHeight
+            ? 2
+            : maximumSlots;
     }
 
     public static double MaxStartTopMarginForCount(int slotCount, Rect area, double gap)

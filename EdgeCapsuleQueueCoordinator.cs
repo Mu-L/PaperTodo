@@ -4,10 +4,27 @@ internal readonly record struct EdgeCapsuleQueueMember(
     PaperData Paper,
     string QueueKey);
 
+internal readonly record struct EdgeCapsuleQueuePageRequest(
+    int RequestedPage,
+    int MaximumVisualSlots)
+{
+    public static EdgeCapsuleQueuePageRequest Unpaged => new(0, int.MaxValue);
+
+    public EdgeCapsuleQueuePageRequest Normalize() => new(
+        Math.Max(0, RequestedPage),
+        Math.Max(1, MaximumVisualSlots));
+}
+
 internal sealed record EdgeCapsuleQueue(
     string Key,
     IReadOnlyList<PaperData> Papers,
-    bool HasMaster);
+    IReadOnlyList<PaperData> VisiblePapers,
+    bool HasMaster,
+    int PageIndex,
+    int PageCount,
+    int PageStart,
+    int PageCapacity,
+    double TopOffsetDip = 0);
 
 internal sealed class EdgeCapsuleQueuePlan
 {
@@ -56,7 +73,16 @@ internal static class EdgeCapsuleQueueCoordinator
 {
     public static EdgeCapsuleQueuePlan Build(
         IEnumerable<EdgeCapsuleQueueMember> members,
-        bool showMaster)
+        bool showMaster) =>
+        Build(
+            members,
+            showMaster,
+            pageRequests: null);
+
+    public static EdgeCapsuleQueuePlan Build(
+        IEnumerable<EdgeCapsuleQueueMember> members,
+        bool showMaster,
+        IReadOnlyDictionary<string, EdgeCapsuleQueuePageRequest>? pageRequests)
     {
         var queueMembers = new Dictionary<string, List<PaperData>>(StringComparer.Ordinal);
         var queueOrder = new List<string>();
@@ -76,17 +102,50 @@ internal static class EdgeCapsuleQueueCoordinator
         foreach (var key in queueOrder)
         {
             var papers = queueMembers[key];
-            var hasMaster = showMaster && papers.Count > 0;
+            var request = pageRequests != null &&
+                pageRequests.TryGetValue(key, out var requestedPage)
+                    ? requestedPage.Normalize()
+                    : EdgeCapsuleQueuePageRequest.Unpaged;
+            var maximumVisualSlots = request.MaximumVisualSlots;
+            var needsOverflowMaster = !showMaster && papers.Count > maximumVisualSlots;
+            var hasMaster = papers.Count > 0 && (showMaster || needsOverflowMaster);
             var visualOffset = hasMaster ? 1 : 0;
-            var slotCount = papers.Count + visualOffset;
-            queues.Add(new EdgeCapsuleQueue(key, papers, hasMaster));
+            var pageCapacity = Math.Max(1, maximumVisualSlots - visualOffset);
+            var pageCount = papers.Count == 0
+                ? 0
+                : 1 + (papers.Count - 1) / pageCapacity;
+            var pageIndex = pageCount == 0
+                ? 0
+                : Math.Clamp(request.RequestedPage, 0, pageCount - 1);
+            var pageStart = pageIndex * pageCapacity;
+            var visibleCount = Math.Min(
+                pageCapacity,
+                Math.Max(0, papers.Count - pageStart));
+            IReadOnlyList<PaperData> visiblePapers = visibleCount == papers.Count
+                ? papers
+                : papers.GetRange(pageStart, visibleCount);
+            var slotCount = Math.Max(1, visibleCount + visualOffset);
+            queues.Add(new EdgeCapsuleQueue(
+                key,
+                papers,
+                visiblePapers,
+                hasMaster,
+                pageIndex,
+                pageCount,
+                pageStart,
+                pageCapacity));
 
             for (var index = 0; index < papers.Count; index++)
             {
+                var pageVisible = index >= pageStart &&
+                    index < pageStart + visibleCount;
                 placements[papers[index].Id] = new EdgeCapsulePlacement(
                     index,
                     visualOffset,
-                    slotCount);
+                    slotCount,
+                    TopOffsetDip: 0,
+                    PageStartIndex: pageStart,
+                    IsPageVisible: pageVisible);
             }
         }
 

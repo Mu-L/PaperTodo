@@ -15,7 +15,8 @@ public sealed partial class PaperWindow
         if (!_paper.IsVisible ||
             !_paper.IsCollapsed ||
             !HasDeepCapsuleSlotPlacement ||
-            !_edgeCapsule.Placement.IsPlaced)
+            !_edgeCapsule.Placement.IsPlaced ||
+            !_edgeCapsule.Placement.IsPageVisible)
         {
             return false;
         }
@@ -283,19 +284,61 @@ public sealed partial class PaperWindow
     private DeviceScreenRect DeepCapsuleMainWindowBootstrapBounds()
     {
         var frame = _edgeCapsule.AppliedPresentation;
-        if (!frame.Visible || frame.Bounds.IsEmpty)
+        if (frame.Visible && !frame.Bounds.IsEmpty)
+        {
+            return EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
+                DeepCapsuleMonitorGeometry(),
+                frame.Edge,
+                frame.Bounds.Top,
+                DesiredCapsuleWindowWidth,
+                PaperLayoutDefaults.CapsuleHeight,
+                edgeInsetDip: 0,
+                verticalMarginDip: 0);
+        }
+
+        if (!TryGetPageVisibleDeepCapsuleTarget(out var layout, out var targetBounds))
         {
             return default;
         }
 
         return EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
-            DeepCapsuleMonitorGeometry(),
-            frame.Edge,
-            frame.Bounds.Top,
+            layout.Monitor,
+            layout.Edge,
+            targetBounds.Top,
             DesiredCapsuleWindowWidth,
             PaperLayoutDefaults.CapsuleHeight,
             edgeInsetDip: 0,
             verticalMarginDip: 0);
+    }
+
+    private bool TryGetPageVisibleDeepCapsuleTarget(
+        out EdgeCapsuleLayoutSnapshot layout,
+        out DeviceScreenRect bounds)
+    {
+        layout = default;
+        bounds = default;
+        if (!HasDeepCapsuleSlotPlacement ||
+            !_edgeCapsule.Placement.IsPageVisible)
+        {
+            return false;
+        }
+
+        layout = CaptureEdgeCapsuleLayoutSnapshot();
+        if (!layout.IsUsable)
+        {
+            return false;
+        }
+
+        bounds = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
+            layout.Monitor,
+            layout.Edge,
+            IsDeepCapsuleRetractedIntoMaster
+                ? layout.MasterTopDip
+                : layout.NormalTopDip,
+            layout.RestingWidthDip,
+            0,
+            PaperLayoutDefaults.CapsuleHeight)).Bounds;
+        return !bounds.IsEmpty;
     }
 
     private bool TryApplyDeepCapsuleDeviceBounds(DeviceScreenRect bounds)
@@ -530,11 +573,16 @@ public sealed partial class PaperWindow
             Math.Max(DeepCapsuleExpandedEdgeInset, requiredEdgeInset),
             _controller.VisibleDeepCapsuleRestingWidthForQueue(_paper) + DeepCapsuleGap);
         var appliedBounds = _edgeCapsule.AppliedPresentation.Bounds;
+        var hasPageTarget = TryGetPageVisibleDeepCapsuleTarget(
+            out _,
+            out var pageTargetBounds);
         var anchorTop = !appliedBounds.IsEmpty
             ? appliedBounds.Top
-            : WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds)
-                ? currentBounds.Top
-                : monitor.WorkArea.Top;
+            : hasPageTarget
+                ? pageTargetBounds.Top
+                : WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds)
+                    ? currentBounds.Top
+                    : monitor.WorkArea.Top;
         var targetBounds = EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
             monitor,
             MyDeepCapsuleEdge,

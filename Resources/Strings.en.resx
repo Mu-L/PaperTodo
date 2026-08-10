@@ -451,6 +451,12 @@ Error: {0}</value>
   <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
     <value>{0} pc</value>
   </data>
+  <data name="CapsulePreviousPageTip" xml:space="preserve">
+    <value>Previous page</value>
+  </data>
+  <data name="CapsuleNextPageTip" xml:space="preserve">
+    <value>Next page</value>
+  </data>
   <data name="TrayExit" xml:space="preserve">
     <value>Exit</value>
   </data>

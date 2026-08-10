@@ -12,6 +12,7 @@ internal static class EdgeCapsuleTargetPlanner
     {
         if (model.State.Slot == EdgeCapsuleSlotState.None ||
             !model.Placement.IsPlaced ||
+            !model.Placement.IsPageVisible ||
             !layout.IsUsable)
         {
             return EdgeCapsulePresentationPlan.Hidden;
