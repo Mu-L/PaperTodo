@@ -70,12 +70,15 @@ public sealed record PaperCapsuleComponent
 }
 
 /// <summary>
-/// Protocol 1.6 host-rendered capsule description. PreferredWidth is the complete capsule content
-/// segment width in DIPs; PaperTodo owns the template's internal visual padding plus the fixed
-/// height, outer chrome, close segment and all input.
+/// Protocol 1.6 host-rendered capsule description. A positive PreferredWidth is the complete
+/// capsule content segment width in DIPs. AutomaticWidth asks PaperTodo to measure the natural
+/// width of the standard components, including their internal padding and gaps. PaperTodo owns the
+/// fixed height, outer chrome, close segment and all input.
 /// </summary>
 public sealed record PaperCapsulePresentation
 {
+    public const double AutomaticWidth = 0;
+
     public PaperCapsuleComponent[] Components { get; init; } = [];
     public double PreferredWidth { get; init; } = 110;
     public string ToolTip { get; init; } = string.Empty;
@@ -102,9 +105,11 @@ public sealed record PaperCapsuleViewContext(
 /// <summary>
 /// Optional protocol 1.7 native-session capability. A session may create one fresh WPF view for
 /// each live capsule surface. The host attempts each surface at most once per live body session and
-/// caches either the returned view or a null fallback. A PreferredWidth geometry change recreates
-/// the surface with a new context; ordinary presentation data, theme and DPI changes keep the same
-/// view, so plugins that render live state should retain and update it through the session lifecycle.
+/// caches either the returned view or a null fallback. AutomaticWidth resolves from the standard
+/// component template before this method is called. Any resolved-width geometry change recreates
+/// the surface with a new context; presentation, theme and DPI changes that keep the same resolved
+/// width reuse the view, so plugins that render live state should retain and update it through the
+/// session lifecycle.
 /// Returning null falls back to the protocol 1.6 host template.
 /// </summary>
 public interface IPaperCapsuleViewProvider

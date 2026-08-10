@@ -819,7 +819,7 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _lastCapsuleSignature = signature;
         _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
         {
-            PreferredWidth = 150,
+            PreferredWidth = PaperCapsulePresentation.AutomaticWidth,
             PlainText = title,
             ToolTip = $"{title} · 进行中 {openCount}",
             Components = _settings.ShowInsights

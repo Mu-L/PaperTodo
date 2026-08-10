@@ -14,7 +14,7 @@ public sealed partial class PaperWindow
 
     private double DeepCapsuleVisibleWidth(double pixelsPerDip)
     {
-        var pluginContentWidth = PluginCapsuleRequestedContentWidth();
+        var pluginContentWidth = PluginCapsuleRequestedContentWidth(pixelsPerDip);
         if (pluginContentWidth.HasValue)
         {
             return Math.Max(34, Math.Ceiling(pluginContentWidth.Value + WindowChromeMargin));
