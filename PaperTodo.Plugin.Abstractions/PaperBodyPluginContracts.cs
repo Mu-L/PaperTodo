@@ -118,6 +118,81 @@ public interface IPaperCapsuleViewProvider
 }
 
 /// <summary>
+/// Preferred complete edge mini-card size in device-independent pixels. The size includes the
+/// host-owned chrome and close segment; PaperTodo normalizes it to the current monitor work area.
+/// Protocol 1.8 accepts sizes from 120 x 90 DIPs through 480 x 420 DIPs.
+/// </summary>
+public readonly record struct PaperMiniViewSize(double Width, double Height)
+{
+    public static PaperMiniViewSize Default => new(320, 220);
+}
+
+/// <summary>
+/// Exact geometry and theme supplied when PaperTodo creates a protocol 1.8 native mini view.
+/// CardWidth/CardHeight describe the complete visible card. Width/Height describe the inner slot
+/// owned by the plugin after the host chrome and close segment have been reserved.
+/// </summary>
+public sealed record PaperMiniViewContext(
+    double CardWidth,
+    double CardHeight,
+    double Width,
+    double Height,
+    PaperBodyTheme Theme);
+
+/// <summary>
+/// Optional protocol 1.8 native-session capability for a dedicated edge-browsing surface. The
+/// session and mini view may share one business-state model, but CreateMiniView must return a
+/// fresh pure-WPF tree. Window, HwndHost, WindowsFormsHost, WebView2 and already-parented controls
+/// are rejected. PaperTodo caches one successful view per live session and normalized geometry.
+/// Returning null or throwing falls back to the enlarged protocol 1.7/1.6 capsule.
+/// </summary>
+public interface IPaperMiniViewProvider
+{
+    PaperMiniViewSize PreferredMiniViewSize => PaperMiniViewSize.Default;
+
+    FrameworkElement? CreateMiniView(PaperMiniViewContext context);
+
+    /// <summary>
+    /// Notifies a cached mini tree when it becomes the active preview or starts leaving it.
+    /// Plugins can pause timers and input work when hidden, but must keep the last painted tree
+    /// intact for the host-owned outgoing animation. Business-state updates should continue
+    /// according to the normal body-session visibility contract.
+    /// </summary>
+    void OnMiniViewVisibilityChanged(bool visible) { }
+}
+
+/// <summary>
+/// Optional protocol 1.8 native-session opt-in for moving the one real body view into the first
+/// mini preview before the body has ever been presented. PaperTodo owns reparenting and screenshot
+/// hand-off. Only a pure-WPF body tree is eligible; unsupported surfaces fall back safely.
+/// Dedicated IPaperMiniViewProvider content always takes precedence over migration.
+/// </summary>
+public interface IPaperBodyViewMigrationProvider
+{
+    PaperMiniViewSize PreferredMigratedMiniViewSize => new(360, 260);
+}
+
+/// <summary>
+/// Marks a custom mini-view element as owning pointer input. Standard WPF buttons, selectors,
+/// text inputs, scroll bars, thumbs and hyperlinks are detected automatically.
+/// </summary>
+public static class PaperMiniViewInteraction
+{
+    public static readonly DependencyProperty ConsumesPointerProperty =
+        DependencyProperty.RegisterAttached(
+            "ConsumesPointer",
+            typeof(bool),
+            typeof(PaperMiniViewInteraction),
+            new FrameworkPropertyMetadata(false));
+
+    public static void SetConsumesPointer(DependencyObject element, bool value) =>
+        element.SetValue(ConsumesPointerProperty, value);
+
+    public static bool GetConsumesPointer(DependencyObject element) =>
+        (bool)element.GetValue(ConsumesPointerProperty);
+}
+
+/// <summary>
 /// Host-owned native controls. Plugins provide data and behavior while PaperTodo owns the
 /// shared visual language, popup lifecycle, theme and DPI behavior.
 /// </summary>

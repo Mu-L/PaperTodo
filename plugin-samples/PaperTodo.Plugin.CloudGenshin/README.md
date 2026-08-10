@@ -1,6 +1,6 @@
 # PaperTodo 云·原神实验插件
 
-这是一个**完全独立的原生正文插件**。它不要求修改 PaperTodo 主程序、项目文件或插件协议。
+这是一个**完全独立的协议 1.8 原生正文插件**。
 
 插件使用 `WebView2CompositionControl` 顶层加载：
 
@@ -21,6 +21,7 @@ https://ys.mihoyo.com/cloud/#/
 - 仅在完整正文可交互时通过 `context.Body.SetInputClaims` 占用 Esc 和正文右键菜单
 - 外部导航通过 `context.Body.OpenExternal` 交还 PaperTodo 宿主处理
 - 1.6 胶囊状态点区分加载、运行、重启和错误，并按当前状态文字自动适配宽度；不把 WebView2 塞进胶囊
+- 1.8 边缘快速浏览使用 `240 × 140 DIP` 的纯 WPF 状态面板；不启动第二个 WebView2，也不迁移完整云游戏画面
 - 插件升级时保留 `.runtime` 登录数据
 
 ## 放置位置

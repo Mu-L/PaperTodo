@@ -13,7 +13,7 @@ namespace PaperTodo;
 
 // Web plugins are trusted. WebView2 keeps its normal navigation, frame, popup and permission
 // behavior; only PaperTodo's host bridge remains restricted to the plugin's local top-level origin.
-internal sealed class WebPaperBodySession : IPaperBodySession
+internal sealed partial class WebPaperBodySession : IPaperBodySession
 {
     private static readonly object EnvironmentGate = new();
     private static readonly Dictionary<string, Task<CoreWebView2Environment>> EnvironmentTasks =
@@ -343,6 +343,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
               });
               const workspace = Object.freeze({ request });
               window.papertodo = Object.freeze({
+                surface: 'body',
                 paper,
                 body,
                 workspace,
@@ -641,6 +642,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         Send(new
         {
             type = "initialize",
+            surface = "body",
             paperId = _context.PaperId,
             providerId = _context.ProviderId,
             apiVersion = _context.ApiVersion,
@@ -681,10 +683,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             switch (type)
             {
                 case "saveState":
-                    _stateJson = payload.ValueKind == JsonValueKind.Undefined
-                        ? "{}"
-                        : payload.GetRawText();
-                    _context.SaveStateJson(_stateJson);
+                    UpdateStateFromWebSurface(payload, sourceMini: null);
                     break;
                 case "setTitle":
                     _context.SetTitle(ReadPayloadString(payload));
@@ -1203,12 +1202,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
 
     public void RefreshFromModel()
     {
-        Send(new
-        {
-            type = "stateChanged",
-            state = ParseState(_stateJson),
-            stateVersion = _context.TargetStateVersion
-        });
+        SendStateChanged();
+        _miniViewHost?.SendStateChanged();
     }
 
     public void OnActivated() => Send(new { type = "activated" });
@@ -1232,12 +1227,14 @@ internal sealed class WebPaperBodySession : IPaperBodySession
     {
         _theme = theme;
         Send(new { type = "themeChanged", theme = ThemePayload(theme) });
+        _miniViewHost?.SendThemeChanged("themeChanged");
     }
 
     public void OnTypographyChanged(PaperBodyTheme theme)
     {
         _theme = theme;
         Send(new { type = "typographyChanged", theme = ThemePayload(theme) });
+        _miniViewHost?.SendThemeChanged("typographyChanged");
     }
 
     public void OnSettingsChanged(string settingsJson)
@@ -1248,6 +1245,7 @@ internal sealed class WebPaperBodySession : IPaperBodySession
             type = "settingsChanged",
             settings = ParseState(_settingsJson)
         });
+        _miniViewHost?.SendSettingsChanged();
     }
 
     public void Commit()
@@ -1268,6 +1266,8 @@ internal sealed class WebPaperBodySession : IPaperBodySession
         }
         Commit();
         _disposed = true;
+        _miniViewHost?.Dispose();
+        _miniViewHost = null;
         _documentGeneration++;
         ClearHostSubscriptions();
         _lifetime.Cancel();

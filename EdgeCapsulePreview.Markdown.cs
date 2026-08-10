@@ -28,10 +28,17 @@ internal sealed class MarkdownEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPr
         var lines = MarkdownEdgeCapsulePreviewRenderer.EstimateVisualLines(
             text,
             Math.Max(72, width - 36));
-        var height = Math.Clamp(
-            74 + Math.Min(15, lines) * AppTypography.Scale(22),
-            150,
-            410);
+        var empty = string.IsNullOrWhiteSpace(text);
+        var height = empty
+            ? 120
+            : Math.Clamp(
+                74 + Math.Min(15, lines) * AppTypography.Scale(22),
+                150,
+                410);
+        if (empty)
+        {
+            width = Math.Max(130, width);
+        }
 
         return new EdgeCapsulePreviewDescriptor(
             new EdgeCapsulePreviewSize(width, height),

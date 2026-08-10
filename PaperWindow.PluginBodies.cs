@@ -335,6 +335,7 @@ public sealed partial class PaperWindow
             ClipToBounds = true
         };
         host.Children.Add(view);
+        host.MouseLeave += (_, _) => CaptureMigratedPluginBodyOnPointerLeave();
         host.SizeChanged += (_, _) => QueuePluginBodyClipRefresh();
         _pluginBodyClipHost = host;
         _pluginBodyClipGeometry = new StreamGeometry();
@@ -696,6 +697,9 @@ public sealed partial class PaperWindow
     {
         var generation = _bodySessionGeneration;
         var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
+        // A protocol 1.8 migration preview may temporarily parent the one real body view. Restore
+        // it while the session is still current, before Commit/Dispose tears down that view tree.
+        ResetPluginMiniViewCache();
         _paperBodyHost.CommitCancelDispose(cancelInteractions);
         _bodyHostApi?.Dispose();
         _bodyHostApi = null;
@@ -796,6 +800,7 @@ public sealed partial class PaperWindow
         _pluginDisplayTitle = "";
         _pluginCapsulePresentation = null;
         ResetPluginCapsuleCustomViews();
+        ResetPluginMiniViewCache();
         _bodyInputClaims = PaperBodyInputClaims.None;
         _bodyRuntimeVisible = false;
         if (refreshTitle && hadDisplayTitle && _isShellBuilt)
@@ -1036,6 +1041,13 @@ public sealed partial class PaperWindow
         var runtimeVisible = _paper.IsVisible &&
             (visible ||
              BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
+        if (visible)
+        {
+            // Expansion can come from a hotkey, tray action or another paper, not only a preview
+            // background click. Return a migrated real View before any path presents the body.
+            PrepareEdgeCapsulePreviewForActivation();
+            _pluginBodyEverPresented = true;
+        }
         var runtimeStatusChanged = _bodyRuntimeVisible != runtimeVisible;
         _bodyRuntimeVisible = runtimeVisible;
         InvokeBodySession(item =>

@@ -59,12 +59,21 @@ internal sealed class PaperBodyPluginManifest
     public string[] Requires { get; set; } = [];
     public string[] Permissions { get; set; } = [];
     public string Entry { get; set; } = "index.html";
+    public string MiniEntry { get; set; } = "";
+    public PaperBodyPluginMiniSizeManifest? MiniSize { get; set; }
     public string[] Capabilities { get; set; } = [];
     public PaperBodyPluginSettingManifest[] Settings { get; set; } = [];
     public PaperBodyPluginStartupManifest? StartupPaper { get; set; }
 
     public string DirectoryPath { get; internal set; } = "";
     public string EntryPath { get; internal set; } = "";
+    public string MiniEntryPath { get; internal set; } = "";
+}
+
+internal sealed class PaperBodyPluginMiniSizeManifest
+{
+    public double Width { get; set; } = 320;
+    public double Height { get; set; } = 220;
 }
 
 /// <summary>
@@ -74,8 +83,8 @@ internal sealed class PaperBodyPluginManifest
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    internal const string SupportedPluginApiVersion = "1.7";
-    internal const string MinimumPluginApiVersion = "1.7";
+    internal const string SupportedPluginApiVersion = "1.8";
+    internal const string MinimumPluginApiVersion = "1.8";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -292,6 +301,60 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         {
             throw new FileNotFoundException("Plugin entry was not found.", manifest.EntryPath);
         }
+        if (!string.IsNullOrWhiteSpace(manifest.MiniEntry))
+        {
+            if (!ApiAtLeast(manifest.ApiVersion, 1, 8))
+            {
+                throw new InvalidDataException(
+                    "miniEntry requires apiVersion 1.8 or newer.");
+            }
+            if (NormalizeKind(manifest.Kind) != PaperBodyPluginKind.Web)
+            {
+                throw new InvalidDataException(
+                    "miniEntry is only valid for Web plugins.");
+            }
+
+            manifest.MiniEntryPath = ResolveContainedPath(
+                directory,
+                manifest.MiniEntry);
+            if (!File.Exists(manifest.MiniEntryPath))
+            {
+                throw new FileNotFoundException(
+                    "Plugin mini entry was not found.",
+                    manifest.MiniEntryPath);
+            }
+
+            var webRoot = Path.GetDirectoryName(manifest.EntryPath)
+                ?? throw new InvalidDataException(
+                    "Web plugin entry has no containing directory.");
+            var relativeMini = Path.GetRelativePath(webRoot, manifest.MiniEntryPath);
+            if (relativeMini == ".." ||
+                relativeMini.StartsWith(
+                    $"..{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal) ||
+                relativeMini.StartsWith(
+                    $"..{Path.AltDirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "miniEntry must stay inside the Web entry directory.");
+            }
+
+            if (manifest.MiniSize is { } miniSize &&
+                (!double.IsFinite(miniSize.Width) ||
+                 !double.IsFinite(miniSize.Height) ||
+                 miniSize.Width <= 0 ||
+                 miniSize.Height <= 0))
+            {
+                throw new InvalidDataException(
+                    "miniSize width and height must be positive finite numbers.");
+            }
+        }
+        else if (manifest.MiniSize != null)
+        {
+            throw new InvalidDataException(
+                "miniSize requires a Web miniEntry.");
+        }
         return manifest;
     }
 
@@ -310,7 +373,10 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     {
         var fingerprint = scanPluginContents
             ? PluginFolderFingerprint(manifest.DirectoryPath)
-            : DiscoveryFingerprint(manifestPath, manifest.EntryPath);
+            : DiscoveryFingerprint(
+                manifestPath,
+                manifest.EntryPath,
+                manifest.MiniEntryPath);
         return new PaperBodyPluginDescriptor(
             manifest.Id.Trim(),
             string.IsNullOrWhiteSpace(manifest.Name) ? manifest.Id.Trim() : manifest.Name.Trim(),
@@ -682,12 +748,19 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
     private static string DiscoveryFingerprint(
         string manifestPath,
-        string entryPath)
+        string entryPath,
+        string? miniEntryPath = null)
     {
         var manifest = new FileInfo(manifestPath);
         var entry = new FileInfo(entryPath);
-        return $"discovery:{manifest.Length}:{manifest.LastWriteTimeUtc.Ticks}:" +
+        var value = $"discovery:{manifest.Length}:{manifest.LastWriteTimeUtc.Ticks}:" +
             $"{entry.Length}:{entry.LastWriteTimeUtc.Ticks}";
+        if (!string.IsNullOrWhiteSpace(miniEntryPath))
+        {
+            var mini = new FileInfo(miniEntryPath);
+            value += $":{mini.Length}:{mini.LastWriteTimeUtc.Ticks}";
+        }
+        return value;
     }
 
     private static bool IsRuntimePath(string directory, string path)

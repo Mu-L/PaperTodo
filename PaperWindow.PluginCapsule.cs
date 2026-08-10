@@ -302,10 +302,12 @@ public sealed partial class PaperWindow
             {
                 return null;
             }
-            if (view is Window || view.Parent != null)
+            if (view is Window ||
+                view.Parent != null ||
+                !PluginVisualTreePolicy.IsSupportedPureWpfTree(view))
             {
                 throw new InvalidOperationException(
-                    "Custom capsule view must be a fresh, unparented FrameworkElement.");
+                    "Custom capsule view must be a fresh, unparented pure-WPF FrameworkElement.");
             }
 
             view.Width = double.NaN;

@@ -16,8 +16,8 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
     public string Id => "sample.focus-timer.native";
     public string DisplayName => "专注计时器";
     public string Description => "可关联 PaperTodo 待办的 WPF 番茄钟，支持完成联动、自动选择下一项和折叠后台计时。";
-    public Version Version => new(1, 3, 4);
-    public string ApiVersion => "1.7";
+    public Version Version => new(1, 4, 0);
+    public string ApiVersion => "1.8";
     public int StateVersion => 3;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -91,7 +91,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             string.IsNullOrWhiteSpace(TodoId);
     }
 
-    private sealed class Session : IPaperBodySession
+    private sealed class Session : IPaperBodySession, IPaperMiniViewProvider
     {
         private static readonly JsonSerializerOptions JsonOptions =
             new(JsonSerializerDefaults.Web);
@@ -129,6 +129,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         private string _lastDisplayTitle = "";
         private string _lastCapsuleSignature = "";
         private string _todoLoadError = "";
+        private FocusTimerMiniView? _miniView;
 
         public Session(PaperBodyContext context)
         {
@@ -344,6 +345,149 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
         }
 
         public FrameworkElement View => _root;
+
+        public PaperMiniViewSize PreferredMiniViewSize => new(300, 210);
+
+        public FrameworkElement? CreateMiniView(PaperMiniViewContext context)
+        {
+            _miniView = new FocusTimerMiniView(context.Theme, ToggleRunning);
+            UpdateView();
+            return _miniView;
+        }
+
+        private sealed class FocusTimerMiniView : Grid
+        {
+            private readonly TextBlock _mode;
+            private readonly TextBlock _time;
+            private readonly TextBlock _task;
+            private readonly TextBlock _status;
+            private readonly ProgressBar _progress;
+            private readonly Button _toggle;
+
+            public FocusTimerMiniView(PaperBodyTheme theme, Action toggle)
+            {
+                Margin = new Thickness(14, 11, 14, 13);
+                Background = Brushes.Transparent;
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                RowDefinitions.Add(new RowDefinition());
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                _mode = new TextBlock
+                {
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                Children.Add(_mode);
+
+                _time = new TextBlock
+                {
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                };
+                _task = new TextBlock
+                {
+                    Margin = new Thickness(4, 3, 4, 0),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 240
+                };
+                var center = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                center.Children.Add(_time);
+                center.Children.Add(_task);
+                Grid.SetRow(center, 1);
+                Children.Add(center);
+
+                _progress = new ProgressBar
+                {
+                    Minimum = 0,
+                    Maximum = 1,
+                    Height = 5,
+                    Margin = new Thickness(5, 0, 5, 8),
+                    BorderThickness = new Thickness(0)
+                };
+                _status = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                _toggle = new Button
+                {
+                    MinWidth = 64,
+                    MinHeight = 28,
+                    Padding = new Thickness(10, 3, 10, 3),
+                    Margin = new Thickness(10, 0, 0, 0),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                _toggle.Click += (_, _) => toggle();
+                var action = new Grid();
+                action.ColumnDefinitions.Add(new ColumnDefinition());
+                action.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                action.Children.Add(_status);
+                Grid.SetColumn(_toggle, 1);
+                action.Children.Add(_toggle);
+                var footer = new StackPanel();
+                footer.Children.Add(_progress);
+                footer.Children.Add(action);
+                Grid.SetRow(footer, 2);
+                Children.Add(footer);
+                ApplyTheme(theme);
+            }
+
+            public void Update(
+                string mode,
+                string time,
+                string task,
+                string status,
+                double progress,
+                string action)
+            {
+                _mode.Text = mode;
+                _time.Text = time;
+                _task.Text = task;
+                _task.Visibility = string.IsNullOrWhiteSpace(task)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+                _status.Text = status;
+                _progress.Value = Math.Clamp(progress, 0, 1);
+                _toggle.Content = action;
+            }
+
+            public void ApplyTheme(PaperBodyTheme theme)
+            {
+                var scale = Math.Clamp(theme.FontScale, 0.85, 1.3);
+                var font = new FontFamily(theme.FontFamily);
+                var text = ToBrush(theme.TextColor, "#202020");
+                var weak = ToBrush(theme.WeakTextColor, "#707070");
+                var border = ToBrush(theme.BorderColor, "#807050");
+                _mode.FontFamily = font;
+                _time.FontFamily = font;
+                _task.FontFamily = font;
+                _status.FontFamily = font;
+                _toggle.FontFamily = font;
+                _mode.FontSize = 12 * scale;
+                _time.FontSize = 42 * scale;
+                _task.FontSize = 11 * scale;
+                _status.FontSize = 10.5 * scale;
+                _toggle.FontSize = 11 * scale;
+                _mode.Foreground = weak;
+                _time.Foreground = text;
+                _task.Foreground = weak;
+                _status.Foreground = weak;
+                _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
+                _progress.Background = ToBrush("#30707070", "#30707070");
+                _toggle.Foreground = text;
+                _toggle.Background = ToBrush(
+                    theme.IsDark ? "#18FFFFFF" : "#0C000000",
+                    "#0C000000");
+                _toggle.BorderBrush = border;
+            }
+        }
 
         private void ApplyResponsiveLayout(double width)
         {
@@ -900,6 +1044,13 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             var capsuleProgress = full <= 0
                 ? 0
                 : Math.Clamp((full - remaining) / (double)full, 0, 1);
+            _miniView?.Update(
+                modeName,
+                $"{minutes:00}:{seconds:00}",
+                currentTodo == null ? "" : Compact(currentTodo.Text, 30),
+                _state.IsRunning ? "进行中" : "已暂停",
+                capsuleProgress,
+                _state.IsRunning ? "暂停" : remaining < full ? "继续" : "开始");
             SetPaperStatus(capsuleTitle, capsuleProgress, remaining, modeName);
         }
 
@@ -954,6 +1105,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
                 button.Background = background;
                 button.BorderBrush = border;
             }
+            _miniView?.ApplyTheme(theme);
             UpdateModeButtons();
         }
 
@@ -1234,6 +1386,7 @@ public sealed class FocusTimerPlugin : IPaperBodyPlugin
             _hostRefreshTimer.Stop();
             _timer.Tick -= OnTick;
             _subscription?.Dispose();
+            _miniView = null;
         }
     }
 }
