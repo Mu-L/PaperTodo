@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace PaperTodo;
 
@@ -47,7 +48,47 @@ internal sealed record EdgeCapsulePreviewRequest(
     EdgeCapsulePreviewSize Size,
     FrameworkElement Content,
     Action<bool>? SetVisibility = null,
-    Action? PrepareForActivation = null);
+    Action? PrepareForActivation = null,
+    Func<FrameworkElement>? CreateDeferredContent = null);
+
+/// <summary>
+/// A bounded first-frame tree used while an arbitrary protocol 1.8 provider creates its mini view.
+/// It intentionally reads only the host-owned title and never calls plugin code.
+/// </summary>
+internal sealed class EdgeCapsulePreviewLoadingView : Grid
+{
+    public EdgeCapsulePreviewLoadingView(EdgeCapsulePreviewContext context)
+    {
+        Margin = new Thickness(12, 10, 10, 11);
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition());
+
+        var title = new TextBlock
+        {
+            Text = context.Title,
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = AppTypography.Scale(13),
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
+        Children.Add(title);
+
+        var pending = new TextBlock
+        {
+            Text = "…",
+            Margin = new Thickness(0, 14, 0, 0),
+            FontFamily = AppTypography.UiFontFamily,
+            FontSize = AppTypography.Scale(12),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        pending.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+        Grid.SetRow(pending, 1);
+        Children.Add(pending);
+        Background = Brushes.Transparent;
+    }
+}
 
 internal readonly record struct EdgeCapsulePreviewScreenGeometry(
     DeviceScreenRect Bounds,

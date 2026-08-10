@@ -764,26 +764,46 @@ public sealed partial class PaperWindow
 
     private void StartDeepCapsuleReorderDrag(DeviceScreenPoint currentScreenPos)
     {
+        if (_edgeCapsule.NativeBatchRetryPending)
+        {
+            CancelDeepCapsuleReorderDrag(restoreLayout: true);
+            return;
+        }
         if (!CanReorderDeepCapsuleSlot() ||
             _edgeCapsuleHost == null ||
-            !_edgeCapsule.AppliedPresentation.Visible ||
-            _edgeCapsule.AppliedPresentation.Bounds.IsEmpty)
+            !_edgeCapsuleHost.TryGetAppliedPresentation(out var appliedFrame) ||
+            !appliedFrame.Visible ||
+            appliedFrame.Bounds.IsEmpty)
         {
             return;
         }
 
         var collapsedPreview =
             _controller.CloseEdgeCapsulePreviewForDrag(this);
+        if (_edgeCapsule.NativeBatchRetryPending)
+        {
+            CancelDeepCapsuleReorderDrag(restoreLayout: true);
+            return;
+        }
         if (!TryGetEdgeCapsuleDragSession(out var session))
         {
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
             return;
         }
-        var appliedBounds = _edgeCapsule.AppliedPresentation.Bounds;
+        var appliedBounds = appliedFrame.Bounds;
         var startMonitorDeviceName = WindowWorkAreaHelper
             .MonitorAtDeviceScreenPoint(session.PointerDownScreenPosition)?.DeviceName ?? "";
+        var compactHeightDevice = Math.Max(
+            1,
+            (int)Math.Round(
+                PaperLayoutDefaults.CapsuleHeight * Math.Max(
+                    1,
+                    appliedFrame.DpiScaleY),
+                MidpointRounding.AwayFromZero));
         var pointerOffsetY = collapsedPreview
-            ? appliedBounds.Height / 2.0
+            // The compact frame is staged in the pending visual transaction, so AppliedPresentation
+            // can still describe the tall preview until commit. Use the compact protocol target.
+            ? compactHeightDevice / 2.0
             : currentScreenPos.Y - appliedBounds.Top;
         var topDip = DeepCapsuleMonitorGeometry().DeviceYToLocalDip(appliedBounds.Top);
         if (!BeginEdgeCapsuleDockedReorder(
@@ -873,6 +893,13 @@ public sealed partial class PaperWindow
     {
         if (_edgeCapsuleHost == null || !IsDeepCapsuleDockedReordering)
         {
+            return;
+        }
+        if (_edgeCapsule.NativeBatchRetryPending)
+        {
+            // A failed queue-wide HWND commit still owns the docked generation. Do not derive a
+            // floating drag shape from the intentionally hidden/uncommitted host frame.
+            CancelDeepCapsuleReorderDrag(restoreLayout: true);
             return;
         }
 

@@ -16,10 +16,11 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private readonly Dispatcher _dispatcher;
     private readonly List<EdgeCapsulePresenter> _presenters = new();
+    private readonly List<Action> _postCommitCallbacks = new();
     private bool _renderingSubscribed;
     private bool _isTicking;
-    private bool _deferRenderingForLoadedBatch;
-    private int _loadedBatchGeneration;
+    private bool _acceptingPostCommitCallbacks;
+    private int _pendingLoadedReconciles;
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
@@ -31,24 +32,22 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     /// <summary>
     /// Prevent a Render-priority composition callback from advancing one presenter while sibling
-    /// presenters are still waiting in the same Loaded-priority reconcile batch. Every caller
-    /// appends a release marker after its own queued reconcile; only the newest marker can release
-    /// the barrier, so interleaved queue members still begin from the same composition frame.
+    /// presenters are still waiting in the same Loaded-priority reconcile batch. Counting the
+    /// actual queued operations also lets a host-input promotion drain its registration at Send.
     /// </summary>
-    public void DeferRenderingUntilLoadedBatchDrains()
+    public void RegisterLoadedReconcile()
     {
         _dispatcher.VerifyAccess();
-        _deferRenderingForLoadedBatch = true;
-        var generation = ++_loadedBatchGeneration;
-        _dispatcher.BeginInvoke(
-            new Action(() =>
-            {
-                if (generation == _loadedBatchGeneration)
-                {
-                    _deferRenderingForLoadedBatch = false;
-                }
-            }),
-            DispatcherPriority.Loaded);
+        _pendingLoadedReconciles++;
+    }
+
+    public void CompleteLoadedReconcile()
+    {
+        _dispatcher.VerifyAccess();
+        if (_pendingLoadedReconciles > 0)
+        {
+            _pendingLoadedReconciles--;
+        }
     }
 
     public void Activate(EdgeCapsulePresenter presenter)
@@ -79,6 +78,18 @@ internal sealed class EdgeCapsuleFrameScheduler
         StopWhenEmpty();
     }
 
+    internal bool TryEnqueuePostCommit(Action callback)
+    {
+        _dispatcher.VerifyAccess();
+        if (!_isTicking || !_acceptingPostCommitCallbacks)
+        {
+            return false;
+        }
+
+        _postCommitCallbacks.Add(callback);
+        return true;
+    }
+
     private void OnRendering(object? sender, EventArgs e)
     {
         // CompositionTarget.Rendering can be nested when presentation work pumps WPF messages.
@@ -87,7 +98,7 @@ internal sealed class EdgeCapsuleFrameScheduler
         // Loaded batch is still preparing sibling targets.
         if (!_dispatcher.CheckAccess() ||
             _isTicking ||
-            _deferRenderingForLoadedBatch)
+            _pendingLoadedReconciles > 0)
         {
             return;
         }
@@ -100,26 +111,93 @@ internal sealed class EdgeCapsuleFrameScheduler
             var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
                 ? currentPointer
                 : (DeviceScreenPoint?)null;
-            using var nativeBoundsBatch =
-                WindowNative.BeginWindowDeviceBoundsBatch(initialCount);
-
-            // Iterate backwards without a per-frame snapshot allocation. Deactivation is deferred
-            // until the native batch commits; presenters activated during this tick start next time.
-            for (var index = initialCount - 1; index >= 0; index--)
+            _postCommitCallbacks.Clear();
+            _acceptingPostCommitCallbacks = true;
+            bool nativeBatchCommitted;
+            bool logicalBatchDeferred;
+            bool logicalBatchFailed;
+            bool frameCommitted;
+            bool frameDeferred;
+            using (_dispatcher.DisableProcessing())
             {
-                var presenter = _presenters[index];
-                _ = presenter.AdvanceSharedFrame(
-                    this,
-                    pointer,
-                    frameTimestamp);
-            }
+                using (var nativeBoundsBatch =
+                    WindowNative.BeginWindowDeviceBoundsBatch(initialCount))
+                {
+                    // Iterate backwards without a per-frame snapshot allocation. Deactivation is
+                    // deferred until the native batch commits; presenters activated during this
+                    // tick start next time.
+                    for (var index = initialCount - 1; index >= 0; index--)
+                    {
+                        var presenter = _presenters[index];
+                        _ = presenter.AdvanceSharedFrame(
+                            this,
+                            pointer,
+                            frameTimestamp);
+                    }
 
-            if (!nativeBoundsBatch.Commit())
-            {
+                    _acceptingPostCommitCallbacks = false;
+                    logicalBatchDeferred = false;
+                    logicalBatchFailed = false;
+                    for (var index = initialCount - 1; index >= 0; index--)
+                    {
+                        var presenter = _presenters[index];
+                        if (!presenter.NativeBatchApplyActive)
+                        {
+                            continue;
+                        }
+                        switch (presenter.NativeBatchApplyStatus)
+                        {
+                            case EdgeCapsuleNativeBatchApplyStatus.Deferred:
+                                logicalBatchDeferred = true;
+                                break;
+                            case EdgeCapsuleNativeBatchApplyStatus.Failed:
+                                logicalBatchFailed = true;
+                                break;
+                        }
+                    }
+                    nativeBatchCommitted = nativeBoundsBatch.Commit();
+                }
+
+                frameDeferred = nativeBatchCommitted &&
+                    logicalBatchDeferred &&
+                    !logicalBatchFailed;
+                frameCommitted = nativeBatchCommitted &&
+                    !logicalBatchDeferred &&
+                    !logicalBatchFailed;
                 for (var index = initialCount - 1; index >= 0; index--)
                 {
-                    _presenters[index].RetrySharedFrameAfterNativeBatchFailure(this);
+                    var presenter = _presenters[index];
+                    if (frameCommitted)
+                    {
+                        presenter.CompleteNativeBatchApplySuccess();
+                    }
+                    else if (frameDeferred)
+                    {
+                        presenter.CompleteNativeBatchApplyDeferred();
+                    }
+                    else
+                    {
+                        presenter.CompleteNativeBatchApplyFailure(frameTimestamp);
+                    }
                 }
+            }
+
+            if (frameCommitted)
+            {
+                // Controller pointer resolution scans every presenter in the queue. Publish those
+                // observations only after all in-memory frames and their native HWND bounds belong
+                // to the same committed frame; otherwise the scan can mix sibling generations.
+                for (var index = 0; index < _postCommitCallbacks.Count; index++)
+                {
+                    _postCommitCallbacks[index]();
+                }
+            }
+            else
+            {
+                // A failed native batch has no publishable geometry. PaperWindow retains its
+                // accumulated notification state. Every participating presenter was re-armed
+                // above, so the shared scheduler retries the whole logical generation together.
+                _postCommitCallbacks.Clear();
             }
 
             // Deactivate is intentionally deferred while ticking. Remove all presenters that
@@ -134,6 +212,8 @@ internal sealed class EdgeCapsuleFrameScheduler
         }
         finally
         {
+            _acceptingPostCommitCallbacks = false;
+            _postCommitCallbacks.Clear();
             _isTicking = false;
             StopWhenEmpty();
         }

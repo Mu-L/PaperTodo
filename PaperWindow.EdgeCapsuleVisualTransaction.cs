@@ -18,19 +18,23 @@ public sealed partial class PaperWindow
             refreshLayout);
     }
 
-    internal void CommitEdgeCapsuleVisualTransaction(
+    internal EdgeCapsuleNativeBatchApplyStatus CommitEdgeCapsuleVisualTransaction(
         EdgeCapsuleMotion motion,
         bool refreshLayout,
-        long transactionTimestamp)
+        long transactionTimestamp,
+        bool rebaseActiveTransition)
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
             IsClosed ||
             (_edgeCapsuleHost == null && !HasDeepCapsuleSlotPlacement))
         {
-            return;
+            return EdgeCapsuleNativeBatchApplyStatus.Ready;
         }
 
-        _edgeCapsule.RequestPresentation(motion);
+        _edgeCapsule.BeginNativeBatchApply();
+        _edgeCapsule.RequestPresentation(
+            motion,
+            rebaseActiveTransition);
         var dirty = EdgeCapsuleDirty.Presentation;
         if (refreshLayout)
         {
@@ -38,21 +42,40 @@ public sealed partial class PaperWindow
         }
 
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
-        _edgeCapsule.Flush(
-            dirty,
-            dispatcher,
-            ReconcileEdgeCapsule,
-            transactionTimestamp);
+        _edgeCapsuleVisualTransactionNotificationDeferred = true;
+        try
+        {
+            _edgeCapsule.Flush(
+                dirty,
+                dispatcher,
+                ReconcileEdgeCapsule,
+                transactionTimestamp);
+        }
+        finally
+        {
+            _edgeCapsuleVisualTransactionNotificationDeferred = false;
+        }
+        return _edgeCapsule.NativeBatchApplyStatus;
     }
 
-    internal void RetryEdgeCapsuleVisualTransaction()
+    internal void CompleteEdgeCapsuleVisualTransactionApply(
+        bool success,
+        bool deferred,
+        long transactionTimestamp)
     {
-        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        if (success)
         {
+            _edgeCapsule.CompleteNativeBatchApplySuccess();
+            return;
+        }
+        if (deferred)
+        {
+            _edgeCapsule.CompleteNativeBatchApplyDeferred();
             return;
         }
 
-        _edgeCapsule.ForceApplyCurrentPresentation();
-        InvalidateEdgeCapsule(EdgeCapsuleDirty.Presentation);
+        // Re-enter through the shared frame scheduler. Every failed transaction member retries in
+        // one native batch and publishes its retained notification only after that batch commits.
+        _edgeCapsule.CompleteNativeBatchApplyFailure(transactionTimestamp);
     }
 }

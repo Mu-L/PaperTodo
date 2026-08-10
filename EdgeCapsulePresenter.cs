@@ -4,6 +4,13 @@ using System.Windows.Threading;
 
 namespace PaperTodo;
 
+internal enum EdgeCapsuleNativeBatchApplyStatus
+{
+    Ready,
+    Deferred,
+    Failed
+}
+
 /// <summary>
 /// Sole owner of desired model, target plan, transition, applied frame and deferred work. Both
 /// deferred invalidation and synchronous Flush execute the same reconcile callback.
@@ -35,6 +42,7 @@ internal sealed class EdgeCapsulePresenter
 
     private EdgeCapsuleDirty _dirty;
     private bool _reconcileScheduled;
+    private DispatcherOperation? _reconcileOperation;
     private int _reconcileGeneration;
     private EdgeCapsuleFrameScheduler? _frameScheduler;
     private bool _frameSchedulerActive;
@@ -50,6 +58,18 @@ internal sealed class EdgeCapsulePresenter
     private int _applyFailureCount;
     private bool _applyRetryExhausted;
     private Action<bool>? _presentationSettleCallback;
+    private Action? _nativeBatchApplyRejectedCallback;
+    private Action? _nativeBatchApplyDeferredCallback;
+    private EdgeCapsuleFrameScheduler? _advancingSharedFrameScheduler;
+    private bool _nativeBatchApplyActive;
+    private bool _nativeBatchApplySucceeded;
+    private bool _nativeBatchApplyAttempted;
+    private bool _nativeBatchApplyDeferred;
+    private bool _nativeBatchDeferredCallbackScheduled;
+    private int _nativeBatchDeferredRecoveryGeneration;
+    private bool _nativeBatchRetryPending;
+    private int _nativeBatchCommitVersion;
+    private bool _rebasePendingTransition;
     private EdgeCapsuleMotion _pendingMotion =
         EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
 
@@ -88,8 +108,12 @@ internal sealed class EdgeCapsulePresenter
     public EdgeCapsuleCaptureAction HandleCaptureLost(EdgeCapsuleCaptureLoss captureLoss) =>
         Dispatch(EdgeCapsuleIntent.CaptureLost(captureLoss)).CaptureAction;
 
-    public void RequestPresentation(EdgeCapsuleMotion motion)
+    public void RequestPresentation(
+        EdgeCapsuleMotion motion,
+        bool rebaseActiveTransition = false)
     {
+        _rebasePendingTransition |= rebaseActiveTransition;
+
         // An explicit Snap owns the batch. Otherwise Animate outranks passive Preserve; measure
         // and display refreshes cannot downgrade an interaction transition already requested.
         if (motion.Kind == EdgeCapsuleMotionKind.Snap ||
@@ -118,6 +142,16 @@ internal sealed class EdgeCapsulePresenter
     public void ClearPresentationSettleNotification()
     {
         _presentationSettleCallback = null;
+    }
+
+    internal void SetNativeBatchApplyRejectedCallback(Action callback)
+    {
+        _nativeBatchApplyRejectedCallback = callback;
+    }
+
+    internal void SetNativeBatchApplyDeferredCallback(Action callback)
+    {
+        _nativeBatchApplyDeferredCallback = callback;
     }
 
     public EdgeCapsuleDirty Reconcile(
@@ -164,6 +198,10 @@ internal sealed class EdgeCapsulePresenter
                 {
                     // Unlike a title-only measure, display geometry cannot be force-replayed from
                     // the previous drag snapshot. Keep this batch intact for gesture completion.
+                    if (_nativeBatchApplyActive && _nativeBatchRetryPending)
+                    {
+                        _nativeBatchApplyDeferred = true;
+                    }
                     Transition = null;
                     remaining |= EdgeCapsuleDirty.Presentation |
                         EdgeCapsuleDirty.DisplayMetrics;
@@ -229,8 +267,9 @@ internal sealed class EdgeCapsulePresenter
         var forceApply = _appliedForceApplyVersion != forceApplyVersion;
         var plan = EdgeCapsuleTargetPlanner.Calculate(Model, layout);
         var targetChanged = plan != TargetPlan;
-        var motionMustRebase = _pendingMotion.Kind == EdgeCapsuleMotionKind.Snap &&
-            Transition.HasValue;
+        var motionMustRebase = Transition.HasValue &&
+            (_pendingMotion.Kind == EdgeCapsuleMotionKind.Snap ||
+                _rebasePendingTransition);
         if (targetChanged || motionMustRebase)
         {
             if (targetChanged)
@@ -248,16 +287,24 @@ internal sealed class EdgeCapsulePresenter
         }
 
         _pendingMotion = EdgeCapsuleMotion.Preserve(EdgeCapsuleTransitionReason.State);
+        _rebasePendingTransition = false;
         var sample = Transition is { } active
             ? EdgeCapsuleTransitionPolicy.Sample(active, nowTimestamp)
             : new EdgeCapsuleTransitionSample(TargetPresentation.ToFrame(), true);
         var shouldApply = forceApply || sample.Frame != AppliedPresentation || targetChanged;
-        var applied = !shouldApply || apply(sample.Frame);
+        var applied = !shouldApply || ApplyPresentationFrame(apply, sample.Frame);
         if (applied && shouldApply)
         {
             SetAppliedPresentation(sample.Frame);
             _appliedForceApplyVersion = forceApplyVersion;
-            ResetApplyRetryWindow();
+            if (!_nativeBatchApplyActive)
+            {
+                ResetApplyRetryWindow();
+                unchecked
+                {
+                    _nativeBatchCommitVersion++;
+                }
+            }
         }
 
         if (!applied)
@@ -281,9 +328,14 @@ internal sealed class EdgeCapsulePresenter
             {
                 TargetPlan = EdgeCapsulePresentationPlan.Hidden;
                 var hidden = EdgeCapsulePresentationFrame.Hidden;
-                if (apply(hidden))
+                if (ApplyPresentationFrame(apply, hidden))
                 {
                     SetAppliedPresentation(hidden);
+                }
+                else
+                {
+                    RegisterApplyFailure(nowTimestamp);
+                    return new PresentationResult(false, Transition.HasValue);
                 }
             }
         }
@@ -323,6 +375,13 @@ internal sealed class EdgeCapsulePresenter
     public void ClearDeferredWork()
     {
         _dirty = EdgeCapsuleDirty.None;
+        _nativeBatchApplyActive = false;
+        _nativeBatchApplySucceeded = false;
+        _nativeBatchApplyAttempted = false;
+        _nativeBatchApplyDeferred = false;
+        _nativeBatchDeferredCallbackScheduled = false;
+        _nativeBatchDeferredRecoveryGeneration++;
+        _nativeBatchRetryPending = false;
         _reconcileScheduled = false;
         _reconcileGeneration++;
         _presentationSettleCallback = null;
@@ -345,6 +404,7 @@ internal sealed class EdgeCapsulePresenter
         _layoutSnapshot = null;
         _appliedForceApplyVersion = _forceApplyVersion;
         _pendingMotion = EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
+        _rebasePendingTransition = false;
         ClearDeferredWork();
     }
 
@@ -377,6 +437,22 @@ internal sealed class EdgeCapsulePresenter
         {
             AppliedPresentationVersion++;
         }
+    }
+
+    private bool ApplyPresentationFrame(
+        Func<EdgeCapsulePresentationFrame, bool> apply,
+        EdgeCapsulePresentationFrame frame)
+    {
+        var applied = apply(frame);
+        if (_nativeBatchApplyActive)
+        {
+            _nativeBatchApplyAttempted = true;
+        }
+        if (!applied && _nativeBatchApplyActive)
+        {
+            _nativeBatchApplySucceeded = false;
+        }
+        return applied;
     }
 
     private bool NeedsPointerTracking =>
@@ -465,6 +541,16 @@ internal sealed class EdgeCapsulePresenter
 
         if (_reconcileScheduled)
         {
+            if (beforeNextRender &&
+                _reconcileOperation is
+                    { Status: DispatcherOperationStatus.Pending } pendingOperation &&
+                pendingOperation.Priority != DispatcherPriority.Send)
+            {
+                // A real host input outranks an earlier passive Loaded invalidation. Promoting the
+                // same operation preserves its loaded-batch registration; it drains at Send and
+                // releases the shared render barrier before this composition pass.
+                pendingOperation.Priority = DispatcherPriority.Send;
+            }
             return;
         }
 
@@ -473,17 +559,38 @@ internal sealed class EdgeCapsulePresenter
             : DispatcherPriority.Loaded;
         _reconcileScheduled = true;
         var generation = ++_reconcileGeneration;
-        _dispatcher.BeginInvoke(
+        EdgeCapsuleFrameScheduler? loadedBatchScheduler = null;
+        if (!beforeNextRender)
+        {
+            _frameScheduler ??= EdgeCapsuleFrameScheduler.For(_dispatcher);
+            loadedBatchScheduler = _frameScheduler;
+            loadedBatchScheduler.RegisterLoadedReconcile();
+        }
+
+        DispatcherOperation? queuedOperation = null;
+        queuedOperation = _dispatcher.BeginInvoke(
             new Action(() =>
             {
-                if (generation != _reconcileGeneration)
+                try
                 {
-                    return;
+                    if (generation != _reconcileGeneration)
+                    {
+                        return;
+                    }
+                    _reconcileScheduled = false;
+                    RunReconcile();
                 }
-                _reconcileScheduled = false;
-                RunReconcile();
+                finally
+                {
+                    loadedBatchScheduler?.CompleteLoadedReconcile();
+                    if (ReferenceEquals(_reconcileOperation, queuedOperation))
+                    {
+                        _reconcileOperation = null;
+                    }
+                }
             }),
             priority);
+        _reconcileOperation = queuedOperation;
 
         if (beforeNextRender)
         {
@@ -493,18 +600,23 @@ internal sealed class EdgeCapsulePresenter
             return;
         }
 
-        // Render runs above Loaded. Without a shared barrier, the first queue member whose Loaded
-        // callback reconciles can advance one composition frame before later siblings reconcile.
-        // Append the barrier release after this callback; the scheduler's generation keeps the
-        // latest release behind every sibling scheduled in the same dispatcher batch.
-        _frameScheduler ??= EdgeCapsuleFrameScheduler.For(_dispatcher);
-        _frameScheduler.DeferRenderingUntilLoadedBatchDrains();
+        // Render runs above Loaded. The scheduler's pending-operation count keeps the shared frame
+        // behind every sibling in this batch. If input promotes this callback to Send, its same
+        // registration drains there instead of holding the next render for an obsolete priority.
     }
 
     private void RunReconcile(long? nowTimestamp = null)
     {
         if (_reconcile == null)
         {
+            return;
+        }
+        if (_nativeBatchRetryPending && !_nativeBatchApplyActive)
+        {
+            // A failed global batch owns the pending logical generation. Host input and ordinary
+            // Loaded work may add dirty flags, but only another coordinated native batch may
+            // consume them or publish the retained queue-wide notification.
+            StartFrameScheduler();
             return;
         }
         var reconcileTimestamp = nowTimestamp ?? Stopwatch.GetTimestamp();
@@ -551,7 +663,10 @@ internal sealed class EdgeCapsulePresenter
         {
             if (applyRetryExpired)
             {
-                CompletePresentationSettle(success: false);
+                if (!_nativeBatchApplyActive)
+                {
+                    CompletePresentationSettle(success: false);
+                }
             }
             else if (_presentationSettleCallback != null &&
                 !needsApplyRetry &&
@@ -626,19 +741,191 @@ internal sealed class EdgeCapsulePresenter
     internal bool UsesSharedFrameScheduler(EdgeCapsuleFrameScheduler scheduler) =>
         _frameSchedulerActive && ReferenceEquals(_frameScheduler, scheduler);
 
-    internal void RetrySharedFrameAfterNativeBatchFailure(
-        EdgeCapsuleFrameScheduler scheduler)
+    internal bool TryDeferSharedFramePostCommit(Action callback) =>
+        _advancingSharedFrameScheduler?.TryEnqueuePostCommit(callback) == true;
+
+    internal bool NativeBatchApplyActive => _nativeBatchApplyActive;
+
+    internal int NativeBatchCommitVersion => _nativeBatchCommitVersion;
+
+    internal bool NativeBatchRetryPending => _nativeBatchRetryPending;
+
+    internal EdgeCapsuleNativeBatchApplyStatus NativeBatchApplyStatus
     {
-        if (_dispatcher == null ||
-            _reconcile == null ||
-            !ReferenceEquals(_frameScheduler, scheduler))
+        get
+        {
+            if (!_nativeBatchApplyActive || !_nativeBatchApplySucceeded)
+            {
+                return EdgeCapsuleNativeBatchApplyStatus.Failed;
+            }
+            if (_nativeBatchApplyDeferred)
+            {
+                return EdgeCapsuleNativeBatchApplyStatus.Deferred;
+            }
+            return !_nativeBatchRetryPending ||
+                _appliedForceApplyVersion == _forceApplyVersion
+                    ? EdgeCapsuleNativeBatchApplyStatus.Ready
+                    : EdgeCapsuleNativeBatchApplyStatus.Failed;
+        }
+    }
+
+    internal void BeginNativeBatchApply()
+    {
+        Debug.Assert(!_nativeBatchApplyActive);
+        _nativeBatchDeferredRecoveryGeneration++;
+        _nativeBatchDeferredCallbackScheduled = false;
+        _nativeBatchApplyActive = true;
+        _nativeBatchApplySucceeded = true;
+        _nativeBatchApplyAttempted = false;
+        _nativeBatchApplyDeferred = false;
+    }
+
+    internal void CompleteNativeBatchApplySuccess()
+    {
+        if (!_nativeBatchApplyActive)
         {
             return;
         }
 
-        ForceApplyCurrentPresentation();
+        var applyAttempted = _nativeBatchApplyAttempted;
+        _nativeBatchApplyActive = false;
+        _nativeBatchApplySucceeded = false;
+        _nativeBatchApplyAttempted = false;
+        _nativeBatchApplyDeferred = false;
+        _nativeBatchRetryPending = false;
+        if (applyAttempted)
+        {
+            unchecked
+            {
+                _nativeBatchCommitVersion++;
+            }
+        }
+        ResetApplyRetryWindow();
+    }
+
+    internal void CompleteNativeBatchApplyFailure(long nowTimestamp)
+    {
+        if (!_nativeBatchApplyActive)
+        {
+            return;
+        }
+
+        var logicalApplySucceeded = _nativeBatchApplySucceeded;
+        _nativeBatchApplyActive = false;
+        _nativeBatchApplySucceeded = false;
+        _nativeBatchApplyAttempted = false;
+        _nativeBatchApplyDeferred = false;
+        _nativeBatchRetryPending = true;
+        _nativeBatchApplyRejectedCallback?.Invoke();
+        // A presenter-level apply failure has already registered itself. If every HWND operation
+        // queued successfully but EndDeferWindowPos failed, account for the batch failure here.
+        if (logicalApplySucceeded)
+        {
+            RegisterApplyFailure(nowTimestamp);
+        }
         _dirty |= EdgeCapsuleDirty.Presentation;
+        // AppliedPresentation may already have advanced even though the global HWND batch did not.
+        // Preserve a forced replay for a later explicit invalidation, including after this bounded
+        // retry window is exhausted.
+        unchecked
+        {
+            _forceApplyVersion++;
+        }
+        if (ApplyRetryExpired(nowTimestamp))
+        {
+            _dirty &= ~EdgeCapsuleDirty.ApplyRetry;
+            _nativeBatchRetryPending = false;
+            Transition = null;
+            ExhaustApplyRetryWindow();
+            StopFrameScheduler();
+            ScheduleNativeBatchPresentationSettleFailure();
+            return;
+        }
+        _dirty |= EdgeCapsuleDirty.ApplyRetry;
         StartFrameScheduler();
+    }
+
+    internal void CompleteNativeBatchApplyDeferred()
+    {
+        if (!_nativeBatchApplyActive)
+        {
+            return;
+        }
+
+        var requestedRecovery = _nativeBatchApplyDeferred;
+        _nativeBatchApplyActive = false;
+        _nativeBatchApplySucceeded = false;
+        _nativeBatchApplyAttempted = false;
+        _nativeBatchApplyDeferred = false;
+        _nativeBatchRetryPending = true;
+
+        // A sibling may already have staged/committed its half of this global batch. Keep every
+        // participant fail-closed and force a common replay after the deferred gesture is canceled,
+        // without charging the bounded native-failure budget.
+        _nativeBatchApplyRejectedCallback?.Invoke();
+        unchecked
+        {
+            _forceApplyVersion++;
+        }
+        _dirty |= EdgeCapsuleDirty.Presentation | EdgeCapsuleDirty.ApplyRetry;
+        StartFrameScheduler();
+        if (requestedRecovery)
+        {
+            ScheduleNativeBatchDeferredRecovery();
+        }
+    }
+
+    private void ScheduleNativeBatchDeferredRecovery()
+    {
+        var callback = _nativeBatchApplyDeferredCallback;
+        var dispatcher = _dispatcher;
+        if (callback == null ||
+            dispatcher == null ||
+            dispatcher.HasShutdownStarted ||
+            _nativeBatchDeferredCallbackScheduled)
+        {
+            return;
+        }
+
+        var recoveryGeneration = ++_nativeBatchDeferredRecoveryGeneration;
+        _nativeBatchDeferredCallbackScheduled = true;
+        dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (recoveryGeneration != _nativeBatchDeferredRecoveryGeneration)
+                {
+                    return;
+                }
+                _nativeBatchDeferredCallbackScheduled = false;
+                if (_nativeBatchRetryPending)
+                {
+                    callback();
+                }
+            }),
+            DispatcherPriority.Send);
+    }
+
+    private void ScheduleNativeBatchPresentationSettleFailure()
+    {
+        var callback = _presentationSettleCallback;
+        _presentationSettleCallback = null;
+        if (callback == null)
+        {
+            return;
+        }
+
+        var dispatcher = _dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted)
+        {
+            callback(false);
+            return;
+        }
+
+        // Do not invoke user/controller work while the scheduler is still completing sibling
+        // presenters' batch handshakes. BeginInvoke runs only after the current atomic loop exits.
+        dispatcher.BeginInvoke(
+            (Action)(() => callback(false)),
+            DispatcherPriority.Send);
     }
 
     internal bool AdvanceSharedFrame(
@@ -671,12 +958,15 @@ internal sealed class EdgeCapsulePresenter
         _reconcileScheduled = false;
         _hasFramePointerOverride = true;
         _framePointerOverride = pointer;
+        _advancingSharedFrameScheduler = scheduler;
+        BeginNativeBatchApply();
         try
         {
             RunReconcile(frameTimestamp);
         }
         finally
         {
+            _advancingSharedFrameScheduler = null;
             _framePointerOverride = null;
             _hasFramePointerOverride = false;
         }
