@@ -735,6 +735,14 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             if (!content.IsMouseCaptured)
             {
+                // Moving layered HWNDs can leave WPF's MouseEnter state unchanged even though a
+                // fresh native mouse move has reached the visible compact pill. Recover that real
+                // input here; once the applied surface becomes Hovered, this path turns itself off
+                // instead of reconciling at the mouse polling rate.
+                if (_appliedFrame.Surface == EdgeCapsuleSurfaceKind.DockedResting)
+                {
+                    callbacks.PointerInvalidated();
+                }
                 return;
             }
             e.Handled = callbacks.PointerMoved(
