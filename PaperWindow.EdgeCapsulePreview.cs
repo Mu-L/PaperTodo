@@ -71,7 +71,8 @@ public sealed partial class PaperWindow
             var content = descriptor.CreateContent(size);
             if (content == null ||
                 content is Window ||
-                content.Parent != null)
+                content.Parent != null &&
+                _edgeCapsuleHost?.OwnsPreviewContent(content) != true)
             {
                 Trace.TraceWarning(
                     "Edge capsule preview provider returned invalid content. " +
@@ -85,7 +86,11 @@ public sealed partial class PaperWindow
 
             content.HorizontalAlignment = HorizontalAlignment.Stretch;
             content.VerticalAlignment = VerticalAlignment.Stretch;
-            return new EdgeCapsulePreviewRequest(size, content);
+            return new EdgeCapsulePreviewRequest(
+                size,
+                content,
+                descriptor.SetVisibility,
+                descriptor.PrepareForActivation);
         }
         catch (Exception ex)
         {
@@ -100,8 +105,8 @@ public sealed partial class PaperWindow
         }
     }
 
-    // Built-in papers and the plugin fallback all enter through the same internal seam. The
-    // public plugin protocol remains 1.7; a later adapter can replace only this resolver branch.
+    // Built-in papers and protocol 1.8 plugin mini/fallback adapters enter through the same seam;
+    // queue, host, transition and input policy stay independent of the content provider.
     private IEdgeCapsulePreviewProvider ResolveEdgeCapsulePreviewProvider()
     {
         if (_paper.Type == PaperTypes.Todo)
@@ -111,6 +116,13 @@ public sealed partial class PaperWindow
         if (_paper.Type == PaperTypes.Note && IsCurrentBodyProviderMarkdown)
         {
             return MarkdownEdgeCapsulePreviewProvider.Instance;
+        }
+        if (_paper.Type == PaperTypes.Note &&
+            !IsCurrentBodyProviderMarkdown &&
+            !_bodyFailed &&
+            _bodyDescriptor != null)
+        {
+            return new PluginEdgeCapsulePreviewProvider(this);
         }
         return DefaultEdgeCapsulePreviewProvider.Instance;
     }
@@ -126,6 +138,10 @@ public sealed partial class PaperWindow
             return false;
         }
 
+        if (!ReferenceEquals(_edgeCapsulePreviewRequest, request))
+        {
+            NotifyEdgeCapsulePreviewVisibility(_edgeCapsulePreviewRequest, visible: false);
+        }
         _edgeCapsulePreviewRequest = request;
         var previewContentWidth = Math.Max(
             1,
@@ -137,6 +153,7 @@ public sealed partial class PaperWindow
             request.Content,
             previewContentWidth,
             previewContentHeight);
+        NotifyEdgeCapsulePreviewVisibility(request, visible: true);
 
         // Preview open/transfer/close is one cross-window visual transaction. The owner state is
         // staged now; the immediate ArrangeDeepCapsules call stages every peer placement into the
@@ -154,6 +171,9 @@ public sealed partial class PaperWindow
     {
         if (!IsEdgeCapsulePreviewOpen)
         {
+            NotifyEdgeCapsulePreviewVisibility(
+                _edgeCapsulePreviewRequest,
+                visible: false);
             _edgeCapsulePreviewRequest = null;
             return;
         }
@@ -165,6 +185,9 @@ public sealed partial class PaperWindow
             return;
         }
 
+        NotifyEdgeCapsulePreviewVisibility(
+            _edgeCapsulePreviewRequest,
+            visible: false);
         _edgeCapsulePreviewRequest = null;
         _controller.BeginEdgeCapsuleVisualTransaction(this);
         _ = TryStageEdgeCapsuleVisualTransaction(
@@ -174,8 +197,39 @@ public sealed partial class PaperWindow
             refreshLayout: true);
     }
 
-    internal void ClearEdgeCapsulePreviewContent() =>
+    internal void ClearEdgeCapsulePreviewContent()
+    {
+        NotifyEdgeCapsulePreviewVisibility(
+            _edgeCapsulePreviewRequest,
+            visible: false);
         _edgeCapsuleHost?.ClearPreviewContent();
+    }
+
+    private static void NotifyEdgeCapsulePreviewVisibility(
+        EdgeCapsulePreviewRequest? request,
+        bool visible)
+    {
+        try
+        {
+            request?.SetVisibility?.Invoke(visible);
+        }
+        catch
+        {
+            // Mini presentation lifecycle is optional and cannot disable the paper body.
+        }
+    }
+
+    private void PrepareEdgeCapsulePreviewForActivation()
+    {
+        try
+        {
+            _edgeCapsulePreviewRequest?.PrepareForActivation?.Invoke();
+        }
+        catch
+        {
+            // A migration hand-off cannot block the normal paper activation path.
+        }
+    }
 
     internal EdgeCapsulePreviewSize? CurrentEdgeCapsulePreviewSize =>
         _edgeCapsulePreviewRequest?.Size;

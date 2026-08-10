@@ -14,8 +14,8 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
     public string Id => "sample.cloudgenshin.native";
     public string DisplayName => "云·原神（实验）";
     public string Description => "在 PaperTodo 纸片中直接打开云·原神网页版。";
-    public Version Version => new(1, 2, 2);
-    public string ApiVersion => "1.7";
+    public Version Version => new(1, 3, 0);
+    public string ApiVersion => "1.8";
     public int StateVersion => 1;
     public PaperBodyRuntimeRequirements RuntimeRequirements => PaperBodyRuntimeRequirements.BackgroundUpdates;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.None;
@@ -23,7 +23,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
     public IPaperBodySession Create(PaperBodyContext context) =>
         new CloudGenshinSession(context);
 
-    private sealed class CloudGenshinSession : IPaperBodySession
+    private sealed class CloudGenshinSession : IPaperBodySession, IPaperMiniViewProvider
     {
         private enum RetryMode
         {
@@ -53,6 +53,9 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
         private bool _disposed;
         private RetryMode _retryMode = RetryMode.NavigateHome;
         private PaperBodyInputClaims _inputClaims;
+        private string _miniStatusText = "云原神 · 加载中";
+        private PaperCapsuleTone _miniStatusTone = PaperCapsuleTone.Muted;
+        private CloudGenshinMiniView? _miniView;
 
         public CloudGenshinSession(PaperBodyContext context)
         {
@@ -117,6 +120,109 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
         }
 
         public FrameworkElement View => _root;
+
+        public PaperMiniViewSize PreferredMiniViewSize => new(240, 140);
+
+        public FrameworkElement? CreateMiniView(PaperMiniViewContext context)
+        {
+            _miniView = new CloudGenshinMiniView(context.Theme);
+            _miniView.Update(_miniStatusText, _miniStatusTone);
+            return _miniView;
+        }
+
+        private sealed class CloudGenshinMiniView : Grid
+        {
+            private readonly TextBlock _title;
+            private readonly TextBlock _status;
+            private readonly System.Windows.Shapes.Ellipse _dot;
+            private PaperBodyTheme _theme;
+            private PaperCapsuleTone _tone;
+
+            public CloudGenshinMiniView(PaperBodyTheme theme)
+            {
+                _theme = theme;
+                Margin = new Thickness(16, 13, 16, 15);
+                Background = Brushes.Transparent;
+                RowDefinitions.Add(new RowDefinition());
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                _title = new TextBlock
+                {
+                    Text = "云·原神",
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 20,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Children.Add(_title);
+
+                _dot = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Margin = new Thickness(0, 0, 7, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                _status = new TextBlock
+                {
+                    FontSize = 11.5,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var statusRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                statusRow.Children.Add(_dot);
+                statusRow.Children.Add(_status);
+                Grid.SetRow(statusRow, 1);
+                Children.Add(statusRow);
+                ApplyTheme(theme);
+            }
+
+            public void Update(string text, PaperCapsuleTone tone)
+            {
+                _status.Text = text;
+                _tone = tone;
+                _dot.Fill = ToneBrush(_theme, tone);
+            }
+
+            public void ApplyTheme(PaperBodyTheme theme)
+            {
+                _theme = theme;
+                var font = new FontFamily(theme.FontFamily);
+                _title.FontFamily = font;
+                _status.FontFamily = font;
+                _title.Foreground = Brush(theme.TextColor, "#202020");
+                _status.Foreground = Brush(theme.WeakTextColor, "#707070");
+                _dot.Fill = ToneBrush(theme, _tone);
+            }
+
+            private static Brush ToneBrush(PaperBodyTheme theme, PaperCapsuleTone tone) =>
+                tone switch
+                {
+                    PaperCapsuleTone.Accent => Brush(theme.AccentColor, "#B07A31"),
+                    PaperCapsuleTone.Warning => Brush("#D28A20", "#D28A20"),
+                    PaperCapsuleTone.Danger => Brush("#C94B4B", "#C94B4B"),
+                    PaperCapsuleTone.Muted => Brush(theme.WeakTextColor, "#707070"),
+                    _ => Brush(theme.TextColor, "#202020")
+                };
+
+            private static SolidColorBrush Brush(string value, string fallback)
+            {
+                try
+                {
+                    return new SolidColorBrush(
+                        (Color)ColorConverter.ConvertFromString(value)!);
+                }
+                catch
+                {
+                    return new SolidColorBrush(
+                        (Color)ColorConverter.ConvertFromString(fallback)!);
+                }
+            }
+        }
 
         private void OnRootLoaded(object sender, RoutedEventArgs e)
         {
@@ -413,6 +519,9 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
 
         private void SetPaperStatus(string text, PaperCapsuleTone tone)
         {
+            _miniStatusText = text;
+            _miniStatusTone = tone;
+            _miniView?.Update(text, tone);
             _context.Paper.SetHeaderText(text);
             _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
             {
@@ -505,6 +614,12 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             UpdatePresentation();
         }
 
+        public void OnThemeChanged(PaperBodyTheme theme) =>
+            _miniView?.ApplyTheme(theme);
+
+        public void OnTypographyChanged(PaperBodyTheme theme) =>
+            _miniView?.ApplyTheme(theme);
+
         public void Dispose()
         {
             if (_disposed)
@@ -543,6 +658,7 @@ public sealed class CloudGenshinPlugin : IPaperBodyPlugin
             }
 
             _lifetime.Dispose();
+            _miniView = null;
         }
     }
 }

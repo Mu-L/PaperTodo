@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
@@ -27,6 +28,11 @@ internal sealed partial class EdgeCapsuleHost
                 IsDescendantOfPreview(captured);
         }
     }
+
+    public bool OwnsPreviewContent(FrameworkElement content) =>
+        !_disposed &&
+        ReferenceEquals(_previewContent, content) &&
+        ReferenceEquals(content.Parent, _previewContentLayer);
 
     // Stage and prepare the final-size preview tree before the visual transaction begins. The
     // viewport changes size during the shell animation, but the content tree itself keeps its final
@@ -280,6 +286,7 @@ internal sealed partial class EdgeCapsuleHost
                 return false;
             }
             if (EdgeCapsulePreviewInteraction.GetConsumesPointer(current) ||
+                PaperMiniViewInteraction.GetConsumesPointer(current) ||
                 current is ButtonBase or
                     TextBoxBase or
                     Selector or

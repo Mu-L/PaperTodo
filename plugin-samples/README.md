@@ -12,13 +12,13 @@
 
 ## 示例定位
 
-- `PaperTodo.Plugin.SampleClock`：原生主示例；使用 1.6 模板作为回退，并真正实现 1.7 `IPaperCapsuleViewProvider`，覆盖普通/贴边胶囊、主题和后台更新；
-- `PaperTodo.Plugin.OfficialClockWeb`：Web 对照实现；Web 胶囊按设计停留在 1.6 宿主模板，并演示对高频状态更新去重；
-- `PaperTodo.Plugin.FocusTimer`：完整 WPF 番茄钟；1.6 胶囊同步运行/暂停、倒计时和阶段进度；
+- `PaperTodo.Plugin.SampleClock`：原生主示例；保留 1.6 模板、实现 1.7 自绘胶囊，并通过 1.8 `IPaperMiniViewProvider` 提供专属 WPF 迷你界面；
+- `PaperTodo.Plugin.OfficialClockWeb`：Web 对照实现；正文使用 `entry`，1.8 专属迷你网页使用 `miniEntry`，加载前由放大的 1.6 胶囊无空帧接棒；
+- `PaperTodo.Plugin.FocusTimer`：完整 WPF 番茄钟；1.8 专属迷你界面共享同一计时状态，并允许直接开始、继续或暂停；
 - `PaperTodo.Plugin.ReviewArchive`：Issue #37 的实现；1.6 胶囊同步用户选择的复盘指标，并按“显示复盘指标”设置附带进行中数量；同时演示数据监听与长期存储；
-- `PaperTodo.Plugin.CloudGenshin`：WebView2 远程应用嵌入；1.6 胶囊区分加载、运行、重启和错误，并使用 canonical `Body` 能力处理输入与外链。
+- `PaperTodo.Plugin.CloudGenshin`：WebView2 远程应用嵌入；完整网页只留在正文，1.8 迷你界面使用独立的纯 WPF 状态面板，不创建第二个 WebView2。
 
-所有示例至少使用协议 1.6 的 `SetCapsulePresentation`，并按当前标准组件的真实内容自动适配胶囊宽度；只有需要完全自定义 WPF 显示的原生时钟额外使用 1.7。1.6/1.7 胶囊内容都只是显示层，点击、右键、拖动、Hover、关闭和贴边交互始终由 PaperTodo 宿主管理。
+所有示例都继续提供协议 1.6 的 `SetCapsulePresentation` 和 `plainText`。1.8 是额外能力而不是替代回退：专属迷你界面失败时，宿主仍能逐级退回自绘胶囊、结构化胶囊和纯文字。胶囊的点击、右键、拖动、Hover、关闭和贴边交互始终由 PaperTodo 宿主管理。
 
 ## 原生插件构建与安装
 
@@ -54,12 +54,13 @@ plugins\
    ├─ plugin.json
    ├─ web\                          # Web 插件的静态根；原生插件不需要
    │  ├─ index.html
+   │  ├─ mini.html                  # 可选的 1.8 Web 迷你入口
    │  └─ CSS、脚本与图片
    ├─ WeatherPlugin.dll / 依赖 DLL / 原生库
    └─ .runtime\                     # 插件私有缓存或长期数据
 ```
 
-当前 PaperTodo 插件协议为 **1.7**，宿主只加载 **1.7** 插件。1.5 负责整理插件实例的能力范围；1.6 提供宿主绘制的胶囊模板；1.7 允许原生插件在同一固定高度内容区内自由绘制。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
+当前 PaperTodo 插件协议为 **1.8**，宿主只加载 **1.8** 插件。1.5 负责整理插件实例的能力范围；1.6 提供宿主绘制的胶囊模板；1.7 允许原生插件在固定高度内容区内自由绘制；1.8 为边缘快速浏览增加专属迷你界面、原生纯 WPF 正文迁移和统一的放大回退。目录名必须与 `id` 一致，`data` 是宿主保留 ID。
 
 原生插件使用 `PaperBodyContext.Paper`、`PaperBodyContext.Body` 与 `PaperBodyContext.Workspace`。正式标题、展开态运行时标题和折叠态胶囊文字互相独立；Web 插件对应使用 `papertodo.paper.*`、`papertodo.body.*` 与 `papertodo.workspace.request()`。
 
@@ -110,7 +111,75 @@ private sealed class Session : IPaperBodySession, IPaperCapsuleViewProvider
 }
 ```
 
-自由视图创建失败或主动返回 `null` 时只回退到 1.6 模板，不会让正文插件失败。因此 1.7 插件仍应持续提供 `PaperCapsulePresentation` 与 `plainText`；跨队列拖动的临时浮动胶囊也继续使用纯文字回退。Web 插件继续使用 1.6 模板，不在胶囊内创建额外 WebView2。
+自由视图创建失败或主动返回 `null` 时只回退到 1.6 模板，不会让正文插件失败。因此插件仍应持续提供 `PaperCapsulePresentation` 与 `plainText`；跨队列拖动的临时浮动胶囊也继续使用纯文字回退。1.7 自绘胶囊只接受纯 WPF 视觉树，`Window`、`HwndHost`、`WindowsFormsHost`、WebView2 和已经挂载的控件会被拒绝并回退到 1.6。纯 Web 插件继续使用 1.6 胶囊模板。
+
+## 协议 1.8 边缘快速浏览
+
+宿主按固定优先级选择边缘迷你内容：
+
+1. 插件提供 1.8 专属迷你界面时使用专属界面；
+2. 原生纯 WPF 插件明确实现正文迁移能力时，首次可迁移唯一真实正文视图；
+3. 存在 1.7 纯 WPF 自绘胶囊时，显示只读的实时放大镜像；
+4. 存在 1.6 结构化胶囊时，由宿主用更大的字号、图标、状态点和进度组件重新绘制；
+5. 前面全部不可用时，回退到 `plainText` 或纸片标题。
+
+前两项是插件可选能力，后三项由宿主自动完成。插件不能依赖专属迷你界面始终成功，必须继续提交 1.6 结构化胶囊和 `plainText`。放大的 1.6/1.7 回退只读，点击卡片背景打开完整纸片；专属迷你界面可包含按钮、复选框、滚动、选择器和链接等轻量交互，但不应复制完整编辑器。
+
+插件声明的是包含外框和关闭区在内的完整卡片尺寸，单位为 DIP。协议绝对范围是 `120 × 90` 至 `480 × 420`；未声明的专属迷你界面默认 `320 × 220`。宿主会结合当前显示器工作区再次限制尺寸，并在一次浏览会话中冻结大小，内容更新不会让整列胶囊反复跳动。当前空待办和空笔记默认都是 `130 × 120`。
+
+### 原生专属迷你界面
+
+原生会话实现 `IPaperMiniViewProvider`，同一个会话可以让正文与迷你界面共享业务状态，但必须创建两个不同的 WPF 控件实例。WPF 控件对象只能有一个父级，不能直接复制或同时挂到两处。宿主缓存一个成功的迷你 View；创建失败或返回 `null` 时自动回退，不会终止正文会话。
+
+```csharp
+private sealed class Session : IPaperBodySession, IPaperMiniViewProvider
+{
+    public PaperMiniViewSize PreferredMiniViewSize => new(300, 190);
+
+    public FrameworkElement? CreateMiniView(PaperMiniViewContext context)
+    {
+        // context.Width / Height 是插件真正获得的内部内容槽。
+        return new ClockMiniView(sharedState, context.Theme);
+    }
+
+    public void OnMiniViewVisibilityChanged(bool visible)
+    {
+        // false 从收起动画开始时发送：可暂停计时器和输入，但不要清空已绘制的树。
+        // 业务状态仍遵循正文会话的可见性规则。
+    }
+}
+```
+
+专属原生迷你界面只接受纯 WPF，不接受 `Window`、`HwndHost`、`WindowsFormsHost`、WebView2 或已挂载控件。`OnMiniViewVisibilityChanged(false)` 会在收起开始时停止交互，但宿主仍要用最后一帧完成动画，因此插件只能暂停刷新，不能立即清空或折叠整棵迷你树。标准 WPF 按钮、输入框、选择器、滚动条、拖块和链接会自动取得输入；其他自定义命中元素可调用 `PaperMiniViewInteraction.SetConsumesPointer(element, true)`。
+
+### 原生正文迁移
+
+没有第二套实时界面、但正文完全由纯 WPF 构成的插件，可以显式实现 `IPaperBodyViewMigrationProvider`。专属迷你界面的优先级更高；WebView2、原生子窗口或其他外部合成表面不能迁移。
+
+首次浏览且正文从未展示时，宿主可以把唯一真实 View 暂时放到迷你卡片。点击打开时，宿主先截图替换迷你内容，再把真实 View 原子移回主纸片；完整纸片鼠标移出时再保存一张截图。以后浏览会先立即显示旧截图，再异步截取一次新图替换。截图只保存在内存中，不持续采样；失败时保留旧图，永远不以空白层接棒。
+
+```csharp
+private sealed class Session : IPaperBodySession, IPaperBodyViewMigrationProvider
+{
+    public PaperMiniViewSize PreferredMigratedMiniViewSize => new(360, 260);
+}
+```
+
+### Web 专属迷你界面
+
+Web 插件可在清单中声明同一 `entry` 静态目录下的 `miniEntry`。迷你网页拥有独立 WebView2，但应是本地、轻量的状态界面，不应再次加载完整远程应用：
+
+```json
+{
+  "entry": "web/index.html",
+  "miniEntry": "web/mini.html",
+  "miniSize": { "width": 300, "height": 190 }
+}
+```
+
+宿主先同步显示放大的 1.6 胶囊，迷你 WebView2 初始化期间不会出现空卡。迷你页收到 `initialize` 后完成首轮布局，再显式调用 `papertodo.mini.ready()`；宿主会等到下一渲染帧才替换回退层。初始化、导航、脚本失败或页面始终未声明就绪时都继续保留放大胶囊；若就绪消息恰好落在收起期间，宿主只记录结果，下一次移入后才切换界面。
+
+迷你页与正文获得同一份 `state`、`settings`、主题和权限；`window.papertodo.surface` 与 `initialize.surface` 分别为 `mini` 或 `body`，共用脚本可以据此选择布局。任何一侧 `saveState` 后都会通知另一侧 `stateChanged`。接收方应只把 `stateChanged` 应用到自己的控件，不要在事件处理器里原样回写 `saveState`；只有用户操作或真实业务变化才写回，否则两棵页面会形成回声。迷你页还可使用 `paper`、`body.openExternal` 与 `workspace.request()`；`miniVisibilityChanged` 用于暂停隐藏后的计时器或动画。`visible: false` 从收起动画开始时发送，页面应停止输入和刷新，但要保留最后一次 DOM 绘制，不能立即清空根节点。宿主状态始终是真相来源，不应让正文页和迷你页各自保存互相覆盖的私有副本。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 
@@ -125,7 +194,7 @@ private sealed class Session : IPaperBodySession, IPaperCapsuleViewProvider
   "name": "天气",
   "description": "天气信息面板",
   "version": "1.0.0",
-  "apiVersion": "1.7",
+  "apiVersion": "1.8",
   "stateVersion": 1,
   "entry": "web/index.html",
   "capabilities": ["textZoom"],
@@ -202,7 +271,7 @@ papertodo.onEvent(message => console.log(message));
 
 协议 1.5 起，正式标题、展开态运行时标题与折叠态胶囊表现是三个独立概念；协议 1.6 使用 `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别更新后两者。
 
-宿主发送 `initialize`、`stateChanged`、`settingsChanged`、`activated`、`deactivated`、`visibilityChanged`、`presentationChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 提供 `apiVersion`、`stateVersion`、`targetStateVersion`、`settings`、`visible` 和 `presentationVisible`。
+宿主发送 `initialize`、`stateChanged`、`settingsChanged`、`activated`、`deactivated`、`visibilityChanged`、`presentationChanged`、`themeChanged`、`typographyChanged`、`dpiChanged`、`commitRequested` 和 `cancelInteractions`。`initialize` 提供 `surface`、`apiVersion`、`stateVersion`、`targetStateVersion`、`settings`、`visible` 和 `presentationVisible`。
 
 `setInputClaims` 是动态输入占用声明，不是权限。声明 `escapeKey` 时，PaperTodo 不再用 Esc 折叠纸片；声明 `contextMenu` 时，只阻止插件正文区域继承的 PaperTodo 右键菜单。插件应在进入输入模式前声明并在退出时释放；切换插件、重载、失败或销毁会话时，宿主会自动清空声明。
 

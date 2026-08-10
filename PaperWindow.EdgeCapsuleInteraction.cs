@@ -86,6 +86,7 @@ public sealed partial class PaperWindow
         FinishEdgeCapsulePointerInteraction();
         try
         {
+            PrepareEdgeCapsulePreviewForActivation();
             // Preview is a presentation state, not a second activation semantic. Background
             // clicks therefore inherit the standard capsule action, including script execution
             // and the optional "collapse expanded capsule on click" behavior.

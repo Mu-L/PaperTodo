@@ -39,10 +39,16 @@ internal sealed class TodoEdgeCapsulePreviewProvider : IEdgeCapsulePreviewProvid
                     availableTextWidth),
                 1,
                 3));
-        var height = Math.Clamp(
-            62 + Math.Min(12, estimatedLines) * AppTypography.Scale(28),
-            150,
-            400);
+        var height = items.Count == 0
+            ? 120
+            : Math.Clamp(
+                62 + Math.Min(12, estimatedLines) * AppTypography.Scale(28),
+                150,
+                400);
+        if (items.Count == 0)
+        {
+            width = Math.Max(130, width);
+        }
 
         return new EdgeCapsulePreviewDescriptor(
             new EdgeCapsulePreviewSize(width, height),

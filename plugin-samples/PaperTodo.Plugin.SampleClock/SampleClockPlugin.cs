@@ -12,8 +12,8 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
     public string Id => "sample.clock.native";
     public string DisplayName => "原生时钟";
     public string Description => "完整的 WPF 时钟示例：时区、日期格式、标题和日进度均可配置。";
-    public Version Version => new(1, 4, 1);
-    public string ApiVersion => "1.7";
+    public Version Version => new(1, 5, 0);
+    public string ApiVersion => "1.8";
     public int StateVersion => 1;
     public PaperBodyCapabilities Capabilities => PaperBodyCapabilities.TextZoom;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
@@ -34,7 +34,10 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         string CustomTitle,
         double ClockScale);
 
-    private sealed class ClockSession : IPaperBodySession, IPaperCapsuleViewProvider
+    private sealed class ClockSession :
+        IPaperBodySession,
+        IPaperCapsuleViewProvider,
+        IPaperMiniViewProvider
     {
         private static readonly IReadOnlyDictionary<string, string> TimeZoneIds =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -66,6 +69,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
         private bool _capsuleShowProgress = true;
         private ClockCapsuleView? _regularCapsuleView;
         private ClockCapsuleView? _dockedCapsuleView;
+        private ClockMiniView? _miniView;
 
         public ClockSession(PaperBodyContext context)
         {
@@ -154,6 +158,138 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
                 _regularCapsuleView = view;
             }
             return view;
+        }
+
+        public PaperMiniViewSize PreferredMiniViewSize => new(300, 190);
+
+        public FrameworkElement? CreateMiniView(PaperMiniViewContext context)
+        {
+            _miniView = new ClockMiniView(context);
+            _miniView.Update(
+                _time.Text,
+                _meridiem.Text,
+                _date.Text,
+                _zone.Text,
+                _dayProgress.Value,
+                _settings.ShowDayProgress);
+            return _miniView;
+        }
+
+        private sealed class ClockMiniView : Grid
+        {
+            private readonly TextBlock _time;
+            private readonly TextBlock _meridiem;
+            private readonly TextBlock _date;
+            private readonly TextBlock _zone;
+            private readonly ProgressBar _progress;
+
+            public ClockMiniView(PaperMiniViewContext context)
+            {
+                Margin = new Thickness(14, 11, 14, 13);
+                Background = Brushes.Transparent;
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                RowDefinitions.Add(new RowDefinition());
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                _zone = new TextBlock
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                };
+                Children.Add(_zone);
+
+                _time = new TextBlock
+                {
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center
+                };
+                _meridiem = new TextBlock
+                {
+                    Margin = new Thickness(7, 0, 0, 5),
+                    VerticalAlignment = VerticalAlignment.Bottom
+                };
+                var timeRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                timeRow.Children.Add(_time);
+                timeRow.Children.Add(_meridiem);
+                Grid.SetRow(timeRow, 1);
+                Children.Add(timeRow);
+
+                _date = new TextBlock
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                _progress = new ProgressBar
+                {
+                    Minimum = 0,
+                    Maximum = 1,
+                    Height = 5,
+                    Margin = new Thickness(8, 9, 8, 0),
+                    BorderThickness = new Thickness(0)
+                };
+                var footer = new StackPanel();
+                footer.Children.Add(_date);
+                footer.Children.Add(_progress);
+                Grid.SetRow(footer, 2);
+                Children.Add(footer);
+                ApplyTheme(context.Theme);
+            }
+
+            public void Update(
+                string time,
+                string meridiem,
+                string date,
+                string zone,
+                double progress,
+                bool showProgress)
+            {
+                _time.Text = time;
+                _meridiem.Text = meridiem;
+                _meridiem.Visibility = string.IsNullOrWhiteSpace(meridiem)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+                _date.Text = date;
+                _date.Visibility = string.IsNullOrWhiteSpace(date)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+                _zone.Text = zone;
+                _progress.Value = Math.Clamp(progress, 0, 1);
+                _progress.Visibility = showProgress
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            public void ApplyTheme(PaperBodyTheme theme)
+            {
+                var scale = Math.Clamp(theme.FontScale, 0.85, 1.3);
+                var font = new FontFamily(theme.FontFamily);
+                var text = ToBrush(theme.TextColor, "#202020");
+                var weak = ToBrush(theme.WeakTextColor, "#707070");
+                _time.FontFamily = font;
+                _meridiem.FontFamily = font;
+                _date.FontFamily = font;
+                _zone.FontFamily = font;
+                _time.FontSize = 42 * scale;
+                _meridiem.FontSize = 10.5 * scale;
+                _date.FontSize = 11.5 * scale;
+                _zone.FontSize = 10 * scale;
+                _time.Foreground = text;
+                _meridiem.Foreground = weak;
+                _date.Foreground = weak;
+                _zone.Foreground = weak;
+                _progress.Foreground = ToBrush(theme.AccentColor, "#B07A31");
+                _progress.Background = ToBrush(
+                    theme.IsDark ? "#28FFFFFF" : "#22000000",
+                    "#22000000");
+            }
         }
 
         private sealed class ClockCapsuleView : Grid
@@ -298,6 +434,13 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
                 0,
                 1);
             _dayProgress.Value = dayProgress;
+            _miniView?.Update(
+                _time.Text,
+                _meridiem.Text,
+                _date.Text,
+                _zone.Text,
+                dayProgress,
+                _settings.ShowDayProgress);
 
             SetPaperStatus(DisplayTitle(now), dayProgress);
         }
@@ -396,6 +539,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
                 "#22000000");
             _regularCapsuleView?.ApplyTheme(theme);
             _dockedCapsuleView?.ApplyTheme(theme);
+            _miniView?.ApplyTheme(theme);
         }
 
         private static ClockSettings ReadSettings(string json)
@@ -555,6 +699,7 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             _timer.Tick -= OnTick;
             _regularCapsuleView = null;
             _dockedCapsuleView = null;
+            _miniView = null;
         }
     }
 }

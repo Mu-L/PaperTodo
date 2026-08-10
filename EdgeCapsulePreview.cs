@@ -8,9 +8,9 @@ internal readonly record struct EdgeCapsulePreviewSize(
     double WidthDip,
     double HeightDip)
 {
-    public const double MinimumWidthDip = 150;
+    public const double MinimumWidthDip = 120;
     public const double MaximumWidthDip = 480;
-    public const double MinimumHeightDip = 120;
+    public const double MinimumHeightDip = 90;
     public const double MaximumHeightDip = 420;
 
     public EdgeCapsulePreviewSize Normalize(double maximumWidthDip, double maximumHeightDip)
@@ -39,11 +39,15 @@ internal readonly record struct EdgeCapsulePreviewSize(
 /// </summary>
 internal sealed record EdgeCapsulePreviewDescriptor(
     EdgeCapsulePreviewSize Size,
-    Func<EdgeCapsulePreviewSize, FrameworkElement> CreateContent);
+    Func<EdgeCapsulePreviewSize, FrameworkElement> CreateContent,
+    Action<bool>? SetVisibility = null,
+    Action? PrepareForActivation = null);
 
 internal sealed record EdgeCapsulePreviewRequest(
     EdgeCapsulePreviewSize Size,
-    FrameworkElement Content);
+    FrameworkElement Content,
+    Action<bool>? SetVisibility = null,
+    Action? PrepareForActivation = null);
 
 internal readonly record struct EdgeCapsulePreviewScreenGeometry(
     DeviceScreenRect Bounds,
@@ -73,9 +77,8 @@ internal sealed record EdgeCapsulePreviewContext(
 }
 
 /// <summary>
-/// Internal content seam for edge preview cards. Protocol 1.8 does not expose this yet: Todo and
-/// Markdown can replace the default provider without changing queue, host or input code, and a
-/// future plugin adapter can enter through the same descriptor.
+/// Internal content seam for edge preview cards. Built-in Todo/Markdown and protocol 1.8 plugin
+/// adapters replace only the descriptor; queue, host, transition and input code remain shared.
 /// </summary>
 internal interface IEdgeCapsulePreviewProvider
 {
