@@ -18,7 +18,7 @@
 - `PaperTodo.Plugin.ReviewArchive`：Issue #37 的实现；1.6 胶囊同步用户选择的复盘指标，并按“显示复盘指标”设置附带进行中数量；同时演示数据监听与长期存储；
 - `PaperTodo.Plugin.CloudGenshin`：WebView2 远程应用嵌入；1.6 胶囊区分加载、运行、重启和错误，并使用 canonical `Body` 能力处理输入与外链。
 
-所有示例至少使用协议 1.6 的 `SetCapsulePresentation`；只有需要完全自定义 WPF 显示的原生时钟额外使用 1.7。1.6/1.7 胶囊内容都只是显示层，点击、右键、拖动、Hover、关闭和贴边交互始终由 PaperTodo 宿主管理。
+所有示例至少使用协议 1.6 的 `SetCapsulePresentation`，并按当前标准组件的真实内容自动适配胶囊宽度；只有需要完全自定义 WPF 显示的原生时钟额外使用 1.7。1.6/1.7 胶囊内容都只是显示层，点击、右键、拖动、Hover、关闭和贴边交互始终由 PaperTodo 宿主管理。
 
 ## 原生插件构建与安装
 
@@ -65,13 +65,15 @@ plugins\
 
 ## 协议 1.6 胶囊模板
 
-插件可以为自己的纸片提交一个固定高度的胶囊模板，由 PaperTodo 负责真正绘制外壳、关闭区、Hover、拖动、贴边和 DPI。模板最多包含三个任意顺序的组件，组件可选 `text`、`glyph`、`statusDot`、`progressRing`、`progressBar`；`fill` 可占用剩余横向空间，`width` 可指定固定段宽。`PreferredWidth` 表示完整内容段宽度（DIP），宿主把它限制在合理范围内；1.6 模板的内部视觉留白由宿主管理，胶囊高度仍保持 PaperTodo 默认值。
+插件可以为自己的纸片提交一个固定高度的胶囊模板，由 PaperTodo 负责真正绘制外壳、关闭区、Hover、拖动、贴边和 DPI。模板最多包含三个任意顺序的组件，组件可选 `text`、`glyph`、`statusDot`、`progressRing`、`progressBar`；`fill` 可占用剩余横向空间，`width` 可指定固定段宽。
+
+宽度有两种模式：原生插件使用 `PreferredWidth = PaperCapsulePresentation.AutomaticWidth`、Web 插件使用 `preferredWidth: 0` 时，宿主会按当前文字、图标、状态点、进度组件、组件间距和模板内边距测量自然宽度；正数则表示插件明确要求的完整内容段宽度（DIP）。两种模式都会限制在宿主允许的范围内。动态状态一般应优先使用自动宽度，只有仪表盘、固定画布等确实需要稳定槽位时才指定正数。
 
 原生插件使用 `context.Paper.SetCapsulePresentation(...)`；Web 插件使用 `papertodo.paper.setCapsulePresentation(...)`。`plainText` 是启动、拖动过渡和其他纯文字环境的回退文本；自定义模板停止后恢复普通胶囊。
 
 ```js
 papertodo.paper.setCapsulePresentation({
-  preferredWidth: 150,
+  preferredWidth: 0,
   plainText: "CPU 42% · 68℃",
   toolTip: "CPU 42% / GPU 68℃",
   components: [
@@ -86,7 +88,7 @@ papertodo.paper.setCapsulePresentation({
 
 原生插件会话可额外实现 `IPaperCapsuleViewProvider`，在协议 1.6 模板之外为普通胶囊和贴边胶囊分别创建一个自由 WPF 内容视图。`PaperCapsuleViewContext.Width/Height` 就是该视图最终获得的完整布局槽尺寸（DIP），宿主不会再扣除 1.6 模板的内部留白；插件若需要内边距，应在自己的 View 内实现。宿主仍拥有外壳、关闭区、点击、右键、拖动、Hover、贴边、跨屏与 DPI，自定义视图统一禁用命中测试，不应放置需要独立点击的按钮或输入框。
 
-宿主在一个正文会话、同一内容槽几何下，对 `Regular`、`Docked` 各最多尝试创建一次，并缓存“成功 View”或 `null` 回退。普通胶囊与贴边胶囊必须返回两个不同的 WPF 对象，不能把同一个已挂载元素重复返回。若 `PreferredWidth` 改变，宿主会丢弃旧缓存并按新 `Width` 重建两种 View；普通状态刷新、主题切换或 DPI 变化不会要求重建。需要实时显示的插件应保留当前 View 引用，在自己的状态更新、`OnThemeChanged` / `OnTypographyChanged` 中原地刷新；只有自定义绘制确实依赖 DPI 细节时才需要额外处理 `OnDpiChanged`。
+宿主在一个正文会话、同一内容槽几何下，对 `Regular`、`Docked` 各最多尝试创建一次，并缓存“成功 View”或 `null` 回退。普通胶囊与贴边胶囊必须返回两个不同的 WPF 对象，不能把同一个已挂载元素重复返回。使用自动宽度时，宿主先测量对应 1.6 标准组件，再把结果作为自由视图的 `Width`；只要最终解析出的宽度改变，宿主就会丢弃旧缓存并按新尺寸重建两种 View。普通状态刷新、主题切换或 DPI 变化不会无条件要求重建。需要实时显示的插件应保留当前 View 引用，在自己的状态更新、`OnThemeChanged` / `OnTypographyChanged` 中原地刷新；只有自定义绘制确实依赖 DPI 细节时才需要额外处理 `OnDpiChanged`。
 
 最小实现可以参考 `PaperTodo.Plugin.SampleClock`：
 

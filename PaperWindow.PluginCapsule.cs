@@ -10,6 +10,11 @@ public sealed partial class PaperWindow
 {
     private const double PluginCapsuleMinContentWidth = 34;
     private const double PluginCapsuleMaxContentWidth = 320;
+    private const double PluginCapsuleComponentGap = 5;
+    private const double PluginCapsuleStatusDotSize = 7;
+    private const double PluginCapsuleDefaultProgressRingSize = 18;
+    private const double PluginCapsuleDefaultProgressBarWidth = 28;
+    private const double PluginCapsuleFillProgressBarMinWidth = 18;
     private PaperCapsulePresentation? _pluginCapsulePresentation;
     private Grid? _pluginCapsuleRegularHost;
     private UIElement? _pluginCapsuleRegularDefaultContent;
@@ -19,6 +24,8 @@ public sealed partial class PaperWindow
     private FrameworkElement? _pluginCapsuleDockedCustomView;
     private bool _pluginCapsuleRegularCustomViewAttempted;
     private bool _pluginCapsuleDockedCustomViewAttempted;
+    private double _pluginCapsuleRegularCustomViewWidth = double.NaN;
+    private double _pluginCapsuleDockedCustomViewWidth = double.NaN;
 
     private FrameworkElement BuildPluginCapsuleContentHost(UIElement defaultContent)
     {
@@ -46,11 +53,18 @@ public sealed partial class PaperWindow
         return host;
     }
 
-    private double? PluginCapsuleRequestedContentWidth()
+    private double? PluginCapsuleRequestedContentWidth(double? pixelsPerDip = null)
     {
         if (_pluginCapsulePresentation == null || IsCurrentBodyProviderMarkdown || _bodyFailed)
         {
             return null;
+        }
+        if (_pluginCapsulePresentation.PreferredWidth <=
+            PaperCapsulePresentation.AutomaticWidth)
+        {
+            return MeasurePluginCapsuleTemplateWidth(
+                _pluginCapsulePresentation,
+                pixelsPerDip);
         }
         return Math.Clamp(
             _pluginCapsulePresentation.PreferredWidth,
@@ -70,8 +84,9 @@ public sealed partial class PaperWindow
         var geometryChanged = previousRequestedWidth != requestedWidth;
         if (geometryChanged)
         {
-            // PaperCapsuleViewContext carries immutable geometry. Recreate 1.7 views only when
-            // that geometry changes; ordinary state, theme and DPI updates keep the same views.
+            // PaperCapsuleViewContext carries immutable geometry. Recreate 1.7 views when the
+            // presentation resolves to a different width; per-surface DPI checks cover later
+            // monitor or typography changes without rebuilding for ordinary state updates.
             ResetPluginCapsuleCustomViews();
         }
         RefreshCapsuleLabel();
@@ -109,10 +124,12 @@ public sealed partial class PaperWindow
         }
 
         var width = double.IsFinite(presentation.PreferredWidth)
-            ? Math.Clamp(
-                presentation.PreferredWidth,
-                PluginCapsuleMinContentWidth,
-                PluginCapsuleMaxContentWidth)
+            ? presentation.PreferredWidth <= PaperCapsulePresentation.AutomaticWidth
+                ? PaperCapsulePresentation.AutomaticWidth
+                : Math.Clamp(
+                    presentation.PreferredWidth,
+                    PluginCapsuleMinContentWidth,
+                    PluginCapsuleMaxContentWidth)
             : 110;
         return presentation with
         {
@@ -251,16 +268,31 @@ public sealed partial class PaperWindow
         ref bool attempted = ref (surface == PaperCapsuleSurfaceKind.Docked
             ? ref _pluginCapsuleDockedCustomViewAttempted
             : ref _pluginCapsuleRegularCustomViewAttempted);
+        ref double cachedWidth = ref (surface == PaperCapsuleSurfaceKind.Docked
+            ? ref _pluginCapsuleDockedCustomViewWidth
+            : ref _pluginCapsuleRegularCustomViewWidth);
+        var pixelsPerDip = surface == PaperCapsuleSurfaceKind.Docked
+            ? DeepCapsuleSlotDpi().PixelsPerDip
+            : (double?)null;
+        var width = PluginCapsuleRequestedContentWidth(pixelsPerDip)
+            ?? presentation.PreferredWidth;
+        if (attempted && Math.Abs(cachedWidth - width) > 0.001)
+        {
+            // Auto-sized components can resolve to a different DIP width after text, typography,
+            // target-monitor DPI or settings change. Recreate only the affected surface so the
+            // immutable 1.7 context keeps matching the slot it will actually receive.
+            cached = null;
+            attempted = false;
+        }
         if (attempted)
         {
             return cached;
         }
 
         attempted = true;
+        cachedWidth = width;
         try
         {
-            var width = PluginCapsuleRequestedContentWidth()
-                ?? presentation.PreferredWidth;
             var view = provider.CreateCapsuleView(new PaperCapsuleViewContext(
                 surface,
                 width,
@@ -312,6 +344,8 @@ public sealed partial class PaperWindow
         _pluginCapsuleDockedCustomView = null;
         _pluginCapsuleRegularCustomViewAttempted = false;
         _pluginCapsuleDockedCustomViewAttempted = false;
+        _pluginCapsuleRegularCustomViewWidth = double.NaN;
+        _pluginCapsuleDockedCustomViewWidth = double.NaN;
     }
 
     private FrameworkElement BuildPluginCapsuleTemplateView(PaperCapsulePresentation presentation)
@@ -340,7 +374,7 @@ public sealed partial class PaperWindow
             var element = BuildPluginCapsuleComponent(component);
             if (index > 0)
             {
-                element.Margin = new Thickness(5, 0, 0, 0);
+                element.Margin = new Thickness(PluginCapsuleComponentGap, 0, 0, 0);
             }
             Grid.SetColumn(element, index);
             grid.Children.Add(element);
@@ -370,8 +404,8 @@ public sealed partial class PaperWindow
             case PaperCapsuleComponentKind.StatusDot:
                 return new Ellipse
                 {
-                    Width = 7,
-                    Height = 7,
+                    Width = PluginCapsuleStatusDotSize,
+                    Height = PluginCapsuleStatusDotSize,
                     Fill = brush,
                     VerticalAlignment = VerticalAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center
@@ -380,7 +414,7 @@ public sealed partial class PaperWindow
             {
                 var diameter = component.Width > 0
                     ? Math.Min(component.Width, CapsuleBodyHeight)
-                    : 18;
+                    : PluginCapsuleDefaultProgressRingSize;
                 return new CapsuleProgressRing
                 {
                     Width = diameter,
@@ -395,7 +429,9 @@ public sealed partial class PaperWindow
             case PaperCapsuleComponentKind.ProgressBar:
                 return new CapsuleProgressBar
                 {
-                    MinWidth = component.Fill ? 18 : 28,
+                    MinWidth = component.Fill
+                        ? PluginCapsuleFillProgressBarMinWidth
+                        : PluginCapsuleDefaultProgressBarWidth,
                     Width = component.Fill || component.Width <= 0
                         ? double.NaN
                         : component.Width,
@@ -425,6 +461,64 @@ public sealed partial class PaperWindow
                     TextTrimming = TextTrimming.CharacterEllipsis
                 };
         }
+    }
+
+    private double MeasurePluginCapsuleTemplateWidth(
+        PaperCapsulePresentation presentation,
+        double? pixelsPerDip)
+    {
+        var width = CapsuleLeftPadding + CapsuleRightPadding;
+        for (var index = 0; index < presentation.Components.Length; index++)
+        {
+            if (index > 0)
+            {
+                width += PluginCapsuleComponentGap;
+            }
+            width += MeasurePluginCapsuleComponentWidth(
+                presentation.Components[index],
+                pixelsPerDip);
+        }
+        return Math.Clamp(
+            Math.Ceiling(width),
+            PluginCapsuleMinContentWidth,
+            PluginCapsuleMaxContentWidth);
+    }
+
+    private double MeasurePluginCapsuleComponentWidth(
+        PaperCapsuleComponent component,
+        double? pixelsPerDip)
+    {
+        // A non-fill component with an explicit width owns exactly that template column. Fill
+        // components instead use their natural minimum when the complete capsule is auto-sized.
+        if (!component.Fill && component.Width > 0)
+        {
+            return component.Width;
+        }
+
+        return component.Kind switch
+        {
+            PaperCapsuleComponentKind.Glyph => MeasureCapsuleTextWidth(
+                component.Text,
+                CapsuleIconFontSizeForCurrentPaper(),
+                FontWeights.SemiBold,
+                AppTypography.SymbolFontFamily,
+                pixelsPerDip),
+            PaperCapsuleComponentKind.StatusDot => PluginCapsuleStatusDotSize,
+            PaperCapsuleComponentKind.ProgressRing => component.Width > 0
+                ? Math.Min(component.Width, CapsuleBodyHeight)
+                : PluginCapsuleDefaultProgressRingSize,
+            PaperCapsuleComponentKind.ProgressBar => component.Fill
+                ? PluginCapsuleFillProgressBarMinWidth
+                : PluginCapsuleDefaultProgressBarWidth,
+            _ => MeasureCapsuleTextWidth(
+                component.Text,
+                CapsuleLabelFontSize,
+                component.Tone == PaperCapsuleTone.Accent
+                    ? FontWeights.SemiBold
+                    : CapsuleLabelFontWeight,
+                CapsuleLabelFontFamily,
+                pixelsPerDip)
+        };
     }
 
     private static Brush ResolvePluginCapsuleBrush(PaperCapsuleComponent component)

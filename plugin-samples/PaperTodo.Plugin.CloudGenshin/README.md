@@ -20,7 +20,7 @@ https://ys.mihoyo.com/cloud/#/
 - 纸片隐藏时不销毁网页会话
 - 仅在完整正文可交互时通过 `context.Body.SetInputClaims` 占用 Esc 和正文右键菜单
 - 外部导航通过 `context.Body.OpenExternal` 交还 PaperTodo 宿主处理
-- 1.6 胶囊状态点区分加载、运行、重启和错误；不把 WebView2 塞进胶囊
+- 1.6 胶囊状态点区分加载、运行、重启和错误，并按当前状态文字自动适配宽度；不把 WebView2 塞进胶囊
 - 插件升级时保留 `.runtime` 登录数据
 
 ## 放置位置

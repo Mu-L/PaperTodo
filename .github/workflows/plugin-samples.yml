@@ -61,6 +61,10 @@ jobs:
             if ($source -notmatch 'setCapsulePresentation\s*\(') {
               throw "$($directory.Name) does not exercise protocol 1.6 capsule presentation."
             }
+            if ($source -notmatch 'PaperCapsulePresentation\.AutomaticWidth' -and
+                $source -notmatch 'preferredWidth\s*:\s*0') {
+              throw "$($directory.Name) must exercise host-measured capsule width."
+            }
           }
 
           $clockSource = Get-Content "plugin-samples/PaperTodo.Plugin.SampleClock/SampleClockPlugin.cs" -Raw -Encoding UTF8
