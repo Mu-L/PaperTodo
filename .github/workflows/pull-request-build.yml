@@ -1,0 +1,54 @@
+name: Pull request build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/debug.yml"
+      - ".github/workflows/plugin-samples.yml"
+      - "plugin-samples/**"
+      - "plugins/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pull-request-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build PaperTodo
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore .\PaperTodo.csproj
+
+      - name: Build
+        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
