@@ -197,6 +197,40 @@ internal sealed class DeepCapsuleContextMenuSession
         }
     }
 
+    private static bool IsPointInsideOpenMenuItems(
+        ItemsControl owner,
+        Point screenPoint)
+    {
+        for (var index = 0; index < owner.Items.Count; index++)
+        {
+            var container =
+                owner.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement ??
+                owner.Items[index] as FrameworkElement;
+            if (container == null || !container.IsVisible)
+            {
+                continue;
+            }
+
+            // WPF renders each submenu in a separate Popup HWND. PointFromScreen still works on
+            // the generated child MenuItem/Separator even though it is no longer inside the root
+            // ContextMenu's visual rectangle, so treat those live containers as part of the same
+            // logical menu surface.
+            if (IsPointInsideElement(container, screenPoint))
+            {
+                return true;
+            }
+
+            if (container is MenuItem menuItem &&
+                menuItem.IsSubmenuOpen &&
+                IsPointInsideOpenMenuItems(menuItem, screenPoint))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void QueueClose(ContextMenu menu, long version)
     {
         if (!ReferenceEquals(_activeMenu, menu) ||
@@ -214,10 +248,9 @@ internal sealed class DeepCapsuleContextMenuSession
         }
 
         _closeScheduled = true;
-        // The low-level hook observes mouse-down before WPF dispatches the same input. A submenu
-        // lives in its own Popup, so treating that click as outside and closing at Normal priority
-        // can destroy the menu before the child MenuItem raises Click. Let input dispatch finish
-        // first; a real outside click still closes immediately afterwards.
+        // The low-level hook observes mouse-down before WPF dispatches the same input. Keep an
+        // asynchronous close as a final guard for real outside clicks; open submenu surfaces are
+        // filtered explicitly in IsPointInsideContextSurface instead of relying on this delay.
         _ = _dispatcher.BeginInvoke(
             new Action(ExecuteQueuedClose),
             DispatcherPriority.Background);
@@ -353,7 +386,9 @@ internal sealed class DeepCapsuleContextMenuSession
 
     private bool IsPointInsideContextSurface(Point screenPoint)
     {
-        if (IsPointInsideElement(_activeMenu, screenPoint))
+        var menu = _activeMenu;
+        if (IsPointInsideElement(menu, screenPoint) ||
+            (menu != null && IsPointInsideOpenMenuItems(menu, screenPoint)))
         {
             return true;
         }
