@@ -214,7 +214,13 @@ internal sealed class DeepCapsuleContextMenuSession
         }
 
         _closeScheduled = true;
-        _ = _dispatcher.BeginInvoke(new Action(ExecuteQueuedClose));
+        // The low-level hook observes mouse-down before WPF dispatches the same input. A submenu
+        // lives in its own Popup, so treating that click as outside and closing at Normal priority
+        // can destroy the menu before the child MenuItem raises Click. Let input dispatch finish
+        // first; a real outside click still closes immediately afterwards.
+        _ = _dispatcher.BeginInvoke(
+            new Action(ExecuteQueuedClose),
+            DispatcherPriority.Background);
     }
 
     private void ExecuteQueuedClose()
