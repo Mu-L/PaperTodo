@@ -15,10 +15,18 @@ internal enum EdgeCapsuleHoverIntentDecision
     Veto
 }
 
+internal enum EdgeCapsuleCorridorExitDecision
+{
+    KeepAlive,
+    ConfirmDirectionExit,
+    CloseForDirection,
+    CloseForIdle
+}
+
 /// <summary>
 /// A negative-only hover-intent gate. The live physical hit test always chooses the candidate;
-/// this policy may only add a short delay or veto an obvious pass-through. It never predicts a
-/// destination and never opens a capsule on its own.
+/// this policy may only delay/veto an activation or release an already empty queue corridor. It
+/// never chooses a destination and never opens a capsule on its own.
 /// </summary>
 internal sealed class EdgeCapsuleHoverIntentPredictor
 {
@@ -37,7 +45,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         StableFallbackMilliseconds: 38,
         MinimumDirectionalSpeedDipPerMillisecond: 0.13,
         MinimumDirectionConsistency: 0.76,
-        MinimumVerticalDominance: 0.60);
+        MinimumVerticalDominance: 0.60,
+        CorridorExit: new CorridorExitProfile(
+            0.060, 0.62, 320, 12, 110, 1400));
 
     private static readonly IntentSensitivityProfile HighProfile = new(
         Initial: new IntentProfile(8, 8, 32, 80, 180),
@@ -45,7 +55,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         StableFallbackMilliseconds: 50,
         MinimumDirectionalSpeedDipPerMillisecond: 0.10,
         MinimumDirectionConsistency: 0.72,
-        MinimumVerticalDominance: 0.55);
+        MinimumVerticalDominance: 0.55,
+        CorridorExit: new CorridorExitProfile(
+            0.075, 0.68, 400, 16, 145, 1800));
 
     private static readonly IntentSensitivityProfile MediumProfile = new(
         Initial: new IntentProfile(8, 10, 36, 90, 200),
@@ -53,7 +65,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         StableFallbackMilliseconds: 60,
         MinimumDirectionalSpeedDipPerMillisecond: 0.075,
         MinimumDirectionConsistency: 0.68,
-        MinimumVerticalDominance: 0.50);
+        MinimumVerticalDominance: 0.50,
+        CorridorExit: new CorridorExitProfile(
+            0.090, 0.74, 500, 20, 190, 2400));
 
     // "Low" describes activation sensitivity: it applies longer waits and recognizes less
     // pronounced residual motion as pass-through risk, so stopping must be more deliberate.
@@ -63,7 +77,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         StableFallbackMilliseconds: 85,
         MinimumDirectionalSpeedDipPerMillisecond: 0.055,
         MinimumDirectionConsistency: 0.64,
-        MinimumVerticalDominance: 0.45);
+        MinimumVerticalDominance: 0.45,
+        CorridorExit: new CorridorExitProfile(
+            0.110, 0.79, 640, 24, 260, 3200));
 
     private static readonly IntentSensitivityProfile VeryLowProfile = new(
         Initial: new IntentProfile(12, 18, 54, 135, 300),
@@ -71,7 +87,9 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         StableFallbackMilliseconds: 110,
         MinimumDirectionalSpeedDipPerMillisecond: 0.040,
         MinimumDirectionConsistency: 0.60,
-        MinimumVerticalDominance: 0.40);
+        MinimumVerticalDominance: 0.40,
+        CorridorExit: new CorridorExitProfile(
+            0.140, 0.84, 800, 30, 360, 4400));
 
     private readonly PointerSample[] _samples =
         new PointerSample[SampleCapacity];
@@ -97,13 +115,25 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         double StableFallbackMilliseconds,
         double MinimumDirectionalSpeedDipPerMillisecond,
         double MinimumDirectionConsistency,
-        double MinimumVerticalDominance);
+        double MinimumVerticalDominance,
+        CorridorExitProfile CorridorExit);
+
+    private readonly record struct CorridorExitProfile(
+        double MinimumSpeedDipPerMillisecond,
+        double MinimumPathConsistency,
+        double ProjectionHorizonMilliseconds,
+        double TargetPaddingDip,
+        double DirectionConfirmationMilliseconds,
+        double IdleCloseMilliseconds);
 
     private readonly record struct MotionEstimate(
         bool HasMotion,
+        double SignedHorizontalSpeedDipPerMillisecond,
         double SignedVerticalSpeedDipPerMillisecond,
+        double RecentSpeedDipPerMillisecond,
         double RecentVerticalSpeedDipPerMillisecond,
         double PriorVerticalSpeedDipPerMillisecond,
+        double PathConsistency,
         double DirectionConsistency,
         double VerticalDominance,
         bool HasSpeedTrend);
@@ -269,6 +299,71 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             : EdgeCapsuleHoverIntentDecision.Delay;
     }
 
+    /// <summary>
+    /// Evaluates only the empty area inside the queue's outer corridor. The currently open card and
+    /// every eligible compact capsule are supplied as keep-alive bounds. A coherent projected path
+    /// must miss all of them for a sensitivity-dependent confirmation period before it may close;
+    /// an idle pointer uses a deliberately longer fallback.
+    /// </summary>
+    public EdgeCapsuleCorridorExitDecision EvaluateCorridorExit(
+        string sensitivity,
+        ReadOnlySpan<DeviceScreenRect> keepAliveBounds,
+        DeviceScreenPoint pointer,
+        double directionAwayElapsedMilliseconds,
+        double stableElapsedMilliseconds)
+    {
+        var profile = ResolveSensitivityProfile(sensitivity).CorridorExit;
+        if (stableElapsedMilliseconds >= profile.IdleCloseMilliseconds)
+        {
+            return EdgeCapsuleCorridorExitDecision.CloseForIdle;
+        }
+
+        var motion = EstimateMotion();
+        if (!motion.HasMotion ||
+            motion.RecentSpeedDipPerMillisecond <
+                profile.MinimumSpeedDipPerMillisecond ||
+            motion.PathConsistency < profile.MinimumPathConsistency)
+        {
+            return EdgeCapsuleCorridorExitDecision.KeepAlive;
+        }
+
+        var projectedX = pointer.X +
+            motion.SignedHorizontalSpeedDipPerMillisecond *
+            profile.ProjectionHorizonMilliseconds *
+            _dpiScaleX;
+        var projectedY = pointer.Y +
+            motion.SignedVerticalSpeedDipPerMillisecond *
+            profile.ProjectionHorizonMilliseconds *
+            _dpiScaleY;
+        var horizontalPadding =
+            profile.TargetPaddingDip * _dpiScaleX;
+        var verticalPadding =
+            profile.TargetPaddingDip * _dpiScaleY;
+        foreach (var bounds in keepAliveBounds)
+        {
+            if (SegmentIntersectsBounds(
+                    pointer,
+                    projectedX,
+                    projectedY,
+                    bounds,
+                    horizontalPadding,
+                    verticalPadding))
+            {
+                return EdgeCapsuleCorridorExitDecision.KeepAlive;
+            }
+        }
+
+        return directionAwayElapsedMilliseconds >=
+            profile.DirectionConfirmationMilliseconds
+            ? EdgeCapsuleCorridorExitDecision.CloseForDirection
+            : EdgeCapsuleCorridorExitDecision.ConfirmDirectionExit;
+    }
+
+    public double CorridorIdleCloseMilliseconds(string sensitivity) =>
+        ResolveSensitivityProfile(sensitivity)
+            .CorridorExit
+            .IdleCloseMilliseconds;
+
     private MotionEstimate EstimateMotion()
     {
         if (_sampleCount < 2)
@@ -307,11 +402,12 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             totalVerticalDistance += Math.Abs(deltaY);
         }
 
+        var netHorizontalDistance =
+            (latest.Point.X - first.Point.X) / _dpiScaleX;
         var netVerticalDistance =
             (latest.Point.Y - first.Point.Y) / _dpiScaleY;
         var absoluteNetVerticalDistance = Math.Abs(netVerticalDistance);
-        if (totalDistance <= double.Epsilon ||
-            totalVerticalDistance <= double.Epsilon)
+        if (totalDistance <= double.Epsilon)
         {
             return default;
         }
@@ -341,11 +437,18 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             recentDuration = duration;
         }
 
+        var recentHorizontalDelta =
+            (latest.Point.X - midpoint.Point.X) / _dpiScaleX;
         var recentVerticalDelta =
             (latest.Point.Y - midpoint.Point.Y) / _dpiScaleY;
+        var recentSignedHorizontalSpeed =
+            recentHorizontalDelta / recentDuration;
         var recentSignedVerticalSpeed =
             recentVerticalDelta / recentDuration;
         var recentVerticalSpeed = Math.Abs(recentSignedVerticalSpeed);
+        var recentSpeed = Math.Sqrt(
+            recentSignedHorizontalSpeed * recentSignedHorizontalSpeed +
+            recentSignedVerticalSpeed * recentSignedVerticalSpeed);
         var priorDuration = ElapsedMilliseconds(
             first.Timestamp,
             midpoint.Timestamp);
@@ -357,17 +460,88 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
         return new MotionEstimate(
             HasMotion: true,
+            SignedHorizontalSpeedDipPerMillisecond:
+                recentSignedHorizontalSpeed,
             SignedVerticalSpeedDipPerMillisecond:
                 recentSignedVerticalSpeed,
+            RecentSpeedDipPerMillisecond: recentSpeed,
             RecentVerticalSpeedDipPerMillisecond:
                 recentVerticalSpeed,
             PriorVerticalSpeedDipPerMillisecond:
                 priorVerticalSpeed,
+            PathConsistency: Math.Sqrt(
+                netHorizontalDistance * netHorizontalDistance +
+                netVerticalDistance * netVerticalDistance) /
+                totalDistance,
             DirectionConsistency:
-                absoluteNetVerticalDistance / totalVerticalDistance,
+                totalVerticalDistance > double.Epsilon
+                    ? absoluteNetVerticalDistance / totalVerticalDistance
+                    : 0,
             VerticalDominance:
                 absoluteNetVerticalDistance / totalDistance,
             HasSpeedTrend: priorDuration > 0);
+    }
+
+    private static bool SegmentIntersectsBounds(
+        DeviceScreenPoint start,
+        double endX,
+        double endY,
+        DeviceScreenRect bounds,
+        double horizontalPadding,
+        double verticalPadding)
+    {
+        if (bounds.IsEmpty)
+        {
+            return false;
+        }
+
+        var minimumX = bounds.Left - Math.Max(0, horizontalPadding);
+        var maximumX = bounds.Right + Math.Max(0, horizontalPadding);
+        var minimumY = bounds.Top - Math.Max(0, verticalPadding);
+        var maximumY = bounds.Bottom + Math.Max(0, verticalPadding);
+        var deltaX = endX - start.X;
+        var deltaY = endY - start.Y;
+        var minimumTime = 0.0;
+        var maximumTime = 1.0;
+        return SegmentAxisIntersects(
+                start.X,
+                deltaX,
+                minimumX,
+                maximumX,
+                ref minimumTime,
+                ref maximumTime) &&
+            SegmentAxisIntersects(
+                start.Y,
+                deltaY,
+                minimumY,
+                maximumY,
+                ref minimumTime,
+                ref maximumTime);
+    }
+
+    private static bool SegmentAxisIntersects(
+        double start,
+        double delta,
+        double minimum,
+        double maximum,
+        ref double minimumTime,
+        ref double maximumTime)
+    {
+        if (Math.Abs(delta) <= double.Epsilon)
+        {
+            return start >= minimum && start <= maximum;
+        }
+
+        var first = (minimum - start) / delta;
+        var second = (maximum - start) / delta;
+        if (first > second)
+        {
+            (first, second) = (second, first);
+        }
+
+        minimumTime = Math.Max(minimumTime, first);
+        maximumTime = Math.Min(maximumTime, second);
+        return minimumTime <= maximumTime;
     }
 
     private static IntentSensitivityProfile ResolveSensitivityProfile(

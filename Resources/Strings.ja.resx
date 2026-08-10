@@ -775,13 +775,13 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>ポインター意図予測を有効にする</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
-    <value>ポインターの速度、方向、減速傾向に基づき、素早く通過するときのプレビュー展開を遅延または抑制します。対象を予測したり代わりに選択したりはしません。オフにすると最初のプレビューは即座に開き、その後の切り替えには固定 50 ms の安定待ちを使用します。</value>
+    <value>ポインターの速度、方向、減速傾向に基づき、素早く通過するときのプレビュー展開を遅延または抑制します。展開後は、空白の通路で閲覧可能なすべてのカプセルから明確に離れるか、長く停止した場合にも閉じます。対象を代わりに選択することはありません。オフにすると最初のプレビューは即座に開き、その後の切り替えには固定 50 ms の安定待ちを使用し、空白の通路では意図判定による収納を行いません。</value>
   </data>
   <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>起動感度</value>
+    <value>意図判定の感度</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
-    <value>「最低」から「最高」までの 5 段階です。低いほど明確な停止が必要で、高いほど開きやすくなります。「中」は推奨バランスです。</value>
+    <value>「最低」から「最高」までの 5 段階です。低いほど対象上での明確な停止が必要になり、空白領域も長く保持します。高いほど開きやすく、対象のない空白領域も早く解放します。「中」は推奨バランスです。</value>
   </data>
   <data name="EdgeCapsuleHoverIntentSensitivityVeryLow" xml:space="preserve">
     <value>最低</value>
