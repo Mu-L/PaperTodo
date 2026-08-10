@@ -8,6 +8,7 @@ public sealed partial class AppController
     private const double EdgeCapsulePreviewTransferStableMilliseconds = 50;
     private const double EdgeCapsulePreviewPointerToleranceDip = 2;
     private const double EdgeCapsulePreviewCorridorToleranceDip = 10;
+    private const double EdgeCapsulePreviewFixedCorridorCloseMilliseconds = 3000;
     private const double EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds = 24;
     private const double EdgeCapsulePreviewCorridorTrackingSettleMilliseconds = 140;
 
@@ -58,6 +59,7 @@ public sealed partial class AppController
 
     private readonly record struct EdgeCapsulePreviewCorridorExitIntent(
         string OwnerPaperId,
+        long CorridorSinceTimestamp,
         DeviceScreenPoint StableAnchor,
         long StableSinceTimestamp,
         long? DirectionAwaySinceTimestamp);
@@ -1028,13 +1030,9 @@ public sealed partial class AppController
         EdgeCapsulePreviewLayoutSession session,
         DeviceScreenPoint pointer)
     {
-        if (!State.ExperimentalEdgeCapsuleHoverIntent)
-        {
-            ResetEdgeCapsulePreviewCorridorExitIntent();
-            return;
-        }
-
         var now = Stopwatch.GetTimestamp();
+        var predictiveIntentEnabled =
+            State.ExperimentalEdgeCapsuleHoverIntent;
         var intent = _edgeCapsulePreviewCorridorExitIntent;
         var current = !intent.HasValue ||
             !string.Equals(
@@ -1043,44 +1041,51 @@ public sealed partial class AppController
                 StringComparison.Ordinal)
             ? new EdgeCapsulePreviewCorridorExitIntent(
                 session.OwnerPaperId,
+                now,
                 pointer,
                 now,
                 null)
             : intent.Value;
 
-        double dpiScaleX;
-        double dpiScaleY;
-        if (owner.TryGetEdgeCapsuleAppliedGeometry(out var ownerGeometry))
+        if (predictiveIntentEnabled)
         {
-            dpiScaleX = ownerGeometry.DpiScaleX;
-            dpiScaleY = ownerGeometry.DpiScaleY;
-        }
-        else if (WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
-                pointer,
-                out var monitor))
-        {
-            dpiScaleX = monitor.DpiScaleX;
-            dpiScaleY = monitor.DpiScaleY;
-        }
-        else
-        {
-            ResetEdgeCapsulePreviewCorridorExitIntent();
-            return;
-        }
-
-        if (EdgeCapsulePreviewPointerMovedBeyondTolerance(
-                current.StableAnchor,
-                pointer,
-                dpiScaleX,
-                dpiScaleY))
-        {
-            current = current with
+            double dpiScaleX;
+            double dpiScaleY;
+            if (owner.TryGetEdgeCapsuleAppliedGeometry(out var ownerGeometry))
             {
-                StableAnchor = pointer,
-                StableSinceTimestamp = now
-            };
+                dpiScaleX = ownerGeometry.DpiScaleX;
+                dpiScaleY = ownerGeometry.DpiScaleY;
+            }
+            else if (WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                    pointer,
+                    out var monitor))
+            {
+                dpiScaleX = monitor.DpiScaleX;
+                dpiScaleY = monitor.DpiScaleY;
+            }
+            else
+            {
+                ResetEdgeCapsulePreviewCorridorExitIntent();
+                return;
+            }
+
+            if (EdgeCapsulePreviewPointerMovedBeyondTolerance(
+                    current.StableAnchor,
+                    pointer,
+                    dpiScaleX,
+                    dpiScaleY))
+            {
+                current = current with
+                {
+                    StableAnchor = pointer,
+                    StableSinceTimestamp = now
+                };
+            }
         }
 
+        var corridorElapsed = Stopwatch.GetElapsedTime(
+            current.CorridorSinceTimestamp,
+            now).TotalMilliseconds;
         var directionAwayElapsed = current.DirectionAwaySinceTimestamp.HasValue
             ? Stopwatch.GetElapsedTime(
                 current.DirectionAwaySinceTimestamp.Value,
@@ -1090,31 +1095,42 @@ public sealed partial class AppController
             current.StableSinceTimestamp,
             now).TotalMilliseconds;
 
-        Span<DeviceScreenRect> keepAliveBounds =
-            session.QueuePaperIds.Count <= 32
-                ? stackalloc DeviceScreenRect[session.QueuePaperIds.Count]
-                : new DeviceScreenRect[session.QueuePaperIds.Count];
-        var keepAliveCount = 0;
-        foreach (var paperId in session.QueuePaperIds)
+        EdgeCapsuleCorridorExitDecision decision;
+        if (!predictiveIntentEnabled)
         {
-            if (!_windows.TryGetValue(paperId, out var candidate) ||
-                !candidate.CanEnterEdgeCapsulePreview ||
-                !candidate.TryGetEdgeCapsuleInteractiveGeometry(
-                    out var geometry))
+            decision = corridorElapsed >=
+                EdgeCapsulePreviewFixedCorridorCloseMilliseconds
+                ? EdgeCapsuleCorridorExitDecision.CloseForIdle
+                : EdgeCapsuleCorridorExitDecision.KeepAlive;
+        }
+        else
+        {
+            Span<DeviceScreenRect> keepAliveBounds =
+                session.QueuePaperIds.Count <= 32
+                    ? stackalloc DeviceScreenRect[session.QueuePaperIds.Count]
+                    : new DeviceScreenRect[session.QueuePaperIds.Count];
+            var keepAliveCount = 0;
+            foreach (var paperId in session.QueuePaperIds)
             {
-                continue;
+                if (!_windows.TryGetValue(paperId, out var candidate) ||
+                    !candidate.CanEnterEdgeCapsulePreview ||
+                    !candidate.TryGetEdgeCapsuleInteractiveGeometry(
+                        out var geometry))
+                {
+                    continue;
+                }
+
+                keepAliveBounds[keepAliveCount++] = geometry.Bounds;
             }
 
-            keepAliveBounds[keepAliveCount++] = geometry.Bounds;
+            decision = _edgeCapsulePreviewIntentPredictor
+                .EvaluateCorridorExit(
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
+                    keepAliveBounds.Slice(0, keepAliveCount),
+                    pointer,
+                    directionAwayElapsed,
+                    stableElapsed);
         }
-
-        var decision = _edgeCapsulePreviewIntentPredictor
-            .EvaluateCorridorExit(
-                State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
-                keepAliveBounds.Slice(0, keepAliveCount),
-                pointer,
-                directionAwayElapsed,
-                stableElapsed);
         switch (decision)
         {
             case EdgeCapsuleCorridorExitDecision.ConfirmDirectionExit:
@@ -1129,6 +1145,7 @@ public sealed partial class AppController
                 TraceEdgeCapsulePreview(
                     $"corridor close owner={EdgeCapsulePreviewTraceId(session.OwnerPaperId)} " +
                     $"reason={decision} pointer={pointer.X},{pointer.Y} " +
+                    $"corridorMs={corridorElapsed:F1} " +
                     $"awayMs={directionAwayElapsed:F1} stableMs={stableElapsed:F1}");
                 QueueEdgeCapsulePreviewClose(
                     owner,
@@ -1157,17 +1174,27 @@ public sealed partial class AppController
             return;
         }
 
-        var idleCloseMilliseconds = _edgeCapsulePreviewIntentPredictor
-            .CorridorIdleCloseMilliseconds(
-                State.ExperimentalEdgeCapsuleHoverIntentSensitivity);
+        var predictiveIntentEnabled =
+            State.ExperimentalEdgeCapsuleHoverIntent;
+        var idleCloseMilliseconds = predictiveIntentEnabled
+            ? _edgeCapsulePreviewIntentPredictor
+                .CorridorIdleCloseMilliseconds(
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity)
+            : EdgeCapsulePreviewFixedCorridorCloseMilliseconds;
         var stableElapsed = Stopwatch.GetElapsedTime(
             intent.StableSinceTimestamp,
             now).TotalMilliseconds;
-        var remaining = Math.Max(1, idleCloseMilliseconds - stableElapsed);
+        var corridorElapsed = Stopwatch.GetElapsedTime(
+            intent.CorridorSinceTimestamp,
+            now).TotalMilliseconds;
+        var closeElapsed = predictiveIntentEnabled
+            ? stableElapsed
+            : corridorElapsed;
+        var remaining = Math.Max(1, idleCloseMilliseconds - closeElapsed);
         // Empty corridor pixels are intentionally HTTRANSPARENT, so they do not keep producing WPF
-        // mouse moves. Sample briefly while motion is still present; once settled, switch to one
-        // idle deadline instead of polling a static card at the monitor refresh rate.
-        var nextCheck = stableElapsed <
+        // mouse moves. Predictive mode samples briefly while motion is still present, then switches
+        // to one idle deadline; fixed mode always schedules only its single corridor deadline.
+        var nextCheck = predictiveIntentEnabled && stableElapsed <
             EdgeCapsulePreviewCorridorTrackingSettleMilliseconds
             ? Math.Min(
                 EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds,
@@ -1194,7 +1221,6 @@ public sealed partial class AppController
     {
         _edgeCapsulePreviewCorridorIntentTimer?.Stop();
         if (IsExiting ||
-            !State.ExperimentalEdgeCapsuleHoverIntent ||
             _edgeCapsulePreviewCorridorExitIntent is not { } intent ||
             _edgeCapsulePreviewSession is not { } session ||
             !string.Equals(

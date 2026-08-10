@@ -788,7 +788,7 @@
     <value>启用鼠标意图预测</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
-    <value>根据鼠标速度、方向和减速趋势，延迟或阻止快速掠过时的预览展开；展开后，在空白走廊中明显远离所有可浏览胶囊或停留过久也会收起。不会替你选择目标。关闭后首次预览立即展开，后续切换使用固定 50 毫秒稳定等待，空白走廊不做意图收起。</value>
+    <value>根据鼠标速度、方向和减速趋势，延迟或阻止快速掠过时的预览展开；展开后，在空白走廊中明显远离所有可浏览胶囊或停留过久也会收起。不会替你选择目标。关闭后首次预览立即展开，后续切换使用固定 50 毫秒稳定等待；空白走廊不分析方向，连续停留 3 秒后固定收起。</value>
   </data>
   <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
     <value>意图敏感度</value>
