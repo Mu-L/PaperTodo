@@ -95,16 +95,19 @@ internal sealed partial class EdgeCapsuleHost
         var bodyHeight = Math.Max(
             1,
             windowHeightDip - _options.WindowChromeMargin * 2);
-        var outlineMargin =
-            _options.WindowChromeMargin -
-            _options.OutlineThickness +
-            _options.OutlineOverlap;
 
-        Chrome.Height = bodyHeight;
-        Shell.Height = bodyHeight;
-        Outline.Height = Math.Max(
-            0,
-            windowHeightDip - outlineMargin * 2);
+        // VisualSurface already owns the exact device-pixel frame height. Reconstructing the
+        // vertical layout as top margin + explicit DIP height + bottom margin makes WPF round the
+        // three pieces independently; during an animated shrink that sum can exceed the native
+        // frame by one device pixel and clip the lower inner rounded corner. Stretch all three
+        // layers inside the exact surface height instead, so the corner and outline share one
+        // physical bottom edge throughout preview expansion and retraction.
+        Chrome.VerticalAlignment = VerticalAlignment.Stretch;
+        Chrome.Height = double.NaN;
+        Shell.VerticalAlignment = VerticalAlignment.Stretch;
+        Shell.Height = double.NaN;
+        Outline.VerticalAlignment = VerticalAlignment.Stretch;
+        Outline.Height = double.NaN;
 
         var heightExpanded =
             bodyHeight > _options.BodyHeight + 0.5;
