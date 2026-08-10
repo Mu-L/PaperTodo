@@ -305,7 +305,7 @@
         `${title}\u001f${capsuleProgressStep}\u001f${settings.showDayProgress ? 1 : 0}`;
       if (paperApi && capsuleSignature !== lastCapsuleSignature) {
         paperApi.setCapsulePresentation({
-          preferredWidth: 132,
+          preferredWidth: 0,
           plainText: title,
           toolTip: title,
           components: settings.showDayProgress

@@ -3,7 +3,7 @@
   "id": "sample.clock.native",
   "name": "原生时钟",
   "description": "完整的 WPF 时钟示例：时区、日期格式、标题和日进度均可配置。",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "apiVersion": "1.7",
   "stateVersion": 1,
   "entry": "PaperTodo.Plugin.SampleClock.dll",
