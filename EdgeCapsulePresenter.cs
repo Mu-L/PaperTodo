@@ -296,9 +296,15 @@ internal sealed class EdgeCapsulePresenter
         Dispatcher dispatcher,
         Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
     {
-        _dirty |= dirty;
-        Configure(dispatcher, reconcile);
-        Schedule();
+        QueueReconcile(dirty, dispatcher, reconcile, beforeNextRender: false);
+    }
+
+    public void InvalidateBeforeNextRender(
+        EdgeCapsuleDirty dirty,
+        Dispatcher dispatcher,
+        Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
+    {
+        QueueReconcile(dirty, dispatcher, reconcile, beforeNextRender: true);
     }
 
     public void Flush(
@@ -443,13 +449,28 @@ internal sealed class EdgeCapsulePresenter
         _reconcile = reconcile;
     }
 
-    private void Schedule()
+    private void QueueReconcile(
+        EdgeCapsuleDirty dirty,
+        Dispatcher dispatcher,
+        Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile,
+        bool beforeNextRender)
     {
-        if (_reconcileScheduled || _dispatcher == null || _reconcile == null)
+        _dirty |= dirty;
+        Configure(dispatcher, reconcile);
+
+        if (_dispatcher == null || _reconcile == null)
         {
             return;
         }
 
+        if (_reconcileScheduled)
+        {
+            return;
+        }
+
+        var priority = beforeNextRender
+            ? DispatcherPriority.Send
+            : DispatcherPriority.Loaded;
         _reconcileScheduled = true;
         var generation = ++_reconcileGeneration;
         _dispatcher.BeginInvoke(
@@ -462,7 +483,15 @@ internal sealed class EdgeCapsulePresenter
                 _reconcileScheduled = false;
                 RunReconcile();
             }),
-            DispatcherPriority.Loaded);
+            priority);
+
+        if (beforeNextRender)
+        {
+            // This is one physical host's input wake-up, not a cross-window layout batch. Send
+            // runs after the current routed event and before Render; a Loaded barrier here would
+            // recreate the extra composition-frame delay this path exists to remove.
+            return;
+        }
 
         // Render runs above Loaded. Without a shared barrier, the first queue member whose Loaded
         // callback reconciles can advance one composition frame before later siblings reconcile.

@@ -94,7 +94,7 @@ public sealed partial class PaperWindow
             return;
         }
         _edgeCapsuleHost.AttachInput(new EdgeCapsuleHostCallbacks(
-            InvalidateEdgeCapsulePointer,
+            InvalidateEdgeCapsulePointerFromHostInput,
             OnEdgeCapsulePointerPressed,
             OnEdgeCapsulePointerMoved,
             OnEdgeCapsulePointerReleased,
@@ -272,6 +272,16 @@ public sealed partial class PaperWindow
 
     private void InvalidateEdgeCapsulePointer() =>
         InvalidateEdgeCapsule(EdgeCapsuleDirty.Pointer);
+
+    private void InvalidateEdgeCapsulePointerFromHostInput()
+    {
+        _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
+        _edgeCapsule.InvalidateBeforeNextRender(
+            EdgeCapsuleDirty.Pointer,
+            dispatcher,
+            ReconcileEdgeCapsule);
+    }
 
     private void ScheduleDeepCapsuleSlotMeasureRefresh()
     {
