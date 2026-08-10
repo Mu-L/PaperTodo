@@ -8,14 +8,21 @@ public sealed partial class AppController
     private const double EdgeCapsulePreviewTransferStableMilliseconds = 50;
     private const double EdgeCapsulePreviewPointerToleranceDip = 2;
     private const double EdgeCapsulePreviewCorridorToleranceDip = 10;
+    private const double EdgeCapsulePreviewFixedCorridorCloseMilliseconds = 3000;
+    private const double EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds = 24;
+    private const double EdgeCapsulePreviewCorridorTrackingSettleMilliseconds = 140;
 
     private readonly EdgeCapsuleHoverIntentPredictor
         _edgeCapsulePreviewIntentPredictor = new();
     private EdgeCapsulePreviewLayoutSession? _edgeCapsulePreviewSession;
     private string? _edgeCapsulePreviewQueuedTransferPaperId;
     private string? _edgeCapsulePreviewQueuedCloseOwnerPaperId;
+    private EdgeCapsulePreviewCloseReason _edgeCapsulePreviewQueuedCloseReason;
     private EdgeCapsulePreviewActivationIntent?
         _edgeCapsulePreviewActivationIntent;
+    private EdgeCapsulePreviewCorridorExitIntent?
+        _edgeCapsulePreviewCorridorExitIntent;
+    private DispatcherTimer? _edgeCapsulePreviewCorridorIntentTimer;
     private EdgeCapsulePreviewPointerAnchor?
         _edgeCapsulePreviewLayoutSuppressionAnchor;
     private int _edgeCapsulePreviewTransferGeneration;
@@ -44,8 +51,22 @@ public sealed partial class AppController
         double DpiScaleX,
         double DpiScaleY);
 
+    private enum EdgeCapsulePreviewCloseReason
+    {
+        OutsideCorridor,
+        CorridorIntent
+    }
+
+    private readonly record struct EdgeCapsulePreviewCorridorExitIntent(
+        string OwnerPaperId,
+        long CorridorSinceTimestamp,
+        DeviceScreenPoint StableAnchor,
+        long StableSinceTimestamp,
+        long? DirectionAwaySinceTimestamp);
+
     private readonly record struct EdgeCapsulePreviewPointerResolution(
         PaperWindow? Target,
+        bool OwnerContains,
         bool CorridorContains);
 
     private EdgeCapsuleQueuePlan BuildCurrentEdgeCapsuleQueuePlan()
@@ -149,7 +170,10 @@ public sealed partial class AppController
         _edgeCapsulePreviewSession = null;
         _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
+        _edgeCapsulePreviewQueuedCloseReason =
+            EdgeCapsulePreviewCloseReason.OutsideCorridor;
         _edgeCapsulePreviewActivationIntent = null;
+        ResetEdgeCapsulePreviewCorridorExitIntent();
         _edgeCapsulePreviewIntentPredictor.Reset();
         _edgeCapsulePreviewLayoutSuppressionAnchor = null;
         _edgeCapsulePreviewTransferGeneration++;
@@ -226,6 +250,7 @@ public sealed partial class AppController
         var session = _edgeCapsulePreviewSession;
         if (session == null)
         {
+            ResetEdgeCapsulePreviewCorridorExitIntent();
             if (!pointer.HasValue)
             {
                 return;
@@ -275,6 +300,7 @@ public sealed partial class AppController
                 $"owner sample blocked owner={EdgeCapsulePreviewTraceId(session.OwnerPaperId)} " +
                 $"eligibility={window.EdgeCapsulePreviewEligibilityTrace()}");
             CancelEdgeCapsulePreviewActivationIntent();
+            ResetEdgeCapsulePreviewCorridorExitIntent();
             QueueEdgeCapsulePreviewClose(window, session.OwnerPaperId);
             return;
         }
@@ -285,6 +311,7 @@ public sealed partial class AppController
             ForgetEdgeCapsulePreviewPointerResolution();
             CancelEdgeCapsulePreviewActivationIntent();
             CancelQueuedEdgeCapsulePreviewClose();
+            ResetEdgeCapsulePreviewCorridorExitIntent();
             return;
         }
 
@@ -300,9 +327,21 @@ public sealed partial class AppController
         var resolution = ResolveEdgeCapsulePreviewPointer(
             session,
             pointer.Value);
+        if (resolution.OwnerContains)
+        {
+            CancelEdgeCapsulePreviewActivationIntent();
+            CancelQueuedEdgeCapsulePreviewClose();
+            ResetEdgeCapsulePreviewCorridorExitIntent();
+            RememberEdgeCapsulePreviewPointerResolution(
+                session,
+                pointer.Value);
+            return;
+        }
+
         if (resolution.Target != null)
         {
             CancelQueuedEdgeCapsulePreviewClose();
+            ResetEdgeCapsulePreviewCorridorExitIntent();
             if (IsEdgeCapsulePreviewLayoutSuppressedFor(
                     resolution.Target))
             {
@@ -324,6 +363,10 @@ public sealed partial class AppController
         if (resolution.CorridorContains)
         {
             CancelQueuedEdgeCapsulePreviewClose();
+            AdvanceEdgeCapsulePreviewCorridorExitIntent(
+                window,
+                session,
+                pointer.Value);
             RememberEdgeCapsulePreviewPointerResolution(
                 session,
                 pointer.Value);
@@ -332,6 +375,7 @@ public sealed partial class AppController
 
         // Leaving the complete queue corridor is not part of transfer debounce. Close on the next
         // safe dispatcher turn even if the physical pointer is still moving.
+        ResetEdgeCapsulePreviewCorridorExitIntent();
         RememberEdgeCapsulePreviewPointerResolution(
             session,
             pointer.Value);
@@ -373,17 +417,24 @@ public sealed partial class AppController
 
     private void QueueEdgeCapsulePreviewClose(
         PaperWindow window,
-        string ownerPaperId)
+        string ownerPaperId,
+        EdgeCapsulePreviewCloseReason reason =
+            EdgeCapsulePreviewCloseReason.OutsideCorridor)
     {
         if (string.Equals(
                 _edgeCapsulePreviewQueuedCloseOwnerPaperId,
                 ownerPaperId,
                 StringComparison.Ordinal))
         {
+            if (reason == EdgeCapsulePreviewCloseReason.CorridorIntent)
+            {
+                _edgeCapsulePreviewQueuedCloseReason = reason;
+            }
             return;
         }
 
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = ownerPaperId;
+        _edgeCapsulePreviewQueuedCloseReason = reason;
         var generation = ++_edgeCapsulePreviewCloseGeneration;
         window.Dispatcher.BeginInvoke(
             (Action)(() =>
@@ -397,7 +448,10 @@ public sealed partial class AppController
                     return;
                 }
 
+                var queuedReason = _edgeCapsulePreviewQueuedCloseReason;
                 _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
+                _edgeCapsulePreviewQueuedCloseReason =
+                    EdgeCapsulePreviewCloseReason.OutsideCorridor;
                 if (IsExiting ||
                     _edgeCapsulePreviewSession is not { } session ||
                     !string.Equals(
@@ -413,16 +467,25 @@ public sealed partial class AppController
                     return;
                 }
 
+                var resolution = ResolveEdgeCapsulePreviewPointer(
+                    session,
+                    pointer);
                 if (owner.CanEnterEdgeCapsulePreview &&
-                    ResolveEdgeCapsulePreviewPointer(session, pointer)
-                    .CorridorContains)
+                    (resolution.OwnerContains || resolution.Target != null))
+                {
+                    return;
+                }
+                if (owner.CanEnterEdgeCapsulePreview &&
+                    queuedReason ==
+                        EdgeCapsulePreviewCloseReason.OutsideCorridor &&
+                    resolution.CorridorContains)
                 {
                     return;
                 }
 
                 TraceEdgeCapsulePreview(
                     $"close queued owner={EdgeCapsulePreviewTraceId(ownerPaperId)} " +
-                    $"pointer={pointer.X},{pointer.Y}");
+                    $"reason={queuedReason} pointer={pointer.X},{pointer.Y}");
                 CloseEdgeCapsulePreview(animate: true, arrange: true);
             }),
             DispatcherPriority.Input);
@@ -436,6 +499,8 @@ public sealed partial class AppController
         }
 
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
+        _edgeCapsulePreviewQueuedCloseReason =
+            EdgeCapsulePreviewCloseReason.OutsideCorridor;
         _edgeCapsulePreviewCloseGeneration++;
     }
 
@@ -575,6 +640,8 @@ public sealed partial class AppController
         _edgeCapsulePreviewCloseGeneration++;
         _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
+        _edgeCapsulePreviewQueuedCloseReason =
+            EdgeCapsulePreviewCloseReason.OutsideCorridor;
         _edgeCapsulePreviewActivationIntent = null;
         var request = window.PrepareEdgeCapsulePreview();
         if (request == null)
@@ -633,6 +700,7 @@ public sealed partial class AppController
             }
         }
 
+        ResetEdgeCapsulePreviewCorridorExitIntent();
         RecordEdgeCapsulePreviewTransferPointer(window, next.QueueKey);
         ArrangeDeepCapsules(animate: true);
         var displaced = string.Join(
@@ -656,7 +724,10 @@ public sealed partial class AppController
         _edgeCapsulePreviewSession = null;
         _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
+        _edgeCapsulePreviewQueuedCloseReason =
+            EdgeCapsulePreviewCloseReason.OutsideCorridor;
         _edgeCapsulePreviewActivationIntent = null;
+        ResetEdgeCapsulePreviewCorridorExitIntent();
         PaperWindow? owner = null;
         if (session != null &&
             _windows.TryGetValue(session.OwnerPaperId, out var currentOwner))
@@ -954,6 +1025,244 @@ public sealed partial class AppController
             dpiScaleY);
     }
 
+    private void AdvanceEdgeCapsulePreviewCorridorExitIntent(
+        PaperWindow owner,
+        EdgeCapsulePreviewLayoutSession session,
+        DeviceScreenPoint pointer)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var predictiveIntentEnabled =
+            State.ExperimentalEdgeCapsuleHoverIntent;
+        var intent = _edgeCapsulePreviewCorridorExitIntent;
+        var current = !intent.HasValue ||
+            !string.Equals(
+                intent.Value.OwnerPaperId,
+                session.OwnerPaperId,
+                StringComparison.Ordinal)
+            ? new EdgeCapsulePreviewCorridorExitIntent(
+                session.OwnerPaperId,
+                now,
+                pointer,
+                now,
+                null)
+            : intent.Value;
+
+        if (predictiveIntentEnabled)
+        {
+            double dpiScaleX;
+            double dpiScaleY;
+            if (owner.TryGetEdgeCapsuleAppliedGeometry(out var ownerGeometry))
+            {
+                dpiScaleX = ownerGeometry.DpiScaleX;
+                dpiScaleY = ownerGeometry.DpiScaleY;
+            }
+            else if (WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
+                    pointer,
+                    out var monitor))
+            {
+                dpiScaleX = monitor.DpiScaleX;
+                dpiScaleY = monitor.DpiScaleY;
+            }
+            else
+            {
+                ResetEdgeCapsulePreviewCorridorExitIntent();
+                return;
+            }
+
+            if (EdgeCapsulePreviewPointerMovedBeyondTolerance(
+                    current.StableAnchor,
+                    pointer,
+                    dpiScaleX,
+                    dpiScaleY))
+            {
+                current = current with
+                {
+                    StableAnchor = pointer,
+                    StableSinceTimestamp = now
+                };
+            }
+        }
+
+        var corridorElapsed = Stopwatch.GetElapsedTime(
+            current.CorridorSinceTimestamp,
+            now).TotalMilliseconds;
+        var directionAwayElapsed = current.DirectionAwaySinceTimestamp.HasValue
+            ? Stopwatch.GetElapsedTime(
+                current.DirectionAwaySinceTimestamp.Value,
+                now).TotalMilliseconds
+            : 0;
+        var stableElapsed = Stopwatch.GetElapsedTime(
+            current.StableSinceTimestamp,
+            now).TotalMilliseconds;
+
+        EdgeCapsuleCorridorExitDecision decision;
+        if (!predictiveIntentEnabled)
+        {
+            decision = corridorElapsed >=
+                EdgeCapsulePreviewFixedCorridorCloseMilliseconds
+                ? EdgeCapsuleCorridorExitDecision.CloseForIdle
+                : EdgeCapsuleCorridorExitDecision.KeepAlive;
+        }
+        else
+        {
+            Span<DeviceScreenRect> keepAliveBounds =
+                session.QueuePaperIds.Count <= 32
+                    ? stackalloc DeviceScreenRect[session.QueuePaperIds.Count]
+                    : new DeviceScreenRect[session.QueuePaperIds.Count];
+            var keepAliveCount = 0;
+            foreach (var paperId in session.QueuePaperIds)
+            {
+                if (!_windows.TryGetValue(paperId, out var candidate) ||
+                    !candidate.CanEnterEdgeCapsulePreview ||
+                    !candidate.TryGetEdgeCapsuleInteractiveGeometry(
+                        out var geometry))
+                {
+                    continue;
+                }
+
+                keepAliveBounds[keepAliveCount++] = geometry.Bounds;
+            }
+
+            decision = _edgeCapsulePreviewIntentPredictor
+                .EvaluateCorridorExit(
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
+                    keepAliveBounds.Slice(0, keepAliveCount),
+                    pointer,
+                    directionAwayElapsed,
+                    stableElapsed);
+        }
+        switch (decision)
+        {
+            case EdgeCapsuleCorridorExitDecision.ConfirmDirectionExit:
+                current = current with
+                {
+                    DirectionAwaySinceTimestamp =
+                        current.DirectionAwaySinceTimestamp ?? now
+                };
+                break;
+            case EdgeCapsuleCorridorExitDecision.CloseForDirection:
+            case EdgeCapsuleCorridorExitDecision.CloseForIdle:
+                TraceEdgeCapsulePreview(
+                    $"corridor close owner={EdgeCapsulePreviewTraceId(session.OwnerPaperId)} " +
+                    $"reason={decision} pointer={pointer.X},{pointer.Y} " +
+                    $"corridorMs={corridorElapsed:F1} " +
+                    $"awayMs={directionAwayElapsed:F1} stableMs={stableElapsed:F1}");
+                QueueEdgeCapsulePreviewClose(
+                    owner,
+                    session.OwnerPaperId,
+                    EdgeCapsulePreviewCloseReason.CorridorIntent);
+                ResetEdgeCapsulePreviewCorridorExitIntent();
+                return;
+            default:
+                current = current with
+                {
+                    DirectionAwaySinceTimestamp = null
+                };
+                break;
+        }
+
+        _edgeCapsulePreviewCorridorExitIntent = current;
+        ScheduleEdgeCapsulePreviewCorridorIntentCheck(owner, now);
+    }
+
+    private void ScheduleEdgeCapsulePreviewCorridorIntentCheck(
+        PaperWindow owner,
+        long now)
+    {
+        if (_edgeCapsulePreviewCorridorExitIntent is not { } intent)
+        {
+            return;
+        }
+
+        var predictiveIntentEnabled =
+            State.ExperimentalEdgeCapsuleHoverIntent;
+        var idleCloseMilliseconds = predictiveIntentEnabled
+            ? _edgeCapsulePreviewIntentPredictor
+                .CorridorIdleCloseMilliseconds(
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity)
+            : EdgeCapsulePreviewFixedCorridorCloseMilliseconds;
+        var stableElapsed = Stopwatch.GetElapsedTime(
+            intent.StableSinceTimestamp,
+            now).TotalMilliseconds;
+        var corridorElapsed = Stopwatch.GetElapsedTime(
+            intent.CorridorSinceTimestamp,
+            now).TotalMilliseconds;
+        var closeElapsed = predictiveIntentEnabled
+            ? stableElapsed
+            : corridorElapsed;
+        var remaining = Math.Max(1, idleCloseMilliseconds - closeElapsed);
+        // Empty corridor pixels are intentionally HTTRANSPARENT, so they do not keep producing WPF
+        // mouse moves. Predictive mode samples briefly while motion is still present, then switches
+        // to one idle deadline; fixed mode always schedules only its single corridor deadline.
+        var nextCheck = predictiveIntentEnabled && stableElapsed <
+            EdgeCapsulePreviewCorridorTrackingSettleMilliseconds
+            ? Math.Min(
+                EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds,
+                remaining)
+            : remaining;
+        if (_edgeCapsulePreviewCorridorIntentTimer == null)
+        {
+            _edgeCapsulePreviewCorridorIntentTimer = new DispatcherTimer(
+                DispatcherPriority.Input,
+                owner.Dispatcher);
+            _edgeCapsulePreviewCorridorIntentTimer.Tick +=
+                OnEdgeCapsulePreviewCorridorIntentTimerTick;
+        }
+
+        _edgeCapsulePreviewCorridorIntentTimer.Stop();
+        _edgeCapsulePreviewCorridorIntentTimer.Interval =
+            TimeSpan.FromMilliseconds(nextCheck);
+        _edgeCapsulePreviewCorridorIntentTimer.Start();
+    }
+
+    private void OnEdgeCapsulePreviewCorridorIntentTimerTick(
+        object? sender,
+        EventArgs e)
+    {
+        _edgeCapsulePreviewCorridorIntentTimer?.Stop();
+        if (IsExiting ||
+            _edgeCapsulePreviewCorridorExitIntent is not { } intent ||
+            _edgeCapsulePreviewSession is not { } session ||
+            !string.Equals(
+                intent.OwnerPaperId,
+                session.OwnerPaperId,
+                StringComparison.Ordinal) ||
+            !_windows.TryGetValue(session.OwnerPaperId, out var owner) ||
+            !owner.CanEnterEdgeCapsulePreview ||
+            owner.EdgeCapsulePreviewPointerCaptureActive ||
+            !WindowNative.TryGetCursorScreenPosition(out var pointer))
+        {
+            ResetEdgeCapsulePreviewCorridorExitIntent();
+            return;
+        }
+
+        ObserveEdgeCapsulePreviewPointer(owner, pointer);
+        var resolution = ResolveEdgeCapsulePreviewPointer(session, pointer);
+        if (resolution.OwnerContains || resolution.Target != null)
+        {
+            CancelQueuedEdgeCapsulePreviewClose();
+            ResetEdgeCapsulePreviewCorridorExitIntent();
+            return;
+        }
+        if (!resolution.CorridorContains)
+        {
+            ResetEdgeCapsulePreviewCorridorExitIntent();
+            QueueEdgeCapsulePreviewClose(owner, session.OwnerPaperId);
+            return;
+        }
+
+        AdvanceEdgeCapsulePreviewCorridorExitIntent(
+            owner,
+            session,
+            pointer);
+    }
+
+    private void ResetEdgeCapsulePreviewCorridorExitIntent()
+    {
+        _edgeCapsulePreviewCorridorExitIntent = null;
+        _edgeCapsulePreviewCorridorIntentTimer?.Stop();
+    }
+
     private void CancelEdgeCapsulePreviewActivationIntent(
         string? targetPaperId = null)
     {
@@ -985,6 +1294,7 @@ public sealed partial class AppController
         DeviceScreenPoint pointer)
     {
         PaperWindow? target = null;
+        var ownerContains = false;
         var hasBounds = false;
         var left = int.MaxValue;
         var top = int.MaxValue;
@@ -1023,11 +1333,15 @@ public sealed partial class AppController
                 }
             }
 
-            if (target == null &&
-                !string.Equals(
-                    paperId,
-                    session.OwnerPaperId,
-                    StringComparison.Ordinal) &&
+            var isOwner = string.Equals(
+                paperId,
+                session.OwnerPaperId,
+                StringComparison.Ordinal);
+            if (isOwner)
+            {
+                ownerContains = window.IsEdgeCapsuleInteractiveAt(pointer);
+            }
+            else if (target == null &&
                 window.CanEnterEdgeCapsulePreview &&
                 window.IsEdgeCapsuleInteractiveAt(pointer))
             {
@@ -1037,7 +1351,10 @@ public sealed partial class AppController
 
         if (!hasBounds)
         {
-            return new EdgeCapsulePreviewPointerResolution(target, false);
+            return new EdgeCapsulePreviewPointerResolution(
+                target,
+                ownerContains,
+                false);
         }
 
         var horizontalTolerance = (int)Math.Ceiling(
@@ -1051,6 +1368,7 @@ public sealed partial class AppController
             pointer.Y < bottom + verticalTolerance;
         return new EdgeCapsulePreviewPointerResolution(
             target,
+            ownerContains,
             corridorContains);
     }
 
@@ -1075,6 +1393,8 @@ public sealed partial class AppController
     private void RefreshEdgeCapsuleHoverIntentRuntime()
     {
         CancelEdgeCapsulePreviewActivationIntent();
+        CancelQueuedEdgeCapsulePreviewClose();
+        ResetEdgeCapsulePreviewCorridorExitIntent();
         _edgeCapsulePreviewLayoutSuppressionAnchor = null;
         _edgeCapsulePreviewIntentPredictor.Reset();
         foreach (var window in _windows.Values)
