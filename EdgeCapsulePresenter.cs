@@ -40,6 +40,7 @@ internal sealed class EdgeCapsulePresenter
     private bool _frameSchedulerActive;
     private Dispatcher? _dispatcher;
     private Func<EdgeCapsuleDirty, EdgeCapsuleDirty>? _reconcile;
+    private long? _reconcileTimestampOverride;
     private EdgeCapsuleLayoutSnapshot? _layoutSnapshot;
     private bool _hasFramePointerOverride;
     private DeviceScreenPoint? _framePointerOverride;
@@ -127,7 +128,9 @@ internal sealed class EdgeCapsulePresenter
         long? nowTimestamp = null)
     {
         var remaining = EdgeCapsuleDirty.None;
-        var now = nowTimestamp ?? Stopwatch.GetTimestamp();
+        var now = nowTimestamp ??
+            _reconcileTimestampOverride ??
+            Stopwatch.GetTimestamp();
         var pointer = _hasFramePointerOverride
             ? _framePointerOverride
             : capturePointer();
@@ -301,13 +304,14 @@ internal sealed class EdgeCapsulePresenter
     public void Flush(
         EdgeCapsuleDirty dirty,
         Dispatcher dispatcher,
-        Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
+        Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile,
+        long? nowTimestamp = null)
     {
         _dirty |= dirty;
         Configure(dispatcher, reconcile);
         _reconcileGeneration++;
         _reconcileScheduled = false;
-        RunReconcile();
+        RunReconcile(nowTimestamp);
     }
 
     public void ClearDeferredWork()
@@ -468,20 +472,31 @@ internal sealed class EdgeCapsulePresenter
         _frameScheduler.DeferRenderingUntilLoadedBatchDrains();
     }
 
-    private void RunReconcile()
+    private void RunReconcile(long? nowTimestamp = null)
     {
         if (_reconcile == null)
         {
             return;
         }
+        var reconcileTimestamp = nowTimestamp ?? Stopwatch.GetTimestamp();
         var dirty = _dirty;
         _dirty = EdgeCapsuleDirty.None;
-        var remaining = _reconcile(dirty);
+        EdgeCapsuleDirty remaining;
+        var previousTimestampOverride = _reconcileTimestampOverride;
+        _reconcileTimestampOverride = reconcileTimestamp;
+        try
+        {
+            remaining = _reconcile(dirty);
+        }
+        finally
+        {
+            _reconcileTimestampOverride = previousTimestampOverride;
+        }
         var needsFrame = (remaining & EdgeCapsuleDirty.Frame) != 0;
         var needsApplyRetry = (remaining & EdgeCapsuleDirty.ApplyRetry) != 0;
         _dirty |= remaining & ~EdgeCapsuleDirty.Frame;
         var applyRetryExpired = needsApplyRetry &&
-            ApplyRetryExpired(Stopwatch.GetTimestamp());
+            ApplyRetryExpired(reconcileTimestamp);
         if (applyRetryExpired)
         {
             // Keep Presentation dirty for a later explicit/display invalidation, but stop the
@@ -582,9 +597,25 @@ internal sealed class EdgeCapsulePresenter
     internal bool UsesSharedFrameScheduler(EdgeCapsuleFrameScheduler scheduler) =>
         _frameSchedulerActive && ReferenceEquals(_frameScheduler, scheduler);
 
+    internal void RetrySharedFrameAfterNativeBatchFailure(
+        EdgeCapsuleFrameScheduler scheduler)
+    {
+        if (_dispatcher == null ||
+            _reconcile == null ||
+            !ReferenceEquals(_frameScheduler, scheduler))
+        {
+            return;
+        }
+
+        ForceApplyCurrentPresentation();
+        _dirty |= EdgeCapsuleDirty.Presentation;
+        StartFrameScheduler();
+    }
+
     internal bool AdvanceSharedFrame(
         EdgeCapsuleFrameScheduler scheduler,
-        DeviceScreenPoint? pointer)
+        DeviceScreenPoint? pointer,
+        long frameTimestamp)
     {
         var pointerTracking = NeedsPointerTracking;
         var applyRetryPending = (_dirty & EdgeCapsuleDirty.ApplyRetry) != 0;
@@ -613,7 +644,7 @@ internal sealed class EdgeCapsulePresenter
         _framePointerOverride = pointer;
         try
         {
-            RunReconcile();
+            RunReconcile(frameTimestamp);
         }
         finally
         {

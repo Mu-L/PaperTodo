@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -6,7 +7,7 @@ namespace PaperTodo;
 
 /// <summary>
 /// One animation-frame scheduler per UI dispatcher. Presenters still own their transitions and
-/// reconcile pipelines; the shared scheduler only batches frame advances and cursor sampling
+/// reconcile pipelines; the shared scheduler only batches frame advances plus cursor/time sampling
 /// on WPF's actual composition frames.
 /// </summary>
 internal sealed class EdgeCapsuleFrameScheduler
@@ -95,18 +96,29 @@ internal sealed class EdgeCapsuleFrameScheduler
         try
         {
             var initialCount = _presenters.Count;
+            var frameTimestamp = Stopwatch.GetTimestamp();
             var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
                 ? currentPointer
                 : (DeviceScreenPoint?)null;
+            using var nativeBoundsBatch =
+                WindowNative.BeginWindowDeviceBoundsBatch(initialCount);
 
-            // Iterate backwards so a completing presenter can be removed without a per-frame
-            // snapshot allocation. Presenters activated during this tick start on the next one.
+            // Iterate backwards without a per-frame snapshot allocation. Deactivation is deferred
+            // until the native batch commits; presenters activated during this tick start next time.
             for (var index = initialCount - 1; index >= 0; index--)
             {
                 var presenter = _presenters[index];
-                if (!presenter.AdvanceSharedFrame(this, pointer))
+                _ = presenter.AdvanceSharedFrame(
+                    this,
+                    pointer,
+                    frameTimestamp);
+            }
+
+            if (!nativeBoundsBatch.Commit())
+            {
+                for (var index = initialCount - 1; index >= 0; index--)
                 {
-                    _presenters.RemoveAt(index);
+                    _presenters[index].RetrySharedFrameAfterNativeBatchFailure(this);
                 }
             }
 

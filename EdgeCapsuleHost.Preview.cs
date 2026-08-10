@@ -28,9 +28,9 @@ internal sealed partial class EdgeCapsuleHost
         }
     }
 
-    // Stage and pre-render the final-size preview tree while it is still detached. The viewport
-    // changes size during the shell animation, but the content tree itself keeps its final layout
-    // size so shrinking never causes a ScrollViewer or wrapped text to re-layout frame-by-frame.
+    // Stage and prepare the final-size preview tree before the visual transaction begins. The
+    // viewport changes size during the shell animation, but the content tree itself keeps its final
+    // layout size so shrinking never makes a ScrollViewer or wrapped text reflow frame-by-frame.
     public void StagePreviewContent(
         FrameworkElement content,
         double contentWidthDip,
@@ -74,6 +74,15 @@ internal sealed partial class EdgeCapsuleHost
 
         _previewContent = content;
         _previewContentLayer.Child = content;
+        if (_previewViewportLayer != null)
+        {
+            // Join layout before the transaction can make the layer opaque. The compact tree stays
+            // painted at progress zero, so the first compositor frame still has valid content even
+            // if this newly mounted tree needs one layout pass.
+            _previewViewportLayer.Visibility = Visibility.Visible;
+            _previewViewportLayer.Opacity = 0;
+            _previewViewportLayer.IsHitTestVisible = false;
+        }
     }
 
     public void ClearPreviewContent()
@@ -151,6 +160,10 @@ internal sealed partial class EdgeCapsuleHost
         // DockedPreview until the width/height transition reaches its common final frame. Surface,
         // not the intermediate height threshold, therefore owns the preview tree's lifetime.
         var retainPreview = previewSurface || heightExpanded;
+        var previewProgress = Math.Clamp(
+            (bodyHeight - _options.BodyHeight) / 48.0,
+            0,
+            1);
 
         var hasContent =
             _previewViewportLayer != null &&
@@ -166,27 +179,30 @@ internal sealed partial class EdgeCapsuleHost
         }
         ApplyPreviewLayerState(
             _previewVisible,
-            _previewVisible && frame.IsHitTestVisible);
+            _previewVisible ? previewProgress : 0,
+            _previewVisible &&
+                previewProgress > 0.001 &&
+                frame.IsHitTestVisible);
 
-        // Compact and preview text are mutually exclusive. During a rapid third-card transfer the
-        // controller may deliberately release the oldest tree before its non-interactive shell has
-        // finished shrinking; keep that shell blank, but retain the compact title if an interactive
-        // preview ever reaches Apply without staged content.
-        ApplyCompactContentVisibility(
-            suppressed: _previewVisible ||
-                (retainPreview && !frame.IsHitTestVisible));
+        // Keep one painted tree on both ends of the transition. At the opening compact frame the
+        // staged preview has not necessarily completed its first WPF layout/render pass yet; while
+        // closing, the compact tree must already be ready to replace it. Mirroring this short
+        // cross-fade prevents either visibility hand-off from becoming a blank frame.
+        ApplyCompactContentProgress(
+            _previewVisible ? previewProgress : 0);
 
         if (!retainPreview && hasContent)
         {
             // Keep the outgoing final-size tree while the viewport shrinks, then release it on the
-            // common final compact frame. The controller may clear an older outgoing tree earlier
-            // during a rapid third-card transfer.
+            // common final compact frame. Each host owns this lifetime independently, so a rapid
+            // third-card transfer cannot expose an older still-shrinking shell without content.
             DetachPreviewContent();
         }
     }
 
     private void ApplyPreviewLayerState(
         bool visible,
+        double progress,
         bool hitTestVisible)
     {
         if (_previewViewportLayer == null)
@@ -196,26 +212,30 @@ internal sealed partial class EdgeCapsuleHost
 
         _previewViewportLayer.Visibility =
             visible ? Visibility.Visible : Visibility.Collapsed;
-        _previewViewportLayer.Opacity = visible ? 1 : 0;
+        _previewViewportLayer.Opacity = visible ? progress : 0;
         _previewViewportLayer.IsHitTestVisible = visible && hitTestVisible;
     }
 
-    private void ApplyCompactContentVisibility(bool suppressed)
+    private void ApplyCompactContentProgress(double previewProgress)
     {
-        ContentGrid.Visibility =
-            suppressed ? Visibility.Collapsed : Visibility.Visible;
-        ContentGrid.Opacity = 1;
+        var progress = Math.Clamp(previewProgress, 0, 1);
+        var compactOpacity = 1 - progress;
+
+        // Keep compact content in layout at opacity zero. It can then return on a closing or Snap
+        // frame without paying a Collapsed -> Visible layout gap; the preview layer remains above
+        // it and owns input as soon as the cross-fade starts.
+        ContentGrid.Visibility = Visibility.Visible;
+        ContentGrid.Opacity = compactOpacity;
+        ContentGrid.IsHitTestVisible = progress <= 0.001;
         if (_pluginContentLayer != null)
         {
-            _pluginContentLayer.Visibility = suppressed
-                ? Visibility.Collapsed
-                : _pluginContentLayer.Child != null
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-            _pluginContentLayer.Opacity = 1;
+            _pluginContentLayer.Visibility = _pluginContentLayer.Child != null
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            _pluginContentLayer.Opacity = compactOpacity;
         }
 
-        ContentArea.Background = suppressed
+        ContentArea.Background = progress > 0.001
             ? Brushes.Transparent
             : ContentArea.IsMouseOver
                 ? _hoverBrush

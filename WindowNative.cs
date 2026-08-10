@@ -9,6 +9,9 @@ namespace PaperTodo;
 // verbatim across PaperWindow.Native and MasterCapsuleWindow.
 internal static class WindowNative
 {
+    [ThreadStatic]
+    private static WindowDeviceBoundsBatch? _currentDeviceBoundsBatch;
+
     private const int GwlExStyle = -20;
     private const int GwlpHwndParent = -8;
     private const uint GwOwner = 4;
@@ -429,6 +432,19 @@ internal static class WindowNative
 
         var helper = new WindowInteropHelper(window);
         var handle = helper.Handle != IntPtr.Zero ? helper.Handle : helper.EnsureHandle();
+        if (handle != IntPtr.Zero &&
+            window.IsVisible &&
+            _currentDeviceBoundsBatch is { } batch)
+        {
+            if (batch.HasFailed)
+            {
+                return false;
+            }
+            if (batch.IsAvailable)
+            {
+                return batch.TryDefer(handle, bounds);
+            }
+        }
         return handle != IntPtr.Zero && SetWindowPos(
             handle,
             IntPtr.Zero,
@@ -539,6 +555,11 @@ internal static class WindowNative
     public static bool TryGetWindowDeviceBounds(Window window, out DeviceScreenRect bounds)
     {
         var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero &&
+            _currentDeviceBoundsBatch?.TryGetPending(handle, out bounds) == true)
+        {
+            return true;
+        }
         if (handle != IntPtr.Zero && GetWindowRect(handle, out var nativeRect))
         {
             bounds = new DeviceScreenRect(nativeRect.Left, nativeRect.Top, nativeRect.Right, nativeRect.Bottom);
@@ -547,6 +568,134 @@ internal static class WindowNative
 
         bounds = default;
         return false;
+    }
+
+    /// <summary>
+    /// Defers all visible HWND bounds submitted on the current UI thread and commits them through
+    /// one HDWP. This is the native half of a cross-capsule visual transaction: DWM can no longer
+    /// sample one queue member at the new animation frame while a sibling is still on the old one.
+    /// </summary>
+    public static WindowDeviceBoundsBatch BeginWindowDeviceBoundsBatch(int capacity) =>
+        new(Math.Max(1, capacity));
+
+    internal sealed class WindowDeviceBoundsBatch : IDisposable
+    {
+        private readonly bool _ownsCurrentBatch;
+        private readonly Dictionary<IntPtr, DeviceScreenRect> _pendingBounds = new();
+        private IntPtr _deferredWindowPosition;
+        private bool _completed;
+
+        internal WindowDeviceBoundsBatch(int capacity)
+        {
+            if (_currentDeviceBoundsBatch != null)
+            {
+                // A nested visual callback already participates in the outer native transaction.
+                return;
+            }
+
+            _ownsCurrentBatch = true;
+            _deferredWindowPosition = BeginDeferWindowPos(capacity);
+            _currentDeviceBoundsBatch = this;
+        }
+
+        internal bool IsAvailable =>
+            _ownsCurrentBatch &&
+            !_completed &&
+            !HasFailed &&
+            _deferredWindowPosition != IntPtr.Zero;
+
+        internal bool HasFailed { get; private set; }
+
+        internal bool TryDefer(IntPtr handle, DeviceScreenRect bounds)
+        {
+            if (!IsAvailable || handle == IntPtr.Zero || bounds.IsEmpty)
+            {
+                return false;
+            }
+
+            var updated = DeferWindowPos(
+                _deferredWindowPosition,
+                handle,
+                IntPtr.Zero,
+                bounds.Left,
+                bounds.Top,
+                bounds.Width,
+                bounds.Height,
+                SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+            if (updated == IntPtr.Zero)
+            {
+                HasFailed = true;
+                _deferredWindowPosition = IntPtr.Zero;
+                _pendingBounds.Clear();
+                return false;
+            }
+
+            _deferredWindowPosition = updated;
+            _pendingBounds[handle] = bounds;
+            return true;
+        }
+
+        internal bool TryGetPending(IntPtr handle, out DeviceScreenRect bounds)
+        {
+            if (_ownsCurrentBatch &&
+                _pendingBounds.TryGetValue(handle, out bounds))
+            {
+                return true;
+            }
+
+            bounds = default;
+            return false;
+        }
+
+        public bool Commit()
+        {
+            if (_completed)
+            {
+                return !HasFailed;
+            }
+            _completed = true;
+
+            if (!_ownsCurrentBatch)
+            {
+                return true;
+            }
+            if (ReferenceEquals(_currentDeviceBoundsBatch, this))
+            {
+                _currentDeviceBoundsBatch = null;
+            }
+
+            // If BeginDeferWindowPos was unavailable, callers already used the ordinary immediate
+            // SetWindowPos fallback. A failed DeferWindowPos, however, invalidates the entire HDWP.
+            if (_deferredWindowPosition == IntPtr.Zero)
+            {
+                return !HasFailed;
+            }
+
+            var committed = EndDeferWindowPos(_deferredWindowPosition);
+            _deferredWindowPosition = IntPtr.Zero;
+            if (!committed)
+            {
+                HasFailed = true;
+                return false;
+            }
+
+            foreach (var (handle, expected) in _pendingBounds)
+            {
+                if (!GetWindowRect(handle, out var actual) ||
+                    new DeviceScreenRect(
+                        actual.Left,
+                        actual.Top,
+                        actual.Right,
+                        actual.Bottom) != expected)
+                {
+                    HasFailed = true;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public void Dispose() => Commit();
     }
 
     public static bool TryGetWindowScreenBounds(Window window, out Rect bounds)
@@ -683,6 +832,23 @@ internal static class WindowNative
         int cx,
         int cy,
         uint uFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr BeginDeferWindowPos(int nNumWindows);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr DeferWindowPos(
+        IntPtr hWinPosInfo,
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint uFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EndDeferWindowPos(IntPtr hWinPosInfo);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);

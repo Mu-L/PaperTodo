@@ -12,7 +12,6 @@ public sealed partial class AppController
     private readonly EdgeCapsuleHoverIntentPredictor
         _edgeCapsulePreviewIntentPredictor = new();
     private EdgeCapsulePreviewLayoutSession? _edgeCapsulePreviewSession;
-    private string? _edgeCapsulePreviewOutgoingPaperId;
     private string? _edgeCapsulePreviewQueuedTransferPaperId;
     private string? _edgeCapsulePreviewQueuedCloseOwnerPaperId;
     private EdgeCapsulePreviewActivationIntent?
@@ -124,12 +123,10 @@ public sealed partial class AppController
                 $"queue={session.QueueKey}->{currentQueueKey}");
             session = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
                 basePlan,
-                null,
                 currentQueueKey,
                 session.OwnerPaperId,
                 session.Size,
-                PaperLayoutDefaults.CapsuleHeight,
-                DeepCapsuleGap);
+                PaperLayoutDefaults.CapsuleHeight);
             if (session == null)
             {
                 TraceEdgeCapsulePreview(
@@ -146,7 +143,6 @@ public sealed partial class AppController
 
     private void ResetEdgeCapsulePreviewWithoutArrange()
     {
-        ReleaseOutgoingEdgeCapsulePreviewContent();
         var session = _edgeCapsulePreviewSession;
         TraceEdgeCapsulePreview(
             $"reset without arrange owner={EdgeCapsulePreviewTraceId(session?.OwnerPaperId)}");
@@ -162,7 +158,6 @@ public sealed partial class AppController
             _windows.TryGetValue(session.OwnerPaperId, out var owner))
         {
             owner.SetEdgeCapsulePreviewClosed(animate: false);
-            _edgeCapsulePreviewOutgoingPaperId = session.OwnerPaperId;
         }
     }
 
@@ -581,9 +576,6 @@ public sealed partial class AppController
         _edgeCapsulePreviewQueuedTransferPaperId = null;
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
         _edgeCapsulePreviewActivationIntent = null;
-        // A newly prepared view is already a WPF tree even before it is parented. Retire the
-        // oldest shrinking card first so rapid A -> B -> C browsing never retains three trees.
-        ReleaseOutgoingEdgeCapsulePreviewContent();
         var request = window.PrepareEdgeCapsulePreview();
         if (request == null)
         {
@@ -597,12 +589,10 @@ public sealed partial class AppController
         var queueKey = QueueKey(window.EdgeCapsulePreviewPaper);
         var next = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
             basePlan,
-            _edgeCapsulePreviewSession,
             queueKey,
             window.EdgeCapsulePreviewPaperId,
             request.Size,
-            PaperLayoutDefaults.CapsuleHeight,
-            DeepCapsuleGap);
+            PaperLayoutDefaults.CapsuleHeight);
         if (next == null)
         {
             TraceEdgeCapsulePreview(
@@ -637,7 +627,6 @@ public sealed partial class AppController
                 next.OwnerPaperId,
                 StringComparison.Ordinal))
         {
-            _edgeCapsulePreviewOutgoingPaperId = previous.OwnerPaperId;
             if (_windows.TryGetValue(previous.OwnerPaperId, out var oldOwner))
             {
                 oldOwner.SetEdgeCapsulePreviewClosed(animate: true);
@@ -658,7 +647,6 @@ public sealed partial class AppController
 
     private void CloseEdgeCapsulePreview(bool animate, bool arrange)
     {
-        ReleaseOutgoingEdgeCapsulePreviewContent();
         _edgeCapsulePreviewTransferGeneration++;
         _edgeCapsulePreviewCloseGeneration++;
         var session = _edgeCapsulePreviewSession;
@@ -675,7 +663,6 @@ public sealed partial class AppController
         {
             owner = currentOwner;
             currentOwner.SetEdgeCapsulePreviewClosed(animate);
-            _edgeCapsulePreviewOutgoingPaperId = session.OwnerPaperId;
         }
 
         if (arrange && session != null && owner != null)
@@ -694,21 +681,6 @@ public sealed partial class AppController
         if (arrange)
         {
             ArrangeDeepCapsules(animate);
-        }
-    }
-
-    private void ReleaseOutgoingEdgeCapsulePreviewContent()
-    {
-        var outgoingPaperId = _edgeCapsulePreviewOutgoingPaperId;
-        _edgeCapsulePreviewOutgoingPaperId = null;
-        if (outgoingPaperId == null)
-        {
-            return;
-        }
-
-        if (_windows.TryGetValue(outgoingPaperId, out var outgoing))
-        {
-            outgoing.ClearEdgeCapsulePreviewContent();
         }
     }
 
