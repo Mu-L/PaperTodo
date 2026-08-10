@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Threading;
 
 namespace PaperTodo;
 
@@ -128,17 +127,26 @@ public sealed partial class PaperWindow
         }
 
         _edgeCapsulePreviewRequest = request;
-        EnsureDeepCapsuleSlotHost().StagePreviewContent(request.Content);
+        var previewContentWidth = Math.Max(
+            1,
+            request.Size.WidthDip - CapsuleCloseWidth - WindowChromeMargin);
+        var previewContentHeight = Math.Max(
+            1,
+            request.Size.HeightDip - WindowChromeMargin * 2);
+        EnsureDeepCapsuleSlotHost().StagePreviewContent(
+            request.Content,
+            previewContentWidth,
+            previewContentHeight);
 
-        // Do not put a standalone preview reconcile ahead of the controller's immediate queue
-        // arrange. Open/transfer changes the owner and the displaced placements as one logical
-        // operation; deferring this fallback lets ArrangeDeepCapsules stage every presenter first,
-        // so the preview growth and peer movement start on the same composition batch. Paths that
-        // intentionally do not arrange still receive this presentation on the next Loaded turn.
-        QueueEdgeCapsulePreviewPresentation(
-            expectedOpen: true,
-            expectedRequest: request,
-            animate);
+        // Preview open/transfer/close is one cross-window visual transaction. The owner state is
+        // staged now; the immediate ArrangeDeepCapsules call stages every peer placement into the
+        // same transaction, then one Send-priority commit creates all transitions before rendering.
+        _controller.BeginEdgeCapsuleVisualTransaction(this);
+        _ = TryStageEdgeCapsuleVisualTransaction(
+            animate,
+            EdgeCapsuleTransitionReason.Preview,
+            EdgeCapsuleLayout.SlotMoveMilliseconds,
+            refreshLayout: true);
         return true;
     }
 
@@ -158,49 +166,12 @@ public sealed partial class PaperWindow
         }
 
         _edgeCapsulePreviewRequest = null;
-        QueueEdgeCapsulePreviewPresentation(
-            expectedOpen: false,
-            expectedRequest: null,
-            animate);
-    }
-
-    private void QueueEdgeCapsulePreviewPresentation(
-        bool expectedOpen,
-        EdgeCapsulePreviewRequest? expectedRequest,
-        bool animate)
-    {
-        var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
-        dispatcher.BeginInvoke(
-            (Action)(() =>
-            {
-                if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
-                    IsClosed ||
-                    IsEdgeCapsulePreviewOpen != expectedOpen)
-                {
-                    return;
-                }
-
-                if (expectedOpen)
-                {
-                    if (!ReferenceEquals(
-                            _edgeCapsulePreviewRequest,
-                            expectedRequest))
-                    {
-                        return;
-                    }
-                }
-                else if (_edgeCapsulePreviewRequest != null)
-                {
-                    return;
-                }
-
-                RequestEdgeCapsulePresentation(
-                    animate,
-                    EdgeCapsuleTransitionReason.Preview,
-                    EdgeCapsuleLayout.SlotMoveMilliseconds,
-                    refreshLayout: true);
-            }),
-            DispatcherPriority.Loaded);
+        _controller.BeginEdgeCapsuleVisualTransaction(this);
+        _ = TryStageEdgeCapsuleVisualTransaction(
+            animate,
+            EdgeCapsuleTransitionReason.Preview,
+            EdgeCapsuleLayout.SlotMoveMilliseconds,
+            refreshLayout: true);
     }
 
     internal void ClearEdgeCapsulePreviewContent() =>
@@ -246,6 +217,15 @@ public sealed partial class PaperWindow
 
     internal void FlushEdgeCapsulePreviewCompactPresentation()
     {
+        if (TryStageEdgeCapsuleVisualTransaction(
+                animate: false,
+                EdgeCapsuleTransitionReason.Preview,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true))
+        {
+            return;
+        }
+
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.Preview,
             EdgeCapsuleDirty.Presentation |

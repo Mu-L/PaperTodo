@@ -62,11 +62,18 @@ public sealed partial class PaperWindow
         UpdateDeepCapsuleSlotHostTheme();
         RefreshEffectiveTopmost();
 
-        RequestEdgeCapsulePresentation(
-            animate,
-            EdgeCapsuleTransitionReason.Retraction,
-            EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
-            refreshLayout: true);
+        if (!TryStageEdgeCapsuleVisualTransaction(
+                animate,
+                EdgeCapsuleTransitionReason.Retraction,
+                EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
+                refreshLayout: true))
+        {
+            RequestEdgeCapsulePresentation(
+                animate,
+                EdgeCapsuleTransitionReason.Retraction,
+                EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
+                refreshLayout: true);
+        }
         if (_paper.IsCollapsed)
         {
             HideMainWindowForDeepCapsuleRest();
@@ -89,11 +96,18 @@ public sealed partial class PaperWindow
             return;
         }
         RefreshCapsuleLabel();
-        RequestEdgeCapsulePresentation(
-            animate,
-            EdgeCapsuleTransitionReason.Placement,
-            EdgeCapsuleLayout.SlotMoveMilliseconds,
-            refreshLayout: true);
+        if (!TryStageEdgeCapsuleVisualTransaction(
+                animate,
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true))
+        {
+            RequestEdgeCapsulePresentation(
+                animate,
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true);
+        }
         if (!IsPaperFormTransitioning)
         {
             HideMainWindowForDeepCapsuleRest();
@@ -115,11 +129,18 @@ public sealed partial class PaperWindow
         {
             return;
         }
-        RequestEdgeCapsulePresentation(
-            animate: true,
-            EdgeCapsuleTransitionReason.Placement,
-            EdgeCapsuleLayout.SlotMoveMilliseconds,
-            refreshLayout: true);
+        if (!TryStageEdgeCapsuleVisualTransaction(
+                animate: true,
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true))
+        {
+            RequestEdgeCapsulePresentation(
+                animate: true,
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true);
+        }
     }
 
     internal void ApplyExpandedDeepCapsuleSlotPlacement(
@@ -154,7 +175,15 @@ public sealed partial class PaperWindow
         RefreshDeepCapsuleSlotLabel();
 
         var firstShow = _edgeCapsuleHost?.IsVisible != true;
-        if (firstShow && !deferInitialPresentation)
+        if (TryStageEdgeCapsuleVisualTransaction(
+                animate,
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true))
+        {
+            // The transaction commit owns the first visible frame together with every sibling.
+        }
+        else if (firstShow && !deferInitialPresentation)
         {
             FlushEdgeCapsulePresentation(
                 EdgeCapsuleTransitionReason.Placement,

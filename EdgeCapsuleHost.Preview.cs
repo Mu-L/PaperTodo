@@ -9,6 +9,7 @@ namespace PaperTodo;
 
 internal sealed partial class EdgeCapsuleHost
 {
+    private Border? _previewViewportLayer;
     private Border? _previewContentLayer;
     private FrameworkElement? _previewContent;
     private bool _previewVisible;
@@ -27,9 +28,13 @@ internal sealed partial class EdgeCapsuleHost
         }
     }
 
-    // Stages the view tree only. Geometry, opacity, visibility and pointer eligibility remain
-    // exclusively derived from the next Apply(frame) call.
-    public void StagePreviewContent(FrameworkElement content)
+    // Stage and pre-render the final-size preview tree while it is still detached. The viewport
+    // changes size during the shell animation, but the content tree itself keeps its final layout
+    // size so shrinking never causes a ScrollViewer or wrapped text to re-layout frame-by-frame.
+    public void StagePreviewContent(
+        FrameworkElement content,
+        double contentWidthDip,
+        double contentHeightDip)
     {
         if (_disposed)
         {
@@ -43,15 +48,30 @@ internal sealed partial class EdgeCapsuleHost
                 "Preview content must be a fresh, unparented FrameworkElement.");
         }
 
-        _previewContentLayer ??= CreatePreviewContentLayer();
+        EnsurePreviewLayers();
+        if (_previewContentLayer == null)
+        {
+            return;
+        }
+
         if (_previewContentLayer.Child != null &&
             !ReferenceEquals(_previewContentLayer.Child, content))
         {
             _previewContentLayer.Child = null;
         }
 
+        contentWidthDip = Math.Max(1, contentWidthDip);
+        contentHeightDip = Math.Max(1, contentHeightDip);
+        _previewContentLayer.Width = contentWidthDip;
+        _previewContentLayer.Height = contentHeightDip;
         content.HorizontalAlignment = HorizontalAlignment.Stretch;
         content.VerticalAlignment = VerticalAlignment.Stretch;
+
+        if (content is EdgeCapsuleLivePreviewView livePreview)
+        {
+            livePreview.PrepareForFirstDisplay();
+        }
+
         _previewContent = content;
         _previewContentLayer.Child = content;
     }
@@ -66,13 +86,22 @@ internal sealed partial class EdgeCapsuleHost
         DetachPreviewContent();
     }
 
-    private Border CreatePreviewContentLayer()
+    private void EnsurePreviewLayers()
     {
-        // Transparent is intentional here: blank preview-body pixels must route the normal
-        // left-click action. The layer is confined to ContentArea's shell column, so it cannot
-        // cover CloseArea; native pixels outside the applied interactive bounds are still handled
-        // by WM_NCHITTEST before WPF hit testing.
-        var layer = new Border
+        if (_previewViewportLayer != null && _previewContentLayer != null)
+        {
+            return;
+        }
+
+        var contentLayer = new Border
+        {
+            Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            ClipToBounds = false,
+            IsHitTestVisible = true
+        };
+        var viewportLayer = new Border
         {
             Background = Brushes.Transparent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -80,106 +109,120 @@ internal sealed partial class EdgeCapsuleHost
             ClipToBounds = true,
             Visibility = Visibility.Collapsed,
             Opacity = 0,
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
+            Child = contentLayer
         };
-        Panel.SetZIndex(layer, 30);
-        ContentHost.Children.Add(layer);
-        return layer;
+        Panel.SetZIndex(viewportLayer, 30);
+        ContentHost.Children.Add(viewportLayer);
+        _previewContentLayer = contentLayer;
+        _previewViewportLayer = viewportLayer;
     }
 
     private void ApplyPreviewPresentation(
         EdgeCapsulePresentationFrame frame)
     {
-        var windowHeightDip =
-            frame.Bounds.Height / Math.Max(1, frame.DpiScaleY);
-        var bodyHeight = Math.Max(
+        var dpiScaleY = Math.Max(1, frame.DpiScaleY);
+        var chromeMarginDevice = Math.Max(
+            0,
+            (int)Math.Round(
+                _options.WindowChromeMargin * dpiScaleY,
+                MidpointRounding.AwayFromZero));
+        var bodyHeightDevice = Math.Max(
             1,
-            windowHeightDip - _options.WindowChromeMargin * 2);
+            frame.Bounds.Height - chromeMarginDevice * 2);
+        var bodyHeight = bodyHeightDevice / dpiScaleY;
+        var outlineMarginDip =
+            _options.WindowChromeMargin -
+            _options.OutlineThickness +
+            _options.OutlineOverlap;
+        var outlineMarginDevice = Math.Max(
+            0,
+            (int)Math.Round(
+                outlineMarginDip * dpiScaleY,
+                MidpointRounding.AwayFromZero));
+        var outlineHeightDevice = Math.Max(
+            0,
+            frame.Bounds.Height - outlineMarginDevice * 2);
 
-        // VisualSurface already owns the exact device-pixel frame height. Reconstructing the
-        // vertical layout as top margin + explicit DIP height + bottom margin makes WPF round the
-        // three pieces independently; during an animated shrink that sum can exceed the native
-        // frame by one device pixel and clip the lower inner rounded corner. Stretch all three
-        // layers inside the exact surface height instead, so the corner and outline share one
-        // physical bottom edge throughout preview expansion and retraction.
-        Chrome.VerticalAlignment = VerticalAlignment.Stretch;
-        Chrome.Height = double.NaN;
-        Shell.VerticalAlignment = VerticalAlignment.Stretch;
-        Shell.Height = double.NaN;
-        Outline.VerticalAlignment = VerticalAlignment.Stretch;
-        Outline.Height = double.NaN;
+        // Keep the rounded shell inside the exact physical-pixel budget owned by frame.Bounds.
+        // This avoids the lower inner corner being cut by one device pixel while a preview shrinks
+        // on fractional DPI: margins and body height now consume one shared device-pixel budget.
+        Chrome.VerticalAlignment = VerticalAlignment.Top;
+        Chrome.Height = bodyHeight;
+        Shell.VerticalAlignment = VerticalAlignment.Top;
+        Shell.Height = bodyHeight;
+        Outline.VerticalAlignment = VerticalAlignment.Top;
+        Outline.Height = outlineHeightDevice / dpiScaleY;
 
         var heightExpanded =
             bodyHeight > _options.BodyHeight + 0.5;
-        var previewSurface =
-            frame.Surface == EdgeCapsuleSurfaceKind.DockedPreview;
-        var visible = previewSurface || heightExpanded;
-        var progress = Math.Clamp(
-            (bodyHeight - _options.BodyHeight) / 48.0,
-            0,
-            1);
+        var visible = heightExpanded;
 
-        var hasContent = _previewContentLayer != null && _previewContent != null;
+        var hasContent =
+            _previewViewportLayer != null &&
+            _previewContentLayer != null &&
+            _previewContent != null;
         _previewVisible = visible && hasContent;
+
+        if (_previewContentLayer != null)
+        {
+            _previewContentLayer.HorizontalAlignment = frame.Edge == EdgeCapsuleEdge.Left
+                ? HorizontalAlignment.Left
+                : HorizontalAlignment.Right;
+        }
         ApplyPreviewLayerState(
             _previewVisible,
-            _previewVisible ? progress : 0,
             _previewVisible && frame.IsHitTestVisible);
 
-        // The old compact body used to disappear as soon as height exceeded the resting pill by
-        // half a DIP, while the preview layer was still almost transparent. That produces a brief
-        // blank frame that reads as flicker. Cross-fade the compact body out over the same progress
-        // as the preview fades in, and mirror the fade while shrinking back to compact form.
-        ApplyCompactContentProgress(_previewVisible ? progress : 0);
+        // Compact and preview text are mutually exclusive. The preview tree is prepared before the
+        // transaction starts and remains fully rendered while its viewport reveals/shrinks it; the
+        // compact title returns only after the preview has reached the fully compact frame.
+        ApplyCompactContentVisibility(suppressed: visible);
 
         if (!visible && hasContent)
         {
-            // Keep the outgoing tree during the shrink, then release it on the first fully compact
-            // frame. The controller may call ClearPreviewContent earlier for a rapid third card.
+            // Keep the outgoing final-size tree while the viewport shrinks, then release it on the
+            // first fully compact frame. The controller may clear an older outgoing tree earlier
+            // during a rapid third-card transfer.
             DetachPreviewContent();
         }
     }
 
     private void ApplyPreviewLayerState(
         bool visible,
-        double progress,
         bool hitTestVisible)
     {
-        if (_previewContentLayer == null)
+        if (_previewViewportLayer == null)
         {
             return;
         }
 
-        _previewContentLayer.Visibility =
+        _previewViewportLayer.Visibility =
             visible ? Visibility.Visible : Visibility.Collapsed;
-        _previewContentLayer.Opacity = visible ? progress : 0;
-        _previewContentLayer.IsHitTestVisible = visible && hitTestVisible;
+        _previewViewportLayer.Opacity = visible ? 1 : 0;
+        _previewViewportLayer.IsHitTestVisible = visible && hitTestVisible;
     }
 
-    private void ApplyCompactContentProgress(double previewProgress)
+    private void ApplyCompactContentVisibility(bool suppressed)
     {
-        var progress = Math.Clamp(previewProgress, 0, 1);
-        var compactOpacity = 1 - progress;
-        var compactVisible = compactOpacity > 0.001;
-
         ContentGrid.Visibility =
-            compactVisible ? Visibility.Visible : Visibility.Collapsed;
-        ContentGrid.Opacity = compactOpacity;
-
+            suppressed ? Visibility.Collapsed : Visibility.Visible;
+        ContentGrid.Opacity = 1;
         if (_pluginContentLayer != null)
         {
-            var pluginVisible =
-                compactVisible && _pluginContentLayer.Child != null;
-            _pluginContentLayer.Visibility = pluginVisible
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            _pluginContentLayer.Opacity = compactOpacity;
+            _pluginContentLayer.Visibility = suppressed
+                ? Visibility.Collapsed
+                : _pluginContentLayer.Child != null
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            _pluginContentLayer.Opacity = 1;
         }
 
-        if (progress > 0.001)
-        {
-            ContentArea.Background = Brushes.Transparent;
-        }
+        ContentArea.Background = suppressed
+            ? Brushes.Transparent
+            : ContentArea.IsMouseOver
+                ? _hoverBrush
+                : Brushes.Transparent;
     }
 
     private void DetachPreviewContent()
@@ -187,15 +230,24 @@ internal sealed partial class EdgeCapsuleHost
         if (_previewContentLayer != null)
         {
             _previewContentLayer.Child = null;
+            _previewContentLayer.Width = double.NaN;
+            _previewContentLayer.Height = double.NaN;
         }
         _previewContent = null;
         _previewVisible = false;
+        if (_previewViewportLayer != null)
+        {
+            _previewViewportLayer.Visibility = Visibility.Collapsed;
+            _previewViewportLayer.Opacity = 0;
+            _previewViewportLayer.IsHitTestVisible = false;
+        }
     }
 
     private bool IsPreviewInteractiveSource(
         DependencyObject? source)
     {
         if (!_previewVisible ||
+            _previewViewportLayer == null ||
             _previewContentLayer == null ||
             _previewContent == null)
         {
@@ -205,7 +257,8 @@ internal sealed partial class EdgeCapsuleHost
         var current = source;
         while (current != null)
         {
-            if (ReferenceEquals(current, _previewContentLayer))
+            if (ReferenceEquals(current, _previewViewportLayer) ||
+                ReferenceEquals(current, _previewContentLayer))
             {
                 return false;
             }
@@ -233,7 +286,8 @@ internal sealed partial class EdgeCapsuleHost
         DependencyObject? candidate = current;
         while (candidate != null)
         {
-            if (ReferenceEquals(candidate, _previewContentLayer) ||
+            if (ReferenceEquals(candidate, _previewViewportLayer) ||
+                ReferenceEquals(candidate, _previewContentLayer) ||
                 ReferenceEquals(candidate, _previewContent))
             {
                 return true;

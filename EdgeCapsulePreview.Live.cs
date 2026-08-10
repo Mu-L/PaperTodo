@@ -6,8 +6,8 @@ namespace PaperTodo;
 
 /// <summary>
 /// One live preview surface. Size is frozen by the queue session, while the content may refresh
-/// from the current paper model. Model notifications are coalesced on the Dispatcher so content
-/// construction never delays the shell's first expansion frame.
+/// from the current paper model. The first content tree is built while detached so the shell can
+/// switch from compact text to preview text without ever showing both or exposing a blank frame.
 /// </summary>
 internal abstract class EdgeCapsuleLivePreviewView : Grid
 {
@@ -37,14 +37,7 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
             CancelQueuedRefresh();
             _contentDirty = true;
         };
-        IsVisibleChanged += (_, _) =>
-        {
-            if (IsVisible)
-            {
-                _contentDirty = true;
-            }
-            QueueRefresh();
-        };
+        IsVisibleChanged += (_, _) => QueueRefresh();
     }
 
     protected EdgeCapsulePreviewContext Context { get; }
@@ -54,6 +47,33 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
     {
         _contentDirty = true;
         QueueRefresh();
+    }
+
+    internal void PrepareForFirstDisplay()
+    {
+        if (_hasRenderedContent || _refreshing)
+        {
+            return;
+        }
+
+        CancelQueuedRefresh();
+        _contentDirty = false;
+        _refreshing = true;
+        try
+        {
+            RebuildContent();
+            _hasRenderedContent = true;
+        }
+        catch
+        {
+            // A detached first render is optional. Keep the dirty bit so the normal Loaded pass
+            // can retry instead of exposing the exception to the edge-capsule transaction.
+            _contentDirty = true;
+        }
+        finally
+        {
+            _refreshing = false;
+        }
     }
 
     protected abstract void RebuildContent();
@@ -138,7 +158,8 @@ internal abstract class EdgeCapsuleLivePreviewView : Grid
         catch
         {
             // The preview is optional. A model refresh racing this UI pass retries on the next
-            // invalidation or visibility transition instead of taking down the paper or queue.
+            // invalidation instead of taking down the paper or queue.
+            _contentDirty = true;
         }
         finally
         {
