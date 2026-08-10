@@ -697,6 +697,9 @@ public sealed partial class PaperWindow
     {
         var generation = _bodySessionGeneration;
         var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
+        // The edge host may currently own a protocol 1.8 mini tree created by this exact session.
+        // Restore compact presentation and detach that tree before invalidating or disposing it.
+        _controller.CloseEdgeCapsulePreviewForBodySessionReset(this);
         // A protocol 1.8 migration preview may temporarily parent the one real body view. Restore
         // it while the session is still current, before Commit/Dispose tears down that view tree.
         ResetPluginMiniViewCache();

@@ -150,7 +150,7 @@ private sealed class Session : IPaperBodySession, IPaperMiniViewProvider
 }
 ```
 
-专属原生迷你界面只接受纯 WPF，不接受 `Window`、`HwndHost`、`WindowsFormsHost`、WebView2 或已挂载控件。`OnMiniViewVisibilityChanged(false)` 会在收起开始时停止交互，但宿主仍要用最后一帧完成动画，因此插件只能暂停刷新，不能立即清空或折叠整棵迷你树。标准 WPF 按钮、输入框、选择器、滚动条、拖块和链接会自动取得输入；其他自定义命中元素可调用 `PaperMiniViewInteraction.SetConsumesPointer(element, true)`。
+专属原生迷你界面只接受纯 WPF，不接受 `Window`、`HwndHost`、`WindowsFormsHost`、WebView2 或已挂载控件。`OnMiniViewVisibilityChanged(false)` 会在收起开始时停止交互，但宿主仍要用最后一帧完成动画，因此插件只能暂停刷新，不能立即清空或折叠整棵迷你树。标准 WPF 按钮、选择器、滚动条、拖块和链接会自动取得鼠标输入；其他自定义命中元素可调用 `PaperMiniViewInteraction.SetConsumesPointer(element, true)`。边缘宿主不会取得键盘焦点，因此迷你界面不得依赖文本输入；点击输入框会按背景点击处理并打开完整纸片，文本编辑应放在正文界面。
 
 ### 原生正文迁移
 
@@ -179,7 +179,7 @@ Web 插件可在清单中声明同一 `entry` 静态目录下的 `miniEntry`。�
 
 宿主先同步显示放大的 1.6 胶囊，迷你 WebView2 初始化期间不会出现空卡。迷你页收到 `initialize` 后完成首轮布局，再显式调用 `papertodo.mini.ready()`；宿主会等到下一渲染帧才替换回退层。初始化、导航、脚本失败或页面始终未声明就绪时都继续保留放大胶囊；若就绪消息恰好落在收起期间，宿主只记录结果，下一次移入后才切换界面。
 
-迷你页与正文获得同一份 `state`、`settings`、主题和权限；`window.papertodo.surface` 与 `initialize.surface` 分别为 `mini` 或 `body`，共用脚本可以据此选择布局。任何一侧 `saveState` 后都会通知另一侧 `stateChanged`。接收方应只把 `stateChanged` 应用到自己的控件，不要在事件处理器里原样回写 `saveState`；只有用户操作或真实业务变化才写回，否则两棵页面会形成回声。迷你页还可使用 `paper`、`body.openExternal` 与 `workspace.request()`；`miniVisibilityChanged` 用于暂停隐藏后的计时器或动画。`visible: false` 从收起动画开始时发送，页面应停止输入和刷新，但要保留最后一次 DOM 绘制，不能立即清空根节点。宿主状态始终是真相来源，不应让正文页和迷你页各自保存互相覆盖的私有副本。
+迷你页与正文获得同一份 `state`、`settings`、主题和权限；`window.papertodo.surface` 与 `initialize.surface` 分别为 `mini` 或 `body`，共用脚本可以据此选择布局。任何一侧 `saveState` 后都会通知另一侧 `stateChanged`。接收方应只把 `stateChanged` 应用到自己的控件，不要在事件处理器里原样回写 `saveState`；只有用户操作或真实业务变化才写回，否则两棵页面会形成回声。迷你页还可使用 `paper`、`body.openExternal` 与 `workspace.request()`；`miniVisibilityChanged` 用于暂停隐藏后的计时器或动画。`visible: false` 从收起动画开始时发送，页面应停止输入和刷新，但要保留最后一次 DOM 绘制，不能立即清空根节点。边缘窗口不会取得键盘焦点，Web 迷你页也只能设计为鼠标交互界面，不应放置需要键盘输入的表单。宿主状态始终是真相来源，不应让正文页和迷你页各自保存互相覆盖的私有副本。
 
 需要在纸片折叠为可见胶囊后继续运行的插件，必须声明 `"requires": ["backgroundUpdates"]`。未声明时，宿主会在完整正文不显示时通知插件暂停运行；未知的必需能力会拒绝加载。
 

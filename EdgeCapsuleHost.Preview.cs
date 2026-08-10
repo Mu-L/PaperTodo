@@ -14,6 +14,10 @@ internal sealed partial class EdgeCapsuleHost
     private Border? _previewContentLayer;
     private FrameworkElement? _previewContent;
     private bool _previewVisible;
+    private bool _previewInteractiveCaptureLease;
+    private long _previewInteractiveCaptureGraceUntil;
+
+    private const int PreviewInteractiveCaptureGraceMilliseconds = 250;
 
     public bool IsPreviewPointerCaptureActive
     {
@@ -24,15 +28,54 @@ internal sealed partial class EdgeCapsuleHost
                 return false;
             }
 
-            return Mouse.Captured is DependencyObject captured &&
-                IsDescendantOfPreview(captured);
+            var captured = Mouse.Captured as DependencyObject;
+            if (captured != null && IsDescendantOfPreview(captured))
+            {
+                return true;
+            }
+
+            if (!_previewInteractiveCaptureLease)
+            {
+                return false;
+            }
+
+            // ComboBox, ContextMenu and similar controls move capture into a separate Popup HWND,
+            // so it is no longer a visual descendant of the mini tree. A lease armed by the
+            // initiating pointer gesture lets that same-dispatcher capture keep the preview open.
+            if (captured != null && ReferenceEquals(captured.Dispatcher, Dispatcher))
+            {
+                return true;
+            }
+            if (Mouse.LeftButton == MouseButtonState.Pressed ||
+                Mouse.RightButton == MouseButtonState.Pressed ||
+                Environment.TickCount64 <= _previewInteractiveCaptureGraceUntil)
+            {
+                return true;
+            }
+
+            _previewInteractiveCaptureLease = false;
+            return false;
         }
+    }
+
+    private void ArmPreviewInteractiveCaptureLease()
+    {
+        if (_disposed || !_previewVisible)
+        {
+            return;
+        }
+
+        _previewInteractiveCaptureLease = true;
+        _previewInteractiveCaptureGraceUntil =
+            Environment.TickCount64 + PreviewInteractiveCaptureGraceMilliseconds;
     }
 
     public bool OwnsPreviewContent(FrameworkElement content) =>
         !_disposed &&
         ReferenceEquals(_previewContent, content) &&
         ReferenceEquals(content.Parent, _previewContentLayer);
+
+    public bool HasPreviewContent => !_disposed && _previewContent != null;
 
     // Stage and prepare the final-size preview tree before the visual transaction begins. The
     // viewport changes size during the shell animation, but the content tree itself keeps its final
@@ -58,6 +101,12 @@ internal sealed partial class EdgeCapsuleHost
         if (_previewContentLayer == null)
         {
             return;
+        }
+
+        if (!ReferenceEquals(_previewContent, content))
+        {
+            _previewInteractiveCaptureLease = false;
+            _previewInteractiveCaptureGraceUntil = 0;
         }
 
         if (_previewContentLayer.Child != null &&
@@ -99,6 +148,7 @@ internal sealed partial class EdgeCapsuleHost
         }
 
         DetachPreviewContent();
+        ApplyCompactContentProgress(0);
     }
 
     private void EnsurePreviewLayers()
@@ -258,6 +308,8 @@ internal sealed partial class EdgeCapsuleHost
         }
         _previewContent = null;
         _previewVisible = false;
+        _previewInteractiveCaptureLease = false;
+        _previewInteractiveCaptureGraceUntil = 0;
         if (_previewViewportLayer != null)
         {
             _previewViewportLayer.Visibility = Visibility.Collapsed;
@@ -285,14 +337,19 @@ internal sealed partial class EdgeCapsuleHost
             {
                 return false;
             }
+            // The edge host deliberately uses WS_EX_NOACTIVATE. Text editors therefore cannot
+            // acquire keyboard focus here; treating them as background opens the full paper
+            // instead of presenting a control that appears editable but cannot accept typing.
+            if (current is TextBoxBase or PasswordBox)
+            {
+                return false;
+            }
             if (EdgeCapsulePreviewInteraction.GetConsumesPointer(current) ||
                 PaperMiniViewInteraction.GetConsumesPointer(current) ||
                 current is ButtonBase or
-                    TextBoxBase or
                     Selector or
                     ScrollBar or
                     Thumb or
-                    PasswordBox or
                     MenuItem or
                     Hyperlink)
             {

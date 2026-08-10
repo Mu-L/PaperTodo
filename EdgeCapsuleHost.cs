@@ -690,6 +690,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             if (IsPreviewInteractiveSource(
                     e.OriginalSource as DependencyObject))
             {
+                ArmPreviewInteractiveCaptureLease();
                 return;
             }
 
@@ -731,6 +732,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         shell.MouseEnter += (_, _) => callbacks.PointerInvalidated();
         shell.MouseLeave += (_, _) => callbacks.PointerInvalidated();
         content.PreviewMouseLeftButtonDown += (_, e) => BeginContentPointer(e);
+        content.PreviewMouseRightButtonDown += (_, _) =>
+            ArmPreviewInteractiveCaptureLease();
         content.PreviewMouseMove += (_, e) =>
         {
             if (!content.IsMouseCaptured)

@@ -202,7 +202,22 @@ public sealed partial class PaperWindow
         NotifyEdgeCapsulePreviewVisibility(
             _edgeCapsulePreviewRequest,
             visible: false);
+        _edgeCapsulePreviewRequest = null;
         _edgeCapsuleHost?.ClearPreviewContent();
+    }
+
+    internal void ResetEdgeCapsulePreviewForBodySessionChange()
+    {
+        if (!IsEdgeCapsulePreviewOpen &&
+            _edgeCapsulePreviewRequest == null &&
+            _edgeCapsuleHost?.HasPreviewContent != true)
+        {
+            return;
+        }
+
+        SetEdgeCapsulePreviewClosed(animate: false);
+        FlushEdgeCapsulePreviewCompactPresentation();
+        ClearEdgeCapsulePreviewContent();
     }
 
     private static void NotifyEdgeCapsulePreviewVisibility(

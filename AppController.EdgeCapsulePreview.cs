@@ -408,6 +408,22 @@ public sealed partial class AppController
         }
     }
 
+    internal void CloseEdgeCapsulePreviewForBodySessionReset(PaperWindow window)
+    {
+        if (IsEdgeCapsulePreviewOwner(window))
+        {
+            // A protocol 1.8 preview can own controls from the body session that is about to be
+            // replaced. End the controller session and restore queue placement before that tree is
+            // disposed, otherwise the edge host can retain a dead native/Web mini view.
+            CloseEdgeCapsulePreview(animate: false, arrange: true);
+        }
+
+        // Also repair a locally staged request if the controller session was already removed (for
+        // example during shutdown). Apply the compact state synchronously enough to precede the
+        // next render, then sever the final visual-tree reference while the session is still alive.
+        window.ResetEdgeCapsulePreviewForBodySessionChange();
+    }
+
     internal bool IsEdgeCapsulePreviewOwner(PaperWindow window) =>
         _edgeCapsulePreviewSession is { } session &&
         string.Equals(

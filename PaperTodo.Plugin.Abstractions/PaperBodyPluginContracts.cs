@@ -174,7 +174,8 @@ public interface IPaperBodyViewMigrationProvider
 
 /// <summary>
 /// Marks a custom mini-view element as owning pointer input. Standard WPF buttons, selectors,
-/// text inputs, scroll bars, thumbs and hyperlinks are detected automatically.
+/// scroll bars, thumbs and hyperlinks are detected automatically. The edge host deliberately does
+/// not take keyboard focus; text editing belongs in the full paper body.
 /// </summary>
 public static class PaperMiniViewInteraction
 {
