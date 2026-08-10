@@ -17,6 +17,8 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly List<EdgeCapsulePresenter> _presenters = new();
     private bool _renderingSubscribed;
     private bool _isTicking;
+    private bool _deferRenderingForLoadedBatch;
+    private int _loadedBatchGeneration;
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
@@ -25,6 +27,28 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
         Schedulers.GetValue(dispatcher, static key => new EdgeCapsuleFrameScheduler(key));
+
+    /// <summary>
+    /// Prevent a Render-priority composition callback from advancing one presenter while sibling
+    /// presenters are still waiting in the same Loaded-priority reconcile batch. Every caller
+    /// appends a release marker after its own queued reconcile; only the newest marker can release
+    /// the barrier, so interleaved queue members still begin from the same composition frame.
+    /// </summary>
+    public void DeferRenderingUntilLoadedBatchDrains()
+    {
+        _dispatcher.VerifyAccess();
+        _deferRenderingForLoadedBatch = true;
+        var generation = ++_loadedBatchGeneration;
+        _dispatcher.BeginInvoke(
+            new Action(() =>
+            {
+                if (generation == _loadedBatchGeneration)
+                {
+                    _deferRenderingForLoadedBatch = false;
+                }
+            }),
+            DispatcherPriority.Loaded);
+    }
 
     public void Activate(EdgeCapsulePresenter presenter)
     {
@@ -57,8 +81,12 @@ internal sealed class EdgeCapsuleFrameScheduler
     private void OnRendering(object? sender, EventArgs e)
     {
         // CompositionTarget.Rendering can be nested when presentation work pumps WPF messages.
-        // A nested tick must never observe or mutate the list owned by the outer tick.
-        if (!_dispatcher.CheckAccess() || _isTicking)
+        // A nested tick must never observe or mutate the list owned by the outer tick. Render has
+        // higher dispatcher priority than Loaded, so also hold the frame while a cross-window
+        // Loaded batch is still preparing sibling targets.
+        if (!_dispatcher.CheckAccess() ||
+            _isTicking ||
+            _deferRenderingForLoadedBatch)
         {
             return;
         }
