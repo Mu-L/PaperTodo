@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows.Threading;
 
 namespace PaperTodo;
@@ -96,20 +97,44 @@ public sealed partial class AppController
             TraceEdgeCapsulePreview(
                 $"visual transaction commit count={entries.Length}");
 
+            var transactionTimestamp = Stopwatch.GetTimestamp();
+            var snapBatch = entries.Any(entry =>
+                !entry.Window.IsClosed &&
+                entry.Motion.Kind == EdgeCapsuleMotionKind.Snap);
+
             // Desired preview state and every affected queue placement are already staged. Prevent
             // nested Dispatcher processing while each Presenter creates its transition from the
-            // current applied frame. WPF cannot render between these Flush calls, so the existing
-            // shared frame scheduler receives the complete transition set on its next composition
-            // tick instead of discovering one sibling per dispatcher/render turn.
+            // current applied frame. One timestamp gives every queue member identical progress;
+            // if any staged correction must snap, snap the whole batch so one card cannot jump to
+            // the endpoint while its neighbours are still interpolating toward it.
+            var nativeBatchCommitted = true;
             using (entries[0].Window.Dispatcher.DisableProcessing())
             {
+                using var nativeBoundsBatch =
+                    WindowNative.BeginWindowDeviceBoundsBatch(entries.Length);
                 foreach (var entry in entries)
                 {
                     if (!entry.Window.IsClosed)
                     {
                         entry.Window.CommitEdgeCapsuleVisualTransaction(
-                            entry.Motion,
-                            entry.RefreshLayout);
+                            snapBatch &&
+                                entry.Motion.Kind != EdgeCapsuleMotionKind.Snap
+                                ? EdgeCapsuleMotion.Snap(entry.Motion.Reason)
+                                : entry.Motion,
+                            entry.RefreshLayout,
+                            transactionTimestamp);
+                    }
+                }
+                nativeBatchCommitted = nativeBoundsBatch.Commit();
+            }
+
+            if (!nativeBatchCommitted)
+            {
+                foreach (var entry in entries)
+                {
+                    if (!entry.Window.IsClosed)
+                    {
+                        entry.Window.RetryEdgeCapsuleVisualTransaction();
                     }
                 }
             }

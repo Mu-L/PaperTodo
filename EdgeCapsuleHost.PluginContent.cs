@@ -41,9 +41,10 @@ internal sealed partial class EdgeCapsuleHost
         {
             _pluginContentLayer.Child = content;
         }
-        _pluginContentLayer.Visibility = _previewVisible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        // Keep the compact plugin tree layout-resident for the same reason as ContentGrid: a
+        // closing preview can restore it by opacity without exposing a one-frame empty shell.
+        _pluginContentLayer.Visibility = Visibility.Visible;
+        _pluginContentLayer.Opacity = _previewVisible ? 0 : 1;
         ContentArea.ToolTip = toolTip;
     }
 

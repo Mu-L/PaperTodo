@@ -137,19 +137,17 @@ internal sealed record EdgeCapsulePreviewLayoutSession(
 
 /// <summary>
 /// Pure preview placement policy. The compact queue remains the base plan. During one browsing
-/// session only the owner has a non-standard height. Downward transfers preserve the target's lower
-/// anchor to avoid visual reordering; upward transfers may compact space released by the old owner.
+/// session only the owner has a non-standard height. Every endpoint is a tightly packed queue;
+/// shared transition progress then preserves the same gap between every adjacent pair in flight.
 /// </summary>
 internal static class EdgeCapsulePreviewLayoutCoordinator
 {
     public static EdgeCapsulePreviewLayoutSession? OpenOrTransfer(
         EdgeCapsuleQueuePlan basePlan,
-        EdgeCapsulePreviewLayoutSession? previous,
         string queueKey,
         string ownerPaperId,
         EdgeCapsulePreviewSize size,
-        double compactHeightDip,
-        double gapDip)
+        double compactHeightDip)
     {
         var queue = basePlan.Queues.FirstOrDefault(item =>
             string.Equals(item.Key, queueKey, StringComparison.Ordinal));
@@ -166,105 +164,18 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         }
 
         var compactHeight = Math.Max(1, compactHeightDip);
-        var gap = Math.Max(0, gapDip);
-        var slotHeight = compactHeight + gap;
-        var baseTops = papers
-            .Select(paper =>
-                basePlan.Placements[paper.Id].VisualIndex * slotHeight)
-            .ToArray();
-        var currentTops = baseTops.ToArray();
-
         var paperIds = papers.Select(paper => paper.Id).ToArray();
-        var sameQueue = previous != null &&
-            string.Equals(previous.QueueKey, queueKey, StringComparison.Ordinal) &&
-            previous.QueuePaperIds.SequenceEqual(
-                paperIds,
-                StringComparer.Ordinal);
-        var oldIndex = -1;
-        if (sameQueue)
-        {
-            for (var index = 0; index < papers.Count; index++)
-            {
-                currentTops[index] += previous!.TopOffsetsDip
-                    .GetValueOrDefault(papers[index].Id);
-            }
-            oldIndex = IndexOf(papers, previous!.OwnerPaperId);
-        }
-
         var newHeight = Math.Max(compactHeight, size.HeightDip);
-        var tops = currentTops.ToArray();
+        var expansion = newHeight - compactHeight;
 
         // Accepted temporary 1.8 behavior: preview browsing preserves the queue-relative motion
         // even when a tall card or its followers extend beyond the monitor work area. Do not clamp
         // the card height or shrink the whole corridor here; that policy needs a separate design.
 
-        if (oldIndex < 0)
-        {
-            tops[newIndex] = baseTops[newIndex];
-            PushFollowingMembers(
-                tops,
-                currentTops,
-                newIndex,
-                newHeight,
-                compactHeight,
-                gap);
-        }
-        else if (newIndex > oldIndex)
-        {
-            // Moving downward: compact the released side, keep the first member below the target
-            // where it currently is, and let the new card grow upward into the released space.
-            for (var index = 0; index < newIndex; index++)
-            {
-                tops[index] = baseTops[index];
-            }
-
-            var nextTop = newIndex + 1 < papers.Count
-                ? currentTops[newIndex + 1]
-                : currentTops[newIndex] + compactHeight + gap;
-            var proposedTop = nextTop - gap - newHeight;
-            var anchoredTop = Math.Min(
-                proposedTop,
-                currentTops[newIndex]);
-            var minimumTop = newIndex > 0
-                ? tops[newIndex - 1] + compactHeight + gap
-                : baseTops[newIndex];
-            tops[newIndex] = Math.Max(anchoredTop, minimumTop);
-            PushFollowingMembers(
-                tops,
-                currentTops,
-                newIndex,
-                newHeight,
-                compactHeight,
-                gap);
-        }
-        else if (newIndex < oldIndex)
-        {
-            // Moving upward cannot invert any crossed member. Compact from the new owner downward
-            // so followers fill space released by a taller old card. The downward branch above
-            // intentionally remains anchored because compacting below a skipped target can make a
-            // follower appear to pass that target during the shared transition.
-            for (var index = 0; index <= newIndex; index++)
-            {
-                tops[index] = baseTops[index];
-            }
-            PlaceFollowingMembers(
-                tops,
-                currentTops,
-                newIndex,
-                newHeight,
-                compactHeight,
-                gap,
-                retainExistingGaps: false);
-        }
-        else
-        {
-            return previous! with { Size = size };
-        }
-
         var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var index = 0; index < papers.Count; index++)
         {
-            offsets[papers[index].Id] = tops[index] - baseTops[index];
+            offsets[papers[index].Id] = index > newIndex ? expansion : 0;
         }
 
         return new EdgeCapsulePreviewLayoutSession(
@@ -297,43 +208,6 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         }
 
         return new EdgeCapsuleQueuePlan(basePlan.Queues, placements);
-    }
-
-    private static void PushFollowingMembers(
-        double[] tops,
-        double[] currentTops,
-        int ownerIndex,
-        double ownerHeight,
-        double compactHeight,
-        double gap) =>
-        PlaceFollowingMembers(
-            tops,
-            currentTops,
-            ownerIndex,
-            ownerHeight,
-            compactHeight,
-            gap,
-            retainExistingGaps: true);
-
-    private static void PlaceFollowingMembers(
-        double[] tops,
-        double[] currentTops,
-        int ownerIndex,
-        double ownerHeight,
-        double compactHeight,
-        double gap,
-        bool retainExistingGaps)
-    {
-        for (var index = ownerIndex + 1; index < tops.Length; index++)
-        {
-            var previousHeight = index - 1 == ownerIndex
-                ? ownerHeight
-                : compactHeight;
-            var minimumTop = tops[index - 1] + previousHeight + gap;
-            tops[index] = retainExistingGaps
-                ? Math.Max(currentTops[index], minimumTop)
-                : minimumTop;
-        }
     }
 
     private static int IndexOf(IReadOnlyList<PaperData> papers, string paperId)

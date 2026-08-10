@@ -20,7 +20,8 @@ public sealed partial class PaperWindow
 
     internal void CommitEdgeCapsuleVisualTransaction(
         EdgeCapsuleMotion motion,
-        bool refreshLayout)
+        bool refreshLayout,
+        long transactionTimestamp)
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
             IsClosed ||
@@ -37,6 +38,21 @@ public sealed partial class PaperWindow
         }
 
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
-        _edgeCapsule.Flush(dirty, dispatcher, ReconcileEdgeCapsule);
+        _edgeCapsule.Flush(
+            dirty,
+            dispatcher,
+            ReconcileEdgeCapsule,
+            transactionTimestamp);
+    }
+
+    internal void RetryEdgeCapsuleVisualTransaction()
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        {
+            return;
+        }
+
+        _edgeCapsule.ForceApplyCurrentPresentation();
+        InvalidateEdgeCapsule(EdgeCapsuleDirty.Presentation);
     }
 }
