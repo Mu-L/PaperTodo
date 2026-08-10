@@ -79,10 +79,29 @@ public sealed partial class AppController
     private EdgeCapsuleQueuePlan BuildCurrentEdgeCapsuleQueuePlan()
     {
         var papers = DeepCapsulePapersInOrder();
-        return EdgeCapsuleQueueCoordinator.Build(
-            papers.Select(paper =>
-                new EdgeCapsuleQueueMember(paper, QueueKey(paper))),
-            State.UseCapsuleCollapseAll);
+        return BuildDeepCapsuleQueuePlan(papers);
+    }
+
+    private EdgeCapsulePreviewLayoutSession? CreateEdgeCapsulePreviewLayoutSession(
+        EdgeCapsuleQueuePlan basePlan,
+        string queueKey,
+        PaperWindow owner,
+        EdgeCapsulePreviewSize size)
+    {
+        var paper = owner.EdgeCapsulePreviewPaper;
+        var liveMonitor = LiveQueueMonitorDeviceName(paper.CapsuleMonitorDeviceName);
+        var edge = DeepCapsuleSides.Normalize(paper.CapsuleSide) == DeepCapsuleSides.Left
+            ? EdgeCapsuleEdge.Left
+            : EdgeCapsuleEdge.Right;
+        return EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
+            basePlan,
+            queueKey,
+            owner.EdgeCapsulePreviewPaperId,
+            size,
+            PaperLayoutDefaults.CapsuleHeight,
+            EdgeCapsuleLayout.LocalWorkAreaForQueue(liveMonitor),
+            DeepCapsuleStartTopMarginForQueue(liveMonitor, edge),
+            DeepCapsuleGap);
     }
 
     private EdgeCapsuleQueuePlan ApplyEdgeCapsulePreviewLayout(
@@ -94,7 +113,10 @@ public sealed partial class AppController
             return basePlan;
         }
 
-        if (!basePlan.Placements.ContainsKey(session.OwnerPaperId) ||
+        if (!basePlan.Placements.TryGetValue(
+                session.OwnerPaperId,
+                out var ownerPlacement) ||
+            !ownerPlacement.IsPageVisible ||
             IsCapsuleCollapseAllActiveForQueue(session.QueueKey) ||
             !_windows.TryGetValue(session.OwnerPaperId, out var owner))
         {
@@ -135,36 +157,40 @@ public sealed partial class AppController
             return basePlan;
         }
 
-        var currentIds = currentQueue.Papers
+        var currentIds = currentQueue.VisiblePapers
             .Select(paper => paper.Id)
             .ToArray();
-        if (!string.Equals(
+        var queueMembershipChanged = !string.Equals(
                 session.QueueKey,
                 currentQueueKey,
                 StringComparison.Ordinal) ||
             !session.QueuePaperIds.SequenceEqual(
                 currentIds,
-                StringComparer.Ordinal))
+                StringComparer.Ordinal);
+        if (queueMembershipChanged)
         {
             TraceEdgeCapsulePreview(
                 $"layout refresh owner={EdgeCapsulePreviewTraceId(session.OwnerPaperId)} " +
                 $"queue={session.QueueKey}->{currentQueueKey}");
-            session = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
-                basePlan,
-                currentQueueKey,
-                session.OwnerPaperId,
-                session.Size,
-                PaperLayoutDefaults.CapsuleHeight);
-            if (session == null)
-            {
-                TraceEdgeCapsulePreview(
-                    $"layout reset owner={EdgeCapsulePreviewTraceId(_edgeCapsulePreviewSession?.OwnerPaperId)} " +
-                    "reason=layout-refresh-failed");
-                ResetEdgeCapsulePreviewWithoutArrange();
-                return basePlan;
-            }
-            _edgeCapsulePreviewSession = session;
         }
+
+        // Work-area, start-margin and page capacity can change without changing membership.
+        // Recompute the pure shift on every arranged layout so the expanded envelope remains in
+        // the current monitor's work area.
+        session = CreateEdgeCapsulePreviewLayoutSession(
+            basePlan,
+            currentQueueKey,
+            owner,
+            session.Size);
+        if (session == null)
+        {
+            TraceEdgeCapsulePreview(
+                $"layout reset owner={EdgeCapsulePreviewTraceId(_edgeCapsulePreviewSession?.OwnerPaperId)} " +
+                "reason=layout-refresh-failed");
+            ResetEdgeCapsulePreviewWithoutArrange();
+            return basePlan;
+        }
+        _edgeCapsulePreviewSession = session;
 
         return EdgeCapsulePreviewLayoutCoordinator.Apply(basePlan, session);
     }
@@ -756,12 +782,11 @@ public sealed partial class AppController
 
         var basePlan = BuildCurrentEdgeCapsuleQueuePlan();
         var queueKey = QueueKey(window.EdgeCapsulePreviewPaper);
-        var next = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
+        var next = CreateEdgeCapsulePreviewLayoutSession(
             basePlan,
             queueKey,
-            window.EdgeCapsulePreviewPaperId,
-            request.Size,
-            PaperLayoutDefaults.CapsuleHeight);
+            window,
+            request.Size);
         if (next == null)
         {
             TraceEdgeCapsulePreview(

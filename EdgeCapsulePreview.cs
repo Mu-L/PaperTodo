@@ -177,7 +177,8 @@ internal sealed record EdgeCapsulePreviewLayoutSession(
     string OwnerPaperId,
     EdgeCapsulePreviewSize Size,
     IReadOnlyList<string> QueuePaperIds,
-    IReadOnlyDictionary<string, double> TopOffsetsDip);
+    IReadOnlyDictionary<string, double> TopOffsetsDip,
+    double QueueTopOffsetDip);
 
 /// <summary>
 /// Pure preview placement policy. The compact queue remains the base plan. During one browsing
@@ -191,7 +192,10 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         string queueKey,
         string ownerPaperId,
         EdgeCapsulePreviewSize size,
-        double compactHeightDip)
+        double compactHeightDip,
+        Rect localWorkArea,
+        double queueStartTopMarginDip,
+        double gapDip)
     {
         var queue = basePlan.Queues.FirstOrDefault(item =>
             string.Equals(item.Key, queueKey, StringComparison.Ordinal));
@@ -200,7 +204,7 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             return null;
         }
 
-        var papers = queue.Papers;
+        var papers = queue.VisiblePapers;
         var newIndex = IndexOf(papers, ownerPaperId);
         if (newIndex < 0)
         {
@@ -212,14 +216,42 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         var newHeight = Math.Max(compactHeight, size.HeightDip);
         var expansion = newHeight - compactHeight;
 
-        // Accepted temporary 1.8 behavior: preview browsing preserves the queue-relative motion
-        // even when a tall card or its followers extend beyond the monitor work area. Do not clamp
-        // the card height or shrink the whole corridor here; that policy needs a separate design.
+        var slotCount = Math.Max(1, papers.Count + (queue.HasMaster ? 1 : 0));
+        var expandedEnvelopeHeight = newHeight +
+            (slotCount - 1) * EdgeCapsuleLayout.SlotHeight(gapDip);
+        var availableHeight = localWorkArea.Height -
+            EdgeCapsuleLayout.TopMargin * 2;
+        if (!double.IsFinite(expandedEnvelopeHeight) ||
+            !double.IsFinite(availableHeight) ||
+            expandedEnvelopeHeight > availableHeight + 0.01)
+        {
+            return null;
+        }
+
+        var compactBottom = EdgeCapsuleLayout.TopForIndex(
+                slotCount - 1,
+                queueStartTopMarginDip,
+                localWorkArea,
+                slotCount,
+                gapDip) +
+            compactHeight;
+        var allowedBottom = localWorkArea.Bottom - EdgeCapsuleLayout.TopMargin;
+        var queueShift = Math.Min(0, allowedBottom - compactBottom - expansion);
+        var firstTop = EdgeCapsuleLayout.TopForIndex(
+            0,
+            queueStartTopMarginDip,
+            localWorkArea,
+            slotCount,
+            gapDip);
+        queueShift = Math.Max(
+            queueShift,
+            localWorkArea.Top + EdgeCapsuleLayout.TopMargin - firstTop);
 
         var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var index = 0; index < papers.Count; index++)
         {
-            offsets[papers[index].Id] = index > newIndex ? expansion : 0;
+            offsets[papers[index].Id] = queueShift +
+                (index > newIndex ? expansion : 0);
         }
 
         return new EdgeCapsulePreviewLayoutSession(
@@ -227,7 +259,8 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             ownerPaperId,
             size,
             paperIds,
-            offsets);
+            offsets,
+            queueShift);
     }
 
     public static EdgeCapsuleQueuePlan Apply(
@@ -251,7 +284,15 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             }
         }
 
-        return new EdgeCapsuleQueuePlan(basePlan.Queues, placements);
+        var queues = basePlan.Queues
+            .Select(queue => string.Equals(
+                    queue.Key,
+                    session.QueueKey,
+                    StringComparison.Ordinal)
+                ? queue with { TopOffsetDip = session.QueueTopOffsetDip }
+                : queue)
+            .ToArray();
+        return new EdgeCapsuleQueuePlan(queues, placements);
     }
 
     private static int IndexOf(IReadOnlyList<PaperData> papers, string paperId)

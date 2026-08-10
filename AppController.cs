@@ -76,6 +76,10 @@ public sealed partial class AppController : IDisposable
     private readonly HashSet<string> _deepCapsuleContextMenuOwners = new(StringComparer.Ordinal);
     // One master pill per docked-capsule queue, keyed by QueueKey(monitorDevice, edge).
     private readonly Dictionary<string, MasterCapsuleWindow> _masterCapsules = new();
+    // Overflow pages are runtime presentation state. They follow the live (monitor, edge) queue
+    // and are deliberately not persisted into data.json.
+    private readonly Dictionary<string, int> _edgeCapsuleQueuePages = new(StringComparer.Ordinal);
+    private EdgeCapsuleQueuePlan? _currentEdgeCapsuleQueuePlan;
 
     private static Brush TrayPaperBrush => Theme.PaperBrush;
     private static Brush TrayBorderBrush => Theme.PaperBorderBrush;
@@ -2178,8 +2182,19 @@ public sealed partial class AppController : IDisposable
     // Count of capsules in only the given paper's (monitor, edge) queue.
     public int VisibleDeepCapsuleCountForQueue(PaperData target)
     {
+        return CurrentEdgeCapsuleQueueFor(target)?.VisiblePapers.Count ?? 0;
+    }
+
+    internal int VisibleDeepCapsulePageStartForQueue(PaperData target) =>
+        CurrentEdgeCapsuleQueueFor(target)?.PageStart ?? 0;
+
+    private EdgeCapsuleQueue? CurrentEdgeCapsuleQueueFor(PaperData target)
+    {
         var key = QueueKey(target);
-        return DeepCapsulePapersInOrder().Count(p => QueueKey(p) == key);
+        var plan = _currentEdgeCapsuleQueuePlan ??
+            BuildDeepCapsuleQueuePlan(DeepCapsulePapersInOrder());
+        return plan.Queues.FirstOrDefault(queue =>
+            string.Equals(queue.Key, key, StringComparison.Ordinal));
     }
 
     public double VisibleDeepCapsuleRestingWidth()
@@ -2225,9 +2240,10 @@ public sealed partial class AppController : IDisposable
             }
         }
 
-        if (State.UseCapsuleCollapseAll)
+        var queue = CurrentEdgeCapsuleQueueFor(target);
+        if (queue?.HasMaster == true)
         {
-            var queueCount = DeepCapsulePapersInOrder().Count(p => QueueKey(p) == targetKey);
+            var queueCount = queue.Papers.Count;
             if (queueCount > 0)
             {
                 // During the first arrange the master HWND does not exist yet, so reserve the
@@ -2318,9 +2334,7 @@ public sealed partial class AppController : IDisposable
         targetIndex = Math.Clamp(targetIndex, 0, queueMembers.Count);
         queueMembers.Insert(targetIndex, draggedPaper);
 
-        var plan = EdgeCapsuleQueueCoordinator.Build(
-            queueMembers.Select(member => new EdgeCapsuleQueueMember(member, queueKey)),
-            State.UseCapsuleCollapseAll);
+        var plan = BuildDeepCapsuleQueuePlan(queueMembers);
         if (plan.Queues.Count == 0)
         {
             return;
@@ -2383,26 +2397,44 @@ public sealed partial class AppController : IDisposable
             }
         }
 
-        // Insertion index by drop height against the target queue's monitor work area.
+        // Insertion index by drop height against the target queue's current visible page.
         var area = monitorGeometry.LocalWorkAreaDip;
         var dropY = monitorGeometry.DeviceYToLocalDip(dropPoint.Y);
-        var targetRealCount = targetMembers.Count + 1;
-        var visualOffset = State.UseCapsuleCollapseAll && targetRealCount > 0 ? 1 : 0;
-        var startTop = EdgeCapsuleLayout.NormalizeStartTopMargin(
-            DeepCapsuleStartTopMarginForQueue(normalizedMonitor,
-                normalizedSide == DeepCapsuleSides.Left ? EdgeCapsuleEdge.Left : EdgeCapsuleEdge.Right),
-            area,
-            targetRealCount + visualOffset,
-            DeepCapsuleGap);
+        var targetQueuePlan = BuildDeepCapsuleQueuePlan(targetMembers.Append(paper));
+        var targetQueue = targetQueuePlan.Queues.FirstOrDefault(queue =>
+            string.Equals(queue.Key, targetKey, StringComparison.Ordinal));
+        if (targetQueue == null)
+        {
+            return;
+        }
+
+        var visualOffset = targetQueue.HasMaster ? 1 : 0;
+        var slotCount = Math.Max(1, targetQueue.VisiblePapers.Count + visualOffset);
+        var startTop = DeepCapsuleStartTopMarginForQueue(
+            normalizedMonitor,
+            normalizedSide == DeepCapsuleSides.Left
+                ? EdgeCapsuleEdge.Left
+                : EdgeCapsuleEdge.Right);
         var slotHeight = EdgeCapsuleLayout.SlotHeight(DeepCapsuleGap);
         var firstTop = EdgeCapsuleLayout.TopForIndex(
             visualOffset,
             startTop,
             area,
-            targetRealCount + visualOffset,
+            slotCount,
             DeepCapsuleGap);
         var rawIndex = (int)Math.Floor((dropY - firstTop) / slotHeight + 0.5);
-        var insertAt = Math.Clamp(rawIndex, 0, targetMembers.Count);
+        var appendedPaperIsPageVisible = targetQueue.VisiblePapers.Any(candidate =>
+            candidate.Id == paper.Id);
+        var visibleTargetCount = targetQueue.VisiblePapers.Count(candidate =>
+            candidate.Id != paper.Id);
+        var maximumInsertAt = targetQueue.PageStart + visibleTargetCount -
+            (appendedPaperIsPageVisible ? 0 : 1);
+        var insertAt = Math.Clamp(
+            targetQueue.PageStart + rawIndex,
+            targetQueue.PageStart,
+            Math.Min(
+                targetMembers.Count,
+                Math.Max(targetQueue.PageStart, maximumInsertAt)));
 
         // Rebuild State.Papers: drop the dragged paper, then re-insert it right before the target
         // queue member currently at insertAt (or at the end of that queue's run).
@@ -2580,6 +2612,55 @@ public sealed partial class AppController : IDisposable
 
     private static string QueueKey(PaperData paper) => QueueKey(paper.CapsuleMonitorDeviceName, paper.CapsuleSide);
 
+    private EdgeCapsuleQueuePlan BuildDeepCapsuleQueuePlan(IEnumerable<PaperData> papers)
+    {
+        var members = papers
+            .Select(paper => new EdgeCapsuleQueueMember(paper, QueueKey(paper)))
+            .ToList();
+        var pageRequests = new Dictionary<string, EdgeCapsuleQueuePageRequest>(StringComparer.Ordinal);
+        foreach (var group in members.GroupBy(member => member.QueueKey, StringComparer.Ordinal))
+        {
+            var sample = group.First().Paper;
+            var liveMonitor = LiveQueueMonitorDeviceName(sample.CapsuleMonitorDeviceName);
+            var localWorkArea = EdgeCapsuleLayout.LocalWorkAreaForQueue(liveMonitor);
+            var requestedPage = _edgeCapsuleQueuePages.TryGetValue(group.Key, out var page)
+                ? page
+                : 0;
+            pageRequests[group.Key] = new EdgeCapsuleQueuePageRequest(
+                requestedPage,
+                EdgeCapsuleLayout.SafeVisualSlotCount(localWorkArea, DeepCapsuleGap));
+        }
+
+        return EdgeCapsuleQueueCoordinator.Build(
+            members,
+            State.UseCapsuleCollapseAll,
+            pageRequests);
+    }
+
+    private void SyncEdgeCapsuleQueuePages(EdgeCapsuleQueuePlan plan)
+    {
+        var liveKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var queue in plan.Queues)
+        {
+            liveKeys.Add(queue.Key);
+            if (queue.PageCount > 1 || queue.PageIndex > 0)
+            {
+                _edgeCapsuleQueuePages[queue.Key] = queue.PageIndex;
+            }
+            else
+            {
+                _edgeCapsuleQueuePages.Remove(queue.Key);
+            }
+        }
+
+        foreach (var staleKey in _edgeCapsuleQueuePages.Keys
+                     .Where(key => !liveKeys.Contains(key))
+                     .ToList())
+        {
+            _edgeCapsuleQueuePages.Remove(staleKey);
+        }
+    }
+
     private bool IsCapsuleCollapseAllActiveForQueue(string queueKey)
     {
         return State.CapsuleCollapseAllActiveQueues.TryGetValue(queueKey, out var active) && active;
@@ -2680,6 +2761,8 @@ public sealed partial class AppController : IDisposable
         if (!State.UseCapsuleMode || !State.UseDeepCapsuleMode)
         {
             ResetEdgeCapsulePreviewWithoutArrange();
+            _edgeCapsuleQueuePages.Clear();
+            _currentEdgeCapsuleQueuePlan = null;
             foreach (var window in _windows.Values)
             {
                 window.DetachFromDeepCapsuleStack();
@@ -2690,10 +2773,10 @@ public sealed partial class AppController : IDisposable
 
         var capsulePapers = DeepCapsulePapersInOrder();
 
-        var plan = EdgeCapsuleQueueCoordinator.Build(
-            capsulePapers.Select(paper => new EdgeCapsuleQueueMember(paper, QueueKey(paper))),
-            State.UseCapsuleCollapseAll);
+        var plan = BuildDeepCapsuleQueuePlan(capsulePapers);
+        SyncEdgeCapsuleQueuePages(plan);
         plan = ApplyEdgeCapsulePreviewLayout(plan);
+        _currentEdgeCapsuleQueuePlan = plan;
         var queueKeys = plan.Queues.Select(queue => queue.Key).ToList();
         RemoveStaleCollapseAllActiveQueues(queueKeys);
         MigrateLegacyCollapseAllActiveQueues(queueKeys);
@@ -2769,20 +2852,19 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    // Reconcile one master pill per non-empty queue (when collapse-all is on). Creates/updates the
-    // masters for live queues and closes masters whose queue disappeared.
+    // Reconcile one header pill per queue that either enables collapse-all or needs overflow
+    // pagination. Creates/updates live headers and closes headers whose queue no longer needs one.
     private void SyncMasterCapsules(EdgeCapsuleQueuePlan plan, bool animate)
     {
-        if (!State.UseCapsuleCollapseAll)
-        {
-            DestroyAllMasterCapsules();
-            return;
-        }
-
         var liveKeys = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var queue in plan.Queues)
         {
+            if (!queue.HasMaster)
+            {
+                continue;
+            }
+
             var key = queue.Key;
             var papers = queue.Papers;
             if (papers.Count == 0)
@@ -2794,19 +2876,36 @@ public sealed partial class AppController : IDisposable
             var sample = papers[0];
             var edge = sample.CapsuleSide == DeepCapsuleSides.Left ? EdgeCapsuleEdge.Left : EdgeCapsuleEdge.Right;
             var monitor = sample.CapsuleMonitorDeviceName;
-            var retracted = IsCapsuleCollapseAllActiveForQueue(key);
+            var collapseEnabled = State.UseCapsuleCollapseAll;
+            var retracted = collapseEnabled && IsCapsuleCollapseAllActiveForQueue(key);
 
             if (!_masterCapsules.TryGetValue(key, out var master))
             {
                 master = new MasterCapsuleWindow(this, edge, monitor);
                 _masterCapsules[key] = master;
                 master.SetExperimentalPassive(_experimentalAllSurfacesPassive);
-                master.ShowPlaced(papers.Count, retracted, animate);
+                master.ShowPlaced(
+                    papers.Count,
+                    retracted,
+                    animate,
+                    queue.PageIndex,
+                    queue.PageCount,
+                    queue.VisiblePapers.Count,
+                    queue.TopOffsetDip,
+                    collapseEnabled);
             }
             else
             {
                 master.SetQueue(edge, monitor);
-                master.UpdateState(papers.Count, retracted, animate);
+                master.UpdateState(
+                    papers.Count,
+                    retracted,
+                    animate,
+                    queue.PageIndex,
+                    queue.PageCount,
+                    queue.VisiblePapers.Count,
+                    queue.TopOffsetDip,
+                    collapseEnabled);
             }
         }
 
@@ -2869,6 +2968,70 @@ public sealed partial class AppController : IDisposable
         SyncLegacyCollapseAllActiveSummary();
         ArrangeDeepCapsules(animate: true);
         SaveNow();
+    }
+
+    internal void ChangeEdgeCapsuleQueuePage(
+        string monitorDeviceName,
+        EdgeCapsuleEdge edge,
+        int delta)
+    {
+        if (delta == 0 ||
+            !State.UseCapsuleMode ||
+            !State.UseDeepCapsuleMode ||
+            HasDeepCapsuleReorderDragInProgress())
+        {
+            return;
+        }
+
+        var side = edge == EdgeCapsuleEdge.Left
+            ? DeepCapsuleSides.Left
+            : DeepCapsuleSides.Right;
+        var key = QueueKey(monitorDeviceName, side);
+        var plan = BuildDeepCapsuleQueuePlan(DeepCapsulePapersInOrder());
+        var queue = plan.Queues.FirstOrDefault(candidate =>
+            string.Equals(candidate.Key, key, StringComparison.Ordinal));
+        if (queue == null || queue.PageCount <= 1)
+        {
+            return;
+        }
+
+        var targetPage = Math.Clamp(
+            queue.PageIndex + Math.Sign(delta),
+            0,
+            queue.PageCount - 1);
+        if (targetPage == queue.PageIndex)
+        {
+            return;
+        }
+
+        ResetEdgeCapsulePreviewWithoutArrange();
+        _edgeCapsuleQueuePages[key] = targetPage;
+        // Page members enter/leave through Hidden endpoints, so there is no meaningful member
+        // interpolation. Snap the header in the same arrange instead of letting it slide alone.
+        ArrangeDeepCapsules(animate: false);
+    }
+
+    private void ShowEdgeCapsuleQueuePageContaining(
+        EdgeCapsuleQueue queue,
+        int paperIndex)
+    {
+        if (queue.PageCount <= 1 || queue.PageCapacity <= 0)
+        {
+            return;
+        }
+
+        var targetPage = Math.Clamp(
+            Math.Max(0, paperIndex) / queue.PageCapacity,
+            0,
+            queue.PageCount - 1);
+        if (targetPage == queue.PageIndex)
+        {
+            return;
+        }
+
+        ResetEdgeCapsulePreviewWithoutArrange();
+        _edgeCapsuleQueuePages[queue.Key] = targetPage;
+        ArrangeDeepCapsules(animate: false);
     }
 
     private void ToggleCapsuleCollapseAll()
@@ -3592,9 +3755,17 @@ public sealed partial class AppController : IDisposable
         var key = QueueKey(monitorDeviceName, side);
         var area = EdgeCapsuleLayout.LocalWorkAreaForQueue(monitorDeviceName);
 
-        // Slot count for THIS queue (+1 if its master occupies slot 0).
-        var queueCount = DeepCapsulePapersInOrder().Count(p => QueueKey(p) == key);
-        var slotCount = queueCount + (State.UseCapsuleCollapseAll && queueCount > 0 ? 1 : 0);
+        // Only the current page participates in vertical geometry. Overflow members remain
+        // attached but hidden and must not reduce the page header's draggable range.
+        var plan = _currentEdgeCapsuleQueuePlan ??
+            BuildDeepCapsuleQueuePlan(DeepCapsulePapersInOrder());
+        var queue = plan.Queues.FirstOrDefault(candidate =>
+            string.Equals(candidate.Key, key, StringComparison.Ordinal));
+        var slotCount = queue == null
+            ? 1
+            : Math.Max(
+                1,
+                queue.VisiblePapers.Count + (queue.HasMaster ? 1 : 0));
         var normalized = EdgeCapsuleLayout.NormalizeStartTopMargin(
             startTopMargin,
             area,

@@ -32,6 +32,7 @@ public sealed partial class PaperWindow
         !IsExperimentalPassive &&
         !_advancedInteractionLocked &&
         HasDeepCapsuleSlotPlacement &&
+        _edgeCapsule.Placement.IsPageVisible &&
         !IsDeepCapsuleRetractedIntoMaster &&
         !IsDeepCapsuleSlotRetracting &&
         !IsDeepCapsuleReordering &&
@@ -75,13 +76,20 @@ public sealed partial class PaperWindow
                 return null;
             }
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
+            var siblingSlotHeight = Math.Max(
+                0,
+                _edgeCapsule.Placement.SlotCount - 1) *
+                EdgeCapsuleLayout.SlotHeight(_controller.DeepCapsuleGap);
+            var maximumPreviewHeight = monitor.Height -
+                (EdgeCapsuleLayout.TopMargin * 2) -
+                siblingSlotHeight;
             var size = descriptor.Size.Normalize(
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumWidthDip,
                     monitor.Width - 16),
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumHeightDip,
-                    monitor.Height - 16));
+                    maximumPreviewHeight));
             // Native/Web/migration providers may execute arbitrary plugin code or construct a
             // WebView. Mount a bounded host-owned tree now and create that content only after the
             // visual transaction has produced its first compositor frame.

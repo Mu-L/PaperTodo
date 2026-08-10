@@ -1168,9 +1168,10 @@ public sealed partial class PaperWindow
     private int DeepCapsuleDropIndexForCurrentPosition()
     {
         var count = _controller.VisibleDeepCapsuleCountForQueue(_paper);
+        var pageStart = _controller.VisibleDeepCapsulePageStartForQueue(_paper);
         if (count <= 1)
         {
-            return 0;
+            return pageStart;
         }
 
         var dragBounds = _deepCapsuleFloatingDragHost != null &&
@@ -1179,7 +1180,10 @@ public sealed partial class PaperWindow
                 : _edgeCapsule.AppliedPresentation.Bounds;
         if (dragBounds.IsEmpty)
         {
-            return Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
+            return Math.Clamp(
+                _edgeCapsule.Placement.Index,
+                pageStart,
+                pageStart + count - 1);
         }
 
         var geometry = DeepCapsuleMonitorGeometry();
@@ -1188,11 +1192,14 @@ public sealed partial class PaperWindow
         var firstCenterY = DeepCapsuleTopForIndex(_edgeCapsule.Placement.VisualOffset) +
             (PaperLayoutDefaults.CapsuleHeight / 2);
         var slotHeight = EdgeCapsuleLayout.SlotHeight(DeepCapsuleGap);
-        var originalIndex = Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
+        var originalIndex = Math.Clamp(
+            _edgeCapsule.Placement.Index - pageStart,
+            0,
+            count - 1);
         var rawIndex = (centerY - firstCenterY) / slotHeight;
         var index = rawIndex >= originalIndex
             ? (int)Math.Floor(rawIndex)
             : (int)Math.Ceiling(rawIndex);
-        return Math.Clamp(index, 0, count - 1);
+        return pageStart + Math.Clamp(index, 0, count - 1);
     }
 }

@@ -27,7 +27,7 @@ internal static class EdgeCapsuleLayoutService
     {
         var placement = facts.Placement.Normalize();
         var localWorkArea = facts.Monitor.LocalWorkAreaDip;
-        var normalTop = placement.IsPlaced
+        var normalTop = placement.IsPlaced && placement.IsPageVisible
             ? EdgeCapsuleLayout.TopForIndex(
                 placement.VisualIndex,
                 facts.QueueStartTopMarginDip,

@@ -2,8 +2,6 @@ name: Pull request build
 
 on:
   pull_request:
-    branches:
-      - main
     paths-ignore:
       - "docs/**"
       - "**/*.md"
