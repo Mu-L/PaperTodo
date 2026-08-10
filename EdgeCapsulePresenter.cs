@@ -459,6 +459,13 @@ internal sealed class EdgeCapsulePresenter
                 RunReconcile();
             }),
             DispatcherPriority.Loaded);
+
+        // Render runs above Loaded. Without a shared barrier, the first queue member whose Loaded
+        // callback reconciles can advance one composition frame before later siblings reconcile.
+        // Append the barrier release after this callback; the scheduler's generation keeps the
+        // latest release behind every sibling scheduled in the same dispatcher batch.
+        _frameScheduler ??= EdgeCapsuleFrameScheduler.For(_dispatcher);
+        _frameScheduler.DeferRenderingUntilLoadedBatchDrains();
     }
 
     private void RunReconcile()
