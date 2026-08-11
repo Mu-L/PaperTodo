@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -16,9 +17,11 @@ internal sealed partial class EdgeCapsuleHost
     private int _previewContentStageGeneration;
     private bool _previewVisible;
     private bool _previewInteractiveCaptureLease;
+    private bool _compactLabelSuppressedForPreview;
     private long _previewInteractiveCaptureGraceUntil;
 
     private const int PreviewInteractiveCaptureGraceMilliseconds = 250;
+    private const int CompactLabelFadeMilliseconds = 50;
 
     public bool IsPreviewPointerCaptureActive
     {
@@ -343,6 +346,10 @@ internal sealed partial class EdgeCapsuleHost
             _previewContentLayer != null &&
             _previewContent != null;
         _previewVisible = retainPreview && hasContent;
+        if (_previewVisible)
+        {
+            SetCompactLabelSuppressedForPreview(true);
+        }
 
         if (_previewContentLayer != null)
         {
@@ -427,6 +434,40 @@ internal sealed partial class EdgeCapsuleHost
                 : Brushes.Transparent;
     }
 
+    private void SetCompactLabelSuppressedForPreview(bool suppressed)
+    {
+        if (_compactLabelSuppressedForPreview == suppressed)
+        {
+            return;
+        }
+
+        _compactLabelSuppressedForPreview = suppressed;
+        var targetOpacity = suppressed ? 0d : 1d;
+        var currentOpacity = Math.Clamp(Label.Opacity, 0, 1);
+
+        // Keep the final value as the base value, then animate from the currently rendered value.
+        // Reversing within 50 ms therefore continues smoothly instead of jumping back to an older
+        // animation endpoint.
+        Label.BeginAnimation(UIElement.OpacityProperty, null);
+        Label.Opacity = targetOpacity;
+        if (Math.Abs(currentOpacity - targetOpacity) <= 0.001)
+        {
+            return;
+        }
+
+        Label.BeginAnimation(
+            UIElement.OpacityProperty,
+            new DoubleAnimation
+            {
+                From = currentOpacity,
+                To = targetOpacity,
+                Duration = new Duration(
+                    TimeSpan.FromMilliseconds(CompactLabelFadeMilliseconds)),
+                FillBehavior = FillBehavior.Stop
+            },
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
     private bool DetachPreviewContent()
     {
         int detachGeneration;
@@ -470,6 +511,7 @@ internal sealed partial class EdgeCapsuleHost
             }
             _previewViewportLayer.IsHitTestVisible = false;
         }
+        SetCompactLabelSuppressedForPreview(false);
         return IsPreviewContentStageCurrent(detachGeneration);
     }
 
