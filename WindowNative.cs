@@ -442,10 +442,29 @@ internal static class WindowNative
             }
             if (batch.IsAvailable)
             {
-                return batch.TryDefer(handle, bounds);
+                if (batch.TryDefer(handle, bounds))
+                {
+                    return true;
+                }
+                if (batch.HasFailed)
+                {
+                    return false;
+                }
             }
         }
-        return handle != IntPtr.Zero && SetWindowPos(
+
+#if DEBUG
+        var positionChanged = false;
+        var sizeChanged = false;
+        if (handle != IntPtr.Zero && GetWindowRect(handle, out var before))
+        {
+            positionChanged = before.Left != bounds.Left || before.Top != bounds.Top;
+            sizeChanged = before.Right - before.Left != bounds.Width ||
+                before.Bottom - before.Top != bounds.Height;
+        }
+        var immediateStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var applied = handle != IntPtr.Zero && SetWindowPos(
             handle,
             IntPtr.Zero,
             bounds.Left,
@@ -453,6 +472,19 @@ internal static class WindowNative
             bounds.Width,
             bounds.Height,
             SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+#if DEBUG
+        if (handle != IntPtr.Zero)
+        {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"native.window phase=immediate-set hwnd=0x{handle.ToInt64():X} " +
+                $"outcome={(applied ? "success" : "failed")} " +
+                $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
+                $"positionChanged={positionChanged} sizeChanged={sizeChanged} " +
+                $"visibilityChanged=false zOrderChanged=false " +
+                $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
+        }
+#endif
+        return applied;
     }
 
     // A System Aware floating HWND owns its fixed logical size for its entire lifetime. Handoff
@@ -571,9 +603,9 @@ internal static class WindowNative
     }
 
     /// <summary>
-    /// Defers all visible HWND bounds submitted on the current UI thread and commits them through
-    /// one HDWP. This is the native half of a cross-capsule visual transaction: DWM can no longer
-    /// sample one queue member at the new animation frame while a sibling is still on the old one.
+    /// Defers visible HWND bounds submitted on the current UI thread and commits real changes
+    /// through one HDWP. The HDWP itself is created lazily only after a window differs from its
+    /// native rectangle, so pure WPF / unchanged animation frames do not call EndDeferWindowPos.
     /// </summary>
     public static WindowDeviceBoundsBatch BeginWindowDeviceBoundsBatch(int capacity) =>
         new(Math.Max(1, capacity));
@@ -581,8 +613,11 @@ internal static class WindowNative
     internal sealed class WindowDeviceBoundsBatch : IDisposable
     {
         private readonly bool _ownsCurrentBatch;
+        private readonly int _capacity;
         private readonly Dictionary<IntPtr, DeviceScreenRect> _pendingBounds = new();
         private IntPtr _deferredWindowPosition;
+        private bool _beginAttempted;
+        private bool _nativeCommitAttempted;
         private bool _completed;
 #if DEBUG
         private readonly Dictionary<IntPtr, WindowBatchDiagnostic> _windowDiagnostics = new();
@@ -610,6 +645,7 @@ internal static class WindowNative
 
         internal WindowDeviceBoundsBatch(int capacity)
         {
+            _capacity = capacity;
             if (_currentDeviceBoundsBatch != null)
             {
                 // A nested visual callback already participates in the outer native transaction.
@@ -617,21 +653,13 @@ internal static class WindowNative
             }
 
             _ownsCurrentBatch = true;
-#if DEBUG
-            var beginStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
-#endif
-            _deferredWindowPosition = BeginDeferWindowPos(capacity);
-#if DEBUG
-            _beginMilliseconds = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(beginStartedAt);
-#endif
             _currentDeviceBoundsBatch = this;
         }
 
         internal bool IsAvailable =>
             _ownsCurrentBatch &&
             !_completed &&
-            !HasFailed &&
-            _deferredWindowPosition != IntPtr.Zero;
+            !HasFailed;
 
         internal bool HasFailed { get; private set; }
         internal int RequestedWindowCount { get; private set; }
@@ -639,6 +667,7 @@ internal static class WindowNative
         internal int UnchangedWindowCount { get; private set; }
         internal int MoveChangeCount { get; private set; }
         internal int SizeChangeCount { get; private set; }
+        internal bool PerformedNativeCommit => _nativeCommitAttempted;
 
         internal bool TryDefer(IntPtr handle, DeviceScreenRect bounds)
         {
@@ -704,6 +733,33 @@ internal static class WindowNative
 #if DEBUG
             diagnostic.MoveChanged = moveChanged;
             diagnostic.SizeChanged = sizeChanged;
+#endif
+
+            if (!_beginAttempted)
+            {
+                _beginAttempted = true;
+#if DEBUG
+                var beginStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+                _deferredWindowPosition = BeginDeferWindowPos(_capacity);
+#if DEBUG
+                _beginMilliseconds +=
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(beginStartedAt);
+#endif
+                if (_deferredWindowPosition == IntPtr.Zero)
+                {
+                    // Preserve the historical fallback contract. TrySetWindowDeviceBounds will
+                    // perform an ordinary SetWindowPos when BeginDeferWindowPos is unavailable.
+                    return false;
+                }
+            }
+
+            if (_deferredWindowPosition == IntPtr.Zero)
+            {
+                return false;
+            }
+
+#if DEBUG
             var deferStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
             var updated = DeferWindowPos(
@@ -763,17 +819,27 @@ internal static class WindowNative
             }
 
             var outcome = "committed";
-            // If BeginDeferWindowPos was unavailable, callers already used the ordinary immediate
-            // SetWindowPos fallback. A failed DeferWindowPos, however, invalidates the entire HDWP.
-            if (_deferredWindowPosition == IntPtr.Zero)
+            if (!_beginAttempted)
             {
-                outcome = HasFailed ? "failed-before-end" : "unavailable";
+                outcome = "noop";
 #if DEBUG
                 TraceBatch(outcome);
 #endif
                 return !HasFailed;
             }
 
+            // BeginDeferWindowPos may be unavailable while the caller succeeds through the
+            // immediate SetWindowPos fallback. A failed DeferWindowPos invalidates the whole HDWP.
+            if (_deferredWindowPosition == IntPtr.Zero)
+            {
+                outcome = HasFailed ? "failed-before-end" : "immediate-fallback";
+#if DEBUG
+                TraceBatch(outcome);
+#endif
+                return !HasFailed;
+            }
+
+            _nativeCommitAttempted = true;
 #if DEBUG
             var endStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
@@ -845,7 +911,8 @@ internal static class WindowNative
                 $"native.batch outcome={outcome} requested={RequestedWindowCount} " +
                 $"pending={PendingWindowCount} unchanged={UnchangedWindowCount} " +
                 $"moveChanges={MoveChangeCount} sizeChanges={SizeChangeCount} " +
-                $"visibilityChanges=0 zOrderChanges=0 beginMs={_beginMilliseconds:F3} " +
+                $"visibilityChanges=0 zOrderChanges=0 capacity={_capacity} " +
+                $"nativeCommit={_nativeCommitAttempted} beginMs={_beginMilliseconds:F3} " +
                 $"inspectMs={_inspectMilliseconds:F3} deferMs={_deferMilliseconds:F3} " +
                 $"endMs={_endMilliseconds:F3} verifyMs={_verifyMilliseconds:F3} " +
                 $"totalMs={totalMilliseconds:F3}");
