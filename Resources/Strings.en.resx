@@ -775,7 +775,7 @@ When off, only hides those items; selected values stay unchanged.</value>
     <value>Enable pointer-intent prediction</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
-    <value>Uses pointer speed, direction, and braking to delay or suppress previews during a fast pass. Once open, it also closes a preview when the pointer clearly heads away from every browsable capsule or idles too long in the empty corridor. It never chooses a target for you. When off, the first preview opens immediately, later transfers use a fixed 50 ms stability wait, and the empty corridor closes after a fixed 3 seconds without direction analysis.</value>
+    <value>Uses pointer speed, direction, and braking to delay or suppress previews during a fast pass. Once open, empty space inside the capsule queue's bounding rectangle stays open only while the trajectory clearly heads toward a browsable capsule; otherwise it closes after about 0.2–0.8 seconds according to sensitivity. Leaving that rectangle closes immediately. When off, the first preview opens immediately, later transfers use a fixed 50 ms stability wait, and empty space is retained for a fixed 1 second without direction analysis.</value>
   </data>
   <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
     <value>Intent sensitivity</value>

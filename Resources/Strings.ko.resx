@@ -775,7 +775,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>포인터 의도 예측 사용</value>
   </data>
   <data name="TipLabsEdgeCapsuleHoverIntent" xml:space="preserve">
-    <value>포인터 속도, 방향 및 감속 추세를 사용해 빠르게 지나갈 때 미리보기 펼치기를 지연하거나 억제합니다. 펼친 뒤에는 빈 통로에서 탐색 가능한 모든 캡슐로부터 뚜렷하게 멀어지거나 너무 오래 머물 때도 미리보기를 닫습니다. 대상을 대신 선택하지는 않습니다. 끄면 첫 미리보기는 즉시 열리고 이후 전환에는 고정 50ms 안정 대기를 사용합니다. 빈 통로에서는 방향을 분석하지 않고 연속 3초 후 고정으로 접습니다.</value>
+    <value>포인터 속도, 방향 및 감속 추세를 사용해 빠르게 지나갈 때 미리보기 펼치기를 지연하거나 억제합니다. 펼친 뒤 캡슐 대기열의 외접 사각형 안 빈 영역에서는 탐색 가능한 캡슐을 향하는 궤적일 때만 유지하고, 그렇지 않으면 민감도에 따라 약 0.2~0.8초 후 닫습니다. 외접 사각형을 벗어나면 즉시 닫습니다. 끄면 첫 미리보기는 즉시 열리고 이후 전환에는 고정 50ms 안정 대기를 사용하며, 빈 영역은 방향을 분석하지 않고 고정 1초 동안 유지합니다.</value>
   </data>
   <data name="LabsEdgeCapsuleHoverIntentSensitivity" xml:space="preserve">
     <value>의도 민감도</value>

@@ -45,8 +45,7 @@ internal sealed record EdgeCapsulePreviewThemeResources(
     Brush CheckBoxActiveHoverBrush);
 
 internal sealed record EdgeCapsuleHostCallbacks(
-    Action PointerInvalidated,
-    Func<bool> PointerOver,
+    Action<DeviceScreenPoint?> PointerInvalidated,
     Action<DeviceScreenPoint> PointerPressed,
     Func<DeviceScreenPoint, bool, bool> PointerMoved,
     Func<DeviceScreenPoint, bool> PointerReleased,
@@ -155,16 +154,28 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var attached = false;
         void AttachToCurrentSource()
         {
-            if (_disposed || attached ||
-                PresentationSource.FromVisual(window) is not HwndSource source)
+            if (_disposed || attached)
             {
                 return;
             }
 
-            // SetInteractionLocked/SetExperimentalPassive may have created the HWND before this
-            // method was called. Attach immediately when a source already exists, while keeping
-            // SourceInitialized as the normal first-creation path. This mirrors the diagnostics
-            // hook and prevents a live host from permanently missing native pointer wake-ups.
+            // SourceInitialized may run before PresentationSource.FromVisual(window) starts
+            // returning the source. Resolve it from the already-created HWND as the authoritative
+            // fallback; otherwise that one-shot event can pass without either native hook ever
+            // being installed.
+            var source = PresentationSource.FromVisual(window) as HwndSource;
+            if (source == null)
+            {
+                var handle = new WindowInteropHelper(window).Handle;
+                source = handle == IntPtr.Zero
+                    ? null
+                    : HwndSource.FromHwnd(handle);
+            }
+            if (source == null)
+            {
+                return;
+            }
+
             WindowNative.ApplyNoActivateStyle(window);
             WindowNative.SetInputPassthrough(
                 window,
@@ -507,7 +518,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     {
         if (msg is WmMouseMove or WmNcMouseMove &&
             _callbacks is { } callbacks &&
-            !callbacks.PointerOver() &&
             (_appliedFrame.Surface is
                 EdgeCapsuleSurfaceKind.DockedResting or
                 EdgeCapsuleSurfaceKind.DockedHovered or
@@ -516,9 +526,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             WindowNative.TryGetCursorScreenPosition(out var pointer) &&
             ContainsScreenPoint(pointer))
         {
-            // The owning HWND is the occlusion authority. Wake this one presenter directly instead
-            // of installing a process-wide message hook and scanning every paper window.
-            callbacks.PointerInvalidated();
+            // The owning HWND and committed InteractiveBounds are the physical authority. Cosmetic
+            // WPF hover can be stale, so it must never suppress this wake-up.
+            callbacks.PointerInvalidated(pointer);
         }
 
         if (msg == WmNcHitTest && _experimentalPassive)
@@ -538,6 +548,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             unchecked((short)((packed >> 16) & 0xffff)));
         if (ContainsScreenPoint(point))
         {
+            // Hit testing is the earliest native proof that the pointer reached the committed real
+            // capsule. Wake here as well as on the later mouse-move message: a prior WPF enter on
+            // the transparent reserve can otherwise suppress a second enter, and Windows does not
+            // guarantee another move before the pointer stops.
+            _callbacks?.PointerInvalidated(point);
             return IntPtr.Zero;
         }
 
@@ -788,8 +803,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 close.Background = Brushes.Transparent;
             }
         };
-        shell.MouseEnter += (_, _) => callbacks.PointerInvalidated();
-        shell.MouseLeave += (_, _) => callbacks.PointerInvalidated();
+        shell.MouseEnter += (_, _) => callbacks.PointerInvalidated(null);
+        shell.MouseLeave += (_, _) => callbacks.PointerInvalidated(null);
         content.PreviewMouseLeftButtonDown += (_, e) => BeginContentPointer(e);
         content.PreviewMouseRightButtonDown += (_, _) =>
             ArmPreviewInteractiveCaptureLease();

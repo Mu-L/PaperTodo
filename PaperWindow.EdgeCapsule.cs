@@ -138,7 +138,6 @@ public sealed partial class PaperWindow
         }
         _edgeCapsuleHost.AttachInput(new EdgeCapsuleHostCallbacks(
             InvalidateEdgeCapsulePointerFromHostInput,
-            () => _edgeCapsule.PointerOverSurface,
             OnEdgeCapsulePointerPressed,
             OnEdgeCapsulePointerMoved,
             OnEdgeCapsulePointerReleased,
@@ -317,12 +316,13 @@ public sealed partial class PaperWindow
     private void InvalidateEdgeCapsulePointer() =>
         InvalidateEdgeCapsule(EdgeCapsuleDirty.Pointer);
 
-    private void InvalidateEdgeCapsulePointerFromHostInput()
+    private void InvalidateEdgeCapsulePointerFromHostInput(
+        DeviceScreenPoint? authoritativePointer = null)
     {
         _controller.InvalidateEdgeCapsulePreviewPointerResolution();
         _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
             this,
-            CaptureEdgeCapsulePointerPosition());
+            authoritativePointer ?? CaptureEdgeCapsulePointerPosition());
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.InvalidateBeforeNextRender(
             EdgeCapsuleDirty.Pointer,
