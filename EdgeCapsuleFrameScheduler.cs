@@ -21,6 +21,10 @@ internal sealed class EdgeCapsuleFrameScheduler
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
     private int _pendingLoadedReconciles;
+#if DEBUG
+    private long _lastRenderingTimestamp;
+    private long _debugFrameSequence;
+#endif
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
@@ -94,10 +98,25 @@ internal sealed class EdgeCapsuleFrameScheduler
             return;
         }
 
+#if DEBUG
+        var callbackStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var frameSequence = ++_debugFrameSequence;
+        var frameGapMilliseconds = _lastRenderingTimestamp == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _lastRenderingTimestamp,
+                callbackStartedAt);
+        _lastRenderingTimestamp = callbackStartedAt;
+        var debugInitialCount = 0;
+        var debugGroupCount = 0;
+#endif
         _isTicking = true;
         try
         {
             var initialCount = _presenters.Count;
+#if DEBUG
+            debugInitialCount = initialCount;
+#endif
             if (initialCount == 0)
             {
                 return;
@@ -108,7 +127,11 @@ internal sealed class EdgeCapsuleFrameScheduler
                 out var currentPointer)
                     ? currentPointer
                     : (DeviceScreenPoint?)null;
-            foreach (var group in BuildFrameGroups(initialCount))
+            var groups = BuildFrameGroups(initialCount);
+#if DEBUG
+            debugGroupCount = groups.Count;
+#endif
+            foreach (var group in groups)
             {
                 AdvanceNativeBatchGroup(
                     group,
@@ -126,6 +149,13 @@ internal sealed class EdgeCapsuleFrameScheduler
         }
         finally
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.frame sequence={frameSequence} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
+                $"gapMs={frameGapMilliseconds:F3} presenters={debugInitialCount} " +
+                $"groups={debugGroupCount} loadedPending={_pendingLoadedReconciles}");
+#endif
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
             _isTicking = false;
@@ -168,6 +198,17 @@ internal sealed class EdgeCapsuleFrameScheduler
         _acceptingPostCommitCallbacks = true;
         var transactionGroupId =
             presenters[0].NativeBatchTransactionGroupId;
+#if DEBUG
+        var groupStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        double reconcileMilliseconds = 0;
+        double statusMilliseconds = 0;
+        double nativeCommitMilliseconds = 0;
+        double completionMilliseconds = 0;
+        double postCommitMilliseconds = 0;
+        double slowestPresenterMilliseconds = 0;
+        var slowestPresenter = "<none>";
+        var debugOutcome = "exception";
+#endif
         try
         {
             bool nativeBatchCommitted;
@@ -185,15 +226,34 @@ internal sealed class EdgeCapsuleFrameScheduler
                          index >= 0;
                          index--)
                     {
+#if DEBUG
+                        var presenterStartedAt =
+                            EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                         _ = presenters[index].AdvanceSharedFrame(
                             this,
                             pointer,
                             frameTimestamp);
+#if DEBUG
+                        var presenterMilliseconds =
+                            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                                presenterStartedAt);
+                        reconcileMilliseconds += presenterMilliseconds;
+                        if (presenterMilliseconds > slowestPresenterMilliseconds)
+                        {
+                            slowestPresenterMilliseconds = presenterMilliseconds;
+                            slowestPresenter = presenters[index].DiagnosticId;
+                        }
+#endif
                     }
 
                     _acceptingPostCommitCallbacks = false;
                     logicalBatchDeferred = false;
                     logicalBatchFailed = false;
+#if DEBUG
+                    var statusStartedAt =
+                        EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                     for (var index = presenters.Count - 1;
                          index >= 0;
                          index--)
@@ -214,7 +274,19 @@ internal sealed class EdgeCapsuleFrameScheduler
                                 break;
                         }
                     }
+#if DEBUG
+                    statusMilliseconds +=
+                        EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                            statusStartedAt);
+                    var nativeCommitStartedAt =
+                        EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                     nativeBatchCommitted = nativeBoundsBatch.Commit();
+#if DEBUG
+                    nativeCommitMilliseconds +=
+                        EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                            nativeCommitStartedAt);
+#endif
                 }
 
                 frameDeferred = nativeBatchCommitted &&
@@ -223,6 +295,10 @@ internal sealed class EdgeCapsuleFrameScheduler
                 frameCommitted = nativeBatchCommitted &&
                     !logicalBatchDeferred &&
                     !logicalBatchFailed;
+#if DEBUG
+                var completionStartedAt =
+                    EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                 for (var index = presenters.Count - 1;
                      index >= 0;
                      index--)
@@ -242,8 +318,17 @@ internal sealed class EdgeCapsuleFrameScheduler
                             frameTimestamp);
                     }
                 }
+#if DEBUG
+                completionMilliseconds +=
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                        completionStartedAt);
+#endif
             }
 
+#if DEBUG
+            var groupCompletionStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             CompleteNativeBatchTransactionGroup(
                 presenters,
                 transactionGroupId,
@@ -252,16 +337,51 @@ internal sealed class EdgeCapsuleFrameScheduler
 
             if (frameCommitted)
             {
+#if DEBUG
+                completionMilliseconds +=
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                        groupCompletionStartedAt);
+                var postCommitStartedAt =
+                    EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                 for (var index = 0;
                      index < _postCommitCallbacks.Count;
                      index++)
                 {
                     _postCommitCallbacks[index]();
                 }
+#if DEBUG
+                postCommitMilliseconds +=
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                        postCommitStartedAt);
+#endif
             }
+#if DEBUG
+            if (!frameCommitted)
+            {
+                completionMilliseconds +=
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                        groupCompletionStartedAt);
+            }
+            debugOutcome = frameCommitted
+                ? "committed"
+                : frameDeferred
+                    ? "deferred"
+                    : "failed";
+#endif
         }
         finally
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.group sequence={_debugFrameSequence} outcome={debugOutcome} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(groupStartedAt):F3} " +
+                $"reconcileMs={reconcileMilliseconds:F3} statusMs={statusMilliseconds:F3} " +
+                $"nativeCommitMs={nativeCommitMilliseconds:F3} completeMs={completionMilliseconds:F3} " +
+                $"postCommitMs={postCommitMilliseconds:F3} presenters={presenters.Count} " +
+                $"slowest={slowestPresenter}:{slowestPresenterMilliseconds:F3} " +
+                $"transaction={transactionGroupId}");
+#endif
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
         }
@@ -311,6 +431,9 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
+#if DEBUG
+            _lastRenderingTimestamp = 0;
+#endif
         }
     }
 }

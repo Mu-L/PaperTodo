@@ -1064,6 +1064,10 @@ public sealed partial class PaperWindow
         {
             _controller.QueuePluginStatusRefresh();
         }
+        if (!visible)
+        {
+            ScheduleMigratedPluginBodyPreviewWarmup();
+        }
     }
 
     internal void NotifyCurrentPaperBodyActivated()
@@ -1079,16 +1083,19 @@ public sealed partial class PaperWindow
     internal void NotifyCurrentPaperBodyThemeChanged()
     {
         InvokeBodySession(item => item.OnThemeChanged(CurrentPaperBodyTheme()));
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyCurrentPaperBodyTypographyChanged()
     {
         InvokeBodySession(item => item.OnTypographyChanged(CurrentPaperBodyTheme()));
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyCurrentPaperBodyDpiChanged()
     {
         InvokeBodySession(item => item.OnDpiChanged());
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyPaperBodyPluginSettingsChanged(
@@ -1107,11 +1114,13 @@ public sealed partial class PaperWindow
         }
 
         InvokeBodySession(item => item.OnSettingsChanged(settingsJson));
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void RefreshCurrentPaperBodyFromModel()
     {
         InvokeBodySession(item => item.RefreshFromModel());
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void DisposeCurrentPaperBody()

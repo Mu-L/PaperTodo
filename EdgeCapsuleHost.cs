@@ -34,7 +34,8 @@ internal sealed record EdgeCapsuleHostOptions(
     FontFamily UiFontFamily,
     FontFamily SymbolFontFamily,
     XmlLanguage Language,
-    bool Topmost);
+    bool Topmost,
+    string DiagnosticId);
 
 internal sealed record EdgeCapsulePreviewThemeResources(
     Brush LinkBrush,
@@ -207,6 +208,35 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         }
         var window = Window;
         var root = Root;
+#if DEBUG
+        var applyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        double nativeMilliseconds = 0;
+        double propertyMilliseconds = 0;
+        double previewMilliseconds = 0;
+        double forcedLayoutMilliseconds = 0;
+        double showMilliseconds = 0;
+        double verifyMilliseconds = 0;
+        void TraceApply(string outcome)
+        {
+            var totalMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    applyStartedAt);
+            if (string.Equals(outcome, "success", StringComparison.Ordinal) &&
+                totalMilliseconds < 0.75 &&
+                forcedLayoutMilliseconds <= 0.001)
+            {
+                return;
+            }
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"host.apply paper={_options.DiagnosticId} outcome={outcome} " +
+                $"totalMs={totalMilliseconds:F3} " +
+                $"nativeMs={nativeMilliseconds:F3} propertiesMs={propertyMilliseconds:F3} " +
+                $"previewMs={previewMilliseconds:F3} forcedLayoutMs={forcedLayoutMilliseconds:F3} " +
+                $"showMs={showMilliseconds:F3} verifyMs={verifyMilliseconds:F3} " +
+                $"surface={frame.Surface} visible={frame.Visible} " +
+                $"bounds={frame.Bounds.Width}x{frame.Bounds.Height}");
+        }
+#endif
 
         if (!frame.Visible)
         {
@@ -229,9 +259,15 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             if (!DetachPreviewContent())
             {
                 ResetForFreshApply();
+#if DEBUG
+                TraceApply("hide-detach-failed");
+#endif
                 return false;
             }
             _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
+#if DEBUG
+            TraceApply("hidden");
+#endif
             return true;
         }
 
@@ -271,11 +307,18 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             previousFrame.WallDeviceX != frame.WallDeviceX ||
             Math.Abs(previousFrame.DpiScaleX - frame.DpiScaleX) > 0.001 ||
             Math.Abs(previousFrame.DpiScaleY - frame.DpiScaleY) > 0.001);
+#if DEBUG
+        var nativeQueryStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         var nativeBoundsChanged = firstShow ||
             !previousFrame.Visible ||
             previousFrame.HostBounds != frame.HostBounds ||
             !WindowNative.TryGetWindowDeviceBounds(window, out var actualHostBounds) ||
             actualHostBounds != frame.HostBounds;
+#if DEBUG
+        nativeMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            nativeQueryStartedAt);
+#endif
 
         if (firstShow || nativeHandoff)
         {
@@ -283,15 +326,30 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             // wall. Reveal it only after the native move and immediate metrics checks both succeed.
             window.Opacity = 0;
         }
-        if (nativeBoundsChanged && !WindowNative.TrySetWindowDeviceBounds(window, frame.HostBounds))
+#if DEBUG
+        var nativeSetStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var nativeBoundsApplied = !nativeBoundsChanged ||
+            WindowNative.TrySetWindowDeviceBounds(window, frame.HostBounds);
+#if DEBUG
+        nativeMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            nativeSetStartedAt);
+#endif
+        if (!nativeBoundsApplied)
         {
             ResetForFreshApply();
+#if DEBUG
+            TraceApply("native-set-failed");
+#endif
             return false;
         }
 
         // Move the HWND before changing edge-specific columns and corners. If the native move is
         // rejected or superseded by a per-monitor DPI hand-off, the old monitor must never display
         // a visual tree that has already been flipped for the destination edge.
+#if DEBUG
+        var propertiesStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         if (edgeChanged)
         {
             ApplyFixedLayout(frame.Edge);
@@ -326,15 +384,33 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                     ? _appliedCloseWidth > 0
                     : _appliedCloseWidth >= _maximumCloseWidth - 0.5);
         }
+#if DEBUG
+        propertyMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            propertiesStartedAt);
+#endif
 
-        if (!ApplyPreviewPresentation(frame))
+#if DEBUG
+        var previewStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var previewApplied = ApplyPreviewPresentation(frame);
+#if DEBUG
+        previewMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            previewStartedAt);
+#endif
+        if (!previewApplied)
         {
             ResetForFreshApply();
+#if DEBUG
+            TraceApply("preview-apply-failed");
+#endif
             return false;
         }
         _appliedFrame = frame;
         if (firstShow)
         {
+#if DEBUG
+            var showStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             window.Show();
             if (!WindowNative.TrySetWindowDeviceBounds(window, frame.HostBounds))
             {
@@ -342,8 +418,17 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 // immediately so the half-committed edge layout never remains visible; the next
                 // apply treats its frame as fresh and retries the full path.
                 ResetForFreshApply();
+#if DEBUG
+                showMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    showStartedAt);
+                TraceApply("post-show-native-set-failed");
+#endif
                 return false;
             }
+#if DEBUG
+            showMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                showStartedAt);
+#endif
         }
 
         if (refreshNativeLayout)
@@ -351,14 +436,34 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             // Width/Height can retain the same DIP values while the HWND changes DPI. Explicitly
             // invalidate the WPF tree so the real surface is arranged against the new client area;
             // otherwise the unused fixed-host capacity can appear as a gap at the screen wall.
+#if DEBUG
+            var layoutStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             RefreshNativeMetricsLayout();
+#if DEBUG
+            forcedLayoutMilliseconds +=
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    layoutStartedAt);
+#endif
         }
-        if (!WindowNative.TryGetWindowDeviceBounds(window, out var settledHostBounds) ||
-            settledHostBounds != frame.HostBounds)
+#if DEBUG
+        var verifyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var nativePresentationMatches =
+            WindowNative.TryGetWindowDeviceBounds(window, out var settledHostBounds) &&
+            settledHostBounds == frame.HostBounds;
+#if DEBUG
+        verifyMilliseconds += EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            verifyStartedAt);
+#endif
+        if (!nativePresentationMatches)
         {
             // Windows/WPF may supersede SetWindowPos during WM_DPICHANGED or display removal. Never
             // leave an edge-flipped visual tree visible on the old monitor; retry from a hidden host.
             ResetForFreshApply();
+#if DEBUG
+            TraceApply("native-verify-failed");
+#endif
             return false;
         }
         if (_nativeMetricsVersion != nativeMetricsVersion)
@@ -366,6 +471,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             // SetWindowPos can synchronously enter WM_DPICHANGED. Replay the frame with the new
             // generation instead of marking the old DPI layout as committed.
             ResetForFreshApply();
+#if DEBUG
+            TraceApply("dpi-generation-changed");
+#endif
             return false;
         }
 
@@ -395,6 +503,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             WindowNative.ApplyBottomZOrder(window);
         }
+#if DEBUG
+        TraceApply("success");
+#endif
         return true;
     }
 

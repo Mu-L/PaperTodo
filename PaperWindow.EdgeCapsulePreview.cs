@@ -51,27 +51,27 @@ public sealed partial class PaperWindow
         {
             return null;
         }
+        var prepareStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         var bodySessionGeneration = _bodySessionGeneration;
 
         IEdgeCapsulePreviewProvider? provider = null;
         try
         {
             provider = ResolveEdgeCapsulePreviewProvider();
-            var context = new EdgeCapsulePreviewContext(
-                _paper,
-                () => _controller.PaperTitleText(_paper),
-                !_paper.IsCollapsed,
-                CurrentMarkdownTextForEdgeCapsulePreview,
-                SetTodoDoneFromEdgeCapsulePreview,
-                OpenTodoLinkedTargetFromEdgeCapsulePreview,
-                CurrentTodoCheckBoxStyle,
-                CurrentPluginStatusForEdgeCapsulePreview,
-                OpenExternalFromEdgeCapsulePreview,
-                _edgeCapsulePreviewInvalidationSource);
+            var context = CreateEdgeCapsulePreviewContext();
+            var describeStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
             var descriptor = provider.Describe(context);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.prepare.describe paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"provider={provider.GetType().Name} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(describeStartedAt):F3} " +
+                $"deferred={descriptor.DeferContentCreation}");
             if (bodySessionGeneration != _bodySessionGeneration ||
                 !CanEnterEdgeCapsulePreview)
             {
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.prepare.cancel paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    "phase=describe-invalidated");
                 return null;
             }
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
@@ -87,9 +87,15 @@ public sealed partial class PaperWindow
             // visual transaction has produced a committed compositor frame. Creation failure keeps
             // this useful fallback instead of leaving a permanent loading ellipsis.
             var deferProviderContent = descriptor.DeferContentCreation;
+            var contentStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
             var content = deferProviderContent
                 ? BuildPluginCapsuleEdgePreviewContent(context, size)
                 : descriptor.CreateContent(size);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.prepare.content paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"provider={provider.GetType().Name} deferred={deferProviderContent} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(contentStartedAt):F3} " +
+                $"type={content?.GetType().Name ?? "<null>"}");
             if (bodySessionGeneration != _bodySessionGeneration ||
                 !CanEnterEdgeCapsulePreview ||
                 content == null ||
@@ -107,6 +113,10 @@ public sealed partial class PaperWindow
 
             content.HorizontalAlignment = HorizontalAlignment.Stretch;
             content.VerticalAlignment = VerticalAlignment.Stretch;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.prepare.ready paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(prepareStartedAt):F3} " +
+                $"size={size.WidthDip:F1}x{size.HeightDip:F1} deferred={deferProviderContent}");
             return new EdgeCapsulePreviewRequest(
                 size,
                 content,
@@ -118,6 +128,11 @@ public sealed partial class PaperWindow
         }
         catch (Exception ex)
         {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.prepare.fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(prepareStartedAt):F3} " +
+                $"provider={provider?.GetType().Name ?? "<unresolved>"} " +
+                $"exception={ex.GetType().Name}");
             Trace.TraceError(
                 "Edge capsule preview creation failed. " +
                 "PaperId={0}; PaperType={1}; Provider={2}; Exception={3}",
@@ -128,6 +143,19 @@ public sealed partial class PaperWindow
             return null;
         }
     }
+
+    private EdgeCapsulePreviewContext CreateEdgeCapsulePreviewContext() =>
+        new(
+            _paper,
+            () => _controller.PaperTitleText(_paper),
+            !_paper.IsCollapsed,
+            CurrentMarkdownTextForEdgeCapsulePreview,
+            SetTodoDoneFromEdgeCapsulePreview,
+            OpenTodoLinkedTargetFromEdgeCapsulePreview,
+            CurrentTodoCheckBoxStyle,
+            CurrentPluginStatusForEdgeCapsulePreview,
+            OpenExternalFromEdgeCapsulePreview,
+            _edgeCapsulePreviewInvalidationSource);
 
     private bool IsValidEdgeCapsulePreviewContent(FrameworkElement content) =>
         content is not Window &&
@@ -160,6 +188,7 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewRequest request,
         bool animate)
     {
+        var openStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         if (!DispatchEdgeCapsuleIntent(
                 EdgeCapsuleIntent.PreviewChanged(open: true),
                 EdgeCapsuleDirty.None))
@@ -197,10 +226,16 @@ public sealed partial class PaperWindow
             1,
             request.Size.HeightDip - WindowChromeMargin * 2);
         var host = EnsureDeepCapsuleSlotHost();
+        var stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         var staged = host.StagePreviewContent(
             request.Content,
             previewContentWidth,
             previewContentHeight);
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"preview.open.stage paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt):F3} " +
+            $"content={request.Content.GetType().Name} staged={staged} " +
+            $"layoutValid={request.Content.IsMeasureValid && request.Content.IsArrangeValid}");
         var requestStillCurrent =
             _windowLifecycle == PaperWindowLifecycleState.Alive &&
             contentGeneration == _edgeCapsulePreviewContentGeneration &&
@@ -233,7 +268,11 @@ public sealed partial class PaperWindow
         }
         if (request.CreateDeferredContent == null)
         {
+            var visibilityStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
             NotifyEdgeCapsulePreviewVisibility(request, visible: true);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.open.visibility paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=true ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(visibilityStartedAt):F3}");
             if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
                 contentGeneration != _edgeCapsulePreviewContentGeneration ||
                 !ReferenceEquals(_edgeCapsulePreviewRequest, request) ||
@@ -281,6 +320,10 @@ public sealed partial class PaperWindow
             request,
             contentGeneration,
             _edgeCapsule.NativeBatchCommitVersion);
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"preview.open.queued paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(openStartedAt):F3} " +
+            $"animate={animate} deferred={request.CreateDeferredContent != null}");
         return true;
     }
 
@@ -293,6 +336,7 @@ public sealed partial class PaperWindow
         {
             return;
         }
+        var deferredQueuedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 
         CancelDeferredEdgeCapsulePreviewContentRenderWait();
         EventHandler? renderHandler = null;
@@ -327,6 +371,10 @@ public sealed partial class PaperWindow
                 return;
             }
 
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.deferred.first-frame paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"waitMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(deferredQueuedAt):F3}");
+
             if (renderHandler != null)
             {
                 CompositionTarget.Rendering -= renderHandler;
@@ -353,6 +401,7 @@ public sealed partial class PaperWindow
                     }
 
                     FrameworkElement? content;
+                    var createStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
                     try
                     {
                         content = createContent();
@@ -367,6 +416,10 @@ public sealed partial class PaperWindow
                             ex);
                         return;
                     }
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"preview.deferred.create paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                        $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(createStartedAt):F3} " +
+                        $"content={content?.GetType().Name ?? "<null>"}");
 
                     // Plugin code is allowed to pump messages. A close or another transfer may have
                     // invalidated this request while CreateContent was on the stack.
@@ -400,6 +453,7 @@ public sealed partial class PaperWindow
                         1,
                         request.Size.HeightDip - WindowChromeMargin * 2);
                     var host = EnsureDeepCapsuleSlotHost();
+                    var replaceStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
                     if (!host.ReplacePreviewContent(
                             request.Content,
                             content,
@@ -408,6 +462,10 @@ public sealed partial class PaperWindow
                     {
                         return;
                     }
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"preview.deferred.replace paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                        $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(replaceStartedAt):F3} " +
+                        $"layoutValid={content.IsMeasureValid && content.IsArrangeValid}");
 
                     // Stage/Prepare and WPF dependency-property callbacks may re-enter application
                     // code. Only the still-current request may adopt and reveal this tree.
@@ -446,7 +504,12 @@ public sealed partial class PaperWindow
                         }
                         return;
                     }
+                    var visibilityStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
                     NotifyEdgeCapsulePreviewVisibility(resolvedRequest, visible: true);
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"preview.deferred.visibility paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                        $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(visibilityStartedAt):F3} " +
+                        $"totalWaitMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(deferredQueuedAt):F3}");
                 }),
                 DispatcherPriority.Background);
         };
@@ -545,6 +608,7 @@ public sealed partial class PaperWindow
 
     private void PrepareEdgeCapsulePreviewForActivation()
     {
+        RestorePrewarmedPluginBodyForActivation();
         try
         {
             _edgeCapsulePreviewRequest?.PrepareForActivation?.Invoke();
@@ -595,8 +659,18 @@ public sealed partial class PaperWindow
             !frame.InteractiveBounds.IsEmpty;
     }
 
-    internal void RefreshEdgeCapsuleHoverIntentSettings() =>
+    internal void RefreshEdgeCapsuleHoverIntentSettings()
+    {
+        if (_controller.State.ExperimentalEdgeCapsuleHoverPreview)
+        {
+            ScheduleMigratedPluginBodyPreviewWarmup();
+        }
+        else
+        {
+            RestorePrewarmedPluginBodyForActivation("preview-disabled");
+        }
         InvalidateEdgeCapsulePointer();
+    }
 
     internal void FlushEdgeCapsulePreviewCompactPresentation()
     {

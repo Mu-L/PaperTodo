@@ -16,6 +16,12 @@ public sealed partial class PaperWindow
     private bool _migratedPluginBodyPreviewVisible;
     private bool _migratedPluginBodySessionPresented;
     private bool _migratedPluginBodyPreviousRuntimeVisible;
+    private int _migratedPluginBodyWarmupGeneration;
+    private int _migratedPluginBodyPreviewSessionGeneration = -1;
+    private bool _migratedPluginBodyPreviewPrewarmed;
+    private DispatcherTimer? _migratedPluginBodyWarmupRetryTimer;
+    private int _migratedPluginBodyWarmupRetryGeneration;
+    private int _migratedPluginBodyWarmupRetryCount;
 
     private partial bool TryDescribeMigratedPluginBodyPreview(
         IPaperBodyViewMigrationProvider provider,
@@ -33,6 +39,13 @@ public sealed partial class PaperWindow
         var size = ReadPreferredMiniSize(
             () => provider.PreferredMigratedMiniViewSize,
             new PaperMiniViewSize(360, 260));
+        var normalizedSize = NormalizePluginMiniSizeForCurrentMonitor(size);
+        var prewarmed = IsMigratedPluginBodyPreviewPrewarmed(
+            session,
+            normalizedSize);
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"migration.describe paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"prewarmed={prewarmed} size={normalizedSize.WidthDip:F1}x{normalizedSize.HeightDip:F1}");
         descriptor = new EdgeCapsulePreviewDescriptor(
             size,
             normalized => CreateMigratedPluginBodyPreview(
@@ -45,7 +58,9 @@ public sealed partial class PaperWindow
             () => SetMigratedPluginBodyPreviewVisibility(
                 visible: false,
                 session: session),
-            DeferContentCreation: true);
+            // A warmed tree is already final-size and detached from the paper shell. Stage it before
+            // animation; an unwarmed migration keeps the existing fallback-first safety path.
+            DeferContentCreation: !prewarmed);
         return true;
     }
 
@@ -54,10 +69,24 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewContext context,
         EdgeCapsulePreviewSize size)
     {
+        if (IsMigratedPluginBodyPreviewPrewarmed(session, size) &&
+            _migratedPluginBodyPreview is { } warmed)
+        {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.create.reuse paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"size={size.WidthDip:F1}x{size.HeightDip:F1} " +
+                $"layoutValid={warmed.IsLiveViewLayoutValid}");
+            return warmed;
+        }
+
         ResetMigratedPluginBodyPreview(keepSnapshot: true);
         var fallback = BuildPluginCapsuleEdgePreviewContent(context, size);
-        var preview = new MigratedPluginBodyPreview(size, fallback);
+        var preview = new MigratedPluginBodyPreview(
+            size,
+            fallback,
+            EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id));
         _migratedPluginBodyPreview = preview;
+        _migratedPluginBodyPreviewSessionGeneration = _bodySessionGeneration;
 
         if (_pluginBodyMiniSnapshot != null)
         {
@@ -76,6 +105,7 @@ public sealed partial class PaperWindow
         IPaperBodySession session,
         MigratedPluginBodyPreview preview)
     {
+        var moveStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         var view = session.View;
         if (view.Parent is not Panel parent ||
             view.Visibility != Visibility.Visible ||
@@ -96,6 +126,10 @@ public sealed partial class PaperWindow
             preview.ShowLiveView(
                 view,
                 () => RestoreMigratedPluginBody(session, view, parent, index));
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.move paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(moveStartedAt):F3} " +
+                $"view={view.GetType().Name} result=success");
             return true;
         }
         catch
@@ -116,6 +150,10 @@ public sealed partial class PaperWindow
             {
                 parent.Children.Insert(Math.Min(index, parent.Children.Count), view);
             }
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.move paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(moveStartedAt):F3} " +
+                $"view={view.GetType().Name} result=failed");
             return false;
         }
     }
@@ -152,7 +190,14 @@ public sealed partial class PaperWindow
 
         if (!visible)
         {
+            if (_migratedPluginBodyPreviewPrewarmed)
+            {
+                RestorePrewarmedPluginBodyForActivation("request-cancelled");
+                return;
+            }
+
             var liveView = preview.PrepareLiveViewForSnapshot();
+            var snapshotStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
             if (liveView != null &&
                 TryCaptureVisualSnapshot(liveView, preview.Size, out var liveSnapshot))
             {
@@ -165,8 +210,14 @@ public sealed partial class PaperWindow
             }
             preview.RestoreLiveView();
             ExitMigratedPluginBodyPresentation(session);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.visibility paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=false snapshotMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(snapshotStartedAt):F3} " +
+                $"hadLive={liveView != null}");
             return;
         }
+
+        _migratedPluginBodyPreviewPrewarmed = false;
 
         // Do not detach the body during descriptor creation: layout can still reject the preview
         // request. SetVisibility(true) runs only after StagePreviewContent has committed ownership.
@@ -179,10 +230,287 @@ public sealed partial class PaperWindow
             return;
         }
 
+        if (preview.LiveView != null)
+        {
+            EnterMigratedPluginBodyPresentation(session);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.visibility paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=true source=prewarmed layoutValid={preview.IsLiveViewLayoutValid}");
+            return;
+        }
+
         if (preview.LiveView == null)
         {
             QueuePluginBodySnapshotRefresh(session, preview.Size, preview);
         }
+    }
+
+    private bool IsMigratedPluginBodyPreviewPrewarmed(
+        IPaperBodySession session,
+        EdgeCapsulePreviewSize size) =>
+        _migratedPluginBodyPreviewPrewarmed &&
+        _migratedPluginBodyPreviewSessionGeneration == _bodySessionGeneration &&
+        ReferenceEquals(_paperBodyHost.Current, session) &&
+        _migratedPluginBodyPreview is { } preview &&
+        ReferenceEquals(preview.LiveView, session.View) &&
+        preview.IsLiveViewLayoutValid &&
+        Math.Abs(preview.Size.WidthDip - size.WidthDip) <= 0.001 &&
+        Math.Abs(preview.Size.HeightDip - size.HeightDip) <= 0.001;
+
+    private void ScheduleMigratedPluginBodyPreviewWarmup()
+    {
+        // WPF trees are dispatcher-affine, so "background" means an invisible ApplicationIdle
+        // pass on their owning UI thread, never cross-thread Measure/Arrange. The real View stays
+        // parked in this final-size wrapper until preview ownership or normal activation decides it.
+        var generation = ++_migratedPluginBodyWarmupGeneration;
+        CancelMigratedPluginBodyWarmupRetry();
+        if (!_controller.State.ExperimentalEdgeCapsuleHoverPreview ||
+            _windowLifecycle != PaperWindowLifecycleState.Alive ||
+            !_paper.IsVisible ||
+            !_paper.IsCollapsed ||
+            !HasDeepCapsuleSlotPlacement ||
+            _pluginBodyEverPresented ||
+            _pluginBodyMiniSnapshot != null ||
+            _bodyDescriptor?.Kind != PaperBodyPluginKind.Native ||
+            _paperBodyHost.Current is not IPaperBodyViewMigrationProvider ||
+            _paperBodyHost.Current is IPaperMiniViewProvider)
+        {
+            return;
+        }
+
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"migration.warmup.schedule paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"generation={generation}");
+        _ = Dispatcher.BeginInvoke(
+            (Action)(() => WarmMigratedPluginBodyPreview(generation)),
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    private void WarmMigratedPluginBodyPreview(int generation)
+    {
+        if (generation != _migratedPluginBodyWarmupGeneration)
+        {
+            return;
+        }
+        if (_edgeCapsule.HasActiveTransition || IsPaperFormTransitioning)
+        {
+            ScheduleMigratedPluginBodyWarmupRetry(generation);
+            return;
+        }
+        CancelMigratedPluginBodyWarmupRetry();
+        if (!TryGetMigratedPluginBodyWarmupCandidate(
+                out var session,
+                out var size))
+        {
+            return;
+        }
+
+        if (IsMigratedPluginBodyPreviewPrewarmed(session, size))
+        {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.reuse paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"generation={generation}");
+            return;
+        }
+
+        var warmupStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        MigratedPluginBodyPreview? warmingPreview = null;
+        ResetMigratedPluginBodyPreview(
+            keepSnapshot: true,
+            cancelWarmup: false);
+        try
+        {
+            var context = CreateEdgeCapsulePreviewContext();
+            var fallback = BuildPluginCapsuleEdgePreviewContent(context, size);
+            if (generation != _migratedPluginBodyWarmupGeneration ||
+                !ReferenceEquals(_paperBodyHost.Current, session))
+            {
+                return;
+            }
+
+            var preview = new MigratedPluginBodyPreview(
+                size,
+                fallback,
+                EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id));
+            warmingPreview = preview;
+            if (!TryMovePluginBodyIntoPreview(session, preview) ||
+                !preview.PrepareLiveViewLayout())
+            {
+                DiscardMigratedPluginBodyWarmup(preview);
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"migration.warmup.fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(warmupStartedAt):F3}");
+                return;
+            }
+
+            if (generation != _migratedPluginBodyWarmupGeneration ||
+                !ReferenceEquals(_paperBodyHost.Current, session) ||
+                !_paper.IsCollapsed ||
+                !HasDeepCapsuleSlotPlacement ||
+                _pluginBodyEverPresented ||
+                _migratedPluginBodyPreview != null)
+            {
+                DiscardMigratedPluginBodyWarmup(preview);
+                return;
+            }
+
+            _migratedPluginBodyPreview = preview;
+            _migratedPluginBodyPreviewSessionGeneration =
+                _bodySessionGeneration;
+            _migratedPluginBodyPreviewPrewarmed = true;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.ready paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(warmupStartedAt):F3} " +
+                $"size={size.WidthDip:F1}x{size.HeightDip:F1} " +
+                $"view={session.View.GetType().Name}");
+        }
+        catch (Exception ex)
+        {
+            if (warmingPreview != null)
+            {
+                DiscardMigratedPluginBodyWarmup(warmingPreview);
+            }
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(warmupStartedAt):F3} " +
+                $"exception={ex.GetType().Name}");
+        }
+    }
+
+    private void ScheduleMigratedPluginBodyWarmupRetry(int generation)
+    {
+        if (generation != _migratedPluginBodyWarmupGeneration)
+        {
+            return;
+        }
+        if (++_migratedPluginBodyWarmupRetryCount > 40)
+        {
+            CancelMigratedPluginBodyWarmupRetry();
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.skip paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"generation={generation} reason=transition-timeout");
+            return;
+        }
+
+        var timer = _migratedPluginBodyWarmupRetryTimer;
+        if (timer == null)
+        {
+            timer = new DispatcherTimer(
+                DispatcherPriority.ApplicationIdle,
+                Dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(50)
+            };
+            timer.Tick += OnMigratedPluginBodyWarmupRetryTick;
+            _migratedPluginBodyWarmupRetryTimer = timer;
+        }
+        _migratedPluginBodyWarmupRetryGeneration = generation;
+        timer.Stop();
+        timer.Start();
+        if (_migratedPluginBodyWarmupRetryCount == 1 ||
+            _migratedPluginBodyWarmupRetryCount % 5 == 0)
+        {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.defer paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"generation={generation} retry={_migratedPluginBodyWarmupRetryCount} " +
+                "reason=transition");
+        }
+    }
+
+    private void OnMigratedPluginBodyWarmupRetryTick(
+        object? sender,
+        EventArgs e)
+    {
+        var timer = _migratedPluginBodyWarmupRetryTimer;
+        timer?.Stop();
+        var generation = _migratedPluginBodyWarmupRetryGeneration;
+        _migratedPluginBodyWarmupRetryGeneration = 0;
+        if (generation == _migratedPluginBodyWarmupGeneration)
+        {
+            WarmMigratedPluginBodyPreview(generation);
+        }
+    }
+
+    private void CancelMigratedPluginBodyWarmupRetry()
+    {
+        _migratedPluginBodyWarmupRetryGeneration = 0;
+        _migratedPluginBodyWarmupRetryCount = 0;
+        _migratedPluginBodyWarmupRetryTimer?.Stop();
+    }
+
+    private bool TryGetMigratedPluginBodyWarmupCandidate(
+        out IPaperBodySession session,
+        out EdgeCapsulePreviewSize size)
+    {
+        session = null!;
+        size = default;
+        if (!CanEnterEdgeCapsulePreview ||
+            _edgeCapsulePreviewRequest != null ||
+            _migratedPluginBodyPreviewVisible ||
+            _pluginBodyEverPresented ||
+            _pluginBodyMiniSnapshot != null ||
+            _bodyDescriptor?.Kind != PaperBodyPluginKind.Native ||
+            _paperBodyHost.Current is not { } current ||
+            current is IPaperMiniViewProvider ||
+            current is not IPaperBodyViewMigrationProvider migrationProvider ||
+            current.View is Window ||
+            current.View.Visibility != Visibility.Visible ||
+            !PluginVisualTreePolicy.IsSupportedPureWpfTree(current.View))
+        {
+            return false;
+        }
+
+        var preferredSize = ReadPreferredMiniSize(
+            () => migrationProvider.PreferredMigratedMiniViewSize,
+            new PaperMiniViewSize(360, 260));
+        var normalizedSize = NormalizePluginMiniSizeForCurrentMonitor(
+            preferredSize);
+        if (!IsMigratedPluginBodyPreviewPrewarmed(
+                current,
+                normalizedSize) &&
+            current.View.Parent is not Panel)
+        {
+            return false;
+        }
+
+        session = current;
+        size = normalizedSize;
+        return true;
+    }
+
+    private void DiscardMigratedPluginBodyWarmup(
+        MigratedPluginBodyPreview preview)
+    {
+        preview.RestoreLiveView();
+        if (!ReferenceEquals(_migratedPluginBodyPreview, preview))
+        {
+            return;
+        }
+
+        _migratedPluginBodyPreview = null;
+        _migratedPluginBodyPreviewSessionGeneration = -1;
+        _migratedPluginBodyPreviewPrewarmed = false;
+        _migratedPluginBodyPreviewVisible = false;
+    }
+
+    private void RestorePrewarmedPluginBodyForActivation(
+        string reason = "activation")
+    {
+        if (!_migratedPluginBodyPreviewPrewarmed)
+        {
+            return;
+        }
+
+        _migratedPluginBodyWarmupGeneration++;
+        CancelMigratedPluginBodyWarmupRetry();
+        _migratedPluginBodyPreviewPrewarmed = false;
+        _migratedPluginBodyPreview?.RestoreLiveView();
+        _migratedPluginBodyPreview = null;
+        _migratedPluginBodyPreviewSessionGeneration = -1;
+        _migratedPluginBodyPreviewVisible = false;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"migration.warmup.restore paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"reason={reason}");
     }
 
     private void QueuePluginBodySnapshotRefresh(
@@ -229,6 +557,7 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewSize size,
         out ImageSource snapshot)
     {
+        var snapshotStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         snapshot = null!;
         try
         {
@@ -285,10 +614,19 @@ public sealed partial class PaperWindow
             bitmap.Render(drawing);
             bitmap.Freeze();
             snapshot = bitmap;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.snapshot.render paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(snapshotStartedAt):F3} " +
+                $"source={sourceWidth:F1}x{sourceHeight:F1} target={targetWidth:F1}x{targetHeight:F1} " +
+                $"pixels={pixelsWide}x{pixelsHigh} result=success");
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.snapshot.render paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(snapshotStartedAt):F3} " +
+                $"result=failed exception={ex.GetType().Name}");
             return false;
         }
     }
@@ -322,13 +660,29 @@ public sealed partial class PaperWindow
         _migratedPluginBodyPreviousRuntimeVisible = _bodyRuntimeVisible;
         _bodyRuntimeVisible = true;
         _migratedPluginBodySessionPresented = true;
+        var presentationStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
         try
         {
             session.OnPresentationChanged(true);
+            var presentationMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    presentationStartedAt);
+            var visibilityStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
             session.OnVisibilityChanged(true);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.callbacks paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=true presentationMs={presentationMilliseconds:F3} " +
+                $"visibilityMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(visibilityStartedAt):F3} " +
+                "result=success");
         }
-        catch
+        catch (Exception ex)
         {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.callbacks paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=true totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(presentationStartedAt):F3} " +
+                $"result=failed exception={ex.GetType().Name}");
             ExitMigratedPluginBodyPresentation(session);
         }
     }
@@ -346,13 +700,29 @@ public sealed partial class PaperWindow
         {
             return;
         }
+        var callbacksStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
         try
         {
             session.OnPresentationChanged(false);
+            var presentationMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    callbacksStartedAt);
+            var visibilityStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
             session.OnVisibilityChanged(_bodyRuntimeVisible);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.callbacks paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=false presentationMs={presentationMilliseconds:F3} " +
+                $"visibilityMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(visibilityStartedAt):F3} " +
+                "result=success");
         }
-        catch
+        catch (Exception ex)
         {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.callbacks paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"visible=false totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbacksStartedAt):F3} " +
+                $"result=failed exception={ex.GetType().Name}");
             // Migration is optional; normal paper activation can still retry session callbacks.
         }
     }
@@ -360,8 +730,15 @@ public sealed partial class PaperWindow
     private partial void ResetMigratedPluginBodyPreview() =>
         ResetMigratedPluginBodyPreview(keepSnapshot: false);
 
-    private void ResetMigratedPluginBodyPreview(bool keepSnapshot)
+    private void ResetMigratedPluginBodyPreview(
+        bool keepSnapshot,
+        bool cancelWarmup = true)
     {
+        if (cancelWarmup)
+        {
+            _migratedPluginBodyWarmupGeneration++;
+            CancelMigratedPluginBodyWarmupRetry();
+        }
         _pluginBodyMiniSnapshotGeneration++;
         _migratedPluginBodyPreview?.RestoreLiveView();
         if (_paperBodyHost.Current is { } session)
@@ -369,6 +746,8 @@ public sealed partial class PaperWindow
             ExitMigratedPluginBodyPresentation(session);
         }
         _migratedPluginBodyPreview = null;
+        _migratedPluginBodyPreviewSessionGeneration = -1;
+        _migratedPluginBodyPreviewPrewarmed = false;
         _migratedPluginBodyPreviewVisible = false;
         if (!keepSnapshot)
         {
@@ -386,12 +765,16 @@ public sealed partial class PaperWindow
         private double _previousOpacity;
         private Visibility _previousVisibility;
         private int _liveRevealGeneration;
+        private readonly string _diagnosticId;
+        private bool _liveViewPrearranged;
 
         public MigratedPluginBodyPreview(
             EdgeCapsulePreviewSize size,
-            FrameworkElement fallback)
+            FrameworkElement fallback,
+            string diagnosticId)
         {
             Size = size;
+            _diagnosticId = diagnosticId;
             _fallback = fallback;
             if (_fallback is EdgeCapsuleLivePreviewView livePreview)
             {
@@ -413,6 +796,9 @@ public sealed partial class PaperWindow
 
         public FrameworkElement? LiveView { get; private set; }
         public EdgeCapsulePreviewSize Size { get; }
+        public bool IsLiveViewLayoutValid =>
+            _liveViewPrearranged &&
+            LiveView is { IsMeasureValid: true, IsArrangeValid: true };
 
         public void ShowLiveView(FrameworkElement view, Action restore)
         {
@@ -422,6 +808,7 @@ public sealed partial class PaperWindow
             _previousHitTestVisible = view.IsHitTestVisible;
             _previousOpacity = view.Opacity;
             _previousVisibility = view.Visibility;
+            _liveViewPrearranged = false;
             view.Opacity = 0;
             _fallback.Visibility = Visibility.Visible;
             _snapshot.Visibility = Visibility.Collapsed;
@@ -435,7 +822,19 @@ public sealed partial class PaperWindow
                     {
                         return;
                     }
-                    view.UpdateLayout();
+                    var layoutStartedAt =
+                        EdgeCapsulePerformanceDiagnostics.Timestamp();
+                    var forcedLayout = !IsLiveViewLayoutValid;
+                    if (forcedLayout)
+                    {
+                        view.UpdateLayout();
+                    }
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"migration.reveal.layout paper={_diagnosticId} " +
+                        $"forced={forcedLayout} " +
+                        $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(layoutStartedAt):F3} " +
+                        $"actual={view.ActualWidth:F1}x{view.ActualHeight:F1} " +
+                        $"valid={view.IsMeasureValid && view.IsArrangeValid}");
                     view.Opacity = _previousOpacity;
                     _ = Dispatcher.BeginInvoke(
                         (Action)(() =>
@@ -449,6 +848,40 @@ public sealed partial class PaperWindow
                         DispatcherPriority.Render);
                 }),
                 DispatcherPriority.Loaded);
+        }
+
+        public bool PrepareLiveViewLayout()
+        {
+            var view = LiveView;
+            if (view == null)
+            {
+                return false;
+            }
+
+            var contentWidth = Math.Max(
+                1,
+                Size.WidthDip - CapsuleCloseWidth - WindowChromeMargin);
+            var contentHeight = Math.Max(
+                1,
+                Size.HeightDip - WindowChromeMargin * 2);
+            var finalSize = new Size(contentWidth, contentHeight);
+            Width = contentWidth;
+            Height = contentHeight;
+            var layoutStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            Measure(finalSize);
+            Arrange(new Rect(0, 0, contentWidth, contentHeight));
+            UpdateLayout();
+            _liveViewPrearranged =
+                view.IsMeasureValid &&
+                view.IsArrangeValid;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"migration.warmup.layout paper={_diagnosticId} " +
+                $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(layoutStartedAt):F3} " +
+                $"size={contentWidth:F1}x{contentHeight:F1} " +
+                $"desired={view.DesiredSize.Width:F1}x{view.DesiredSize.Height:F1} " +
+                $"actual={view.ActualWidth:F1}x{view.ActualHeight:F1} " +
+                $"valid={_liveViewPrearranged}");
+            return _liveViewPrearranged;
         }
 
         public void ShowSnapshot(ImageSource source)
@@ -476,7 +909,16 @@ public sealed partial class PaperWindow
             _liveRevealGeneration++;
             view.Visibility = Visibility.Visible;
             view.Opacity = _previousOpacity;
-            view.UpdateLayout();
+            if (!view.IsMeasureValid || !view.IsArrangeValid)
+            {
+                var layoutStartedAt =
+                    EdgeCapsulePerformanceDiagnostics.Timestamp();
+                view.UpdateLayout();
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"migration.snapshot.layout paper={_diagnosticId} " +
+                    $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(layoutStartedAt):F3} " +
+                    $"valid={view.IsMeasureValid && view.IsArrangeValid}");
+            }
             return view;
         }
 
@@ -497,6 +939,7 @@ public sealed partial class PaperWindow
             _liveRevealGeneration++;
             LiveView = null;
             _restoreLiveView = null;
+            _liveViewPrearranged = false;
             if (view != null)
             {
                 Children.Remove(view);

@@ -82,6 +82,8 @@ internal sealed class EdgeCapsulePresenter
     private EdgeCapsuleMotion _pendingMotion =
         EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
 
+    internal string DiagnosticId { get; set; } = "<unassigned>";
+
     private EdgeCapsuleModel Model { get; set; } = EdgeCapsuleModel.Initial;
     public EdgeCapsuleState State => Model.State;
     public EdgeCapsuleDragSession? DragSession => Model.DragSession;
@@ -98,6 +100,7 @@ internal sealed class EdgeCapsulePresenter
         EdgeCapsulePresentationFrame.Hidden;
     public int AppliedPresentationVersion { get; private set; }
     public DeviceScreenPoint? LastPointerSample { get; private set; }
+    internal bool HasActiveTransition => Transition.HasValue;
     private EdgeCapsuleTransition? Transition { get; set; }
 
     public EdgeCapsuleDispatchResult Dispatch(
