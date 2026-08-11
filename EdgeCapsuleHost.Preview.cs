@@ -350,6 +350,13 @@ internal sealed partial class EdgeCapsuleHost
         {
             SetCompactLabelSuppressedForPreview(true);
         }
+        else if (!retainPreview)
+        {
+            // Restore only when the shell itself has reached the compact frame. Content cleanup can
+            // happen earlier during cancellation/replacement and must not make the title reappear
+            // on a still-expanded or still-shrinking surface.
+            SetCompactLabelSuppressedForPreview(false);
+        }
 
         if (_previewContentLayer != null)
         {
@@ -511,7 +518,6 @@ internal sealed partial class EdgeCapsuleHost
             }
             _previewViewportLayer.IsHitTestVisible = false;
         }
-        SetCompactLabelSuppressedForPreview(false);
         return IsPreviewContentStageCurrent(detachGeneration);
     }
 
