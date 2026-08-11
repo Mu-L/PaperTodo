@@ -150,11 +150,22 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             return;
         }
+
         var window = Window;
-        window.SourceInitialized += (_, _) =>
+        var attached = false;
+        void AttachToCurrentSource()
         {
+            if (_disposed || attached ||
+                PresentationSource.FromVisual(window) is not HwndSource source)
+            {
+                return;
+            }
+
+            // SetInteractionLocked/SetExperimentalPassive may have created the HWND before this
+            // method was called. Attach immediately when a source already exists, while keeping
+            // SourceInitialized as the normal first-creation path. This mirrors the diagnostics
+            // hook and prevents a live host from permanently missing native pointer wake-ups.
             WindowNative.ApplyNoActivateStyle(window);
-            // Lock/passive state can be set before WPF creates this host's HWND.
             WindowNative.SetInputPassthrough(
                 window,
                 _interactionLocked || _experimentalPassive);
@@ -162,13 +173,14 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             {
                 WindowNative.ApplyBottomZOrder(window);
             }
-            if (PresentationSource.FromVisual(window) is HwndSource source)
-            {
-                source.AddHook(OnNativeMessage);
-                source.AddHook(hook);
-            }
-        };
+            source.AddHook(OnNativeMessage);
+            source.AddHook(hook);
+            attached = true;
+        }
+
+        window.SourceInitialized += (_, _) => AttachToCurrentSource();
         window.Deactivated += (_, _) => deactivated();
+        AttachToCurrentSource();
     }
 
     /// <summary>
