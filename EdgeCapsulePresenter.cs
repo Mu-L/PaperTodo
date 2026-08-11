@@ -11,6 +11,13 @@ internal enum EdgeCapsuleNativeBatchApplyStatus
     Failed
 }
 
+internal readonly record struct EdgeCapsuleNativeBatchGroup(
+    string MonitorDeviceName,
+    EdgeCapsuleEdge Edge,
+    int WallDeviceX,
+    int FallbackIdentity = 0,
+    long TransactionGroupId = 0);
+
 /// <summary>
 /// Sole owner of desired model, target plan, transition, applied frame and deferred work. Both
 /// deferred invalidation and synchronous Flush execute the same reconcile callback.
@@ -50,6 +57,8 @@ internal sealed class EdgeCapsulePresenter
     private Func<EdgeCapsuleDirty, EdgeCapsuleDirty>? _reconcile;
     private long? _reconcileTimestampOverride;
     private EdgeCapsuleLayoutSnapshot? _layoutSnapshot;
+    private EdgeCapsuleNativeBatchGroup _nativeBatchGroup;
+    private long _nativeBatchTransactionGroupId;
     private bool _hasFramePointerOverride;
     private DeviceScreenPoint? _framePointerOverride;
     private int _forceApplyVersion;
@@ -154,6 +163,23 @@ internal sealed class EdgeCapsulePresenter
         _nativeBatchApplyDeferredCallback = callback;
     }
 
+    internal void JoinNativeBatchTransactionGroup(long groupId)
+    {
+        if (groupId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(groupId));
+        }
+        if (_nativeBatchTransactionGroupId == groupId)
+        {
+            StartFrameScheduler();
+            return;
+        }
+
+        _nativeBatchTransactionGroupId = groupId;
+        ResetApplyRetryWindow();
+        StartFrameScheduler();
+    }
+
     public EdgeCapsuleDirty Reconcile(
         EdgeCapsuleDirty dirty,
         Func<EdgeCapsuleLayoutSnapshot> captureLayout,
@@ -210,7 +236,7 @@ internal sealed class EdgeCapsulePresenter
             }
             else
             {
-                _layoutSnapshot = captureLayout();
+                SetLayoutSnapshot(captureLayout());
                 RequestPresentation(EdgeCapsuleMotion.Preserve(
                     displayMetrics
                         ? EdgeCapsuleTransitionReason.DisplayMetrics
@@ -225,7 +251,7 @@ internal sealed class EdgeCapsulePresenter
         }
 
         var layout = _layoutSnapshot ?? captureLayout();
-        _layoutSnapshot = layout;
+        SetLayoutSnapshot(layout);
         var result = ReconcilePresentation(layout, apply, now);
         if (!result.Applied)
         {
@@ -382,6 +408,7 @@ internal sealed class EdgeCapsulePresenter
         _nativeBatchDeferredCallbackScheduled = false;
         _nativeBatchDeferredRecoveryGeneration++;
         _nativeBatchRetryPending = false;
+        _nativeBatchTransactionGroupId = 0;
         _reconcileScheduled = false;
         _reconcileGeneration++;
         _presentationSettleCallback = null;
@@ -392,7 +419,11 @@ internal sealed class EdgeCapsulePresenter
     public void CancelTransition()
     {
         Transition = null;
-        StopFrameScheduler();
+        if (_nativeBatchTransactionGroupId == 0 &&
+            !_nativeBatchRetryPending)
+        {
+            StopFrameScheduler();
+        }
     }
 
     public void ResetPresentation()
@@ -402,6 +433,7 @@ internal sealed class EdgeCapsulePresenter
         SetAppliedPresentation(EdgeCapsulePresentationFrame.Hidden);
         LastPointerSample = null;
         _layoutSnapshot = null;
+        _nativeBatchGroup = default;
         _appliedForceApplyVersion = _forceApplyVersion;
         _pendingMotion = EdgeCapsuleMotion.Snap(EdgeCapsuleTransitionReason.State);
         _rebasePendingTransition = false;
@@ -455,16 +487,6 @@ internal sealed class EdgeCapsulePresenter
         return applied;
     }
 
-    private bool NeedsPointerTracking =>
-        (State.Slot is
-            EdgeCapsuleSlotState.CollapsedDocked or
-            EdgeCapsuleSlotState.ExpandedReserved) &&
-        (PointerOverSurface ||
-         Preview == EdgeCapsulePreviewState.Open) &&
-        State.Gesture == EdgeCapsuleGestureState.Idle &&
-        !ContextMenuOpen &&
-        !_applyRetryExhausted;
-
     private void RegisterApplyFailure(long nowTimestamp)
     {
         if (_applyRetryExhausted)
@@ -510,6 +532,18 @@ internal sealed class EdgeCapsulePresenter
         _applyRetryExhausted = true;
     }
 
+    private void SetLayoutSnapshot(EdgeCapsuleLayoutSnapshot layout)
+    {
+        _layoutSnapshot = layout;
+        var wallDeviceX = layout.Edge == EdgeCapsuleEdge.Left
+            ? layout.Monitor.WorkArea.Left
+            : layout.Monitor.WorkArea.Right;
+        _nativeBatchGroup = new EdgeCapsuleNativeBatchGroup(
+            layout.Monitor.DeviceName,
+            layout.Edge,
+            wallDeviceX);
+    }
+
     private void Configure(
         Dispatcher dispatcher,
         Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
@@ -519,6 +553,7 @@ internal sealed class EdgeCapsulePresenter
             StopFrameScheduler();
             _frameScheduler = null;
             _layoutSnapshot = null;
+            _nativeBatchGroup = default;
         }
 
         _dispatcher = dispatcher;
@@ -613,7 +648,7 @@ internal sealed class EdgeCapsulePresenter
         }
         if (_nativeBatchRetryPending && !_nativeBatchApplyActive)
         {
-            // A failed global batch owns the pending logical generation. Host input and ordinary
+            // A failed queue batch owns the pending logical generation. Host input and ordinary
             // Loaded work may add dirty flags, but only another coordinated native batch may
             // consume them or publish the retained queue-wide notification.
             StartFrameScheduler();
@@ -650,7 +685,7 @@ internal sealed class EdgeCapsulePresenter
 
         if (needsFrame ||
             (needsApplyRetry && !applyRetryExpired) ||
-            (!applyRetryExpired && NeedsPointerTracking))
+            _nativeBatchTransactionGroupId > 0)
         {
             StartFrameScheduler();
         }
@@ -750,6 +785,68 @@ internal sealed class EdgeCapsulePresenter
 
     internal bool NativeBatchRetryPending => _nativeBatchRetryPending;
 
+    internal long NativeBatchTransactionGroupId =>
+        _nativeBatchTransactionGroupId;
+
+    internal bool NativeBatchTransactionRetryExhausted =>
+        _nativeBatchTransactionGroupId > 0 && _applyRetryExhausted;
+
+    internal EdgeCapsuleNativeBatchGroup NativeBatchGroup =>
+        _nativeBatchTransactionGroupId > 0
+            ? new EdgeCapsuleNativeBatchGroup(
+                "",
+                default,
+                0,
+                TransactionGroupId: _nativeBatchTransactionGroupId)
+            : !string.IsNullOrEmpty(_nativeBatchGroup.MonitorDeviceName)
+                ? _nativeBatchGroup
+                : new EdgeCapsuleNativeBatchGroup(
+                    "",
+                    AppliedPresentation.Edge,
+                    AppliedPresentation.WallDeviceX,
+                    RuntimeHelpers.GetHashCode(this));
+
+    internal bool CanReleaseNativeBatchTransactionGroup(long groupId) =>
+        groupId == _nativeBatchTransactionGroupId &&
+        EdgeCapsuleNativeTransactionPolicy.CanRelease(
+            groupId,
+            Transition.HasValue,
+            _nativeBatchRetryPending,
+            _nativeBatchApplyActive,
+            (_dirty & PresentationWorkMask) != EdgeCapsuleDirty.None);
+
+    internal void ReleaseNativeBatchTransactionGroup(long groupId)
+    {
+        if (groupId != _nativeBatchTransactionGroupId)
+        {
+            return;
+        }
+
+        _nativeBatchTransactionGroupId = 0;
+        if (!Transition.HasValue &&
+            !_nativeBatchRetryPending &&
+            (_dirty & PresentationWorkMask) == EdgeCapsuleDirty.None)
+        {
+            StopFrameScheduler();
+        }
+    }
+
+    internal void AbortNativeBatchTransactionGroup(long groupId)
+    {
+        if (groupId != _nativeBatchTransactionGroupId)
+        {
+            return;
+        }
+
+        _nativeBatchTransactionGroupId = 0;
+        _nativeBatchRetryPending = false;
+        _dirty &= ~EdgeCapsuleDirty.ApplyRetry;
+        Transition = null;
+        ExhaustApplyRetryWindow();
+        StopFrameScheduler();
+        ScheduleNativeBatchPresentationSettleFailure();
+    }
+
     internal EdgeCapsuleNativeBatchApplyStatus NativeBatchApplyStatus
     {
         get
@@ -811,22 +908,35 @@ internal sealed class EdgeCapsulePresenter
         }
 
         var logicalApplySucceeded = _nativeBatchApplySucceeded;
+        var applyAttempted = _nativeBatchApplyAttempted;
+        var retryWasPending = _nativeBatchRetryPending;
+        var deferred = _nativeBatchApplyDeferred;
         _nativeBatchApplyActive = false;
         _nativeBatchApplySucceeded = false;
         _nativeBatchApplyAttempted = false;
         _nativeBatchApplyDeferred = false;
+        if (!EdgeCapsuleNativeTransactionPolicy.ParticipatesInBatchOutcome(
+                _nativeBatchTransactionGroupId,
+                applyAttempted,
+                retryWasPending,
+                deferred))
+        {
+            // This presenter shared a render tick but did not participate in the failed queue batch.
+            // Do not hide it, charge its retry budget or create work it never requested.
+            _nativeBatchRetryPending = false;
+            return;
+        }
+
         _nativeBatchRetryPending = true;
         _nativeBatchApplyRejectedCallback?.Invoke();
-        // A presenter-level apply failure has already registered itself. If every HWND operation
-        // queued successfully but EndDeferWindowPos failed, account for the batch failure here.
-        if (logicalApplySucceeded)
+        // A presenter-level apply failure has already registered itself. If this presenter queued a
+        // healthy HWND operation but the queue's EndDeferWindowPos failed, account for it here.
+        if (logicalApplySucceeded &&
+            (applyAttempted || _nativeBatchTransactionGroupId > 0))
         {
             RegisterApplyFailure(nowTimestamp);
         }
         _dirty |= EdgeCapsuleDirty.Presentation;
-        // AppliedPresentation may already have advanced even though the global HWND batch did not.
-        // Preserve a forced replay for a later explicit invalidation, including after this bounded
-        // retry window is exhausted.
         unchecked
         {
             _forceApplyVersion++;
@@ -837,8 +947,11 @@ internal sealed class EdgeCapsulePresenter
             _nativeBatchRetryPending = false;
             Transition = null;
             ExhaustApplyRetryWindow();
-            StopFrameScheduler();
-            ScheduleNativeBatchPresentationSettleFailure();
+            if (_nativeBatchTransactionGroupId == 0)
+            {
+                StopFrameScheduler();
+                ScheduleNativeBatchPresentationSettleFailure();
+            }
             return;
         }
         _dirty |= EdgeCapsuleDirty.ApplyRetry;
@@ -852,16 +965,24 @@ internal sealed class EdgeCapsulePresenter
             return;
         }
 
+        var applyAttempted = _nativeBatchApplyAttempted;
+        var retryWasPending = _nativeBatchRetryPending;
         var requestedRecovery = _nativeBatchApplyDeferred;
         _nativeBatchApplyActive = false;
         _nativeBatchApplySucceeded = false;
         _nativeBatchApplyAttempted = false;
         _nativeBatchApplyDeferred = false;
-        _nativeBatchRetryPending = true;
+        if (!EdgeCapsuleNativeTransactionPolicy.ParticipatesInBatchOutcome(
+                _nativeBatchTransactionGroupId,
+                applyAttempted,
+                retryWasPending,
+                requestedRecovery))
+        {
+            _nativeBatchRetryPending = false;
+            return;
+        }
 
-        // A sibling may already have staged/committed its half of this global batch. Keep every
-        // participant fail-closed and force a common replay after the deferred gesture is canceled,
-        // without charging the bounded native-failure budget.
+        _nativeBatchRetryPending = true;
         _nativeBatchApplyRejectedCallback?.Invoke();
         unchecked
         {
@@ -933,26 +1054,25 @@ internal sealed class EdgeCapsulePresenter
         DeviceScreenPoint? pointer,
         long frameTimestamp)
     {
-        var pointerTracking = NeedsPointerTracking;
         var applyRetryPending = (_dirty & EdgeCapsuleDirty.ApplyRetry) != 0;
+        var transactionGroupActive = _nativeBatchTransactionGroupId > 0;
         if (!UsesSharedFrameScheduler(scheduler) ||
             _dispatcher == null ||
             _reconcile == null ||
-            (!Transition.HasValue && !applyRetryPending && !pointerTracking))
+            (!Transition.HasValue &&
+             !applyRetryPending &&
+             !transactionGroupActive))
         {
             StopFrameScheduler();
             return false;
         }
 
-        // Merge queued work into this render tick and invalidate its stale dispatcher callback.
-        // Flush, deferred invalidation and animation still execute the same RunReconcile path.
+        // Native/WPF pointer events and the controller's bounded intent timers wake pointer work.
+        // The shared composition scheduler now runs only animation or coordinated apply retries,
+        // rather than polling a stationary preview at the monitor refresh rate.
         if (Transition.HasValue)
         {
             _dirty |= EdgeCapsuleDirty.Frame;
-        }
-        else if (pointerTracking)
-        {
-            _dirty |= EdgeCapsuleDirty.Pointer;
         }
         _reconcileGeneration++;
         _reconcileScheduled = false;
@@ -973,6 +1093,6 @@ internal sealed class EdgeCapsulePresenter
         return UsesSharedFrameScheduler(scheduler) &&
             (Transition.HasValue ||
                 (_dirty & EdgeCapsuleDirty.ApplyRetry) != 0 ||
-                NeedsPointerTracking);
+                _nativeBatchTransactionGroupId > 0);
     }
 }

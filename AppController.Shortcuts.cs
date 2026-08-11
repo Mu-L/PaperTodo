@@ -1325,7 +1325,9 @@ public sealed partial class AppController
         var oppositeSide = normalizedPreferredSide == DeepCapsuleSides.Left
             ? DeepCapsuleSides.Right
             : DeepCapsuleSides.Left;
-        var queuePlan = BuildDeepCapsuleQueuePlan(papers);
+        var queuePlan = EdgeCapsuleQueueCoordinator.Build(
+            papers.Select(paper => new EdgeCapsuleQueueMember(paper, QueueKey(paper))),
+            State.UseCapsuleCollapseAll);
         var queuesByKey = queuePlan.Queues.ToDictionary(queue => queue.Key, StringComparer.Ordinal);
 
         foreach (var monitorName in EdgeShortcutMonitorSearchOrder())
@@ -1341,7 +1343,6 @@ public sealed partial class AppController
                 var target = queue.Papers[ordinal - 1];
                 if (_windows.TryGetValue(target.Id, out var window))
                 {
-                    ShowEdgeCapsuleQueuePageContaining(queue, ordinal - 1);
                     window.ActivateFromEdgeShortcut();
                 }
                 return;

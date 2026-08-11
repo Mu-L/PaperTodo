@@ -46,6 +46,7 @@ internal sealed record EdgeCapsulePreviewThemeResources(
 
 internal sealed record EdgeCapsuleHostCallbacks(
     Action PointerInvalidated,
+    Func<bool> PointerOver,
     Action<DeviceScreenPoint> PointerPressed,
     Func<DeviceScreenPoint, bool, bool> PointerMoved,
     Func<DeviceScreenPoint, bool> PointerReleased,
@@ -58,6 +59,8 @@ internal sealed record EdgeCapsuleHostCallbacks(
 /// </summary>
 internal sealed partial class EdgeCapsuleHost : IDisposable
 {
+    private const int WmMouseMove = 0x0200;
+    private const int WmNcMouseMove = 0x00A0;
     private const int WmNcHitTest = 0x0084;
     private static readonly IntPtr HtTransparent = new(-1);
     private readonly EdgeCapsuleHostOptions _options;
@@ -490,6 +493,22 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         IntPtr lParam,
         ref bool handled)
     {
+        if (msg is WmMouseMove or WmNcMouseMove &&
+            _callbacks is { } callbacks &&
+            !callbacks.PointerOver() &&
+            (_appliedFrame.Surface is
+                EdgeCapsuleSurfaceKind.DockedResting or
+                EdgeCapsuleSurfaceKind.DockedHovered or
+                EdgeCapsuleSurfaceKind.DockedActive or
+                EdgeCapsuleSurfaceKind.DockedPreview) &&
+            WindowNative.TryGetCursorScreenPosition(out var pointer) &&
+            ContainsScreenPoint(pointer))
+        {
+            // The owning HWND is the occlusion authority. Wake this one presenter directly instead
+            // of installing a process-wide message hook and scanning every paper window.
+            callbacks.PointerInvalidated();
+        }
+
         if (msg == WmNcHitTest && _experimentalPassive)
         {
             handled = true;
@@ -766,14 +785,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             if (!content.IsMouseCaptured)
             {
-                // Moving layered HWNDs can leave WPF's MouseEnter state unchanged even though a
-                // fresh native mouse move has reached the visible compact pill. Recover that real
-                // input here; once the applied surface becomes Hovered, this path turns itself off
-                // instead of reconciling at the mouse polling rate.
-                if (_appliedFrame.Surface == EdgeCapsuleSurfaceKind.DockedResting)
-                {
-                    callbacks.PointerInvalidated();
-                }
                 return;
             }
             e.Handled = callbacks.PointerMoved(

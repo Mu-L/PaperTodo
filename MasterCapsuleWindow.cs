@@ -15,11 +15,11 @@ using VerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace PaperTodo;
 
-// Standalone queue-header capsule. It is permanently pinned at deep-capsule slot 0
-// (real capsules shift down to slot 1..N), exposes paging when a queue exceeds the
-// current screen capacity, and optionally toggles whether the real capsules are
-// retracted behind it. It owns only its own pill chrome and vertical stack anchor;
-// the controller drives paging and retract/release of the real capsule windows.
+// Standalone "collapse-all" master capsule. It is permanently pinned at deep-capsule
+// slot 0 (real capsules shift down to slot 1..N). Clicking it toggles whether the
+// real capsules are retracted behind it. It owns only its own pill chrome and the
+// vertical stack anchor; the controller drives the retract/release of the real
+// capsule windows.
 public sealed class MasterCapsuleWindow : Window
 {
     private enum MasterGestureState
@@ -45,7 +45,6 @@ public sealed class MasterCapsuleWindow : Window
     private const double MasterGlyphGap = 4;
     private const double MasterRightPadding = 3;
     private const double MasterInteriorBorderThickness = 1;
-    private const double PageButtonHorizontalPadding = 3;
 
     private readonly AppController _controller;
     private readonly DeepCapsuleContextMenuSession _contextMenuSession;
@@ -66,24 +65,12 @@ public sealed class MasterCapsuleWindow : Window
     private Border _hoverOverlay = null!;
     private TextBlock _glyph = null!;
     private TextBlock _label = null!;
-    private Border _previousPageButton = null!;
-    private Border _nextPageButton = null!;
-    private TextBlock _previousPageGlyph = null!;
-    private TextBlock _nextPageGlyph = null!;
-    private TextBlock _pageLabel = null!;
-    private StackPanel _headerStack = null!;
     private StackPanel _contentStack = null!;
 
     private bool _isHovering;
     private bool _experimentalPassive;
     private int _count;
     private bool _active;
-    private bool _collapseEnabled = true;
-    private int _pageIndex;
-    private int _pageCount = 1;
-    private int _visibleSlotCount;
-    private double _topOffsetDip;
-    private Border? _pressedPageButton;
     private MasterGestureState _gestureState;
     private double _currentTopDip = double.NaN;
     private MonitorGeometry? _animatedMonitorGeometry;
@@ -247,36 +234,7 @@ public sealed class MasterCapsuleWindow : Window
         };
         AppTypography.ApplyTextRendering(_label);
         stack.Children.Add(_label);
-
-        _pageLabel = new TextBlock
-        {
-            Foreground = Theme.WeakTextBrush,
-            FontFamily = MasterLabelFontFamily,
-            FontSize = MasterLabelFontSize,
-            FontWeight = MasterLabelFontWeight,
-            Margin = new Thickness(MasterGlyphGap, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed
-        };
-        AppTypography.ApplyTextRendering(_pageLabel);
-        stack.Children.Add(_pageLabel);
-
-        _previousPageButton = CreatePageButton("‹", out _previousPageGlyph);
-        _nextPageButton = CreatePageButton("›", out _nextPageGlyph);
-        ConfigurePageButton(_previousPageButton, delta: -1);
-        ConfigurePageButton(_nextPageButton, delta: 1);
-
-        var headerStack = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        _headerStack = headerStack;
-        headerStack.Children.Add(_previousPageButton);
-        headerStack.Children.Add(stack);
-        headerStack.Children.Add(_nextPageButton);
-        content.Children.Add(headerStack);
+        content.Children.Add(stack);
 
         _pill.Child = content;
         // Same chrome as the tray menu. The NOACTIVATE host delegates promotion,
@@ -301,12 +259,6 @@ public sealed class MasterCapsuleWindow : Window
         };
         _pill.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            if (IsPageNavigationSource(e.OriginalSource))
-            {
-                return;
-            }
-
-            _pressedPageButton = null;
             _dragSession = new MasterDragSession(
                 DeviceScreenPoint.FromPoint(PointToScreen(e.GetPosition(this))),
                 _controller.DeepCapsuleStartTopMarginForQueue(_queueMonitorDeviceName, _queueEdge));
@@ -363,20 +315,8 @@ public sealed class MasterCapsuleWindow : Window
         };
         _pill.PreviewMouseLeftButtonUp += (_, e) =>
         {
-            if (_pressedPageButton != null && !IsPageNavigationSource(e.OriginalSource))
-            {
-                _pressedPageButton = null;
-                e.Handled = true;
-                return;
-            }
-
-            if (IsPageNavigationSource(e.OriginalSource))
-            {
-                return;
-            }
-
             var wasDragging = FinishMasterGesture(commit: true, clearFocus: false);
-            if (!wasDragging && _collapseEnabled)
+            if (!wasDragging)
             {
                 _controller.ToggleCapsuleCollapseAllActive(_queueMonitorDeviceName, _queueEdge);
             }
@@ -391,99 +331,6 @@ public sealed class MasterCapsuleWindow : Window
         };
     }
 
-    private Border CreatePageButton(string glyph, out TextBlock glyphBlock)
-    {
-        glyphBlock = new TextBlock
-        {
-            Text = glyph,
-            Foreground = Theme.TextBrush,
-            FontFamily = AppTypography.SymbolFontFamily,
-            FontSize = MasterGlyphFontSize,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-
-        var button = new Border
-        {
-            Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(EdgeCapsuleLayout.CornerRadius / 2),
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Padding = new Thickness(PageButtonHorizontalPadding, 0, PageButtonHorizontalPadding, 0),
-            VerticalAlignment = VerticalAlignment.Stretch,
-            Visibility = Visibility.Collapsed,
-            Child = glyphBlock
-        };
-        button.MouseEnter += (_, _) =>
-        {
-            if (CanNavigateFromPageButton(button))
-            {
-                button.Background = Theme.HoverBrush;
-            }
-        };
-        button.MouseLeave += (_, _) =>
-        {
-            button.Background = Brushes.Transparent;
-            if (ReferenceEquals(_pressedPageButton, button))
-            {
-                _pressedPageButton = null;
-            }
-        };
-        return button;
-    }
-
-    private bool CanNavigateFromPageButton(Border button) =>
-        ReferenceEquals(button, _previousPageButton)
-            ? _pageIndex > 0
-            : ReferenceEquals(button, _nextPageButton) &&
-              _pageIndex + 1 < _pageCount;
-
-    private void ConfigurePageButton(Border button, int delta)
-    {
-        button.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            _pressedPageButton = button;
-            e.Handled = true;
-        };
-        button.PreviewMouseLeftButtonUp += (_, e) =>
-        {
-            var activate = ReferenceEquals(_pressedPageButton, button);
-            _pressedPageButton = null;
-            var nextPage = _pageIndex + delta;
-            if (activate && _pageCount > 1 && nextPage >= 0 && nextPage < _pageCount)
-            {
-                _controller.ChangeEdgeCapsuleQueuePage(
-                    _queueMonitorDeviceName,
-                    _queueEdge,
-                    delta);
-            }
-
-            ClearCapsuleInteractionKeyboardFocus();
-            e.Handled = true;
-        };
-    }
-
-    private bool IsPageNavigationSource(object source)
-    {
-        for (var current = source as DependencyObject;
-             current != null;
-             current = VisualTreeHelper.GetParent(current))
-        {
-            if (ReferenceEquals(current, _previousPageButton) ||
-                ReferenceEquals(current, _nextPageButton))
-            {
-                return true;
-            }
-
-            if (ReferenceEquals(current, _pill))
-            {
-                break;
-            }
-        }
-
-        return false;
-    }
-
     public void UpdateTheme()
     {
         // Pill background is always the opaque PaperBrush; the hover tint lives on the overlay.
@@ -492,17 +339,6 @@ public sealed class MasterCapsuleWindow : Window
         _hoverOverlay.Background = _isHovering ? Theme.HoverBrush : Brushes.Transparent;
         _glyph.Foreground = Theme.TextBrush;
         _label.Foreground = Theme.WeakTextBrush;
-        _previousPageButton.Background = _previousPageButton.IsMouseOver &&
-            CanNavigateFromPageButton(_previousPageButton)
-            ? Theme.HoverBrush
-            : Brushes.Transparent;
-        _nextPageButton.Background = _nextPageButton.IsMouseOver &&
-            CanNavigateFromPageButton(_nextPageButton)
-            ? Theme.HoverBrush
-            : Brushes.Transparent;
-        _previousPageGlyph.Foreground = Theme.TextBrush;
-        _nextPageGlyph.Foreground = Theme.TextBrush;
-        _pageLabel.Foreground = Theme.WeakTextBrush;
     }
 
     public void UpdateTypography()
@@ -513,18 +349,10 @@ public sealed class MasterCapsuleWindow : Window
         AppTypography.ApplyTextRendering(this);
         _glyph.FontFamily = AppTypography.SymbolFontFamily;
         _glyph.FontSize = MasterGlyphFontSize;
-        _previousPageGlyph.FontFamily = AppTypography.SymbolFontFamily;
-        _previousPageGlyph.FontSize = MasterGlyphFontSize;
-        _nextPageGlyph.FontFamily = AppTypography.SymbolFontFamily;
-        _nextPageGlyph.FontSize = MasterGlyphFontSize;
         _label.FontFamily = MasterLabelFontFamily;
         _label.FontSize = MasterLabelFontSize;
         _label.FontWeight = MasterLabelFontWeight;
         AppTypography.ApplyTextRendering(_label);
-        _pageLabel.FontFamily = MasterLabelFontFamily;
-        _pageLabel.FontSize = MasterLabelFontSize;
-        _pageLabel.FontWeight = MasterLabelFontWeight;
-        AppTypography.ApplyTextRendering(_pageLabel);
         MoveToTarget(animate: false);
     }
 
@@ -604,91 +432,26 @@ public sealed class MasterCapsuleWindow : Window
         RefreshEffectiveTopmost();
     }
 
-    // count = total papers in this queue; retracted = whether they are collapsed behind the
-    // master. Pagination only changes which real capsules occupy the visible slots.
-    public void UpdateState(
-        int count,
-        bool retracted,
-        bool animate,
-        int pageIndex,
-        int pageCount,
-        int visibleSlotCount,
-        double topOffsetDip,
-        bool collapseEnabled)
+    // count = number of real capsules behind the master; active = whether they are retracted.
+    public void UpdateState(int count, bool active, bool animate)
     {
-        SetPresentationState(
-            count,
-            retracted,
-            pageIndex,
-            pageCount,
-            visibleSlotCount,
-            topOffsetDip,
-            collapseEnabled);
+        _count = count;
+        _active = active;
+        ApplyStateVisuals();
 
         MoveToTarget(animate);
         RefreshEffectiveTopmost();
     }
 
-    private void SetPresentationState(
-        int count,
-        bool retracted,
-        int pageIndex,
-        int pageCount,
-        int visibleSlotCount,
-        double topOffsetDip,
-        bool collapseEnabled)
-    {
-        _count = Math.Max(0, count);
-        _active = retracted;
-        _collapseEnabled = collapseEnabled;
-        _pageCount = Math.Max(1, pageCount);
-        _pageIndex = Math.Clamp(pageIndex, 0, _pageCount - 1);
-        _visibleSlotCount = Math.Max(0, visibleSlotCount);
-        _topOffsetDip = double.IsFinite(topOffsetDip) ? topOffsetDip : 0;
-        ApplyStateVisuals();
-    }
-
     private void ApplyStateVisuals()
     {
-        var showPagination = _pageCount > 1;
-        _glyph.Visibility = _collapseEnabled ? Visibility.Visible : Visibility.Collapsed;
-        _label.Visibility = _collapseEnabled ? Visibility.Visible : Visibility.Collapsed;
-        _previousPageButton.Visibility = showPagination ? Visibility.Visible : Visibility.Collapsed;
-        _nextPageButton.Visibility = showPagination ? Visibility.Visible : Visibility.Collapsed;
-        _pageLabel.Visibility = showPagination ? Visibility.Visible : Visibility.Collapsed;
-
         _glyph.Text = _active ? "▸" : "▾";
         _label.Text = _active
             ? string.Format(CultureInfo.CurrentUICulture, Strings.Get("CapsuleCollapseAllCountFormat"), _count)
             : Strings.Get("CapsuleCollapseAllLabel");
-        _pageLabel.Text = string.Format(
-            CultureInfo.CurrentUICulture,
-            "{0}/{1}",
-            _pageIndex + 1,
-            _pageCount);
-        _previousPageButton.ToolTip = Strings.Get("CapsulePreviousPageTip");
-        _nextPageButton.ToolTip = Strings.Get("CapsuleNextPageTip");
-        _previousPageButton.Opacity = _pageIndex > 0 ? 1 : 0.35;
-        _nextPageButton.Opacity = _pageIndex + 1 < _pageCount ? 1 : 0.35;
-        if (_pageIndex == 0)
-        {
-            _previousPageButton.Background = Brushes.Transparent;
-        }
-        if (_pageIndex + 1 >= _pageCount)
-        {
-            _nextPageButton.Background = Brushes.Transparent;
-        }
-        _previousPageButton.Cursor = _pageIndex > 0
-            ? System.Windows.Input.Cursors.Hand
-            : System.Windows.Input.Cursors.Arrow;
-        _nextPageButton.Cursor = _pageIndex + 1 < _pageCount
-            ? System.Windows.Input.Cursors.Hand
-            : System.Windows.Input.Cursors.Arrow;
-        _pill.ToolTip = _collapseEnabled
-            ? _active
-                ? Strings.Get("CapsuleCollapseAllCollapsedTip")
-                : Strings.Get("CapsuleCollapseAllExpandedTip")
-            : null;
+        _pill.ToolTip = _active
+            ? Strings.Get("CapsuleCollapseAllCollapsedTip")
+            : Strings.Get("CapsuleCollapseAllExpandedTip");
     }
 
     private void SetHover(bool hovering)
@@ -744,53 +507,28 @@ public sealed class MasterCapsuleWindow : Window
 
     private double MasterDockedWidth(double pixelsPerDip)
     {
-        var contentWidth = 0.0;
-        if (_collapseEnabled)
-        {
-            var glyphWidth = Math.Max(
-                MeasureText("▾", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip),
-                MeasureText("▸", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip));
-            var expandedLabelWidth = MeasureText(
-                Strings.Get("CapsuleCollapseAllLabel"),
-                MasterLabelFontSize,
-                MasterLabelFontWeight,
-                MasterLabelFontFamily,
-                pixelsPerDip);
-            var currentLabelWidth = MeasureText(
-                _label.Text,
-                MasterLabelFontSize,
-                MasterLabelFontWeight,
-                MasterLabelFontFamily,
-                pixelsPerDip);
-            contentWidth = glyphWidth + MasterGlyphGap + Math.Max(expandedLabelWidth, currentLabelWidth);
-        }
-
-        var pageButtonWidth = 0.0;
-        if (_pageCount > 1)
-        {
-            var pageLabelWidth = MeasureText(
-                string.Format(CultureInfo.CurrentUICulture, "{0}/{1}", _pageCount, _pageCount),
-                MasterLabelFontSize,
-                MasterLabelFontWeight,
-                MasterLabelFontFamily,
-                pixelsPerDip);
-            if (_collapseEnabled)
-            {
-                contentWidth += MasterGlyphGap;
-            }
-
-            contentWidth += pageLabelWidth;
-            pageButtonWidth =
-                MeasureText("‹", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip) +
-                MeasureText("›", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip) +
-                (PageButtonHorizontalPadding * 4);
-        }
-
+        var glyphWidth = Math.Max(
+            MeasureText("▾", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip),
+            MeasureText("▸", MasterGlyphFontSize, FontWeights.SemiBold, AppTypography.SymbolFontFamily, pixelsPerDip));
+        var expandedLabelWidth = MeasureText(
+            Strings.Get("CapsuleCollapseAllLabel"),
+            MasterLabelFontSize,
+            MasterLabelFontWeight,
+            MasterLabelFontFamily,
+            pixelsPerDip);
+        var currentLabelWidth = MeasureText(
+            _label.Text,
+            MasterLabelFontSize,
+            MasterLabelFontWeight,
+            MasterLabelFontFamily,
+            pixelsPerDip);
+        var textWidth = Math.Max(expandedLabelWidth, currentLabelWidth);
         var bodyWidth = Math.Ceiling(
             MasterLeftPadding +
-            contentWidth +
+            glyphWidth +
+            MasterGlyphGap +
+            textWidth +
             MasterRightPadding +
-            pageButtonWidth +
             MasterInteriorBorderThickness);
         return Math.Max(1, bodyWidth + WindowChromeMargin);
     }
@@ -830,9 +568,6 @@ public sealed class MasterCapsuleWindow : Window
             : new Thickness(MasterInteriorBorderThickness, MasterInteriorBorderThickness, 0, MasterInteriorBorderThickness);
         _hoverOverlay.CornerRadius = edgeCorner;
 
-        _headerStack.HorizontalAlignment = leftEdge
-            ? HorizontalAlignment.Right
-            : HorizontalAlignment.Left;
         _contentStack.HorizontalAlignment = leftEdge ? HorizontalAlignment.Right : HorizontalAlignment.Left;
         _contentStack.Margin = leftEdge
             ? new Thickness(MasterRightPadding, 0, MasterLeftPadding, 0)
@@ -842,14 +577,8 @@ public sealed class MasterCapsuleWindow : Window
         _label.Margin = leftEdge
             ? new Thickness(0, 0, MasterGlyphGap, 0)
             : new Thickness(MasterGlyphGap, 0, 0, 0);
-        _pageLabel.Margin = _collapseEnabled
-            ? leftEdge
-                ? new Thickness(0, 0, MasterGlyphGap, 0)
-                : new Thickness(MasterGlyphGap, 0, 0, 0)
-            : new Thickness(0);
         if (leftEdge)
         {
-            _contentStack.Children.Add(_pageLabel);
             _contentStack.Children.Add(_label);
             _contentStack.Children.Add(_glyph);
         }
@@ -857,7 +586,6 @@ public sealed class MasterCapsuleWindow : Window
         {
             _contentStack.Children.Add(_glyph);
             _contentStack.Children.Add(_label);
-            _contentStack.Children.Add(_pageLabel);
         }
     }
 
@@ -902,15 +630,7 @@ public sealed class MasterCapsuleWindow : Window
     private double QueueStartTopMargin =>
         _controller.DeepCapsuleStartTopMarginForQueue(_queueMonitorDeviceName, _queueEdge);
 
-    private int QueueSlotCount => Math.Max(1, _visibleSlotCount + 1);
-
-    private double QueueHeaderTop(Rect localWorkArea) =>
-        EdgeCapsuleLayout.TopForIndex(
-            0,
-            QueueStartTopMargin,
-            localWorkArea,
-            QueueSlotCount,
-            _controller.DeepCapsuleGap) + _topOffsetDip;
+    private int QueueSlotCount => Math.Max(1, _count + 1);
 
     private void MoveToTarget(bool animate)
     {
@@ -932,7 +652,12 @@ public sealed class MasterCapsuleWindow : Window
         animate = animate && _controller.State.EnableAnimations;
         var localArea = geometry.LocalWorkAreaDip;
         var requestedWidth = MasterDockedWidth(geometry.DpiScaleY);
-        var targetTop = QueueHeaderTop(localArea);
+        var targetTop = EdgeCapsuleLayout.TopForIndex(
+            0,
+            QueueStartTopMargin,
+            localArea,
+            QueueSlotCount,
+            _controller.DeepCapsuleGap);
         var currentTop = double.IsNaN(_currentTopDip) ? targetTop : _currentTopDip;
 
         ApplyMasterDeviceBounds(currentTop, requestedWidth, geometry);
@@ -987,7 +712,12 @@ public sealed class MasterCapsuleWindow : Window
                     return;
                 }
 
-                var targetTop = QueueHeaderTop(geometry.LocalWorkAreaDip);
+                var targetTop = EdgeCapsuleLayout.TopForIndex(
+                    0,
+                    QueueStartTopMargin,
+                    geometry.LocalWorkAreaDip,
+                    QueueSlotCount,
+                    _controller.DeepCapsuleGap);
                 ApplyMasterDeviceBounds(
                     targetTop,
                     MasterDockedWidth(geometry.DpiScaleY),
@@ -1040,8 +770,12 @@ public sealed class MasterCapsuleWindow : Window
     }
 
     // Local target-monitor DIP. Real capsule hosts use the same coordinate space.
-    public double AnchorTop => QueueHeaderTop(
-        EdgeCapsuleLayout.LocalWorkAreaForQueue(_queueMonitorDeviceName));
+    public double AnchorTop => EdgeCapsuleLayout.TopForIndex(
+        0,
+        QueueStartTopMargin,
+        EdgeCapsuleLayout.LocalWorkAreaForQueue(_queueMonitorDeviceName),
+        QueueSlotCount,
+        _controller.DeepCapsuleGap);
 
     private static void OnAnimatedTopChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -1063,24 +797,11 @@ public sealed class MasterCapsuleWindow : Window
     }
     // First-time show: position at the final edge-aligned spot BEFORE becoming visible,
     // then fade in. This avoids both the top-left flash and the slide-in from the wrong place.
-    public void ShowPlaced(
-        int count,
-        bool retracted,
-        bool animate,
-        int pageIndex,
-        int pageCount,
-        int visibleSlotCount,
-        double topOffsetDip,
-        bool collapseEnabled)
+    public void ShowPlaced(int count, bool active, bool animate)
     {
-        SetPresentationState(
-            count,
-            retracted,
-            pageIndex,
-            pageCount,
-            visibleSlotCount,
-            topOffsetDip,
-            collapseEnabled);
+        _count = count;
+        _active = active;
+        ApplyStateVisuals();
 
         MoveToTarget(animate: false);
         Show();

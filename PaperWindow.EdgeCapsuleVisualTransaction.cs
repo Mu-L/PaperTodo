@@ -18,6 +18,9 @@ public sealed partial class PaperWindow
             refreshLayout);
     }
 
+    internal void JoinEdgeCapsuleNativeTransactionGroup(long groupId) =>
+        _edgeCapsule.JoinNativeBatchTransactionGroup(groupId);
+
     internal EdgeCapsuleNativeBatchApplyStatus CommitEdgeCapsuleVisualTransaction(
         EdgeCapsuleMotion motion,
         bool refreshLayout,
@@ -74,8 +77,8 @@ public sealed partial class PaperWindow
             return;
         }
 
-        // Re-enter through the shared frame scheduler. Every failed transaction member retries in
-        // one native batch and publishes its retained notification only after that batch commits.
+        // Re-enter through the shared frame scheduler. A temporary cross-queue transaction group
+        // keeps its related queues in one native batch; ordinary queues still retry independently.
         _edgeCapsule.CompleteNativeBatchApplyFailure(transactionTimestamp);
     }
 }
