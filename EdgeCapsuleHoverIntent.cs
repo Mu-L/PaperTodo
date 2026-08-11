@@ -47,7 +47,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.76,
         MinimumVerticalDominance: 0.60,
         CorridorExit: new CorridorExitProfile(
-            0.060, 0.62, 320, 12, 90, 1200));
+            0.060, 0.62, 320, 12, 250, 1200));
 
     private static readonly IntentSensitivityProfile HighProfile = new(
         Initial: new IntentProfile(8, 8, 32, 80, 180),
@@ -57,7 +57,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.72,
         MinimumVerticalDominance: 0.55,
         CorridorExit: new CorridorExitProfile(
-            0.075, 0.68, 400, 16, 120, 1500));
+            0.075, 0.68, 400, 16, 300, 1500));
 
     private static readonly IntentSensitivityProfile MediumProfile = new(
         Initial: new IntentProfile(8, 10, 36, 90, 200),
@@ -67,7 +67,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.68,
         MinimumVerticalDominance: 0.50,
         CorridorExit: new CorridorExitProfile(
-            0.090, 0.74, 500, 20, 160, 2000));
+            0.090, 0.74, 500, 20, 400, 2000));
 
     // "Low" describes activation sensitivity: it applies longer waits and recognizes less
     // pronounced residual motion as pass-through risk, so stopping must be more deliberate.
@@ -79,7 +79,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.64,
         MinimumVerticalDominance: 0.45,
         CorridorExit: new CorridorExitProfile(
-            0.110, 0.79, 640, 24, 220, 2700));
+            0.110, 0.79, 640, 24, 500, 2700));
 
     private static readonly IntentSensitivityProfile VeryLowProfile = new(
         Initial: new IntentProfile(12, 18, 54, 135, 300),
@@ -89,7 +89,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.60,
         MinimumVerticalDominance: 0.40,
         CorridorExit: new CorridorExitProfile(
-            0.140, 0.84, 800, 30, 300, 3800));
+            0.140, 0.84, 800, 30, 650, 3800));
 
     private readonly PointerSample[] _samples =
         new PointerSample[SampleCapacity];
