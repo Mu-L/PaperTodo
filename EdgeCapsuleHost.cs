@@ -62,7 +62,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private const int WmMouseMove = 0x0200;
     private const int WmNcMouseMove = 0x00A0;
     private const int WmNcHitTest = 0x0084;
-    private const double PreviewPointerTrackingIntervalMilliseconds = 24;
     private static readonly IntPtr HtTransparent = new(-1);
     private readonly EdgeCapsuleHostOptions _options;
     private EdgeCapsuleHostCallbacks? _callbacks;
@@ -739,60 +738,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var content = ContentArea;
         var close = CloseArea;
         var closeGlyph = CloseGlyph;
-        DispatcherTimer? previewPointerTrackingTimer = null;
-
-        void StopPreviewPointerTracking()
-        {
-            previewPointerTrackingTimer?.Stop();
-        }
-
-        void StartPreviewPointerTracking()
-        {
-            if (_disposed ||
-                _appliedFrame.Surface != EdgeCapsuleSurfaceKind.DockedPreview ||
-                content.IsMouseCaptured)
-            {
-                return;
-            }
-
-            if (previewPointerTrackingTimer == null)
-            {
-                previewPointerTrackingTimer = new DispatcherTimer(
-                    DispatcherPriority.Input,
-                    Window.Dispatcher)
-                {
-                    Interval = TimeSpan.FromMilliseconds(
-                        PreviewPointerTrackingIntervalMilliseconds)
-                };
-                previewPointerTrackingTimer.Tick += (_, _) =>
-                {
-                    if (_disposed ||
-                        _callbacks == null ||
-                        _appliedFrame.Surface != EdgeCapsuleSurfaceKind.DockedPreview ||
-                        content.IsMouseCaptured)
-                    {
-                        StopPreviewPointerTracking();
-                        return;
-                    }
-
-                    // Empty corridor pixels are HTTRANSPARENT and therefore cannot keep generating
-                    // routed mouse moves. While this one preview is open, wake only its own pointer
-                    // reconciliation so the controller can notice a real corridor exit promptly.
-                    callbacks.PointerInvalidated();
-                    if (WindowNative.TryGetCursorScreenPosition(out var pointer) &&
-                        ContainsScreenPoint(pointer))
-                    {
-                        StopPreviewPointerTracking();
-                    }
-                };
-            }
-
-            previewPointerTrackingTimer.Start();
-        }
 
         void BeginContentPointer(MouseButtonEventArgs e)
         {
-            StopPreviewPointerTracking();
             if (IsPreviewInteractiveSource(
                     e.OriginalSource as DependencyObject))
             {
@@ -840,22 +788,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 close.Background = Brushes.Transparent;
             }
         };
-        shell.MouseEnter += (_, _) =>
-        {
-            StopPreviewPointerTracking();
-            callbacks.PointerInvalidated();
-        };
-        shell.MouseLeave += (_, _) =>
-        {
-            callbacks.PointerInvalidated();
-            StartPreviewPointerTracking();
-        };
+        shell.MouseEnter += (_, _) => callbacks.PointerInvalidated();
+        shell.MouseLeave += (_, _) => callbacks.PointerInvalidated();
         content.PreviewMouseLeftButtonDown += (_, e) => BeginContentPointer(e);
         content.PreviewMouseRightButtonDown += (_, _) =>
-        {
-            StopPreviewPointerTracking();
             ArmPreviewInteractiveCaptureLease();
-        };
         content.PreviewMouseMove += (_, e) =>
         {
             if (!content.IsMouseCaptured)

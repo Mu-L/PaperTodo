@@ -92,6 +92,14 @@ public sealed partial class PaperWindow
         IntPtr lParam,
         ref bool handled)
     {
+        // WM_MOUSELEAVE / WM_NCMOUSELEAVE are the authoritative boundary signal for the real host.
+        // WPF can raise MouseLeave while the physical point is still inside the applied rectangle;
+        // consume the native leave as well so that a later genuine exit cannot be lost.
+        if (msg is 0x02A3 or 0x02A2)
+        {
+            InvalidateEdgeCapsulePointerFromHostInput();
+        }
+
         // The slot host is not a paper window. In particular it must not inherit the paper's
         // snap/maximize WM_GETMINMAXINFO handling or minimum tracking size. It only participates
         // in display-metric refresh and then lets WPF process the native message normally.
@@ -312,6 +320,9 @@ public sealed partial class PaperWindow
     private void InvalidateEdgeCapsulePointerFromHostInput()
     {
         _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
+            this,
+            CaptureEdgeCapsulePointerPosition());
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.InvalidateBeforeNextRender(
             EdgeCapsuleDirty.Pointer,
@@ -404,7 +415,7 @@ public sealed partial class PaperWindow
         {
             _controller.NotifyEdgeCapsulePointerOverChanged(this, pointerOver);
         }
-        _controller.NotifyEdgeCapsulePreviewPointerSample(this, pointer);
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(this, pointer);
     }
 
     internal void PublishEdgeCapsuleVisualTransactionNotifications() =>
