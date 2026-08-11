@@ -21,9 +21,11 @@ internal sealed class EdgeCapsuleFrameScheduler
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
     private int _pendingLoadedReconciles;
+    private TimeSpan? _lastRenderingTime;
 #if DEBUG
     private long _lastRenderingTimestamp;
     private long _debugFrameSequence;
+    private int _suppressedDuplicateRenderingCallbacks;
 #endif
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
@@ -98,6 +100,20 @@ internal sealed class EdgeCapsuleFrameScheduler
             return;
         }
 
+        var renderingTime = e is RenderingEventArgs renderingArgs
+            ? renderingArgs.RenderingTime
+            : (TimeSpan?)null;
+        if (renderingTime.HasValue &&
+            _lastRenderingTime.HasValue &&
+            renderingTime.Value == _lastRenderingTime.Value)
+        {
+#if DEBUG
+            _suppressedDuplicateRenderingCallbacks++;
+#endif
+            return;
+        }
+        _lastRenderingTime = renderingTime;
+
 #if DEBUG
         var callbackStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         var frameSequence = ++_debugFrameSequence;
@@ -109,6 +125,9 @@ internal sealed class EdgeCapsuleFrameScheduler
         _lastRenderingTimestamp = callbackStartedAt;
         var debugInitialCount = 0;
         var debugGroupCount = 0;
+        var duplicateRenderingCallbacks = _suppressedDuplicateRenderingCallbacks;
+        _suppressedDuplicateRenderingCallbacks = 0;
+        var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
 #endif
         _isTicking = true;
         try
@@ -153,7 +172,8 @@ internal sealed class EdgeCapsuleFrameScheduler
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"scheduler.frame sequence={frameSequence} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
-                $"gapMs={frameGapMilliseconds:F3} presenters={debugInitialCount} " +
+                $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
+                $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
                 $"groups={debugGroupCount} loadedPending={_pendingLoadedReconciles}");
 #endif
             _acceptingPostCommitCallbacks = false;
@@ -208,6 +228,11 @@ internal sealed class EdgeCapsuleFrameScheduler
         double slowestPresenterMilliseconds = 0;
         var slowestPresenter = "<none>";
         var debugOutcome = "exception";
+        var boundsRequested = 0;
+        var boundsPending = 0;
+        var boundsUnchanged = 0;
+        var boundsMoveChanges = 0;
+        var boundsSizeChanges = 0;
 #endif
         try
         {
@@ -286,6 +311,11 @@ internal sealed class EdgeCapsuleFrameScheduler
                     nativeCommitMilliseconds +=
                         EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
                             nativeCommitStartedAt);
+                    boundsRequested = nativeBoundsBatch.RequestedWindowCount;
+                    boundsPending = nativeBoundsBatch.PendingWindowCount;
+                    boundsUnchanged = nativeBoundsBatch.UnchangedWindowCount;
+                    boundsMoveChanges = nativeBoundsBatch.MoveChangeCount;
+                    boundsSizeChanges = nativeBoundsBatch.SizeChangeCount;
 #endif
                 }
 
@@ -379,7 +409,9 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"reconcileMs={reconcileMilliseconds:F3} statusMs={statusMilliseconds:F3} " +
                 $"nativeCommitMs={nativeCommitMilliseconds:F3} completeMs={completionMilliseconds:F3} " +
                 $"postCommitMs={postCommitMilliseconds:F3} presenters={presenters.Count} " +
-                $"slowest={slowestPresenter}:{slowestPresenterMilliseconds:F3} " +
+                $"boundsRequested={boundsRequested} boundsPending={boundsPending} " +
+                $"boundsUnchanged={boundsUnchanged} moveChanges={boundsMoveChanges} " +
+                $"sizeChanges={boundsSizeChanges} slowest={slowestPresenter}:{slowestPresenterMilliseconds:F3} " +
                 $"transaction={transactionGroupId}");
 #endif
             _acceptingPostCommitCallbacks = false;
@@ -431,8 +463,10 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
+            _lastRenderingTime = null;
 #if DEBUG
             _lastRenderingTimestamp = 0;
+            _suppressedDuplicateRenderingCallbacks = 0;
 #endif
         }
     }

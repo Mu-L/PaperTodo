@@ -584,6 +584,29 @@ internal static class WindowNative
         private readonly Dictionary<IntPtr, DeviceScreenRect> _pendingBounds = new();
         private IntPtr _deferredWindowPosition;
         private bool _completed;
+#if DEBUG
+        private readonly Dictionary<IntPtr, WindowBatchDiagnostic> _windowDiagnostics = new();
+        private readonly long _startedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        private double _beginMilliseconds;
+        private double _inspectMilliseconds;
+        private double _deferMilliseconds;
+        private double _endMilliseconds;
+        private double _verifyMilliseconds;
+
+        private sealed class WindowBatchDiagnostic
+        {
+            public DeviceScreenRect Expected { get; set; }
+            public DeviceScreenRect Actual { get; set; }
+            public bool HasActual { get; set; }
+            public bool SkippedUnchanged { get; set; }
+            public bool MoveChanged { get; set; }
+            public bool SizeChanged { get; set; }
+            public bool Verified { get; set; }
+            public double InspectMilliseconds { get; set; }
+            public double DeferMilliseconds { get; set; }
+            public double VerifyMilliseconds { get; set; }
+        }
+#endif
 
         internal WindowDeviceBoundsBatch(int capacity)
         {
@@ -594,7 +617,13 @@ internal static class WindowNative
             }
 
             _ownsCurrentBatch = true;
+#if DEBUG
+            var beginStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             _deferredWindowPosition = BeginDeferWindowPos(capacity);
+#if DEBUG
+            _beginMilliseconds = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(beginStartedAt);
+#endif
             _currentDeviceBoundsBatch = this;
         }
 
@@ -605,14 +634,78 @@ internal static class WindowNative
             _deferredWindowPosition != IntPtr.Zero;
 
         internal bool HasFailed { get; private set; }
+        internal int RequestedWindowCount { get; private set; }
+        internal int PendingWindowCount => _pendingBounds.Count;
+        internal int UnchangedWindowCount { get; private set; }
+        internal int MoveChangeCount { get; private set; }
+        internal int SizeChangeCount { get; private set; }
 
         internal bool TryDefer(IntPtr handle, DeviceScreenRect bounds)
         {
+            RequestedWindowCount++;
             if (!IsAvailable || handle == IntPtr.Zero || bounds.IsEmpty)
             {
                 return false;
             }
 
+            if (_pendingBounds.TryGetValue(handle, out var alreadyPending) &&
+                alreadyPending == bounds)
+            {
+                UnchangedWindowCount++;
+                return true;
+            }
+
+            var moveChanged = false;
+            var sizeChanged = false;
+            var sameAsNative = false;
+#if DEBUG
+            var diagnostic = new WindowBatchDiagnostic { Expected = bounds };
+            _windowDiagnostics[handle] = diagnostic;
+            var inspectStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+            if (GetWindowRect(handle, out var currentRect))
+            {
+                var current = new DeviceScreenRect(
+                    currentRect.Left,
+                    currentRect.Top,
+                    currentRect.Right,
+                    currentRect.Bottom);
+                sameAsNative = current == bounds;
+                moveChanged = current.Left != bounds.Left || current.Top != bounds.Top;
+                sizeChanged = current.Width != bounds.Width || current.Height != bounds.Height;
+#if DEBUG
+                diagnostic.Actual = current;
+                diagnostic.HasActual = true;
+#endif
+            }
+#if DEBUG
+            diagnostic.InspectMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(inspectStartedAt);
+            _inspectMilliseconds += diagnostic.InspectMilliseconds;
+#endif
+
+            if (sameAsNative)
+            {
+                UnchangedWindowCount++;
+#if DEBUG
+                diagnostic.SkippedUnchanged = true;
+#endif
+                return true;
+            }
+
+            if (moveChanged)
+            {
+                MoveChangeCount++;
+            }
+            if (sizeChanged)
+            {
+                SizeChangeCount++;
+            }
+#if DEBUG
+            diagnostic.MoveChanged = moveChanged;
+            diagnostic.SizeChanged = sizeChanged;
+            var deferStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             var updated = DeferWindowPos(
                 _deferredWindowPosition,
                 handle,
@@ -622,6 +715,11 @@ internal static class WindowNative
                 bounds.Width,
                 bounds.Height,
                 SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+#if DEBUG
+            diagnostic.DeferMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(deferStartedAt);
+            _deferMilliseconds += diagnostic.DeferMilliseconds;
+#endif
             if (updated == IntPtr.Zero)
             {
                 HasFailed = true;
@@ -664,36 +762,115 @@ internal static class WindowNative
                 _currentDeviceBoundsBatch = null;
             }
 
+            var outcome = "committed";
             // If BeginDeferWindowPos was unavailable, callers already used the ordinary immediate
             // SetWindowPos fallback. A failed DeferWindowPos, however, invalidates the entire HDWP.
             if (_deferredWindowPosition == IntPtr.Zero)
             {
+                outcome = HasFailed ? "failed-before-end" : "unavailable";
+#if DEBUG
+                TraceBatch(outcome);
+#endif
                 return !HasFailed;
             }
 
+#if DEBUG
+            var endStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             var committed = EndDeferWindowPos(_deferredWindowPosition);
+#if DEBUG
+            _endMilliseconds = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(endStartedAt);
+#endif
             _deferredWindowPosition = IntPtr.Zero;
             if (!committed)
             {
                 HasFailed = true;
+                outcome = "end-failed";
+#if DEBUG
+                TraceBatch(outcome);
+#endif
                 return false;
             }
 
             foreach (var (handle, expected) in _pendingBounds)
             {
-                if (!GetWindowRect(handle, out var actual) ||
-                    new DeviceScreenRect(
+#if DEBUG
+                var verifyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+                var gotRect = GetWindowRect(handle, out var actual);
+                var actualBounds = gotRect
+                    ? new DeviceScreenRect(
                         actual.Left,
                         actual.Top,
                         actual.Right,
-                        actual.Bottom) != expected)
+                        actual.Bottom)
+                    : default;
+                var verified = gotRect && actualBounds == expected;
+#if DEBUG
+                var verifyMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(verifyStartedAt);
+                _verifyMilliseconds += verifyMs;
+                if (!_windowDiagnostics.TryGetValue(handle, out var diagnostic))
+                {
+                    diagnostic = new WindowBatchDiagnostic { Expected = expected };
+                    _windowDiagnostics[handle] = diagnostic;
+                }
+                diagnostic.Actual = actualBounds;
+                diagnostic.HasActual = gotRect;
+                diagnostic.Verified = verified;
+                diagnostic.VerifyMilliseconds = verifyMs;
+#endif
+                if (!verified)
                 {
                     HasFailed = true;
+                    outcome = "verify-failed";
+#if DEBUG
+                    TraceBatch(outcome);
+#endif
                     return false;
                 }
             }
+#if DEBUG
+            TraceBatch(outcome);
+#endif
             return true;
         }
+
+#if DEBUG
+        private void TraceBatch(string outcome)
+        {
+            var totalMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_startedAt);
+            var shouldTraceDetails = HasFailed || totalMilliseconds >= 2.0;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"native.batch outcome={outcome} requested={RequestedWindowCount} " +
+                $"pending={PendingWindowCount} unchanged={UnchangedWindowCount} " +
+                $"moveChanges={MoveChangeCount} sizeChanges={SizeChangeCount} " +
+                $"visibilityChanges=0 zOrderChanges=0 beginMs={_beginMilliseconds:F3} " +
+                $"inspectMs={_inspectMilliseconds:F3} deferMs={_deferMilliseconds:F3} " +
+                $"endMs={_endMilliseconds:F3} verifyMs={_verifyMilliseconds:F3} " +
+                $"totalMs={totalMilliseconds:F3}");
+            if (!shouldTraceDetails)
+            {
+                return;
+            }
+
+            foreach (var (handle, diagnostic) in _windowDiagnostics)
+            {
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"native.batch.window hwnd=0x{handle.ToInt64():X} " +
+                    $"expected={FormatBounds(diagnostic.Expected)} " +
+                    $"actual={(diagnostic.HasActual ? FormatBounds(diagnostic.Actual) : "<unknown>")} " +
+                    $"skipped={diagnostic.SkippedUnchanged} move={diagnostic.MoveChanged} " +
+                    $"size={diagnostic.SizeChanged} visibility=false zOrder=false " +
+                    $"inspectMs={diagnostic.InspectMilliseconds:F3} " +
+                    $"deferMs={diagnostic.DeferMilliseconds:F3} " +
+                    $"verifyMs={diagnostic.VerifyMilliseconds:F3} verified={diagnostic.Verified}");
+            }
+        }
+
+        private static string FormatBounds(DeviceScreenRect bounds) =>
+            $"{bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}";
+#endif
 
         public void Dispose() => Commit();
     }
