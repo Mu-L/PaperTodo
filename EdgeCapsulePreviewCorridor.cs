@@ -4,87 +4,92 @@ internal readonly record struct EdgeCapsulePreviewCorridorNode(
     DeviceScreenRect Bounds,
     bool ConnectToPrevious);
 
+/// <summary>
+/// Builds the temporary empty transfer rectangle for each uninterrupted run of real interactive
+/// capsules. These rectangles are pointer-intent geometry only; they never become hit-test bounds.
+/// </summary>
 internal static class EdgeCapsulePreviewCorridor
 {
     public static bool Contains(
         ReadOnlySpan<EdgeCapsulePreviewCorridorNode> nodes,
-        DeviceScreenPoint pointer,
-        int horizontalTolerance,
-        int verticalTolerance)
+        DeviceScreenPoint pointer)
     {
         if (nodes.IsEmpty)
         {
             return false;
         }
 
-        var horizontal = Math.Max(0, horizontalTolerance);
-        var vertical = Math.Max(0, verticalTolerance);
+        var componentLeft = 0;
+        var componentTop = 0;
+        var componentRight = 0;
+        var componentBottom = 0;
+        var componentHasBounds = false;
         for (var index = 0; index < nodes.Length; index++)
         {
             var node = nodes[index];
-            if (ContainsInflated(
-                    node.Bounds,
-                    pointer,
-                    horizontal,
-                    vertical))
+            if (node.Bounds.IsEmpty)
             {
-                return true;
+                if (componentHasBounds && Contains(
+                        new DeviceScreenRect(
+                            componentLeft,
+                            componentTop,
+                            componentRight,
+                            componentBottom),
+                        pointer))
+                {
+                    return true;
+                }
+                componentHasBounds = false;
+                continue;
             }
-            if (index > 0 &&
-                node.ConnectToPrevious &&
-                ContainsBridge(
-                    nodes[index - 1].Bounds,
-                    node.Bounds,
-                    pointer,
-                    horizontal,
-                    vertical))
+
+            if (componentHasBounds && !node.ConnectToPrevious)
             {
-                return true;
+                if (Contains(
+                        new DeviceScreenRect(
+                            componentLeft,
+                            componentTop,
+                            componentRight,
+                            componentBottom),
+                        pointer))
+                {
+                    return true;
+                }
+                componentHasBounds = false;
             }
+
+            if (!componentHasBounds)
+            {
+                componentLeft = node.Bounds.Left;
+                componentTop = node.Bounds.Top;
+                componentRight = node.Bounds.Right;
+                componentBottom = node.Bounds.Bottom;
+                componentHasBounds = true;
+                continue;
+            }
+
+            componentLeft = Math.Min(componentLeft, node.Bounds.Left);
+            componentTop = Math.Min(componentTop, node.Bounds.Top);
+            componentRight = Math.Max(componentRight, node.Bounds.Right);
+            componentBottom = Math.Max(componentBottom, node.Bounds.Bottom);
         }
-        return false;
+
+        return componentHasBounds && Contains(
+            new DeviceScreenRect(
+                componentLeft,
+                componentTop,
+                componentRight,
+                componentBottom),
+            pointer);
     }
 
-    private static bool ContainsInflated(
+    private static bool Contains(
         DeviceScreenRect bounds,
-        DeviceScreenPoint pointer,
-        int horizontalTolerance,
-        int verticalTolerance) =>
+        DeviceScreenPoint pointer) =>
         !bounds.IsEmpty &&
-        pointer.X >= bounds.Left - (double)horizontalTolerance &&
-        pointer.X < bounds.Right + (double)horizontalTolerance &&
-        pointer.Y >= bounds.Top - (double)verticalTolerance &&
-        pointer.Y < bounds.Bottom + (double)verticalTolerance;
+        pointer.X >= bounds.Left &&
+        pointer.X < bounds.Right &&
+        pointer.Y >= bounds.Top &&
+        pointer.Y < bounds.Bottom;
 
-    private static bool ContainsBridge(
-        DeviceScreenRect first,
-        DeviceScreenRect second,
-        DeviceScreenPoint pointer,
-        int horizontalTolerance,
-        int verticalTolerance)
-    {
-        if (first.IsEmpty || second.IsEmpty)
-        {
-            return false;
-        }
-
-        var upper = first.Top <= second.Top ? first : second;
-        var lower = first.Top <= second.Top ? second : first;
-        var bridgeLeft = Math.Max(upper.Left, lower.Left) -
-            (double)horizontalTolerance;
-        var bridgeRight = Math.Min(upper.Right, lower.Right) +
-            (double)horizontalTolerance;
-        if (bridgeRight <= bridgeLeft)
-        {
-            return false;
-        }
-
-        var bridgeTop = upper.Bottom - (double)verticalTolerance;
-        var bridgeBottom = lower.Top + (double)verticalTolerance;
-        return bridgeBottom > bridgeTop &&
-            pointer.X >= bridgeLeft &&
-            pointer.X < bridgeRight &&
-            pointer.Y >= bridgeTop &&
-            pointer.Y < bridgeBottom;
-    }
 }
