@@ -339,38 +339,42 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            TraceNoteRender($"ShowPreview before isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+            var alreadyPreviewing = isPreviewing && box.IsPreviewMode;
+            TraceNoteRender($"ShowPreview before isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode} already={alreadyPreviewing}");
             box.ClearImageSelection();
             box.SelectionLength = 0;
-            box.SetPreviewMode(true);
-            box.ContextMenu = _notePreviewContextMenu ??= BuildPaperContextMenu();
-            isPreviewing = true;
-            // Focus can be cleared by the caller before preview mode is entered. Defer the
-            // decision until WPF has finished the current focus transition, then park focus
-            // on the active window only when no child control has claimed it. This keeps the
-            // window-level ESC handler available without stealing focus from title editing.
-            var deferredWorkGeneration = _noteDeferredWorkGeneration;
-            Dispatcher.BeginInvoke(
-                (Action)(() =>
-                {
-                    if (!IsCurrentNoteDeferredWork(
-                            presenterGeneration,
-                            deferredWorkGeneration,
-                            box))
+            if (!alreadyPreviewing)
+            {
+                box.SetPreviewMode(true);
+                box.ContextMenu = _notePreviewContextMenu ??= BuildPaperContextMenu();
+                isPreviewing = true;
+                // Focus can be cleared by the caller before preview mode is entered. Defer the
+                // decision until WPF has finished the current focus transition, then park focus
+                // on the active window only when no child control has claimed it. This keeps the
+                // window-level ESC handler available without stealing focus from title editing.
+                var deferredWorkGeneration = _noteDeferredWorkGeneration;
+                Dispatcher.BeginInvoke(
+                    (Action)(() =>
                     {
-                        return;
-                    }
+                        if (!IsCurrentNoteDeferredWork(
+                                presenterGeneration,
+                                deferredWorkGeneration,
+                                box))
+                        {
+                            return;
+                        }
 
-                    if (isPreviewing &&
-                        IsActive &&
-                        !IsKeyboardFocusWithin &&
-                        !IsPaperContextMenuInteractionActive)
-                    {
-                        Focus();
-                    }
-                }),
-                System.Windows.Threading.DispatcherPriority.Input);
-            TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode}");
+                        if (isPreviewing &&
+                            IsActive &&
+                            !IsKeyboardFocusWithin &&
+                            !IsPaperContextMenuInteractionActive)
+                        {
+                            Focus();
+                        }
+                    }),
+                    System.Windows.Threading.DispatcherPriority.Input);
+            }
+            TraceNoteRender($"ShowPreview after isPreviewing={isPreviewing} boxPreview={box.IsPreviewMode} already={alreadyPreviewing}");
         }
 
         _showNotePreview = ShowPreview;
