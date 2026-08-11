@@ -312,6 +312,9 @@ public sealed partial class PaperWindow
     private void InvalidateEdgeCapsulePointerFromHostInput()
     {
         _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
+            this,
+            CaptureEdgeCapsulePointerPosition());
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.InvalidateBeforeNextRender(
             EdgeCapsuleDirty.Pointer,
@@ -404,7 +407,7 @@ public sealed partial class PaperWindow
         {
             _controller.NotifyEdgeCapsulePointerOverChanged(this, pointerOver);
         }
-        _controller.NotifyEdgeCapsulePreviewPointerSample(this, pointer);
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(this, pointer);
     }
 
     internal void PublishEdgeCapsuleVisualTransactionNotifications() =>
