@@ -451,12 +451,6 @@ PaperTodo를 수동으로 다시 여세요. 문제가 반복되면 PC를 다시 
   <data name="CapsuleCollapseAllCountFormat" xml:space="preserve">
     <value>{0}개</value>
   </data>
-  <data name="CapsulePreviousPageTip" xml:space="preserve">
-    <value>이전 페이지</value>
-  </data>
-  <data name="CapsuleNextPageTip" xml:space="preserve">
-    <value>다음 페이지</value>
-  </data>
   <data name="TrayExit" xml:space="preserve">
     <value>종료</value>
   </data>

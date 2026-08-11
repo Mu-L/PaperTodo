@@ -32,7 +32,6 @@ public sealed partial class PaperWindow
         !IsExperimentalPassive &&
         !_advancedInteractionLocked &&
         HasDeepCapsuleSlotPlacement &&
-        _edgeCapsule.Placement.IsPageVisible &&
         !IsDeepCapsuleRetractedIntoMaster &&
         !IsDeepCapsuleSlotRetracting &&
         !IsDeepCapsuleReordering &&
@@ -76,26 +75,20 @@ public sealed partial class PaperWindow
                 return null;
             }
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
-            var siblingSlotHeight = Math.Max(
-                0,
-                _edgeCapsule.Placement.SlotCount - 1) *
-                EdgeCapsuleLayout.SlotHeight(_controller.DeepCapsuleGap);
-            var maximumPreviewHeight = monitor.Height -
-                (EdgeCapsuleLayout.TopMargin * 2) -
-                siblingSlotHeight;
             var size = descriptor.Size.Normalize(
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumWidthDip,
                     monitor.Width - 16),
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumHeightDip,
-                    maximumPreviewHeight));
+                    monitor.Height - 16));
             // Native/Web/migration providers may execute arbitrary plugin code or construct a
-            // WebView. Mount a bounded host-owned tree now and create that content only after the
-            // visual transaction has produced its first compositor frame.
-            var deferPluginContent = provider is PluginEdgeCapsulePreviewProvider;
-            var content = deferPluginContent
-                ? new EdgeCapsulePreviewLoadingView(context)
+            // WebView. Paint the host-owned 1.6/1.7 fallback first, then replace it only after the
+            // visual transaction has produced a committed compositor frame. Creation failure keeps
+            // this useful fallback instead of leaving a permanent loading ellipsis.
+            var deferProviderContent = descriptor.DeferContentCreation;
+            var content = deferProviderContent
+                ? BuildPluginCapsuleEdgePreviewContent(context, size)
                 : descriptor.CreateContent(size);
             if (bodySessionGeneration != _bodySessionGeneration ||
                 !CanEnterEdgeCapsulePreview ||
@@ -119,7 +112,7 @@ public sealed partial class PaperWindow
                 content,
                 descriptor.SetVisibility,
                 descriptor.PrepareForActivation,
-                deferPluginContent
+                deferProviderContent
                     ? () => descriptor.CreateContent(size)
                     : null);
         }
@@ -324,7 +317,7 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            // The placeholder must have belonged to a successfully committed native batch before
+            // The fallback must have belonged to a successfully committed native batch before
             // this Rendering can count as its first compositor pass. A failed transaction keeps
             // the handler armed across coordinated retries; exhaustion leaves it armed until a
             // later explicit successful replay or request cancellation.
@@ -345,7 +338,7 @@ public sealed partial class PaperWindow
                 _edgeCapsulePreviewDeferredContentRenderHandler = null;
             }
 
-            // Run after the Render-priority event returns, so the host-owned placeholder has
+            // Run after the Render-priority event returns, so the host-owned fallback has
             // completed one genuine WPF composition pass before arbitrary plugin code can block UI.
             _ = Dispatcher.BeginInvoke(
                 (Action)(() =>

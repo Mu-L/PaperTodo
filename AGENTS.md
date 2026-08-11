@@ -52,8 +52,9 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 - per-window 的显示器 settle、标题 measure、物理指针采样和 frame apply 共用一个 dirty/reconcile 调度入口；需要同步交接时调用同一管线的 `Flush`，不得直接调用 planner/apply，也不得为新条件增加独立 pending/scheduled 布尔对。跨胶囊 arrange 只由队列协调器单独合并。
 - 同一 Dispatcher 上的动画 Presenter 必须共用一个帧调度器和每帧一次的物理指针采样；布局快照只在标题、显示器或队列布局失效时重算。position-only 帧只移动 `HostBounds` 对应的 HWND，visible-width-only 帧只更新 `VisualSurface` 与固定分段，二者都不得触发 WPF `UpdateLayout`。
 - 指针是否位于胶囊上只根据 applied frame 的物理 `InteractiveBounds` 判断；该矩形排除透明阴影边距，WPF enter/leave 只负责唤醒采样，不能直接写 Hover。
-- 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 才能持续保活；整条队列的外接矩形只是一条临时转移走廊。开启移动意图时，走廊空白区的轨迹远离和静置收起必须复用现有五档配置；关闭时不判断方向，连续处于空白区 3 秒后固定收起。指针捕获期间不得触发。
+- 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 才能持续保活；走廊由这些已提交真实交互矩形的并集和原队列相邻项之间的窄连接桥组成，不得恢复整条队列的大外接矩形；不可交互或正在收回的旧卡必须切断前后桥接。开启移动意图时，走廊空白区的轨迹远离和静置收起必须复用现有五档配置；关闭时不判断方向，连续处于空白区 3 秒后固定收起。指针捕获期间不得触发。
 - 每个队列的 index、master offset 和 slot count 只由 `EdgeCapsuleQueueCoordinator` 生成，`AppController` 和单个窗口不得各自重新推导。
+- **贴边胶囊队列永远不分页。** 不得按工作区高度做安全容量、隐藏溢出胶囊、页头、页码、自动翻页或容量截断；队列始终按完整顺序连续向下排列，超过当前显示器工作区就允许直接出屏。后续不要以“防重叠”“小屏适配”或任何其他名义重新引入分页。
 - 贴边 slot host 使用固定的最大展开透明合成面，真正可见的 Chrome / Shell 使用当前帧真实宽度并在该合成面内钉住墙边；透明预留区不是胶囊的一部分，外形不得依赖 `ClipToBounds`、屏幕边缘或超宽子元素裁切。slot 0 主胶囊不参与水平伸缩，继续使用自身真实窗口宽度。
 - 贴边胶囊的关闭区位于屏幕墙边、悬停时从 0 宽度展开并把图标/标题推向屏幕内部；靠墙侧始终为直角，内容区拥有朝屏幕内部的圆角。
 - 贴边胶囊水平伸缩只插值已经取整的可见物理宽度；水平伸缩动画期间不得水平移动或改变 docked HWND 宽度，垂直重排仍可移动宿主。关闭区宽度和透明度必须从该可见宽度反推，不得建立独立的布局插值通道。

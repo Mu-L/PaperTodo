@@ -130,6 +130,7 @@ public sealed partial class PaperWindow
         }
         _edgeCapsuleHost.AttachInput(new EdgeCapsuleHostCallbacks(
             InvalidateEdgeCapsulePointerFromHostInput,
+            () => _edgeCapsule.PointerOverSurface,
             OnEdgeCapsulePointerPressed,
             OnEdgeCapsulePointerMoved,
             OnEdgeCapsulePointerReleased,

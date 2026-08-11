@@ -8,38 +8,18 @@ internal readonly record struct EdgeCapsulePlacement(
     int Index,
     int VisualOffset,
     int SlotCount,
-    double TopOffsetDip = 0,
-    int PageStartIndex = 0,
-    bool IsPageVisible = true)
+    double TopOffsetDip = 0)
 {
     public static EdgeCapsulePlacement None => new(-1, 0, 1);
-    public int VisualIndex => IsPlaced && IsPageVisible
-        ? Index - PageStartIndex + VisualOffset
-        : -1;
+    public int VisualIndex => Index + VisualOffset;
     public bool IsPlaced => Index >= 0;
     public EdgeCapsulePlacement Normalize() => IsPlaced
-        ? NormalizePlaced()
+        ? new EdgeCapsulePlacement(
+            Math.Max(0, Index),
+            Math.Max(0, VisualOffset),
+            Math.Max(1, SlotCount),
+            double.IsFinite(TopOffsetDip) ? TopOffsetDip : 0)
         : None;
-
-    private EdgeCapsulePlacement NormalizePlaced()
-    {
-        var index = Math.Max(0, Index);
-        var visualOffset = Math.Max(0, VisualOffset);
-        var slotCount = Math.Max(1, SlotCount);
-        var pageStartIndex = Math.Max(0, PageStartIndex);
-        var visualIndex = index - pageStartIndex + visualOffset;
-        var pageVisible = IsPageVisible &&
-            index >= pageStartIndex &&
-            visualIndex >= visualOffset &&
-            visualIndex < slotCount;
-        return new EdgeCapsulePlacement(
-            index,
-            visualOffset,
-            slotCount,
-            double.IsFinite(TopOffsetDip) ? TopOffsetDip : 0,
-            pageStartIndex,
-            pageVisible);
-    }
 }
 
 internal readonly record struct EdgeCapsuleGeometryInput(

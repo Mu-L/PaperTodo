@@ -45,7 +45,7 @@ public sealed partial class PaperWindow
         EdgeCapsulePaperForm paperForm,
         bool retracted)
     {
-        if (retracted || !placement.IsPageVisible)
+        if (retracted)
         {
             CloseDeepCapsuleSlotContextMenu();
         }

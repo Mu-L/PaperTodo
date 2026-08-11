@@ -33,7 +33,8 @@ internal sealed partial class WebPaperBodySession
             normalized => GetOrCreateMiniView(
                 normalized,
                 buildFallback(context, normalized)),
-            visible => _miniViewHost?.SetVisible(visible));
+            visible => _miniViewHost?.SetVisible(visible),
+            DeferContentCreation: true);
     }
 
     private FrameworkElement GetOrCreateMiniView(

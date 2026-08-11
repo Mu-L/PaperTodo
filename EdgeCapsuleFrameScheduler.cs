@@ -7,8 +7,8 @@ namespace PaperTodo;
 
 /// <summary>
 /// One animation-frame scheduler per UI dispatcher. Presenters still own their transitions and
-/// reconcile pipelines; the shared scheduler only batches frame advances plus cursor/time sampling
-/// on WPF's actual composition frames.
+/// reconcile pipelines; the shared scheduler samples one pointer/time per frame, then commits each
+/// monitor/edge queue independently so one bad HWND cannot hide unrelated queues.
 /// </summary>
 internal sealed class EdgeCapsuleFrameScheduler
 {
@@ -28,13 +28,10 @@ internal sealed class EdgeCapsuleFrameScheduler
     }
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
-        Schedulers.GetValue(dispatcher, static key => new EdgeCapsuleFrameScheduler(key));
+        Schedulers.GetValue(
+            dispatcher,
+            static key => new EdgeCapsuleFrameScheduler(key));
 
-    /// <summary>
-    /// Prevent a Render-priority composition callback from advancing one presenter while sibling
-    /// presenters are still waiting in the same Loaded-priority reconcile batch. Counting the
-    /// actual queued operations also lets a host-input promotion drain its registration at Send.
-    /// </summary>
     public void RegisterLoadedReconcile()
     {
         _dispatcher.VerifyAccess();
@@ -67,8 +64,6 @@ internal sealed class EdgeCapsuleFrameScheduler
     public void Deactivate(EdgeCapsulePresenter presenter)
     {
         _dispatcher.VerifyAccess();
-        // Removing from the list while another presenter's reconcile is running would invalidate
-        // the backwards iteration. The post-tick sweep observes the presenter's inactive flag.
         if (_isTicking)
         {
             return;
@@ -92,10 +87,6 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void OnRendering(object? sender, EventArgs e)
     {
-        // CompositionTarget.Rendering can be nested when presentation work pumps WPF messages.
-        // A nested tick must never observe or mutate the list owned by the outer tick. Render has
-        // higher dispatcher priority than Loaded, so also hold the frame while a cross-window
-        // Loaded batch is still preparing sibling targets.
         if (!_dispatcher.CheckAccess() ||
             _isTicking ||
             _pendingLoadedReconciles > 0)
@@ -107,12 +98,78 @@ internal sealed class EdgeCapsuleFrameScheduler
         try
         {
             var initialCount = _presenters.Count;
+            if (initialCount == 0)
+            {
+                return;
+            }
+
             var frameTimestamp = Stopwatch.GetTimestamp();
-            var pointer = WindowNative.TryGetCursorScreenPosition(out var currentPointer)
-                ? currentPointer
-                : (DeviceScreenPoint?)null;
+            var pointer = WindowNative.TryGetCursorScreenPosition(
+                out var currentPointer)
+                    ? currentPointer
+                    : (DeviceScreenPoint?)null;
+            foreach (var group in BuildFrameGroups(initialCount))
+            {
+                AdvanceNativeBatchGroup(
+                    group,
+                    pointer,
+                    frameTimestamp);
+            }
+
+            for (var index = _presenters.Count - 1; index >= 0; index--)
+            {
+                if (!_presenters[index].UsesSharedFrameScheduler(this))
+                {
+                    _presenters.RemoveAt(index);
+                }
+            }
+        }
+        finally
+        {
+            _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
-            _acceptingPostCommitCallbacks = true;
+            _isTicking = false;
+            StopWhenEmpty();
+        }
+    }
+
+    private IReadOnlyList<List<EdgeCapsulePresenter>> BuildFrameGroups(
+        int initialCount)
+    {
+        var groups = new List<List<EdgeCapsulePresenter>>();
+        var groupIndices =
+            new Dictionary<EdgeCapsuleNativeBatchGroup, int>();
+        for (var index = 0; index < initialCount; index++)
+        {
+            var presenter = _presenters[index];
+            var key = presenter.NativeBatchGroup;
+            if (!groupIndices.TryGetValue(key, out var groupIndex))
+            {
+                groupIndex = groups.Count;
+                groupIndices[key] = groupIndex;
+                groups.Add(new List<EdgeCapsulePresenter>());
+            }
+            groups[groupIndex].Add(presenter);
+        }
+        return groups;
+    }
+
+    private void AdvanceNativeBatchGroup(
+        IReadOnlyList<EdgeCapsulePresenter> presenters,
+        DeviceScreenPoint? pointer,
+        long frameTimestamp)
+    {
+        if (presenters.Count == 0)
+        {
+            return;
+        }
+
+        _postCommitCallbacks.Clear();
+        _acceptingPostCommitCallbacks = true;
+        var transactionGroupId =
+            presenters[0].NativeBatchTransactionGroupId;
+        try
+        {
             bool nativeBatchCommitted;
             bool logicalBatchDeferred;
             bool logicalBatchFailed;
@@ -121,15 +178,14 @@ internal sealed class EdgeCapsuleFrameScheduler
             using (_dispatcher.DisableProcessing())
             {
                 using (var nativeBoundsBatch =
-                    WindowNative.BeginWindowDeviceBoundsBatch(initialCount))
+                    WindowNative.BeginWindowDeviceBoundsBatch(
+                        presenters.Count))
                 {
-                    // Iterate backwards without a per-frame snapshot allocation. Deactivation is
-                    // deferred until the native batch commits; presenters activated during this
-                    // tick start next time.
-                    for (var index = initialCount - 1; index >= 0; index--)
+                    for (var index = presenters.Count - 1;
+                         index >= 0;
+                         index--)
                     {
-                        var presenter = _presenters[index];
-                        _ = presenter.AdvanceSharedFrame(
+                        _ = presenters[index].AdvanceSharedFrame(
                             this,
                             pointer,
                             frameTimestamp);
@@ -138,13 +194,16 @@ internal sealed class EdgeCapsuleFrameScheduler
                     _acceptingPostCommitCallbacks = false;
                     logicalBatchDeferred = false;
                     logicalBatchFailed = false;
-                    for (var index = initialCount - 1; index >= 0; index--)
+                    for (var index = presenters.Count - 1;
+                         index >= 0;
+                         index--)
                     {
-                        var presenter = _presenters[index];
+                        var presenter = presenters[index];
                         if (!presenter.NativeBatchApplyActive)
                         {
                             continue;
                         }
+
                         switch (presenter.NativeBatchApplyStatus)
                         {
                             case EdgeCapsuleNativeBatchApplyStatus.Deferred:
@@ -164,9 +223,11 @@ internal sealed class EdgeCapsuleFrameScheduler
                 frameCommitted = nativeBatchCommitted &&
                     !logicalBatchDeferred &&
                     !logicalBatchFailed;
-                for (var index = initialCount - 1; index >= 0; index--)
+                for (var index = presenters.Count - 1;
+                     index >= 0;
+                     index--)
                 {
-                    var presenter = _presenters[index];
+                    var presenter = presenters[index];
                     if (frameCommitted)
                     {
                         presenter.CompleteNativeBatchApplySuccess();
@@ -177,36 +238,25 @@ internal sealed class EdgeCapsuleFrameScheduler
                     }
                     else
                     {
-                        presenter.CompleteNativeBatchApplyFailure(frameTimestamp);
+                        presenter.CompleteNativeBatchApplyFailure(
+                            frameTimestamp);
                     }
                 }
             }
 
+            CompleteNativeBatchTransactionGroup(
+                presenters,
+                transactionGroupId,
+                frameCommitted,
+                frameDeferred);
+
             if (frameCommitted)
             {
-                // Controller pointer resolution scans every presenter in the queue. Publish those
-                // observations only after all in-memory frames and their native HWND bounds belong
-                // to the same committed frame; otherwise the scan can mix sibling generations.
-                for (var index = 0; index < _postCommitCallbacks.Count; index++)
+                for (var index = 0;
+                     index < _postCommitCallbacks.Count;
+                     index++)
                 {
                     _postCommitCallbacks[index]();
-                }
-            }
-            else
-            {
-                // A failed native batch has no publishable geometry. PaperWindow retains its
-                // accumulated notification state. Every participating presenter was re-armed
-                // above, so the shared scheduler retries the whole logical generation together.
-                _postCommitCallbacks.Clear();
-            }
-
-            // Deactivate is intentionally deferred while ticking. Remove all presenters that
-            // stopped themselves during reconcile before the next composition frame.
-            for (var index = _presenters.Count - 1; index >= 0; index--)
-            {
-                if (!_presenters[index].UsesSharedFrameScheduler(this))
-                {
-                    _presenters.RemoveAt(index);
                 }
             }
         }
@@ -214,8 +264,44 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
-            _isTicking = false;
-            StopWhenEmpty();
+        }
+    }
+
+    private static void CompleteNativeBatchTransactionGroup(
+        IReadOnlyList<EdgeCapsulePresenter> presenters,
+        long transactionGroupId,
+        bool frameCommitted,
+        bool frameDeferred)
+    {
+        if (transactionGroupId <= 0)
+        {
+            return;
+        }
+
+        if (!frameCommitted && !frameDeferred &&
+            presenters.Any(presenter =>
+                presenter.NativeBatchTransactionRetryExhausted))
+        {
+            foreach (var presenter in presenters)
+            {
+                presenter.AbortNativeBatchTransactionGroup(
+                    transactionGroupId);
+            }
+            return;
+        }
+
+        if (!frameCommitted ||
+            presenters.Any(presenter =>
+                !presenter.CanReleaseNativeBatchTransactionGroup(
+                    transactionGroupId)))
+        {
+            return;
+        }
+
+        foreach (var presenter in presenters)
+        {
+            presenter.ReleaseNativeBatchTransactionGroup(
+                transactionGroupId);
         }
     }
 

@@ -66,7 +66,8 @@ public sealed partial class PaperWindow
                     size),
                 visible => NotifyNativePluginMiniViewVisibility(
                     nativeProvider,
-                    visible));
+                    visible),
+                DeferContentCreation: true);
         }
 
         if (_paperBodyHost.Current is WebPaperBodySession webSession &&

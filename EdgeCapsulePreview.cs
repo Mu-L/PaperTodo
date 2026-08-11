@@ -1,7 +1,4 @@
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
 
 namespace PaperTodo;
 
@@ -42,7 +39,8 @@ internal sealed record EdgeCapsulePreviewDescriptor(
     EdgeCapsulePreviewSize Size,
     Func<EdgeCapsulePreviewSize, FrameworkElement> CreateContent,
     Action<bool>? SetVisibility = null,
-    Action? PrepareForActivation = null);
+    Action? PrepareForActivation = null,
+    bool DeferContentCreation = false);
 
 internal sealed record EdgeCapsulePreviewRequest(
     EdgeCapsulePreviewSize Size,
@@ -51,44 +49,7 @@ internal sealed record EdgeCapsulePreviewRequest(
     Action? PrepareForActivation = null,
     Func<FrameworkElement>? CreateDeferredContent = null);
 
-/// <summary>
-/// A bounded first-frame tree used while an arbitrary protocol 1.8 provider creates its mini view.
-/// It intentionally reads only the host-owned title and never calls plugin code.
-/// </summary>
-internal sealed class EdgeCapsulePreviewLoadingView : Grid
-{
-    public EdgeCapsulePreviewLoadingView(EdgeCapsulePreviewContext context)
-    {
-        Margin = new Thickness(12, 10, 10, 11);
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        RowDefinitions.Add(new RowDefinition());
 
-        var title = new TextBlock
-        {
-            Text = context.Title,
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(13),
-            FontWeight = FontWeights.SemiBold,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushKey");
-        Children.Add(title);
-
-        var pending = new TextBlock
-        {
-            Text = "…",
-            Margin = new Thickness(0, 14, 0, 0),
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(12),
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        pending.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
-        Grid.SetRow(pending, 1);
-        Children.Add(pending);
-        Background = Brushes.Transparent;
-    }
-}
 
 internal readonly record struct EdgeCapsulePreviewScreenGeometry(
     DeviceScreenRect Bounds,
@@ -177,8 +138,7 @@ internal sealed record EdgeCapsulePreviewLayoutSession(
     string OwnerPaperId,
     EdgeCapsulePreviewSize Size,
     IReadOnlyList<string> QueuePaperIds,
-    IReadOnlyDictionary<string, double> TopOffsetsDip,
-    double QueueTopOffsetDip);
+    IReadOnlyDictionary<string, double> TopOffsetsDip);
 
 /// <summary>
 /// Pure preview placement policy. The compact queue remains the base plan. During one browsing
@@ -192,10 +152,7 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         string queueKey,
         string ownerPaperId,
         EdgeCapsulePreviewSize size,
-        double compactHeightDip,
-        Rect localWorkArea,
-        double queueStartTopMarginDip,
-        double gapDip)
+        double compactHeightDip)
     {
         var queue = basePlan.Queues.FirstOrDefault(item =>
             string.Equals(item.Key, queueKey, StringComparison.Ordinal));
@@ -204,7 +161,7 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             return null;
         }
 
-        var papers = queue.VisiblePapers;
+        var papers = queue.Papers;
         var newIndex = IndexOf(papers, ownerPaperId);
         if (newIndex < 0)
         {
@@ -216,42 +173,14 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         var newHeight = Math.Max(compactHeight, size.HeightDip);
         var expansion = newHeight - compactHeight;
 
-        var slotCount = Math.Max(1, papers.Count + (queue.HasMaster ? 1 : 0));
-        var expandedEnvelopeHeight = newHeight +
-            (slotCount - 1) * EdgeCapsuleLayout.SlotHeight(gapDip);
-        var availableHeight = localWorkArea.Height -
-            EdgeCapsuleLayout.TopMargin * 2;
-        if (!double.IsFinite(expandedEnvelopeHeight) ||
-            !double.IsFinite(availableHeight) ||
-            expandedEnvelopeHeight > availableHeight + 0.01)
-        {
-            return null;
-        }
-
-        var compactBottom = EdgeCapsuleLayout.TopForIndex(
-                slotCount - 1,
-                queueStartTopMarginDip,
-                localWorkArea,
-                slotCount,
-                gapDip) +
-            compactHeight;
-        var allowedBottom = localWorkArea.Bottom - EdgeCapsuleLayout.TopMargin;
-        var queueShift = Math.Min(0, allowedBottom - compactBottom - expansion);
-        var firstTop = EdgeCapsuleLayout.TopForIndex(
-            0,
-            queueStartTopMarginDip,
-            localWorkArea,
-            slotCount,
-            gapDip);
-        queueShift = Math.Max(
-            queueShift,
-            localWorkArea.Top + EdgeCapsuleLayout.TopMargin - firstTop);
+        // Accepted temporary 1.8 behavior: preview browsing preserves the queue-relative motion
+        // even when a tall card or its followers extend beyond the monitor work area. Do not clamp
+        // the card height or shrink the whole corridor here; that policy needs a separate design.
 
         var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var index = 0; index < papers.Count; index++)
         {
-            offsets[papers[index].Id] = queueShift +
-                (index > newIndex ? expansion : 0);
+            offsets[papers[index].Id] = index > newIndex ? expansion : 0;
         }
 
         return new EdgeCapsulePreviewLayoutSession(
@@ -259,8 +188,7 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             ownerPaperId,
             size,
             paperIds,
-            offsets,
-            queueShift);
+            offsets);
     }
 
     public static EdgeCapsuleQueuePlan Apply(
@@ -284,15 +212,7 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
             }
         }
 
-        var queues = basePlan.Queues
-            .Select(queue => string.Equals(
-                    queue.Key,
-                    session.QueueKey,
-                    StringComparison.Ordinal)
-                ? queue with { TopOffsetDip = session.QueueTopOffsetDip }
-                : queue)
-            .ToArray();
-        return new EdgeCapsuleQueuePlan(queues, placements);
+        return new EdgeCapsuleQueuePlan(basePlan.Queues, placements);
     }
 
     private static int IndexOf(IReadOnlyList<PaperData> papers, string paperId)

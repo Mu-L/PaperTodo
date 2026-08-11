@@ -15,8 +15,7 @@ public sealed partial class PaperWindow
         if (!_paper.IsVisible ||
             !_paper.IsCollapsed ||
             !HasDeepCapsuleSlotPlacement ||
-            !_edgeCapsule.Placement.IsPlaced ||
-            !_edgeCapsule.Placement.IsPageVisible)
+            !_edgeCapsule.Placement.IsPlaced)
         {
             return false;
         }
@@ -283,8 +282,10 @@ public sealed partial class PaperWindow
 
     private DeviceScreenRect DeepCapsuleMainWindowBootstrapBounds()
     {
-        var frame = _edgeCapsule.AppliedPresentation;
-        if (frame.Visible && !frame.Bounds.IsEmpty)
+        var frame = EdgeCapsulePresentationFrame.Hidden;
+        var hasCommittedFrame = _edgeCapsuleHost?.TryGetAppliedPresentation(
+            out frame) == true;
+        if (hasCommittedFrame && frame.Visible && !frame.Bounds.IsEmpty)
         {
             return EdgeCapsuleGeometry.PaperBoundsForDockedEdge(
                 DeepCapsuleMonitorGeometry(),
@@ -296,7 +297,7 @@ public sealed partial class PaperWindow
                 verticalMarginDip: 0);
         }
 
-        if (!TryGetPageVisibleDeepCapsuleTarget(out var layout, out var targetBounds))
+        if (!TryGetDeepCapsuleTarget(out var layout, out var targetBounds))
         {
             return default;
         }
@@ -311,14 +312,13 @@ public sealed partial class PaperWindow
             verticalMarginDip: 0);
     }
 
-    private bool TryGetPageVisibleDeepCapsuleTarget(
+    private bool TryGetDeepCapsuleTarget(
         out EdgeCapsuleLayoutSnapshot layout,
         out DeviceScreenRect bounds)
     {
         layout = default;
         bounds = default;
-        if (!HasDeepCapsuleSlotPlacement ||
-            !_edgeCapsule.Placement.IsPageVisible)
+        if (!HasDeepCapsuleSlotPlacement)
         {
             return false;
         }
@@ -572,14 +572,19 @@ public sealed partial class PaperWindow
         var edgeInset = Math.Max(
             Math.Max(DeepCapsuleExpandedEdgeInset, requiredEdgeInset),
             _controller.VisibleDeepCapsuleRestingWidthForQueue(_paper) + DeepCapsuleGap);
-        var appliedBounds = _edgeCapsule.AppliedPresentation.Bounds;
-        var hasPageTarget = TryGetPageVisibleDeepCapsuleTarget(
+        var committedFrame = EdgeCapsulePresentationFrame.Hidden;
+        var hasCommittedFrame = _edgeCapsuleHost?.TryGetAppliedPresentation(
+            out committedFrame) == true;
+        var appliedBounds = hasCommittedFrame
+            ? committedFrame.Bounds
+            : default;
+        var hasQueueTarget = TryGetDeepCapsuleTarget(
             out _,
-            out var pageTargetBounds);
+            out var queueTargetBounds);
         var anchorTop = !appliedBounds.IsEmpty
             ? appliedBounds.Top
-            : hasPageTarget
-                ? pageTargetBounds.Top
+            : hasQueueTarget
+                ? queueTargetBounds.Top
                 : WindowNative.TryGetWindowDeviceBounds(this, out var currentBounds)
                     ? currentBounds.Top
                     : monitor.WorkArea.Top;

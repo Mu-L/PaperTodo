@@ -79,29 +79,10 @@ public sealed partial class AppController
     private EdgeCapsuleQueuePlan BuildCurrentEdgeCapsuleQueuePlan()
     {
         var papers = DeepCapsulePapersInOrder();
-        return BuildDeepCapsuleQueuePlan(papers);
-    }
-
-    private EdgeCapsulePreviewLayoutSession? CreateEdgeCapsulePreviewLayoutSession(
-        EdgeCapsuleQueuePlan basePlan,
-        string queueKey,
-        PaperWindow owner,
-        EdgeCapsulePreviewSize size)
-    {
-        var paper = owner.EdgeCapsulePreviewPaper;
-        var liveMonitor = LiveQueueMonitorDeviceName(paper.CapsuleMonitorDeviceName);
-        var edge = DeepCapsuleSides.Normalize(paper.CapsuleSide) == DeepCapsuleSides.Left
-            ? EdgeCapsuleEdge.Left
-            : EdgeCapsuleEdge.Right;
-        return EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
-            basePlan,
-            queueKey,
-            owner.EdgeCapsulePreviewPaperId,
-            size,
-            PaperLayoutDefaults.CapsuleHeight,
-            EdgeCapsuleLayout.LocalWorkAreaForQueue(liveMonitor),
-            DeepCapsuleStartTopMarginForQueue(liveMonitor, edge),
-            DeepCapsuleGap);
+        return EdgeCapsuleQueueCoordinator.Build(
+            papers.Select(paper =>
+                new EdgeCapsuleQueueMember(paper, QueueKey(paper))),
+            State.UseCapsuleCollapseAll);
     }
 
     private EdgeCapsuleQueuePlan ApplyEdgeCapsulePreviewLayout(
@@ -113,10 +94,7 @@ public sealed partial class AppController
             return basePlan;
         }
 
-        if (!basePlan.Placements.TryGetValue(
-                session.OwnerPaperId,
-                out var ownerPlacement) ||
-            !ownerPlacement.IsPageVisible ||
+        if (!basePlan.Placements.ContainsKey(session.OwnerPaperId) ||
             IsCapsuleCollapseAllActiveForQueue(session.QueueKey) ||
             !_windows.TryGetValue(session.OwnerPaperId, out var owner))
         {
@@ -157,40 +135,36 @@ public sealed partial class AppController
             return basePlan;
         }
 
-        var currentIds = currentQueue.VisiblePapers
+        var currentIds = currentQueue.Papers
             .Select(paper => paper.Id)
             .ToArray();
-        var queueMembershipChanged = !string.Equals(
+        if (!string.Equals(
                 session.QueueKey,
                 currentQueueKey,
                 StringComparison.Ordinal) ||
             !session.QueuePaperIds.SequenceEqual(
                 currentIds,
-                StringComparer.Ordinal);
-        if (queueMembershipChanged)
+                StringComparer.Ordinal))
         {
             TraceEdgeCapsulePreview(
                 $"layout refresh owner={EdgeCapsulePreviewTraceId(session.OwnerPaperId)} " +
                 $"queue={session.QueueKey}->{currentQueueKey}");
+            session = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
+                basePlan,
+                currentQueueKey,
+                session.OwnerPaperId,
+                session.Size,
+                PaperLayoutDefaults.CapsuleHeight);
+            if (session == null)
+            {
+                TraceEdgeCapsulePreview(
+                    $"layout reset owner={EdgeCapsulePreviewTraceId(_edgeCapsulePreviewSession?.OwnerPaperId)} " +
+                    "reason=layout-refresh-failed");
+                ResetEdgeCapsulePreviewWithoutArrange();
+                return basePlan;
+            }
+            _edgeCapsulePreviewSession = session;
         }
-
-        // Work-area, start-margin and page capacity can change without changing membership.
-        // Recompute the pure shift on every arranged layout so the expanded envelope remains in
-        // the current monitor's work area.
-        session = CreateEdgeCapsulePreviewLayoutSession(
-            basePlan,
-            currentQueueKey,
-            owner,
-            session.Size);
-        if (session == null)
-        {
-            TraceEdgeCapsulePreview(
-                $"layout reset owner={EdgeCapsulePreviewTraceId(_edgeCapsulePreviewSession?.OwnerPaperId)} " +
-                "reason=layout-refresh-failed");
-            ResetEdgeCapsulePreviewWithoutArrange();
-            return basePlan;
-        }
-        _edgeCapsulePreviewSession = session;
 
         return EdgeCapsulePreviewLayoutCoordinator.Apply(basePlan, session);
     }
@@ -782,11 +756,12 @@ public sealed partial class AppController
 
         var basePlan = BuildCurrentEdgeCapsuleQueuePlan();
         var queueKey = QueueKey(window.EdgeCapsulePreviewPaper);
-        var next = CreateEdgeCapsulePreviewLayoutSession(
+        var next = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
             basePlan,
             queueKey,
-            window,
-            request.Size);
+            window.EdgeCapsulePreviewPaperId,
+            request.Size,
+            PaperLayoutDefaults.CapsuleHeight);
         if (next == null)
         {
             TraceEdgeCapsulePreview(
@@ -1266,9 +1241,8 @@ public sealed partial class AppController
     private bool CanReuseEdgeCapsulePreviewPointerResolution(
         EdgeCapsulePreviewLayoutSession session,
         DeviceScreenPoint pointer) =>
-        // Rendering still advances at the monitor's native refresh rate. Only an unchanged,
-        // settled hit-test result is reused; pending intent and every presentation/input change
-        // continue through the full physical queue resolver.
+        // Reuse only an unchanged, settled result between real input, intent deadlines and
+        // presentation invalidations. Pending intent always runs the full physical queue resolver.
         _edgeCapsulePreviewActivationIntent == null &&
         _edgeCapsulePreviewQueuedTransferPaperId == null &&
         ReferenceEquals(
@@ -1660,11 +1634,14 @@ public sealed partial class AppController
     {
         PaperWindow? target = null;
         var ownerContains = false;
-        var hasBounds = false;
-        var left = int.MaxValue;
-        var top = int.MaxValue;
-        var right = int.MinValue;
-        var bottom = int.MinValue;
+        Span<EdgeCapsulePreviewCorridorNode> corridorNodes =
+            session.QueuePaperIds.Count <= 32
+                ? stackalloc EdgeCapsulePreviewCorridorNode[
+                    session.QueuePaperIds.Count]
+                : new EdgeCapsulePreviewCorridorNode[
+                    session.QueuePaperIds.Count];
+        var corridorCount = 0;
+        var previousCorridorNodeValid = false;
         var dpiScaleX = 1.0;
         var dpiScaleY = 1.0;
         var hasQueueDpi = false;
@@ -1673,17 +1650,17 @@ public sealed partial class AppController
         {
             if (!_windows.TryGetValue(paperId, out var window))
             {
+                previousCorridorNodeValid = false;
                 continue;
             }
 
-            if (window.TryGetEdgeCapsuleAppliedGeometry(out var geometry))
+            if (window.TryGetEdgeCapsuleInteractiveGeometry(out var geometry))
             {
-                var bounds = geometry.Bounds;
-                hasBounds = true;
-                left = Math.Min(left, bounds.Left);
-                top = Math.Min(top, bounds.Top);
-                right = Math.Max(right, bounds.Right);
-                bottom = Math.Max(bottom, bounds.Bottom);
+                corridorNodes[corridorCount++] =
+                    new EdgeCapsulePreviewCorridorNode(
+                        geometry.Bounds,
+                        previousCorridorNodeValid);
+                previousCorridorNodeValid = true;
                 if (!hasQueueDpi ||
                     string.Equals(
                         paperId,
@@ -1696,6 +1673,10 @@ public sealed partial class AppController
                         geometry.DpiScaleY);
                     hasQueueDpi = true;
                 }
+            }
+            else
+            {
+                previousCorridorNodeValid = false;
             }
 
             var isOwner = string.Equals(
@@ -1737,7 +1718,7 @@ public sealed partial class AppController
             }
         }
 
-        if (!hasBounds)
+        if (corridorCount == 0)
         {
             return new EdgeCapsulePreviewPointerResolution(
                 target,
@@ -1749,11 +1730,11 @@ public sealed partial class AppController
             EdgeCapsulePreviewCorridorToleranceDip * dpiScaleX);
         var verticalTolerance = (int)Math.Ceiling(
             EdgeCapsulePreviewCorridorToleranceDip * dpiScaleY);
-        var corridorContains =
-            pointer.X >= left - horizontalTolerance &&
-            pointer.X < right + horizontalTolerance &&
-            pointer.Y >= top - verticalTolerance &&
-            pointer.Y < bottom + verticalTolerance;
+        var corridorContains = EdgeCapsulePreviewCorridor.Contains(
+            corridorNodes[..corridorCount],
+            pointer,
+            horizontalTolerance,
+            verticalTolerance);
         return new EdgeCapsulePreviewPointerResolution(
             target,
             ownerContains,

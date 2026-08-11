@@ -44,7 +44,8 @@ public sealed partial class PaperWindow
                 session),
             () => SetMigratedPluginBodyPreviewVisibility(
                 visible: false,
-                session: session));
+                session: session),
+            DeferContentCreation: true);
         return true;
     }
 
