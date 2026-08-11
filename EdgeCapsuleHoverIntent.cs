@@ -18,9 +18,8 @@ internal enum EdgeCapsuleHoverIntentDecision
 internal enum EdgeCapsuleCorridorExitDecision
 {
     KeepAlive,
-    ConfirmDirectionExit,
-    CloseForDirection,
-    CloseForIdle
+    ConfirmNoTargetIntent,
+    CloseForNoTargetIntent
 }
 
 /// <summary>
@@ -47,7 +46,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.76,
         MinimumVerticalDominance: 0.60,
         CorridorExit: new CorridorExitProfile(
-            0.060, 0.62, 320, 12, 250, 1200));
+            0.060, 0.62, 12, 200));
 
     private static readonly IntentSensitivityProfile HighProfile = new(
         Initial: new IntentProfile(8, 8, 32, 80, 180),
@@ -57,7 +56,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.72,
         MinimumVerticalDominance: 0.55,
         CorridorExit: new CorridorExitProfile(
-            0.075, 0.68, 400, 16, 300, 1500));
+            0.075, 0.68, 16, 350));
 
     private static readonly IntentSensitivityProfile MediumProfile = new(
         Initial: new IntentProfile(8, 10, 36, 90, 200),
@@ -67,7 +66,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.68,
         MinimumVerticalDominance: 0.50,
         CorridorExit: new CorridorExitProfile(
-            0.090, 0.74, 500, 20, 400, 2000));
+            0.090, 0.74, 20, 500));
 
     // "Low" describes activation sensitivity: it applies longer waits and recognizes less
     // pronounced residual motion as pass-through risk, so stopping must be more deliberate.
@@ -79,7 +78,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.64,
         MinimumVerticalDominance: 0.45,
         CorridorExit: new CorridorExitProfile(
-            0.110, 0.79, 640, 24, 500, 2700));
+            0.110, 0.79, 24, 650));
 
     private static readonly IntentSensitivityProfile VeryLowProfile = new(
         Initial: new IntentProfile(12, 18, 54, 135, 300),
@@ -89,7 +88,7 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         MinimumDirectionConsistency: 0.60,
         MinimumVerticalDominance: 0.40,
         CorridorExit: new CorridorExitProfile(
-            0.140, 0.84, 800, 30, 650, 3800));
+            0.140, 0.84, 30, 800));
 
     private readonly PointerSample[] _samples =
         new PointerSample[SampleCapacity];
@@ -121,10 +120,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     private readonly record struct CorridorExitProfile(
         double MinimumSpeedDipPerMillisecond,
         double MinimumPathConsistency,
-        double ProjectionHorizonMilliseconds,
         double TargetPaddingDip,
-        double DirectionConfirmationMilliseconds,
-        double IdleCloseMilliseconds);
+        double NoTargetIntentCloseMilliseconds);
 
     private readonly record struct MotionEstimate(
         bool HasMotion,
@@ -301,68 +298,63 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
     /// <summary>
     /// Evaluates only the empty area inside the queue's outer corridor. The currently open card and
-    /// every eligible compact capsule are supplied as keep-alive bounds. A coherent projected path
-    /// must miss all of them for a sensitivity-dependent confirmation period before it may close;
-    /// an idle pointer uses a deliberately longer fallback.
+    /// every eligible compact capsule are supplied as keep-alive bounds. A coherent movement ray
+    /// toward any of them keeps the session alive. Every other trajectory, including a settled
+    /// pointer, shares one sensitivity-dependent no-target-intent deadline.
     /// </summary>
     public EdgeCapsuleCorridorExitDecision EvaluateCorridorExit(
         string sensitivity,
         ReadOnlySpan<DeviceScreenRect> keepAliveBounds,
         DeviceScreenPoint pointer,
-        double directionAwayElapsedMilliseconds,
-        double stableElapsedMilliseconds)
+        double noTargetIntentElapsedMilliseconds)
     {
         var profile = ResolveSensitivityProfile(sensitivity).CorridorExit;
-        if (stableElapsedMilliseconds >= profile.IdleCloseMilliseconds)
-        {
-            return EdgeCapsuleCorridorExitDecision.CloseForIdle;
-        }
-
         var motion = EstimateMotion();
-        if (!motion.HasMotion ||
-            motion.RecentSpeedDipPerMillisecond <
-                profile.MinimumSpeedDipPerMillisecond ||
-            motion.PathConsistency < profile.MinimumPathConsistency)
+        if (motion.HasMotion &&
+            motion.RecentSpeedDipPerMillisecond >=
+                profile.MinimumSpeedDipPerMillisecond &&
+            motion.PathConsistency >= profile.MinimumPathConsistency)
         {
-            return EdgeCapsuleCorridorExitDecision.KeepAlive;
-        }
-
-        var projectedX = pointer.X +
-            motion.SignedHorizontalSpeedDipPerMillisecond *
-            profile.ProjectionHorizonMilliseconds *
-            _dpiScaleX;
-        var projectedY = pointer.Y +
-            motion.SignedVerticalSpeedDipPerMillisecond *
-            profile.ProjectionHorizonMilliseconds *
-            _dpiScaleY;
-        var horizontalPadding =
-            profile.TargetPaddingDip * _dpiScaleX;
-        var verticalPadding =
-            profile.TargetPaddingDip * _dpiScaleY;
-        foreach (var bounds in keepAliveBounds)
-        {
-            if (SegmentIntersectsBounds(
-                    pointer,
-                    projectedX,
-                    projectedY,
-                    bounds,
-                    horizontalPadding,
-                    verticalPadding))
+            var directionX =
+                motion.SignedHorizontalSpeedDipPerMillisecond *
+                _dpiScaleX;
+            var directionY =
+                motion.SignedVerticalSpeedDipPerMillisecond *
+                _dpiScaleY;
+            var horizontalPadding =
+                profile.TargetPaddingDip * _dpiScaleX;
+            var verticalPadding =
+                profile.TargetPaddingDip * _dpiScaleY;
+            foreach (var bounds in keepAliveBounds)
             {
-                return EdgeCapsuleCorridorExitDecision.KeepAlive;
+                if (RayHeadsTowardBounds(
+                        pointer,
+                        directionX,
+                        directionY,
+                        bounds) &&
+                    RayIntersectsBounds(
+                        pointer,
+                        directionX,
+                        directionY,
+                        bounds,
+                        horizontalPadding,
+                        verticalPadding))
+                {
+                    return EdgeCapsuleCorridorExitDecision.KeepAlive;
+                }
             }
         }
 
-        return directionAwayElapsedMilliseconds >=
-            profile.DirectionConfirmationMilliseconds
-            ? EdgeCapsuleCorridorExitDecision.CloseForDirection
-            : EdgeCapsuleCorridorExitDecision.ConfirmDirectionExit;
+        return noTargetIntentElapsedMilliseconds >=
+            profile.NoTargetIntentCloseMilliseconds
+            ? EdgeCapsuleCorridorExitDecision.CloseForNoTargetIntent
+            : EdgeCapsuleCorridorExitDecision.ConfirmNoTargetIntent;
     }
 
-    public double CorridorIdleCloseMilliseconds(string sensitivity) =>
+    public double CorridorNoTargetIntentCloseMilliseconds(string sensitivity) =>
         ResolveSensitivityProfile(sensitivity)
             .CorridorExit
-            .IdleCloseMilliseconds;
+            .NoTargetIntentCloseMilliseconds;
 
     private MotionEstimate EstimateMotion()
     {
@@ -482,10 +474,40 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             HasSpeedTrend: priorDuration > 0);
     }
 
-    private static bool SegmentIntersectsBounds(
+    private static bool RayHeadsTowardBounds(
         DeviceScreenPoint start,
-        double endX,
-        double endY,
+        double directionX,
+        double directionY,
+        DeviceScreenRect bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return false;
+        }
+
+        // Padding makes near-misses forgiving, but it must not make t=0 an automatic hit when the
+        // pointer has just left a real capsule. Require progress toward the closest point of the
+        // unpadded target. The blank-region caller normally excludes real hits; keep the center
+        // fallback only so this helper remains well-defined if it is given a point inside one.
+        // DeviceScreenRect is half-open and physical pointer coordinates are device pixels. Use
+        // the last hittable pixel rather than the exclusive Right/Bottom edge as the real target.
+        var closestX = Math.Clamp(start.X, bounds.Left, bounds.Right - 1.0);
+        var closestY = Math.Clamp(start.Y, bounds.Top, bounds.Bottom - 1.0);
+        var towardX = closestX - start.X;
+        var towardY = closestY - start.Y;
+        if (Math.Abs(towardX) <= double.Epsilon &&
+            Math.Abs(towardY) <= double.Epsilon)
+        {
+            towardX = (bounds.Left + bounds.Right) / 2.0 - start.X;
+            towardY = (bounds.Top + bounds.Bottom) / 2.0 - start.Y;
+        }
+        return directionX * towardX + directionY * towardY > 0;
+    }
+
+    private static bool RayIntersectsBounds(
+        DeviceScreenPoint start,
+        double directionX,
+        double directionY,
         DeviceScreenRect bounds,
         double horizontalPadding,
         double verticalPadding)
@@ -499,27 +521,25 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         var maximumX = bounds.Right + Math.Max(0, horizontalPadding);
         var minimumY = bounds.Top - Math.Max(0, verticalPadding);
         var maximumY = bounds.Bottom + Math.Max(0, verticalPadding);
-        var deltaX = endX - start.X;
-        var deltaY = endY - start.Y;
         var minimumTime = 0.0;
-        var maximumTime = 1.0;
-        return SegmentAxisIntersects(
+        var maximumTime = double.PositiveInfinity;
+        return RayAxisIntersects(
                 start.X,
-                deltaX,
+                directionX,
                 minimumX,
                 maximumX,
                 ref minimumTime,
                 ref maximumTime) &&
-            SegmentAxisIntersects(
+            RayAxisIntersects(
                 start.Y,
-                deltaY,
+                directionY,
                 minimumY,
                 maximumY,
                 ref minimumTime,
                 ref maximumTime);
     }
 
-    private static bool SegmentAxisIntersects(
+    private static bool RayAxisIntersects(
         double start,
         double delta,
         double minimum,
