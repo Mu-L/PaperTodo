@@ -655,6 +655,8 @@ public sealed partial class PaperWindow : Window
     {
         _paper = paper;
         _controller = controller;
+        _edgeCapsule.DiagnosticId =
+            EdgeCapsulePerformanceDiagnostics.ShortId(paper.Id);
         _deepCapsuleContextMenuSession = new DeepCapsuleContextMenuSession(
             controller,
             paper.Id,

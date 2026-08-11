@@ -46,7 +46,8 @@ public sealed partial class PaperWindow
             AppTypography.Language,
             !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
             _controller.FullscreenAvoidanceWindowForQueue(
-                _paper.CapsuleMonitorDeviceName) == IntPtr.Zero));
+                _paper.CapsuleMonitorDeviceName) == IntPtr.Zero,
+            EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)));
         var host = _edgeCapsuleHost;
         _edgeCapsule.SetNativeBatchApplyRejectedCallback(
             RejectEdgeCapsuleNativeBatchApply);

@@ -102,6 +102,9 @@ public sealed partial class AppController
 
     private void CommitEdgeCapsuleVisualTransaction()
     {
+#if DEBUG
+        var commitStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         var operation = _edgeCapsuleVisualTransactionCommitOperation;
         var transactionQueueKeys = _edgeCapsuleVisualTransactionQueueKeys
             .ToHashSet(StringComparer.Ordinal);
@@ -157,6 +160,11 @@ public sealed partial class AppController
         }
         finally
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"transaction.commit totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(commitStartedAt):F3} " +
+                $"entries={entries.Length} queues={transactionQueueKeys.Count}");
+#endif
             if (ReferenceEquals(
                     operation,
                     _edgeCapsuleVisualTransactionCommitOperation))
@@ -192,6 +200,16 @@ public sealed partial class AppController
         {
             return;
         }
+
+#if DEBUG
+        var groupStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        double entryMilliseconds = 0;
+        double nativeCommitMilliseconds = 0;
+        double completionMilliseconds = 0;
+        double notificationMilliseconds = 0;
+        double slowestEntryMilliseconds = 0;
+        var slowestEntry = "<none>";
+#endif
 
         var snapQueueKeys = entries
             .Where(entry =>
@@ -233,11 +251,27 @@ public sealed partial class AppController
                     motion = EdgeCapsuleMotion.Preserve(motion.Reason);
                 }
 
+#if DEBUG
+                var entryStartedAt =
+                    EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                 var applyStatus = entry.Window.CommitEdgeCapsuleVisualTransaction(
                     motion,
                     entry.RefreshLayout,
                     transactionTimestamp,
                     rebaseActiveTransition: belongsToTransactionQueue);
+#if DEBUG
+                var currentEntryMilliseconds =
+                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                        entryStartedAt);
+                entryMilliseconds += currentEntryMilliseconds;
+                if (currentEntryMilliseconds > slowestEntryMilliseconds)
+                {
+                    slowestEntryMilliseconds = currentEntryMilliseconds;
+                    slowestEntry = EdgeCapsulePerformanceDiagnostics.ShortId(
+                        entry.Window.EdgeCapsulePreviewPaperId);
+                }
+#endif
                 if (applyStatus == EdgeCapsuleNativeBatchApplyStatus.Deferred)
                 {
                     logicalBatchDeferred = true;
@@ -248,13 +282,26 @@ public sealed partial class AppController
                 }
             }
 
+#if DEBUG
+            var nativeCommitStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             nativeBatchCommitted = nativeBoundsBatch.Commit();
+#if DEBUG
+            nativeCommitMilliseconds +=
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    nativeCommitStartedAt);
+#endif
             transactionDeferred = nativeBatchCommitted &&
                 logicalBatchDeferred &&
                 !logicalBatchFailed;
             transactionCommitted = nativeBatchCommitted &&
                 !logicalBatchDeferred &&
                 !logicalBatchFailed;
+#if DEBUG
+            var completionStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             foreach (var entry in entries)
             {
                 entry.Window.CompleteEdgeCapsuleVisualTransactionApply(
@@ -262,13 +309,30 @@ public sealed partial class AppController
                     transactionDeferred,
                     transactionTimestamp);
             }
+#if DEBUG
+            completionMilliseconds +=
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    completionStartedAt);
+#endif
         }
 
         if (!transactionCommitted)
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"transaction.group outcome={(transactionDeferred ? "deferred" : "failed")} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(groupStartedAt):F3} " +
+                $"entriesMs={entryMilliseconds:F3} nativeCommitMs={nativeCommitMilliseconds:F3} " +
+                $"completeMs={completionMilliseconds:F3} entries={entries.Length} " +
+                $"slowest={slowestEntry}:{slowestEntryMilliseconds:F3}");
+#endif
             return;
         }
 
+#if DEBUG
+        var notificationStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         foreach (var entry in entries)
         {
             if (!entry.Window.IsClosed)
@@ -276,5 +340,16 @@ public sealed partial class AppController
                 entry.Window.PublishEdgeCapsuleVisualTransactionNotifications();
             }
         }
+#if DEBUG
+        notificationMilliseconds +=
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                notificationStartedAt);
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"transaction.group outcome=committed " +
+            $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(groupStartedAt):F3} " +
+            $"entriesMs={entryMilliseconds:F3} nativeCommitMs={nativeCommitMilliseconds:F3} " +
+            $"completeMs={completionMilliseconds:F3} notificationsMs={notificationMilliseconds:F3} " +
+            $"entries={entries.Length} slowest={slowestEntry}:{slowestEntryMilliseconds:F3}");
+#endif
     }
 }

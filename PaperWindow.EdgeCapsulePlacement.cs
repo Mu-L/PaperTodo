@@ -113,6 +113,7 @@ public sealed partial class PaperWindow
             HideMainWindowForDeepCapsuleRest();
         }
         RefreshEffectiveTopmost();
+        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void PreviewDeepCapsulePlacement(EdgeCapsulePlacement placement)
@@ -259,6 +260,7 @@ public sealed partial class PaperWindow
     public void ClearDeepCapsulePlacement(bool animate = false)
     {
         CancelDeepCapsuleReorderDrag();
+        RestorePrewarmedPluginBodyForActivation("placement-cleared");
         animate = animate && _controller.State.EnableAnimations;
 
         var shouldRetractBeforeHide = animate &&
