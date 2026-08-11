@@ -453,18 +453,37 @@ internal static class WindowNative
             }
         }
 
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
 #if DEBUG
-        var positionChanged = false;
-        var sizeChanged = false;
-        if (handle != IntPtr.Zero && GetWindowRect(handle, out var before))
+        var immediateStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var positionChanged = true;
+        var sizeChanged = true;
+        if (GetWindowRect(handle, out var before))
         {
             positionChanged = before.Left != bounds.Left || before.Top != bounds.Top;
             sizeChanged = before.Right - before.Left != bounds.Width ||
                 before.Bottom - before.Top != bounds.Height;
-        }
-        var immediateStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            if (!positionChanged && !sizeChanged)
+            {
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"native.window phase=immediate-skip hwnd=0x{handle.ToInt64():X} " +
+                    $"outcome=noop " +
+                    $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
+                    $"positionChanged=false sizeChanged=false " +
+                    $"visibilityChanged=false zOrderChanged=false " +
+                    $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
 #endif
-        var applied = handle != IntPtr.Zero && SetWindowPos(
+                return true;
+            }
+        }
+
+        var applied = SetWindowPos(
             handle,
             IntPtr.Zero,
             bounds.Left,
@@ -473,16 +492,13 @@ internal static class WindowNative
             bounds.Height,
             SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
 #if DEBUG
-        if (handle != IntPtr.Zero)
-        {
-            EdgeCapsulePerformanceDiagnostics.Trace(
-                $"native.window phase=immediate-set hwnd=0x{handle.ToInt64():X} " +
-                $"outcome={(applied ? "success" : "failed")} " +
-                $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
-                $"positionChanged={positionChanged} sizeChanged={sizeChanged} " +
-                $"visibilityChanged=false zOrderChanged=false " +
-                $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
-        }
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"native.window phase=immediate-set hwnd=0x{handle.ToInt64():X} " +
+            $"outcome={(applied ? "success" : "failed")} " +
+            $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
+            $"positionChanged={positionChanged} sizeChanged={sizeChanged} " +
+            $"visibilityChanged=false zOrderChanged=false " +
+            $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
 #endif
         return applied;
     }

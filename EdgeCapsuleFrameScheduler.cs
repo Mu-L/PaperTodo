@@ -13,6 +13,12 @@ namespace PaperTodo;
 internal sealed class EdgeCapsuleFrameScheduler
 {
     private static readonly ConditionalWeakTable<Dispatcher, EdgeCapsuleFrameScheduler> Schedulers = new();
+    // A real 240 Hz frame is about 4.17 ms apart. Rendering callbacks that arrive within 2 ms of
+    // the previous scheduler completion are therefore catch-up/burst work, not useful new display
+    // opportunities. Drop only those bursts; the next real callback samples transitions from the
+    // current Stopwatch time so no intermediate animation state is replayed.
+    private static readonly long MinimumPostFrameIdleTimestampTicks =
+        Math.Max(1, (long)Math.Ceiling(Stopwatch.Frequency * 0.002));
 
     private readonly Dispatcher _dispatcher;
     private readonly List<EdgeCapsulePresenter> _presenters = new();
@@ -22,10 +28,12 @@ internal sealed class EdgeCapsuleFrameScheduler
     private bool _acceptingPostCommitCallbacks;
     private int _pendingLoadedReconciles;
     private TimeSpan? _lastRenderingTime;
+    private long _lastFrameCompletedTimestamp;
 #if DEBUG
     private long _lastRenderingTimestamp;
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
+    private int _suppressedBurstRenderingCallbacks;
 #endif
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
@@ -114,8 +122,18 @@ internal sealed class EdgeCapsuleFrameScheduler
         }
         _lastRenderingTime = renderingTime;
 
+        var callbackStartedAt = Stopwatch.GetTimestamp();
+        if (_lastFrameCompletedTimestamp != 0 &&
+            callbackStartedAt - _lastFrameCompletedTimestamp <
+                MinimumPostFrameIdleTimestampTicks)
+        {
 #if DEBUG
-        var callbackStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            _suppressedBurstRenderingCallbacks++;
+#endif
+            return;
+        }
+
+#if DEBUG
         var frameSequence = ++_debugFrameSequence;
         var frameGapMilliseconds = _lastRenderingTimestamp == 0
             ? 0
@@ -126,7 +144,9 @@ internal sealed class EdgeCapsuleFrameScheduler
         var debugInitialCount = 0;
         var debugGroupCount = 0;
         var duplicateRenderingCallbacks = _suppressedDuplicateRenderingCallbacks;
+        var burstRenderingCallbacks = _suppressedBurstRenderingCallbacks;
         _suppressedDuplicateRenderingCallbacks = 0;
+        _suppressedBurstRenderingCallbacks = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
 #endif
         _isTicking = true;
@@ -173,12 +193,14 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"scheduler.frame sequence={frameSequence} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
                 $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
-                $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
-                $"groups={debugGroupCount} loadedPending={_pendingLoadedReconciles}");
+                $"duplicateCallbacks={duplicateRenderingCallbacks} burstCallbacks={burstRenderingCallbacks} " +
+                $"presenters={debugInitialCount} groups={debugGroupCount} " +
+                $"loadedPending={_pendingLoadedReconciles}");
 #endif
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
             _isTicking = false;
+            _lastFrameCompletedTimestamp = Stopwatch.GetTimestamp();
             StopWhenEmpty();
         }
     }
@@ -464,9 +486,11 @@ internal sealed class EdgeCapsuleFrameScheduler
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
             _lastRenderingTime = null;
+            _lastFrameCompletedTimestamp = 0;
 #if DEBUG
             _lastRenderingTimestamp = 0;
             _suppressedDuplicateRenderingCallbacks = 0;
+            _suppressedBurstRenderingCallbacks = 0;
 #endif
         }
     }
