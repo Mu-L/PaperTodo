@@ -13,6 +13,9 @@
     <!-- WPF keeps DPI policy in app.manifest (PerMonitorV2); ignore WinForms-only WFO0003. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- .NET 9+ marks Windows apphost/single-file hosts CET-compatible by default. Disable that
+         opt-in for PaperTodo to avoid User Shadow Stack startup failures on affected legacy Windows builds. -->
+    <CETCompat>false</CETCompat>
     <Version>4.0.0-preview</Version>
     <AssemblyVersion>4.0.0.0</AssemblyVersion>
     <FileVersion>4.0.0.0</FileVersion>
