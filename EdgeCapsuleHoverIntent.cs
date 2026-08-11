@@ -256,9 +256,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             motion.SignedVerticalSpeedDipPerMillisecond < 0
             ? pointer.Y - targetBounds.Top
             : targetBounds.Bottom - pointer.Y;
-        var distanceToExitDip = Math.Max(0, distanceToExitDevice) /
-            _dpiScaleY;
-        var timeToExit = distanceToExitDip /
+        var distanceToExitDip = distanceToExitDevice / _dpiScaleY;
+        var timeToExit = Math.Max(0, distanceToExitDip) /
             motion.RecentVerticalSpeedDipPerMillisecond;
 
         // menu-aim style negative protection: a coherent, non-braking trajectory that will leave
