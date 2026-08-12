@@ -51,6 +51,13 @@ public sealed partial class PaperWindow
     internal void SetAdvancedInteractionLocked(bool locked)
     {
         var changed = _advancedInteractionLocked != locked;
+        if (changed)
+        {
+            // The presentation-only proxy cannot inherit a mid-flight input lock. Settle its
+            // covered endpoint first; if native handoff retries, the live eligibility check in
+            // the proxy still makes the whole transient surface click-through immediately.
+            _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        }
         _advancedInteractionLocked = locked;
         if (changed && locked)
         {

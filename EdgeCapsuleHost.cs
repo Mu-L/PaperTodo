@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Windows.Interop;
@@ -140,6 +141,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     public bool IsVisible => !_disposed && Window.IsVisible;
     public Dispatcher Dispatcher => Window.Dispatcher;
+    internal IntPtr Handle => _disposed
+        ? IntPtr.Zero
+        : new WindowInteropHelper(Window).Handle;
 
     public bool TryMoveToVirtualDesktop(
         VirtualDesktopAdapter adapter,
@@ -153,6 +157,45 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var handle = new WindowInteropHelper(Window).Handle;
         return handle == IntPtr.Zero ||
             adapter.TryMoveWindowToDesktop(handle, desktopId);
+    }
+
+    internal BitmapSource? CaptureProxySnapshot(
+        EdgeCapsulePresentationFrame frame)
+    {
+        if (_disposed ||
+            !frame.Visible ||
+            frame.Bounds.IsEmpty ||
+            !Window.IsVisible)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Opening a preview changes this same host into the endpoint tree. Capture only the
+            // current small surface before that mutation so DirectComposition can cross-fade the
+            // compact shell without attempting to snapshot WebView2 or another preview control.
+            VisualSurface.UpdateLayout();
+            var width = Math.Max(1, frame.Bounds.Width);
+            var height = Math.Max(1, frame.Bounds.Height);
+            var bitmap = new RenderTargetBitmap(
+                width,
+                height,
+                Math.Max(1, frame.DpiScaleX) * 96,
+                Math.Max(1, frame.DpiScaleY) * 96,
+                PixelFormats.Pbgra32);
+            bitmap.Render(VisualSurface);
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning(
+                "Edge capsule proxy compact snapshot failed. Paper={0}; Exception={1}",
+                _options.DiagnosticId,
+                ex);
+            return null;
+        }
     }
 
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
@@ -207,8 +250,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     }
 
     /// <summary>
-    /// The only docked-surface effect entry. The native HWND owns the stable frame.HostBounds while
-    /// the real, wall-aligned visual surface follows frame.Bounds through a render transform.
+    /// The only per-paper docked-surface effect entry. HostBounds is the real endpoint HWND and
+    /// Bounds is its wall-aligned visual surface; production frames make them equal.
     /// </summary>
     public bool Apply(EdgeCapsulePresentationFrame frame)
     {
@@ -249,7 +292,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 $"showMs={showMilliseconds:F3} verifyMs={verifyMilliseconds:F3} " +
                 $"surface={frame.Surface} visible={frame.Visible} " +
                 $"bounds={frame.Bounds.Width}x{frame.Bounds.Height} " +
-                $"nativeSet={nativeSetRequested} motionV2={frame.UsesFixedMotionHost} " +
+                $"nativeSet={nativeSetRequested} hostMode=compact " +
                 $"offsetYDevice={visualOffsetYDevice} " +
                 $"nativeBounds={nativeHostBounds.Left},{nativeHostBounds.Top}," +
                 $"{nativeHostBounds.Width}x{nativeHostBounds.Height}");
@@ -302,13 +345,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             frame.Surface != EdgeCapsuleSurfaceKind.FloatingFree,
             "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         Debug.Assert(
-            EdgeCapsuleMotionEnvelopePolicy.Contains(
-                nativeHostBounds,
-                frame.Bounds) &&
+            nativeHostBounds == frame.Bounds &&
             (frame.Edge == EdgeCapsuleEdge.Left
                 ? nativeHostBounds.Left == frame.WallDeviceX
                 : nativeHostBounds.Right == frame.WallDeviceX),
-            "The visible capsule must fit inside its stable native host.");
+            "The visible capsule must fit inside its native endpoint host.");
         var previousFrame = _appliedFrame;
         var previousNativeHostBounds = previousFrame.HostBounds;
         var nativeMetricsVersion = _nativeMetricsVersion;
@@ -468,8 +509,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         if (refreshNativeLayout)
         {
             // Width/Height can retain the same DIP values while the HWND changes DPI. Explicitly
-            // invalidate the WPF tree so the real surface is arranged against the new client area;
-            // otherwise the unused fixed-host capacity can appear as a gap at the screen wall.
+            // invalidate the WPF tree so the real surface is arranged against the new client area.
 #if DEBUG
             var layoutStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
@@ -570,6 +610,52 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         return settled;
     }
 
+    internal bool MatchesPresentation(
+        EdgeCapsulePresentationFrame frame)
+    {
+        if (_disposed || _appliedFrame != frame)
+        {
+            return false;
+        }
+        if (!frame.Visible)
+        {
+            return !Window.IsVisible;
+        }
+        return Window.IsVisible &&
+            _appliedNativeMetricsVersion == _nativeMetricsVersion &&
+            MatchesNativePresentationLayout(frame);
+    }
+
+    internal bool PrepareCompositionSourceForHandoff()
+    {
+        if (_disposed || !Window.IsVisible)
+        {
+            return false;
+        }
+
+        try
+        {
+            // Host.Apply establishes the endpoint synchronously, but WPF may still have queued its
+            // Measure/Arrange/Render work. Drain through Render before the live HWND wrapper fades
+            // in or is uncloaked, then wait for that submitted surface at the desktop boundary.
+            Window.UpdateLayout();
+            VisualSurface.UpdateLayout();
+            Window.Dispatcher.Invoke(
+                DispatcherPriority.Render,
+                static () => { });
+            WindowNative.FlushDesktopComposition();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning(
+                "Edge capsule proxy endpoint render barrier failed. Paper={0}; Exception={1}",
+                _options.DiagnosticId,
+                ex);
+            return false;
+        }
+    }
+
     public void InvalidateNativeMetrics()
     {
         if (_disposed)
@@ -633,9 +719,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     private void ResetForFreshApply()
     {
-        // Keep an already-visible HWND alive so a floating drag does not lose the mouse capture
-        // owned by its content element. Opacity 0 plus a hidden applied frame makes the full fixed
-        // host click-through while the Presenter retries it as a fresh visual transaction.
+        // Keep an already-visible HWND alive so a floating drag does not lose mouse capture owned
+        // by its content element. Opacity 0 plus a hidden applied frame makes the endpoint host
+        // click-through while the Presenter retries it as a fresh visual transaction.
         Window.Opacity = 0;
         Root.Opacity = 1;
         Root.IsHitTestVisible = false;
@@ -664,8 +750,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             return false;
         }
 
-        // The frame carries the physical body/close rectangle and excludes both the transparent
-        // host reserve and the shadow margin. Pointer intent never uses the larger HWND rectangle.
+        // The frame carries the physical body/close rectangle and excludes the transparent shadow
+        // margin. Pointer intent never uses the surrounding HWND chrome.
         return EdgeCapsuleGeometry.Contains(_appliedFrame.InteractiveBounds, point);
     }
 
@@ -713,14 +799,14 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             // Hit testing is the earliest native proof that the pointer reached the committed real
             // capsule. Wake here as well as on the later mouse-move message: a prior WPF enter on
-            // the transparent reserve can otherwise suppress a second enter, and Windows does not
+            // an earlier cosmetic WPF enter can otherwise suppress a second enter, and Windows does not
             // guarantee another move before the pointer stops.
             _callbacks?.PointerInvalidated(point);
             return IntPtr.Zero;
         }
 
-        // The fixed host reserves the fully expanded rectangle. Pixels outside the current real
-        // capsule are only a transparent composition canvas and must behave as if no HWND exists.
+        // Chrome shadow margins outside InteractiveBounds are transparent and must behave as if no
+        // HWND exists; HostBounds itself is never a substitute for the real input rectangle.
         handled = true;
         return HtTransparent;
     }

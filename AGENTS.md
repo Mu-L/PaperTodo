@@ -46,20 +46,20 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 - 应用清单固定为 `PerMonitorV2,PerMonitor`；贴边 HWND 的物理像素几何以目标显示器和已创建宿主的实际 DPI 为准，不得回退到主纸片窗口的 DPI。
 - 贴边槽位不再由 `DeepCapsuleSlotWindow.cs` 或零散 `PaperWindow` 字段维护；`EdgeCapsuleHost` 独占 docked HWND 和视觉树，floating drag 继续使用独立 HWND。
 - 所有贴边输入先变成带强类型参数的语义 `EdgeCapsuleIntent`，再经过 `EdgeCapsuleReducer`；不得重新引入 `SetSlot` / `SetVisual` / `SetPlacement` 这类字段 setter、通用参数袋或在 `PaperWindow` 另写布尔状态机。
-- 每张纸的 desired model、target presentation、transition、applied frame 和延迟工作只能由一个 `EdgeCapsulePresenter` 持有；`PaperWindow` 只提供环境快照和一个 `EdgeCapsuleHost.Apply(frame)` 效果入口，不得再增加并行真相。
+- 每张纸的 desired model、target presentation、业务 applied frame 和延迟工作只能由一个 `EdgeCapsulePresenter` 持有；`PaperWindow` 只提供环境快照和一个 `EdgeCapsuleHost.Apply(frame)` 效果入口，不得再增加业务状态机。队列级 Composition 代理只允许临时采样同一组起终帧来呈现过渡像素和命中几何，不能反写 reducer、持有第二份 desired state 或在交接后继续存在。
 - `EdgeCapsuleTargetPlanner` 必须一次产出完整 shape plan；`Docked*` 和 `FloatingFree` 是互斥外形，悬浮拖拽窗口只能消费 planner 的 `FloatingFree`，不得由构造参数临时拼关闭区、圆角或宽度。
 - 显示器、边、顶部、内容宽度和关闭宽度到 `DeviceScreenRect` 的转换只走纯 `EdgeCapsuleGeometry`；不得在窗口移动、动画或 measure 回调中复制物理像素公式。
-- per-window 的显示器 settle、标题 measure、物理指针采样和 frame apply 共用一个 dirty/reconcile 调度入口；需要同步交接时调用同一管线的 `Flush`，不得直接调用 planner/apply，也不得为新条件增加独立 pending/scheduled 布尔对。跨胶囊 arrange 只由队列协调器单独合并。
-- 同一 Dispatcher 上的动画 Presenter 必须共用一个帧调度器和每帧一次的物理指针采样；布局快照只在标题、显示器或队列布局失效时重算。普通纵向补位帧只能在稳定 `HostBounds` 内移动 `VisualSurface`，visible-width-only 帧只更新 `VisualSurface` 与固定分段，二者都不得逐帧提交 HWND 几何或触发 WPF `UpdateLayout`。
+- per-window 的显示器 settle、标题 measure、物理指针采样和 frame apply 共用一个 dirty/reconcile 调度入口；普通同步交接调用同一管线的 `Flush`，不得直接调用 planner/apply，也不得为新条件增加独立 pending/scheduled 布尔对。唯一例外是 controller-owned 队列代理：它可在统一 visual transaction 内捕获每项起终帧，并在所有真实源已被代理遮盖且 cloak 后直接提交、验证端点。跨胶囊 arrange 只由队列协调器单独合并。
+- 同一 Dispatcher 上的 Presenter 必须共用一个调度器和每帧一次的物理指针采样；布局快照只在标题、显示器或队列布局失效时重算。边缘预览的同队列动画由一个 controller-owned、按本次起终矩形并集创建的临时 Composition 代理呈现，真实小 HWND 在遮盖下只提交端点，动画中不得逐帧提交 HWND 几何或触发 WPF `UpdateLayout`。代理不可用、跨队列、拖拽和尚未迁移的非预览动画继续走可回退的真实 HWND 管线。
 - 指针是否位于胶囊上只根据 applied frame 的物理 `InteractiveBounds` 判断；该矩形排除透明阴影边距，WPF enter/leave 只负责唤醒采样，不能直接写 Hover。
-- 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 是真实选择区；每段连续可交互队列项的外接矩形是临时空白转移区，但不是胶囊命中区，固定透明 `HostBounds` 也不得混入。不可交互或正在收回的旧卡必须切断前后矩形。指针在空白转移区内时，开启移动意图只在轨迹明确朝向某个可浏览胶囊时保活，否则按五档分别约 0.2 / 0.35 / 0.5 / 0.65 / 0.8 秒收起；关闭移动意图时固定等待 1 秒。越出该外接矩形在两种模式下都必须无条件立即收起，预测没有否决权；指针捕获期间不得触发。
+- 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 是真实选择区；每段连续可交互队列项的外接矩形是临时空白转移区，但不是胶囊命中区，真实 `HostBounds` 和代理 envelope 都不得混入。不可交互或正在收回的旧卡必须切断前后矩形。指针在空白转移区内时，开启移动意图只在轨迹明确朝向某个可浏览胶囊时保活，否则按五档分别约 0.2 / 0.35 / 0.5 / 0.65 / 0.8 秒收起；关闭移动意图时固定等待 1 秒。越出该外接矩形在两种模式下都必须无条件立即收起，预测没有否决权；指针捕获期间不得触发。
 - 每个队列的 index、master offset 和 slot count 只由 `EdgeCapsuleQueueCoordinator` 生成，`AppController` 和单个窗口不得各自重新推导。
 - **贴边胶囊队列永远不分页。** 不得按工作区高度做安全容量、隐藏溢出胶囊、页头、页码、自动翻页或容量截断；队列始终按完整顺序连续向下排列，超过当前显示器工作区就允许直接出屏。后续不要以“防重叠”“小屏适配”或任何其他名义重新引入分页。
-- 贴边 slot host 使用固定的最大展开透明合成面，真正可见的 Chrome / Shell 使用当前帧真实宽度并在该合成面内钉住墙边；透明预留区不是胶囊的一部分，外形不得依赖 `ClipToBounds`、屏幕边缘或超宽子元素裁切。slot 0 主胶囊不参与水平伸缩，继续使用自身真实窗口宽度。
+- 每张纸的贴边 slot host 只保留当前端点所需的真实窗口大小；禁止重新按工作区或最大预览尺寸为每张纸常驻一块透明合成面。预览动画的临时代理窗口只覆盖本次受影响纸片的起终矩形并集，完成、取消或故障交接后立即释放。slot 0 主胶囊不参与这套代理，继续使用自身真实窗口宽度。
 - 贴边胶囊的关闭区位于屏幕墙边、悬停时从 0 宽度展开并把图标/标题推向屏幕内部；靠墙侧始终为直角，内容区拥有朝屏幕内部的圆角。
-- 贴边胶囊水平伸缩只插值已经取整的可见物理宽度；水平伸缩动画期间不得水平移动或改变 docked HWND 宽度，垂直重排也必须在固定宿主内通过内部位移完成。关闭区宽度和透明度必须从该可见宽度反推，不得建立独立的布局插值通道。
-- `EdgeCapsuleHost.Apply(frame)` 是 docked HWND 的唯一呈现契约；`HostBounds` 只表示当前显示器与边上的稳定透明运动包络，覆盖工作区、队列槽位和一次最大预览补位，`Bounds` 才是当前真实胶囊。已分配包络在宿主可见期间可以保留更大的旧范围，不得因目标缩小而收缩；正文段与关闭段必须使用明确固定宽度，且两段之和与当前可见宽度一致，禁止用 `Star`、隐藏列或额外动画吸收差值。
-- 固定宿主超出 `InteractiveBounds` 的透明区域必须在 `WM_NCHITTEST` 返回 `HTTRANSPARENT`，不得把最大宿主矩形当成悬停或点击区域。
+- 贴边胶囊水平伸缩只插值已经取整的可见物理宽度；代理接管的预览动画中，宽度、裁切和垂直补位只能在 Composition visual 上变化，真实 docked HWND 不得逐帧移动或改尺寸。关闭区宽度和透明度必须从该可见宽度反推，不得建立独立的布局插值通道。
+- `EdgeCapsuleHost.Apply(frame)` 仍是每纸片真实 docked HWND 的唯一呈现契约；生产路径 settle 后 `HostBounds == Bounds`，都表示真实端点窗口，`InteractiveBounds` 继续排除阴影并定义真实输入区。代理期间 Presenter 立即提交业务端点，用户所见的中间 `Bounds / InteractiveBounds` 只能从活动代理的同一 transition sample 读取；正文段与关闭段必须使用明确固定宽度，且两段之和与当前可见宽度一致，禁止用 `Star`、隐藏列或额外动画吸收差值。
+- 临时代理 HWND 必须 `NOACTIVATE`，空白区域和不可交互帧必须穿透；任何点击、右键、拖拽、显示器/DPI/虚拟桌面或 z-order 变化都要先完成或取消代理，再把输入交回真实小 HWND。真实源只能用 DWM cloak 隐藏，交接必须验证端点、解除 cloak 并经过桌面合成屏障后才能撤掉代理。
 - 跨队列拖拽使用独立的 floating drag HWND；贴边 slot host 永远只保留贴边布局，禁止把它改造成自由胶囊或在两种外形间复用列顺序、圆角和宽度状态。
 - 拖动期间收到的全局 `ArrangeDeepCapsules` 请求必须合并并在拖动结束后刷新，不能静默丢弃；显示器指标刷新可用自己的延迟刷新吞并该请求。
 - 标题测量刷新只改变 target 的真实内容宽度，不得重新推导 Hover / Active、关闭区或槽位语义；它不能覆盖已经排队的动画，动画中从当前 applied frame 平滑 retarget，拖动中则延迟到会话结束。

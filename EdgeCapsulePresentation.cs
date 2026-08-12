@@ -61,14 +61,9 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     double MasterTopDip,
     double RestingWidthDip,
     double MaximumCloseWidthDip,
-    double HostWidthDip,
-    double HostHeightDip,
     double HeightDip,
     double PreviewWidthDip,
     double PreviewHeightDip,
-    double HostEnvelopeTopDip,
-    double HostEnvelopeHeightDip,
-    bool UsesFixedMotionHost,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
     double? ForcedContentOpacity)
@@ -76,14 +71,9 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     public bool IsUsable =>
         !Monitor.WorkArea.IsEmpty &&
         RestingWidthDip > 0 &&
-        HostWidthDip > 0 &&
-        HostHeightDip > 0 &&
         HeightDip > 0 &&
         PreviewWidthDip > 0 &&
-        PreviewHeightDip > 0 &&
-        double.IsFinite(HostEnvelopeTopDip) &&
-        double.IsFinite(HostEnvelopeHeightDip) &&
-        HostEnvelopeHeightDip > 0;
+        PreviewHeightDip > 0;
 }
 
 internal readonly record struct EdgeCapsuleFloatingShape(
@@ -106,10 +96,9 @@ internal readonly record struct EdgeCapsuleFloatingShape(
 }
 
 /// <summary>
-/// One immutable docked target. Bounds is the real visible capsule rectangle; HostBounds is the
-/// stable transparent composition surface that can hold the fully expanded capsule in both axes.
-/// Body width is distinct from the visible width; the only permitted close segment is visible
-/// device width minus BodyWindowWidthDevice.
+/// One immutable docked target. Bounds is the visible capsule rectangle and HostBounds is the
+/// real per-paper HWND endpoint; compact hosts make them equal. Body width is distinct from visible
+/// width; the only permitted close segment is visible width minus BodyWindowWidthDevice.
 /// </summary>
 internal readonly record struct EdgeCapsuleTargetPresentation(
     bool Visible,
@@ -127,8 +116,7 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
     double ContentOpacity,
     bool OutlineVisible,
     bool IsHitTestVisible,
-    bool CloseSegmentActsAsContent,
-    bool UsesFixedMotionHost)
+    bool CloseSegmentActsAsContent)
 {
     public static EdgeCapsuleTargetPresentation Hidden => new(
         false,
@@ -144,7 +132,6 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
         0,
         0,
         0,
-        false,
         false,
         false,
         false);
@@ -165,8 +152,7 @@ internal readonly record struct EdgeCapsuleTargetPresentation(
         ContentOpacity,
         OutlineVisible,
         IsHitTestVisible,
-        CloseSegmentActsAsContent,
-        UsesFixedMotionHost);
+        CloseSegmentActsAsContent);
 }
 
 internal readonly record struct EdgeCapsulePresentationPlan(
@@ -179,9 +165,10 @@ internal readonly record struct EdgeCapsulePresentationPlan(
 }
 
 /// <summary>
-/// Complete Host.Apply contract. HostBounds is the real stable native envelope while Bounds is the
-/// actual visible capsule inside it. Interactive bounds, body/close segmentation, opacity and input
-/// state still advance from this one frame; V2 motion changes only the inner WPF surface.
+/// Complete Host.Apply contract. HostBounds is the real native endpoint while Bounds is the visual
+/// capsule. They are equal at production settle; an active queue proxy samples intermediate Bounds
+/// separately while the Presenter and real HWND already own the endpoint. Interactive bounds,
+/// body/close segmentation, opacity and input state remain one immutable frame contract.
 /// </summary>
 internal readonly record struct EdgeCapsulePresentationFrame(
     bool Visible,
@@ -199,16 +186,14 @@ internal readonly record struct EdgeCapsulePresentationFrame(
     double ContentOpacity,
     bool OutlineVisible,
     bool IsHitTestVisible,
-    bool CloseSegmentActsAsContent,
-    bool UsesFixedMotionHost)
+    bool CloseSegmentActsAsContent)
 {
     public static EdgeCapsulePresentationFrame Hidden =>
         EdgeCapsuleTargetPresentation.Hidden.ToFrame();
 
     public bool IsUsable => !Visible || (
         !Bounds.IsEmpty &&
-        !HostBounds.IsEmpty &&
-        EdgeCapsuleMotionEnvelopePolicy.Contains(HostBounds, Bounds) &&
+        HostBounds == Bounds &&
         (Edge == EdgeCapsuleEdge.Left
             ? HostBounds.Left == WallDeviceX
             : HostBounds.Right == WallDeviceX));
@@ -219,8 +204,7 @@ internal readonly record struct EdgeCapsuleTransition(
     EdgeCapsuleTargetPresentation Target,
     long StartedAtTimestamp,
     long DurationTimestampTicks,
-    EdgeCapsuleTransitionReason Reason,
-    DeviceScreenRect HostBounds);
+    EdgeCapsuleTransitionReason Reason);
 
 internal readonly record struct EdgeCapsuleTransitionSample(
     EdgeCapsulePresentationFrame Frame,

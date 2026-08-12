@@ -3739,6 +3739,7 @@ public sealed partial class AppController : IDisposable
         StopFullscreenAvoidanceRuntime(restoreTopmost: false);
         _displayMetricsRefreshTimer.Stop();
         StopTodoReminderTimer();
+        TryExitCleanup(DisposeEdgeCapsuleQueueCompositionProxies);
         ClearPaperLinkDropTarget();
         _deepCapsuleContextMenuOwners.Clear();
         _displayMetricsRefreshState = DisplayMetricsRefreshState.Idle;

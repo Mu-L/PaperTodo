@@ -275,6 +275,7 @@ dotnet build -c Release
 - **[LMDB](https://github.com/LMDB/lmdb)** — 单文件、事务式的笔记图片资产存储。
 - **[AvalonEdit](https://github.com/icsharpcode/AvalonEdit)** — 笔记纸文本编辑和 Markdown 轻量高亮。
 - **[Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon)** — 托盘图标和菜单。
+- **[Vortice.DirectComposition](https://github.com/amerkoleci/Vortice.Windows)** — 用于边缘浏览动画的原生 DirectComposition 互操作（MIT）。
 
 ## 其他
 

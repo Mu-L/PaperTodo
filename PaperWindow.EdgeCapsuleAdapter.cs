@@ -60,6 +60,7 @@ public sealed partial class PaperWindow
         EdgeCapsulePaperForm paperForm,
         bool reserveWhileExpanded)
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         if (paperForm == EdgeCapsulePaperForm.Expanded && !reserveWhileExpanded)
         {
             CloseDeepCapsuleSlotContextMenu();
@@ -77,6 +78,7 @@ public sealed partial class PaperWindow
 
     private bool DetachEdgeCapsuleFromQueue()
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CloseDeepCapsuleSlotContextMenu();
         var detached = DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());
         if (detached)

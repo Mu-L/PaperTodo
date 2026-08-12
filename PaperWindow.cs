@@ -2672,6 +2672,9 @@ public sealed partial class PaperWindow : Window
 
     internal void RefreshDeepCapsuleSlotTopmost()
     {
+        // The transient queue proxy captures the queue's z-order at creation. Settle it before a
+        // fullscreen, passive-mode or context-menu change moves the real host to another layer.
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this, success: true);
         var queueAvoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
             _paper.CapsuleMonitorDeviceName);
         var slotShouldBeTopmost =

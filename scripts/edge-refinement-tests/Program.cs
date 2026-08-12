@@ -6,14 +6,22 @@ using AppFrame = PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
 using AppLayoutFacts = PaperTodoApp::PaperTodo.EdgeCapsuleLayoutFacts;
 using AppLayoutService = PaperTodoApp::PaperTodo.EdgeCapsuleLayoutService;
 using AppMonitor = PaperTodoApp::PaperTodo.MonitorGeometry;
-using AppMotionEnvelope = PaperTodoApp::PaperTodo.EdgeCapsuleMotionEnvelopePolicy;
+using AppModel = PaperTodoApp::PaperTodo.EdgeCapsuleModel;
 using AppPlacement = PaperTodoApp::PaperTodo.EdgeCapsulePlacement;
+using AppProxyCandidate = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyCandidate;
+using AppProxyPolicy = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyPolicy;
+using AppProxyRole = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyMemberRole;
+using AppMotion = PaperTodoApp::PaperTodo.EdgeCapsuleMotion;
 using AppRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
+using AppSlotState = PaperTodoApp::PaperTodo.EdgeCapsuleSlotState;
+using AppState = PaperTodoApp::PaperTodo.EdgeCapsuleState;
 using AppSurface = PaperTodoApp::PaperTodo.EdgeCapsuleSurfaceKind;
-using AppTarget = PaperTodoApp::PaperTodo.EdgeCapsuleTargetPresentation;
-using AppTransition = PaperTodoApp::PaperTodo.EdgeCapsuleTransition;
-using AppTransitionPolicy = PaperTodoApp::PaperTodo.EdgeCapsuleTransitionPolicy;
+using AppTargetPlanner = PaperTodoApp::PaperTodo.EdgeCapsuleTargetPlanner;
 using AppTransitionReason = PaperTodoApp::PaperTodo.EdgeCapsuleTransitionReason;
+using AppVisualState = PaperTodoApp::PaperTodo.EdgeCapsuleVisualState;
+using AppGestureState = PaperTodoApp::PaperTodo.EdgeCapsuleGestureState;
+using AppOpenOrigin = PaperTodoApp::PaperTodo.EdgeCapsuleOpenOrigin;
+using AppPreviewState = PaperTodoApp::PaperTodo.EdgeCapsulePreviewState;
 
 namespace PaperTodo;
 
@@ -22,8 +30,8 @@ internal static class Program
     private static int Main()
     {
         CheckNativeBoundsFlags();
-        CheckMotionEnvelopePolicy();
-        CheckFixedHostLayout();
+        CheckQueueProxyPolicy();
+        CheckCompactRealHostLayout();
 
         var nodes = new[]
         {
@@ -240,35 +248,13 @@ internal static class Program
             "an unchanged rectangle must preserve both native axes");
     }
 
-    private static void CheckMotionEnvelopePolicy()
+    private static void CheckQueueProxyPolicy()
     {
         const int rightWall = 1000;
-        var queueEnvelope = AppMotionEnvelope.CalculateQueueEnvelope(
-            workAreaTopDip: 0,
-            workAreaBottomDip: 1080,
-            queueTopDip: 100,
-            lastSlotTopDip: 400,
-            currentTopDip: 280,
-            hostCapacityHeightDip: 420,
-            maximumPreviewHeightDip: 420,
-            currentVisibleHeightDip: 420);
-        Assert(
-            queueEnvelope.TopDip == 0 &&
-            queueEnvelope.HeightDip == 1080,
-            "the startup host must reserve the work area and maximum content at every slot");
-
         var startBounds = new AppRect(920, 100, rightWall, 180);
-        var startHost = new AppRect(900, 100, rightWall, 260);
+        var startHost = startBounds;
         var targetBounds = new AppRect(900, 320, rightWall, 440);
-        var targetHost = new AppRect(880, 320, rightWall, 540);
-        var envelope = AppMotionEnvelope.UnionWallPinned(
-            startHost,
-            targetHost,
-            AppEdge.Right,
-            rightWall);
-        Assert(
-            envelope == new AppRect(880, 100, rightWall, 540),
-            "a right-edge motion envelope must cover both endpoint hosts and stay wall-pinned");
+        var targetHost = targetBounds;
 
         var start = new AppFrame(
             true,
@@ -286,9 +272,8 @@ internal static class Program
             1,
             false,
             true,
-            false,
-            true);
-        var target = new AppTarget(
+            false);
+        var target = new AppFrame(
             true,
             AppSurface.DockedPreview,
             targetBounds,
@@ -304,55 +289,291 @@ internal static class Program
             1,
             false,
             true,
-            false,
-            true);
-        var transition = new AppTransition(
-            start,
-            target,
-            0,
-            100,
-            AppTransitionReason.Preview,
-            envelope);
+            false);
+        var motion = AppMotion.Animate(AppTransitionReason.Preview, 200);
+        var plan = AppProxyPolicy.TryCreate(
+            "DISPLAY|right",
+            new[]
+            {
+                new AppProxyCandidate(
+                    "paper-a",
+                    "DISPLAY|right",
+                    start,
+                    target,
+                    motion,
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(plan != null, "a preview geometry change should create one queue proxy plan");
+        Assert(
+            plan!.Envelope == new AppRect(900, 100, rightWall, 440),
+            "the proxy envelope should be only the source/target union, not the work area");
+        Assert(
+            plan.Members.Count == 1 &&
+            plan.Members[0].Role == AppProxyRole.OpeningPreview &&
+            !plan.Members[0].DefersRealEndpoint,
+            "preview opening should be represented as one queue member transition");
+        var openingStart = AppProxyPolicy.SampleLogicalFrame(
+            plan.Members[0],
+            startedAtTimestamp: 0,
+            durationMilliseconds: 200,
+            nowTimestamp: 0);
+        var openingMiddle = AppProxyPolicy.SampleLogicalFrame(
+            plan.Members[0],
+            startedAtTimestamp: 0,
+            durationMilliseconds: 200,
+            nowTimestamp: System.Diagnostics.Stopwatch.Frequency / 10);
+        var openingEnd = AppProxyPolicy.SampleLogicalFrame(
+            plan.Members[0],
+            startedAtTimestamp: 0,
+            durationMilliseconds: 200,
+            nowTimestamp: System.Diagnostics.Stopwatch.Frequency / 5);
+        Assert(
+            openingStart.Bounds == start.Bounds &&
+            openingStart.HostBounds == openingStart.Bounds &&
+            openingMiddle.Bounds.Top > start.Bounds.Top &&
+            openingMiddle.Bounds.Top < target.Bounds.Top &&
+            openingMiddle.HostBounds == openingMiddle.Bounds &&
+            openingEnd.HostBounds == openingEnd.Bounds &&
+            openingEnd == target,
+            "proxy samples must keep compact host geometry while easing exactly from source to target");
 
-        var middle = AppTransitionPolicy.Sample(transition, 50);
-        Assert(
-            middle.Frame.HostBounds == envelope,
-            "every in-flight WPF offset frame must keep one fixed native envelope");
-        Assert(
-            middle.Frame.HostBounds.Top < middle.Frame.Bounds.Top,
-            "the visible surface must move inside the fixed native envelope");
-
-        var complete = AppTransitionPolicy.Sample(transition, 100);
-        Assert(complete.IsComplete, "the envelope transition should still finish normally");
-        Assert(
-            complete.Frame.HostBounds == envelope,
-            "the settled target must retain its native envelope without an endpoint move");
-        Assert(
-            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, target) == complete.Frame,
-            "an idle reconcile must not silently contract a retained motion envelope");
-
-        var containedTarget = target with
+        var movingStart = start with
         {
-            Bounds = new AppRect(900, 340, rightWall, 460),
-            HostBounds = new AppRect(880, 300, rightWall, 520),
-            InteractiveBounds = new AppRect(900, 340, rightWall, 460)
+            Bounds = new AppRect(920, 190, rightWall, 270),
+            HostBounds = new AppRect(920, 190, rightWall, 270),
+            InteractiveBounds = new AppRect(920, 190, rightWall, 270)
+        };
+        var movingTarget = movingStart with
+        {
+            Bounds = new AppRect(920, 450, rightWall, 530),
+            HostBounds = new AppRect(920, 450, rightWall, 530),
+            InteractiveBounds = new AppRect(920, 450, rightWall, 530)
+        };
+        var queuePlan = AppProxyPolicy.TryCreate(
+            "DISPLAY|right",
+            new[]
+            {
+                new AppProxyCandidate(
+                    "paper-a",
+                    "DISPLAY|right",
+                    start,
+                    target,
+                    motion,
+                    HostReady: true,
+                    Topmost: true),
+                new AppProxyCandidate(
+                    "paper-b",
+                    "DISPLAY|right",
+                    movingStart,
+                    movingTarget,
+                    motion,
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(
+            queuePlan is { Members.Count: 2 } &&
+            queuePlan.Members[1].Role == AppProxyRole.Moving &&
+            !queuePlan.Members[1].DefersRealEndpoint &&
+            queuePlan.Envelope == new AppRect(900, 100, rightWall, 530),
+            "one queue proxy should group the preview owner and every translation-only peer");
+        var unchangedPeerPlan = AppProxyPolicy.TryCreate(
+            "DISPLAY|right",
+            new[]
+            {
+                new AppProxyCandidate(
+                    "paper-a",
+                    "DISPLAY|right",
+                    start,
+                    target,
+                    AppMotion.Animate(AppTransitionReason.Preview, 240),
+                    HostReady: true,
+                    Topmost: true),
+                new AppProxyCandidate(
+                    "paper-c",
+                    "DISPLAY|right",
+                    movingStart,
+                    movingStart,
+                    AppMotion.Animate(AppTransitionReason.Preview, 180),
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(
+            unchangedPeerPlan is { Members.Count: 1, DurationMilliseconds: 240, Topmost: true },
+            "unchanged queue members should be excluded while duration and z-order aggregate safely");
+
+        var closePlan = AppProxyPolicy.TryCreate(
+            "DISPLAY|right",
+            new[]
+            {
+                new AppProxyCandidate(
+                    "paper-a",
+                    "DISPLAY|right",
+                    target,
+                    start,
+                    motion,
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(
+            closePlan is { Members.Count: 1 } &&
+            closePlan.Members[0].Role == AppProxyRole.ClosingPreview &&
+            closePlan.Members[0].DefersRealEndpoint,
+            "a closing preview must retain its live real source until compositor handoff");
+        var closingMiddle = AppProxyPolicy.SampleLogicalFrame(
+            closePlan!.Members[0],
+            startedAtTimestamp: 0,
+            durationMilliseconds: 200,
+            nowTimestamp: System.Diagnostics.Stopwatch.Frequency / 10);
+        Assert(
+            !closingMiddle.IsHitTestVisible &&
+            closingMiddle.InteractiveBounds.IsEmpty,
+            "an outgoing preview must stop owning input immediately while it animates out");
+
+        Assert(
+            AppProxyPolicy.TryCreate(
+                "DISPLAY|right",
+                new[]
+                {
+                    new AppProxyCandidate(
+                        "paper-a",
+                        "DISPLAY|right",
+                        start,
+                        target,
+                        motion,
+                        HostReady: true,
+                        Topmost: true),
+                    new AppProxyCandidate(
+                        "paper-b",
+                        "DISPLAY|right",
+                        movingStart,
+                        movingTarget with
+                        {
+                            Bounds = new AppRect(900, 450, rightWall, 550),
+                            HostBounds = new AppRect(900, 450, rightWall, 550)
+                        },
+                        motion,
+                        HostReady: true,
+                        Topmost: true)
+                }) == null,
+            "a peer that changes shape cannot be wrapped as a translation-only live surface");
+        Assert(
+            AppProxyPolicy.TryCreate(
+                "DISPLAY|right",
+                new[]
+                {
+                    new AppProxyCandidate(
+                        "paper-a",
+                        "DISPLAY|right",
+                        start,
+                        target,
+                        AppMotion.Snap(AppTransitionReason.Preview),
+                        HostReady: true,
+                        Topmost: true)
+                }) == null,
+            "snap transactions must never allocate a compositor proxy");
+        Assert(
+            AppProxyPolicy.TryCreate(
+                "DISPLAY|right",
+                new[]
+                {
+                    new AppProxyCandidate(
+                        "paper-a",
+                        "DISPLAY|right",
+                        start,
+                        target,
+                        AppMotion.Animate(AppTransitionReason.Placement, 200),
+                        HostReady: true,
+                        Topmost: true)
+                }) == null,
+            "a transaction without a preview reason must stay on the existing presentation backend");
+
+        var oversizedHostFrame = start with
+        {
+            HostBounds = new AppRect(
+                start.Bounds.Left,
+                start.Bounds.Top,
+                start.Bounds.Right,
+                start.Bounds.Bottom + 1)
         };
         Assert(
-            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, containedTarget)
-                .HostBounds == envelope,
-            "a logically changed target inside the retained host must not contract the HWND");
+            !oversizedHostFrame.IsUsable &&
+            AppProxyPolicy.TryCreate(
+                "DISPLAY|right",
+                new[]
+                {
+                    new AppProxyCandidate(
+                        "paper-a", "DISPLAY|right", oversizedHostFrame, target,
+                        motion, HostReady: true, Topmost: true)
+                }) == null,
+            "a real HostBounds envelope larger than Bounds must be structurally rejected");
 
-        var largerTarget = containedTarget with
+        foreach (var rejected in new[]
+                 {
+                     new AppProxyCandidate(
+                         "paper-a", "DISPLAY|right", start, target, motion,
+                         HostReady: false, Topmost: true),
+                     new AppProxyCandidate(
+                         "paper-a", "OTHER|right", start, target, motion,
+                         HostReady: true, Topmost: true),
+                     new AppProxyCandidate(
+                         "paper-a", "DISPLAY|right", start, target, motion,
+                         HostReady: true, Topmost: false),
+                     new AppProxyCandidate(
+                         "paper-a", "DISPLAY|right", start,
+                         target with { DpiScaleX = 1.25 }, motion,
+                         HostReady: true, Topmost: true),
+                     new AppProxyCandidate(
+                         "paper-a", "DISPLAY|right", start,
+                         target with { WallDeviceX = rightWall + 1 }, motion,
+                         HostReady: true, Topmost: true),
+                     new AppProxyCandidate(
+                         "paper-a", "DISPLAY|right", start,
+                         target with { Edge = AppEdge.Left }, motion,
+                         HostReady: true, Topmost: true)
+                 })
         {
-            HostBounds = new AppRect(860, 80, rightWall, 620)
+            Assert(
+                AppProxyPolicy.TryCreate("DISPLAY|right", new[] { rejected }) == null,
+                "an incompatible host/queue/z-order/DPI/edge candidate must fall back safely");
+        }
+
+        var leftStart = start with
+        {
+            Bounds = new AppRect(0, 120, 80, 200),
+            HostBounds = new AppRect(0, 120, 80, 200),
+            InteractiveBounds = new AppRect(0, 120, 80, 200),
+            Edge = AppEdge.Left,
+            WallDeviceX = 0,
+            DpiScaleX = 1.5,
+            DpiScaleY = 1.5
         };
+        var leftTarget = target with
+        {
+            Bounds = new AppRect(0, 260, 150, 440),
+            HostBounds = new AppRect(0, 260, 150, 440),
+            InteractiveBounds = new AppRect(0, 260, 150, 440),
+            Edge = AppEdge.Left,
+            WallDeviceX = 0,
+            DpiScaleX = 1.5,
+            DpiScaleY = 1.5
+        };
+        var leftPlan = AppProxyPolicy.TryCreate(
+            "DISPLAY|left",
+            new[]
+            {
+                new AppProxyCandidate(
+                    "paper-left", "DISPLAY|left", leftStart, leftTarget,
+                    motion, HostReady: true, Topmost: true)
+            });
         Assert(
-            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, largerTarget)
-                .HostBounds == largerTarget.HostBounds,
-            "a target outside the retained host must request a new native envelope");
+            leftPlan is { Edge: AppEdge.Left, WallDeviceX: 0 } &&
+            leftPlan.Envelope == new AppRect(0, 120, 150, 440) &&
+            Math.Abs(leftPlan.DpiScaleX - 1.5) < 0.001,
+            "left-edge proxy geometry must remain wall-pinned at non-100% DPI");
     }
 
-    private static void CheckFixedHostLayout()
+    private static void CheckCompactRealHostLayout()
     {
         var facts = new AppLayoutFacts(
             new AppMonitor(
@@ -369,43 +590,67 @@ internal static class Program
             GapDip: 4,
             RestingWidthDip: 86,
             MaximumCloseWidthDip: 28,
-            HostWidthDip: 480,
-            HostHeightDip: 420,
             HeightDip: 58,
             PreviewWidthDip: 220,
             PreviewHeightDip: 140,
-            MaximumPreviewHeightDip: 420,
-            UsesFixedMotionHost: true,
             CloseSegmentActsAsContent: false,
             RestingContentOpacity: 1,
             ForcedContentOpacity: null);
         var resting = AppLayoutService.Calculate(facts);
-        var displaced = AppLayoutService.Calculate(facts with
-        {
-            Placement = facts.Placement with { TopOffsetDip = 362 },
-            PreviewWidthDip = 480,
-            PreviewHeightDip = 420
-        });
+        var model = new AppModel(
+            new AppState(
+                AppSlotState.CollapsedDocked,
+                AppVisualState.Resting,
+                AppGestureState.Idle,
+                AppOpenOrigin.Normal),
+            facts.Placement,
+            DragSession: null,
+            ContextMenuOpen: false,
+            PeerReorderActive: false,
+            AppPreviewState.Closed,
+            PointerOverSurface: false,
+            DockedDragTopDipOverride: null);
+        var target = AppTargetPlanner.Calculate(model, resting).Docked;
         Assert(
-            resting.HostEnvelopeTopDip == displaced.HostEnvelopeTopDip &&
-            resting.HostEnvelopeHeightDip == displaced.HostEnvelopeHeightDip,
-            "the preallocated host must not change when a maximum-height preview displaces the queue");
+            target.HostBounds == target.Bounds,
+            "the production planner must give the real HWND only its current visible endpoint");
+        var previewTarget = AppTargetPlanner.Calculate(
+            model with { Preview = AppPreviewState.Open },
+            resting).Docked;
+        var hoverTarget = AppTargetPlanner.Calculate(
+            model with
+            {
+                State = model.State with { Visual = AppVisualState.Hovered }
+            },
+            resting).Docked;
+        var displacedLayout = AppLayoutService.Calculate(
+            facts with
+            {
+                Placement = facts.Placement with { TopOffsetDip = 180 }
+            });
+        var displacedTarget = AppTargetPlanner.Calculate(model, displacedLayout).Docked;
         Assert(
-            resting.HostEnvelopeTopDip <= resting.NormalTopDip &&
-            resting.HostEnvelopeTopDip + resting.HostEnvelopeHeightDip >=
-                displaced.NormalTopDip + displaced.HostHeightDip,
-            "the stable host must contain both resting and maximally displaced surface capacity");
+            previewTarget.HostBounds == previewTarget.Bounds &&
+            hoverTarget.HostBounds == hoverTarget.Bounds &&
+            displacedTarget.HostBounds == displacedTarget.Bounds &&
+            displacedTarget.Bounds.Top > target.Bounds.Top,
+            "preview, hover, and displaced peers must all keep endpoint-sized real hosts");
 
-        var legacy = AppLayoutService.Calculate(facts with
+        var leftFacts = facts with
         {
-            UsesFixedMotionHost = false,
-            HostHeightDip = 140,
-            MaximumPreviewHeightDip = 420
-        });
+            Monitor = new AppMonitor(
+                "DISPLAY-V2-LEFT",
+                new AppRect(-2560, 0, 0, 1440),
+                1.25,
+                1.25),
+            Edge = AppEdge.Left
+        };
+        var leftLayout = AppLayoutService.Calculate(leftFacts);
+        var leftTarget = AppTargetPlanner.Calculate(model, leftLayout).Docked;
         Assert(
-            legacy.HostEnvelopeTopDip == legacy.NormalTopDip &&
-            legacy.HostEnvelopeHeightDip == 140,
-            "the same-binary A/B path must preserve the old top-following HWND geometry");
+            leftTarget.HostBounds == leftTarget.Bounds &&
+            leftTarget.Bounds.Left == leftTarget.WallDeviceX,
+            "compact endpoint hosts must remain correct on a scaled left-side monitor");
     }
 
     private static void CheckCorridorIntentPrediction()

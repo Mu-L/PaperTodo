@@ -245,56 +245,6 @@ public sealed partial class PaperWindow
             restingWidth + CapsuleCloseWidth;
         var previewHeight = previewSize?.HeightDip ??
             PaperLayoutDefaults.CapsuleHeight;
-        var usesFixedMotionHost = EdgeCapsuleMotionEnvelopePolicy.IsEnabled;
-        var maximumPreviewWidth = Math.Max(
-            EdgeCapsulePreviewSize.MinimumWidthDip,
-            Math.Min(
-                EdgeCapsulePreviewSize.MaximumWidthDip,
-                monitor.LocalWorkAreaDip.Width));
-        var maximumPreviewHeight = Math.Max(
-            EdgeCapsulePreviewSize.MinimumHeightDip,
-            Math.Min(
-                EdgeCapsulePreviewSize.MaximumHeightDip,
-                monitor.LocalWorkAreaDip.Height));
-        var requestedHostWidth = Math.Max(
-            Math.Max(
-                restingWidth + CapsuleCloseWidth,
-                previewWidth),
-            Math.Min(
-                EdgeCapsuleLayout.HostCapacityWidth,
-                monitor.LocalWorkAreaDip.Width));
-        if (usesFixedMotionHost)
-        {
-            // V2 reserves every legal preview size before the host is first shown. Later preview
-            // opens and queue motion therefore change only the inner visual surface.
-            requestedHostWidth = Math.Max(
-                requestedHostWidth,
-                maximumPreviewWidth);
-        }
-        var applied = _edgeCapsule.AppliedPresentation;
-        var appliedHostWidth = !usesFixedMotionHost &&
-            applied.Visible &&
-            !applied.HostBounds.IsEmpty
-            ? applied.HostBounds.Width / Math.Max(1, applied.DpiScaleX)
-            : 0;
-        var appliedHostHeight = !usesFixedMotionHost &&
-            applied.Visible &&
-            !applied.HostBounds.IsEmpty
-            ? applied.HostBounds.Height / Math.Max(1, applied.DpiScaleY)
-            : 0;
-
-        // Legacy A/B keeps the old grow-only capacity. V2 instead feeds this maximum content size
-        // into one queue envelope before the HWND is first shown.
-        var hostWidth = Math.Max(requestedHostWidth, appliedHostWidth);
-        var hostHeight = Math.Max(
-            Math.Max(PaperLayoutDefaults.CapsuleHeight, previewHeight),
-            appliedHostHeight);
-        if (usesFixedMotionHost)
-        {
-            hostHeight = Math.Max(
-                hostHeight,
-                maximumPreviewHeight);
-        }
         var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
             ? ExperimentalOpacityLevels.Normalize(
                 _controller.State.ExperimentalRestingCapsuleOpacityLevel,
@@ -314,13 +264,9 @@ public sealed partial class PaperWindow
             DeepCapsuleGap,
             restingWidth,
             CapsuleCloseWidth,
-            hostWidth,
-            hostHeight,
             PaperLayoutDefaults.CapsuleHeight,
             previewWidth,
             previewHeight,
-            maximumPreviewHeight,
-            usesFixedMotionHost,
             _controller.State.HideEdgeCapsuleCloseButtonOnHover,
             restingOpacity,
             forcedOpacity));
@@ -328,6 +274,10 @@ public sealed partial class PaperWindow
 
     private bool ApplyEdgeCapsulePresentationFrame(EdgeCapsulePresentationFrame frame)
     {
+        if (_controller.TryRouteEdgeCapsuleQueueProxyApply(this, frame, out var routed))
+        {
+            return routed;
+        }
         if (!frame.Visible)
         {
             return _edgeCapsuleHost?.Apply(frame) ?? true;
@@ -389,6 +339,7 @@ public sealed partial class PaperWindow
             dirty,
             CaptureEdgeCapsuleLayoutSnapshot,
             CaptureEdgeCapsulePointerPosition,
+            ResolveEdgeCapsulePresentedFrame,
             ApplyEdgeCapsulePresentationFrame);
         var pointer = _edgeCapsule.LastPointerSample;
         if (!_edgeCapsuleReconcileNotificationPending)
@@ -423,6 +374,12 @@ public sealed partial class PaperWindow
         return remaining;
     }
 
+    private EdgeCapsulePresentationFrame ResolveEdgeCapsulePresentedFrame(
+        EdgeCapsulePresentationFrame logicalFrame) =>
+        _controller.TryGetEdgeCapsuleQueueProxyPresentation(this, out var proxyFrame)
+            ? proxyFrame
+            : logicalFrame;
+
     private void PublishEdgeCapsuleReconcileNotifications()
     {
         if (!_edgeCapsuleReconcileNotificationPending)
@@ -454,6 +411,7 @@ public sealed partial class PaperWindow
 
     private void CloseExpandedDeepCapsuleSlotHostForReal()
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CancelDeepCapsuleReorderDrag();
         CloseDeepCapsuleSlotContextMenu();
         ClearEdgeCapsulePreviewContent();

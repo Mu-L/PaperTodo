@@ -107,8 +107,28 @@ public sealed partial class AppController
             return true;
         }
 
-        if (!adapter.TryGetCurrentDesktopId(out var currentDesktopId) ||
-            !window.TryMoveToVirtualDesktop(
+        if (!adapter.TryGetCurrentDesktopId(out var currentDesktopId))
+        {
+            return false;
+        }
+        if (window.HasVirtualDesktopEdgeSurface)
+        {
+            var edgePaper = State.Papers.FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.Id,
+                    window.VirtualDesktopPaperId,
+                    StringComparison.Ordinal));
+            if (edgePaper != null &&
+                !CompleteEdgeCapsuleQueueCompositionProxy(
+                    QueueKey(edgePaper),
+                    success: true))
+            {
+                // Do not move a captured real source away from the ownerless proxy output. The
+                // queued handoff retry will preserve a single visible desktop until it succeeds.
+                return false;
+            }
+        }
+        if (!window.TryMoveToVirtualDesktop(
                 adapter,
                 currentDesktopId))
         {
@@ -146,6 +166,14 @@ public sealed partial class AppController
         }
 
         var queueKey = QueueKey(paper);
+        // A queue proxy has no PaperWindow owner and must never remain on the previous desktop.
+        // Complete its already-known endpoint before moving the real per-paper HWNDs as one queue.
+        if (!CompleteEdgeCapsuleQueueCompositionProxy(queueKey, success: true))
+        {
+            // Keep the exact captured source HWNDs with their cover until the retry completes;
+            // moving only the real queue across desktops would strand the visible proxy behind.
+            return;
+        }
         foreach (var candidate in State.Papers)
         {
             if (QueueKey(candidate) == queueKey &&

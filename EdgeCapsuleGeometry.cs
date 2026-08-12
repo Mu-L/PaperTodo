@@ -179,34 +179,6 @@ internal static class EdgeCapsuleGeometry
         point.Y < bounds.Bottom;
 
     /// <summary>
-    /// Legacy A/B geometry whose transparent host follows the visible top. Production V2 instead
-    /// supplies one queue envelope through EdgeCapsuleMotionEnvelopePolicy.
-    /// </summary>
-    public static DeviceScreenRect HostBoundsForVisibleBounds(
-        DeviceScreenRect visibleBounds,
-        EdgeCapsuleEdge edge,
-        int wallDeviceX,
-        int hostWidthDevice,
-        int hostHeightDevice)
-    {
-        if (visibleBounds.IsEmpty ||
-            hostWidthDevice <= 0 ||
-            hostHeightDevice <= 0)
-        {
-            return default;
-        }
-
-        var left = edge == EdgeCapsuleEdge.Left
-            ? wallDeviceX
-            : wallDeviceX - hostWidthDevice;
-        return new DeviceScreenRect(
-            left,
-            visibleBounds.Top,
-            left + hostWidthDevice,
-            visibleBounds.Top + hostHeightDevice);
-    }
-
-    /// <summary>
     /// Docking anchor whose wall-side chrome margin finishes just outside the work area, while its
     /// interior edge matches the docked surface. This may be narrower than a FloatingFree window;
     /// use <see cref="FloatingHandoffGeometry"/> to keep native capacity separate from that surface.

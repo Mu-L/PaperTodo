@@ -55,6 +55,9 @@ internal static class WindowNative
     private const uint SwpHideWindow = 0x0080;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int DwmWaExtendedFrameBounds = 9;
+    private const int DwmWaCloak = 13;
+    private const int DwmWaCloaked = 14;
+    private const int DwmCloakedApp = 0x00000001;
 
 #if DEBUG
     internal static void ObserveNativeGeometryMessage(IntPtr handle, int message)
@@ -1197,8 +1200,13 @@ internal static class WindowNative
     public static bool TryGetVisibleFrameScreenBounds(Window window, out Rect bounds)
     {
         var handle = new WindowInteropHelper(window).Handle;
+        NativeRect nativeRect;
         if (handle != IntPtr.Zero &&
-            DwmGetWindowAttribute(handle, DwmWaExtendedFrameBounds, out var nativeRect, Marshal.SizeOf<NativeRect>()) == 0)
+            DwmGetWindowAttribute(
+                handle,
+                DwmWaExtendedFrameBounds,
+                out nativeRect,
+                Marshal.SizeOf<NativeRect>()) == 0)
         {
             var topLeft = DevicePointToWindowDip(window, new Point(nativeRect.Left, nativeRect.Top));
             var bottomRight = DevicePointToWindowDip(window, new Point(nativeRect.Right, nativeRect.Bottom));
@@ -1214,6 +1222,76 @@ internal static class WindowNative
     // surface can still be waiting for the desktop compositor. Use this only at a cross-HWND
     // hand-off boundary, never on an animation frame or ordinary presentation update.
     public static void FlushDesktopComposition() => _ = DwmFlush();
+
+    public static bool TryPostMouseButtonDown(
+        IntPtr handle,
+        int message,
+        DeviceScreenPoint screenPoint)
+    {
+        const int wmLeftButtonDown = 0x0201;
+        const int wmRightButtonDown = 0x0204;
+        const int wmMiddleButtonDown = 0x0207;
+        var keyState = message switch
+        {
+            wmLeftButtonDown => 0x0001,
+            wmRightButtonDown => 0x0002,
+            wmMiddleButtonDown => 0x0010,
+            _ => 0
+        };
+        if (handle == IntPtr.Zero ||
+            keyState == 0 ||
+            !IsWindow(handle))
+        {
+            return false;
+        }
+
+        var clientPoint = new CursorPoint
+        {
+            X = (int)Math.Round(screenPoint.X, MidpointRounding.AwayFromZero),
+            Y = (int)Math.Round(screenPoint.Y, MidpointRounding.AwayFromZero)
+        };
+        if (!ScreenToClient(handle, ref clientPoint))
+        {
+            return false;
+        }
+        return PostMessage(
+            handle,
+            message,
+            new IntPtr(keyState),
+            PackScreenPoint(clientPoint.X, clientPoint.Y));
+    }
+
+    /// <summary>
+    /// Keeps a layered source HWND alive and rasterized while DirectComposition presents it from
+    /// another target. HideWindow, zero-sized bounds and off-screen parking all invalidate that
+    /// contract; DWMWA_CLOAK is the documented hand-off mechanism.
+    /// </summary>
+    public static bool TrySetWindowCloaked(IntPtr handle, bool cloaked)
+    {
+        if (handle == IntPtr.Zero || !IsWindow(handle))
+        {
+            return false;
+        }
+
+        var value = cloaked ? 1 : 0;
+        if (DwmSetWindowAttribute(
+            handle,
+            DwmWaCloak,
+            ref value,
+            Marshal.SizeOf<int>()) != 0)
+        {
+            return false;
+        }
+        return DwmGetWindowAttribute(
+                handle,
+                DwmWaCloaked,
+                out int flags,
+                Marshal.SizeOf<int>()) == 0 &&
+            ((flags & DwmCloakedApp) != 0) == cloaked;
+    }
+
+    public static bool IsWindowHandleAlive(IntPtr handle) =>
+        handle != IntPtr.Zero && IsWindow(handle);
 
     private static Point DevicePointToWindowDip(Window window, Point point)
     {
@@ -1377,6 +1455,20 @@ internal static class WindowNative
         out NativeRect pvAttribute,
         int cbAttribute);
 
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        out int pvAttribute,
+        int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        ref int pvAttribute,
+        int cbAttribute);
+
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmFlush();
 
@@ -1385,6 +1477,18 @@ internal static class WindowNative
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "PostMessageW")]
+    private static extern bool PostMessage(
+        IntPtr hWnd,
+        int msg,
+        IntPtr wParam,
+        IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool ScreenToClient(
+        IntPtr hWnd,
+        ref CursorPoint point);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);

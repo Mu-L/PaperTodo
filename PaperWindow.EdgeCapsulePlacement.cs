@@ -259,6 +259,7 @@ public sealed partial class PaperWindow
 
     public void ClearDeepCapsulePlacement(bool animate = false)
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CancelDeepCapsuleReorderDrag();
         RestorePrewarmedPluginBodyForActivation("placement-cleared");
         animate = animate && _controller.State.EnableAnimations;

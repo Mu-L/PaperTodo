@@ -42,13 +42,17 @@ public sealed partial class PaperWindow
 
         var previous = _experimentalPassiveReasons;
         var wasPassive = previous != ExperimentalPassiveReason.None;
-        _experimentalPassiveReasons = enabled
+        var next = enabled
             ? previous | reason
             : previous & ~reason;
-        if (previous == _experimentalPassiveReasons)
+        if (previous == next)
         {
             return;
         }
+        // A queue proxy is controller-owned and cannot be demoted/raised with one paper's native
+        // passive state. Handoff first; eligibility checks keep a retained retry non-interactive.
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        _experimentalPassiveReasons = next;
 
         if (_experimentalPassiveReasons != ExperimentalPassiveReason.None)
         {
