@@ -281,6 +281,124 @@ internal sealed partial class EdgeCapsuleHost
         _previewViewportLayer = viewportLayer;
     }
 
+    private void ApplyPreviewViewportClip(
+        EdgeCapsulePresentationFrame frame,
+        double bodyHeight)
+    {
+        if (_previewViewportLayer == null)
+        {
+            return;
+        }
+
+        var dpiScaleX = Math.Max(1, frame.DpiScaleX);
+        var bodyWindowWidthDip = frame.BodyWindowWidthDevice / dpiScaleX;
+        var width = Math.Max(
+            1,
+            bodyWindowWidthDip - _options.WindowChromeMargin);
+        var height = Math.Max(1, bodyHeight);
+        var corners = ContentArea.CornerRadius;
+        var maximumRadius = Math.Min(width, height) / 2;
+        var topLeft = Math.Clamp(corners.TopLeft, 0, maximumRadius);
+        var topRight = Math.Clamp(corners.TopRight, 0, maximumRadius);
+        var bottomRight = Math.Clamp(corners.BottomRight, 0, maximumRadius);
+        var bottomLeft = Math.Clamp(corners.BottomLeft, 0, maximumRadius);
+
+        var clip = new StreamGeometry();
+        using (var geometry = clip.Open())
+        {
+            geometry.BeginFigure(
+                new Point(topLeft, 0),
+                isFilled: true,
+                isClosed: true);
+            geometry.LineTo(
+                new Point(width - topRight, 0),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (topRight > 0)
+            {
+                geometry.ArcTo(
+                    new Point(width, topRight),
+                    new Size(topRight, topRight),
+                    0,
+                    isLargeArc: false,
+                    SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+            else
+            {
+                geometry.LineTo(
+                    new Point(width, 0),
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+
+            geometry.LineTo(
+                new Point(width, height - bottomRight),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (bottomRight > 0)
+            {
+                geometry.ArcTo(
+                    new Point(width - bottomRight, height),
+                    new Size(bottomRight, bottomRight),
+                    0,
+                    isLargeArc: false,
+                    SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+            else
+            {
+                geometry.LineTo(
+                    new Point(width, height),
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+
+            geometry.LineTo(
+                new Point(bottomLeft, height),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (bottomLeft > 0)
+            {
+                geometry.ArcTo(
+                    new Point(0, height - bottomLeft),
+                    new Size(bottomLeft, bottomLeft),
+                    0,
+                    isLargeArc: false,
+                    SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+            else
+            {
+                geometry.LineTo(
+                    new Point(0, height),
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+
+            geometry.LineTo(
+                new Point(0, topLeft),
+                isStroked: true,
+                isSmoothJoin: false);
+            if (topLeft > 0)
+            {
+                geometry.ArcTo(
+                    new Point(topLeft, 0),
+                    new Size(topLeft, topLeft),
+                    0,
+                    isLargeArc: false,
+                    SweepDirection.Clockwise,
+                    isStroked: true,
+                    isSmoothJoin: false);
+            }
+        }
+        clip.Freeze();
+        _previewViewportLayer.Clip = clip;
+    }
+
     private bool ApplyPreviewPresentation(
         EdgeCapsulePresentationFrame frame)
     {
@@ -403,6 +521,7 @@ internal sealed partial class EdgeCapsuleHost
                 ? HorizontalAlignment.Left
                 : HorizontalAlignment.Right;
         }
+        ApplyPreviewViewportClip(frame, bodyHeight);
         ApplyPreviewLayerState(
             _previewVisible,
             _previewVisible ? previewProgress : 0,
