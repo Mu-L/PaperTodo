@@ -18,12 +18,9 @@ internal sealed partial class EdgeCapsuleHost
     private bool _previewVisible;
     private bool _previewInteractiveCaptureLease;
     private bool _compactLabelSuppressedForPreview;
-    private bool _compactLabelRestoreScheduledForPreviewClose;
     private readonly TranslateTransform _compactContentAnchorTransform = new();
     private double _compactContentAnchorWidthDip = double.NaN;
     private double _compactContentAnchorCloseWidthDip = double.NaN;
-    private double _lastPreviewProgress;
-    private double _lastPreviewCloseWidthDip;
     private long _previewInteractiveCaptureGraceUntil;
 
     private const int PreviewInteractiveCaptureGraceMilliseconds = 250;
@@ -348,9 +345,15 @@ internal sealed partial class EdgeCapsuleHost
             1);
 
         var previousPreviewVisible = _previewVisible;
-        var previousPreviewProgress = _lastPreviewProgress;
-        var previousCloseWidth = _lastPreviewCloseWidthDip;
+        var previousPreviewProgress = _previewViewportLayer?.Opacity ?? 0;
         var currentCloseWidth = _appliedCloseWidth;
+        var previousCloseWidth = _appliedFrame.Visible
+            ? EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
+                _appliedFrame.Bounds.Width,
+                _appliedFrame.BodyWindowWidthDevice,
+                _appliedFrame.DpiScaleX,
+                _appliedFrame.MaximumCloseWidthDip)
+            : currentCloseWidth;
         var hasContent =
             _previewViewportLayer != null &&
             _previewContentLayer != null &&
@@ -373,6 +376,7 @@ internal sealed partial class EdgeCapsuleHost
         if (_previewVisible)
         {
             if (closingPreview &&
+                _compactLabelSuppressedForPreview &&
                 TryRetargetCompactContentAnchorForPreviewClose(
                     previousPreviewProgress,
                     previewProgress,
@@ -388,17 +392,9 @@ internal sealed partial class EdgeCapsuleHost
         else if (!retainPreview)
         {
             RestoreCompactContentAnchor();
-            if (_compactLabelRestoreScheduledForPreviewClose)
-            {
-                // The close animation already owns the final 35 ms fade. Do not replace that
-                // compositor animation on the final compact frame.
-                _compactLabelRestoreScheduledForPreviewClose = false;
-                _compactLabelSuppressedForPreview = false;
-            }
-            else
-            {
-                SetCompactLabelSuppressedForPreview(false);
-            }
+            // If the last-35-ms fade is already running, its logical state is unsuppressed and this
+            // is a no-op; the final compact frame therefore cannot restart or truncate that fade.
+            SetCompactLabelSuppressedForPreview(false);
         }
 
         if (_previewContentLayer != null)
@@ -427,9 +423,6 @@ internal sealed partial class EdgeCapsuleHost
         {
             return false;
         }
-
-        _lastPreviewProgress = _previewVisible ? previewProgress : 0;
-        _lastPreviewCloseWidthDip = _previewVisible ? currentCloseWidth : 0;
 
         if (!retainPreview && hasContent)
         {
@@ -479,10 +472,9 @@ internal sealed partial class EdgeCapsuleHost
         double previousCloseWidth,
         double currentCloseWidth)
     {
-        if (_compactLabelRestoreScheduledForPreviewClose ||
-            previousPreviewProgress <= 0.0001)
+        if (previousPreviewProgress <= 0.0001)
         {
-            return _compactLabelRestoreScheduledForPreviewClose;
+            return false;
         }
 
         // Every interpolated field uses the same eased transition progress. On a close, preview
@@ -602,13 +594,11 @@ internal sealed partial class EdgeCapsuleHost
 
     private void SetCompactLabelSuppressedForPreview(bool suppressed)
     {
-        if (_compactLabelSuppressedForPreview == suppressed &&
-            !_compactLabelRestoreScheduledForPreviewClose)
+        if (_compactLabelSuppressedForPreview == suppressed)
         {
             return;
         }
 
-        _compactLabelRestoreScheduledForPreviewClose = false;
         _compactLabelSuppressedForPreview = suppressed;
         var targetOpacity = suppressed ? 0d : 1d;
         var currentOpacity = Math.Clamp(Label.Opacity, 0, 1);
@@ -639,8 +629,7 @@ internal sealed partial class EdgeCapsuleHost
         double previousPreviewProgress,
         double previewProgress)
     {
-        if (_compactLabelRestoreScheduledForPreviewClose ||
-            !_compactLabelSuppressedForPreview ||
+        if (!_compactLabelSuppressedForPreview ||
             previousPreviewProgress <= 0.0001)
         {
             return;
@@ -660,7 +649,6 @@ internal sealed partial class EdgeCapsuleHost
             0,
             remainingMilliseconds - CompactLabelFadeMilliseconds);
 
-        _compactLabelRestoreScheduledForPreviewClose = true;
         _compactLabelSuppressedForPreview = false;
         Label.BeginAnimation(UIElement.OpacityProperty, null);
         Label.Opacity = 1;
@@ -715,8 +703,6 @@ internal sealed partial class EdgeCapsuleHost
         }
         _previewContent = null;
         _previewVisible = false;
-        _lastPreviewProgress = 0;
-        _lastPreviewCloseWidthDip = 0;
         _previewInteractiveCaptureLease = false;
         _previewInteractiveCaptureGraceUntil = 0;
         RestoreCompactContentAnchor();
