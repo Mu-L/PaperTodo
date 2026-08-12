@@ -64,6 +64,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private const int WmNcHitTest = 0x0084;
     private static readonly IntPtr HtTransparent = new(-1);
     private readonly EdgeCapsuleHostOptions _options;
+#if DEBUG
+    private readonly long _diagnosticResourceId;
+#endif
     private EdgeCapsuleHostCallbacks? _callbacks;
     private Brush _hoverBrush;
     private Brush _textBrush;
@@ -111,6 +114,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         TextBlock label)
     {
         _options = options;
+#if DEBUG
+        _diagnosticResourceId =
+            EdgeCapsulePerformanceDiagnostics.RegisterTransparentHost(
+                options.DiagnosticId);
+#endif
         _hoverBrush = options.HoverBrush;
         _textBrush = options.StrongTextBrush;
         _weakTextBrush = options.TextBrush;
@@ -250,6 +258,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
         if (!frame.Visible)
         {
+#if DEBUG
+            var previousHostBounds = _appliedFrame.HostBounds;
+#endif
             if (window.IsVisible)
             {
                 window.Hide();
@@ -276,6 +287,12 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             }
             _appliedFrame = EdgeCapsulePresentationFrame.Hidden;
 #if DEBUG
+            EdgeCapsulePerformanceDiagnostics.UpdateTransparentHost(
+                _diagnosticResourceId,
+                _options.DiagnosticId,
+                previousHostBounds,
+                shown: false,
+                "hidden");
             TraceApply("hidden");
 #endif
             return true;
@@ -521,6 +538,16 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             WindowNative.ApplyBottomZOrder(window);
         }
 #if DEBUG
+        EdgeCapsulePerformanceDiagnostics.UpdateTransparentHost(
+            _diagnosticResourceId,
+            _options.DiagnosticId,
+            nativeHostBounds,
+            window.IsVisible,
+            firstShow
+                ? "shown"
+                : nativeBoundsChanged
+                    ? "bounds-changed"
+                    : "visibility-changed");
         TraceApply("success");
 #endif
         return true;
@@ -1438,6 +1465,11 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         _disposed = true;
         Window.Content = null;
         Window.Close();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.UnregisterTransparentHost(
+            _diagnosticResourceId,
+            _options.DiagnosticId);
+#endif
         _callbacks = null;
         _appliedEdge = null;
     }
