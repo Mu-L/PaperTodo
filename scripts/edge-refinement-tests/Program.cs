@@ -1,11 +1,15 @@
 extern alias PaperTodoApp;
 
+using NativeBoundsPolicy = PaperTodoApp::PaperTodo.WindowNativeBoundsPolicy;
+
 namespace PaperTodo;
 
 internal static class Program
 {
     private static int Main()
     {
+        CheckNativeBoundsFlags();
+
         var nodes = new[]
         {
             new EdgeCapsulePreviewCorridorNode(
@@ -181,6 +185,44 @@ internal static class Program
 
         Console.WriteLine("Edge refinement checks passed.");
         return 0;
+    }
+
+    private static void CheckNativeBoundsFlags()
+    {
+        const uint baseFlags = 0x0214;
+        var moveOnly = NativeBoundsPolicy.FlagsForChanges(
+            baseFlags,
+            positionChanged: true,
+            sizeChanged: false);
+        Assert(
+            moveOnly == (baseFlags | NativeBoundsPolicy.SwpNoSize),
+            "position-only bounds must explicitly preserve the current native size");
+
+        var sizeOnly = NativeBoundsPolicy.FlagsForChanges(
+            baseFlags,
+            positionChanged: false,
+            sizeChanged: true);
+        Assert(
+            sizeOnly == (baseFlags | NativeBoundsPolicy.SwpNoMove),
+            "size-only bounds must explicitly preserve the current native position");
+
+        var moveAndSize = NativeBoundsPolicy.FlagsForChanges(
+            baseFlags,
+            positionChanged: true,
+            sizeChanged: true);
+        Assert(
+            moveAndSize == baseFlags,
+            "a full bounds change must keep both native axes writable");
+
+        var unchanged = NativeBoundsPolicy.FlagsForChanges(
+            baseFlags,
+            positionChanged: false,
+            sizeChanged: false);
+        Assert(
+            unchanged == (baseFlags |
+                NativeBoundsPolicy.SwpNoMove |
+                NativeBoundsPolicy.SwpNoSize),
+            "an unchanged rectangle must preserve both native axes");
     }
 
     private static void CheckCorridorIntentPrediction()

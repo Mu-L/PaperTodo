@@ -11,6 +11,25 @@ internal static class WindowNative
 {
     [ThreadStatic]
     private static WindowDeviceBoundsBatch? _currentDeviceBoundsBatch;
+#if DEBUG
+    [ThreadStatic]
+    private static NativeGeometryMessageProbe _activeNativeGeometryMessageProbe;
+
+    private const int WmMove = 0x0003;
+    private const int WmSize = 0x0005;
+    private const int WmWindowPosChanging = 0x0046;
+    private const int WmWindowPosChanged = 0x0047;
+
+    private struct NativeGeometryMessageProbe
+    {
+        internal bool Active { get; set; }
+        internal IntPtr Handle { get; set; }
+        internal int WindowPosChangingCount { get; set; }
+        internal int WindowPosChangedCount { get; set; }
+        internal int MoveCount { get; set; }
+        internal int SizeCount { get; set; }
+    }
+#endif
 
     private const int GwlExStyle = -20;
     private const int GwlpHwndParent = -8;
@@ -27,8 +46,8 @@ internal static class WindowNative
     private static readonly IntPtr HwndBottom = new(1);
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly IntPtr HwndNoTopmost = new(-2);
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoSize = WindowNativeBoundsPolicy.SwpNoSize;
+    private const uint SwpNoMove = WindowNativeBoundsPolicy.SwpNoMove;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
@@ -36,6 +55,54 @@ internal static class WindowNative
     private const uint SwpHideWindow = 0x0080;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int DwmWaExtendedFrameBounds = 9;
+
+#if DEBUG
+    internal static void ObserveNativeGeometryMessage(IntPtr handle, int message)
+    {
+        var probe = _activeNativeGeometryMessageProbe;
+        if (!probe.Active ||
+            (probe.Handle != IntPtr.Zero && probe.Handle != handle))
+        {
+            return;
+        }
+
+        switch (message)
+        {
+            case WmWindowPosChanging:
+                _activeNativeGeometryMessageProbe.WindowPosChangingCount++;
+                break;
+            case WmWindowPosChanged:
+                _activeNativeGeometryMessageProbe.WindowPosChangedCount++;
+                break;
+            case WmMove:
+                _activeNativeGeometryMessageProbe.MoveCount++;
+                break;
+            case WmSize:
+                _activeNativeGeometryMessageProbe.SizeCount++;
+                break;
+        }
+    }
+
+    private static NativeGeometryMessageProbe BeginNativeGeometryMessageProbe(
+        IntPtr handle)
+    {
+        var previous = _activeNativeGeometryMessageProbe;
+        _activeNativeGeometryMessageProbe = new NativeGeometryMessageProbe
+        {
+            Active = true,
+            Handle = handle
+        };
+        return previous;
+    }
+
+    private static NativeGeometryMessageProbe EndNativeGeometryMessageProbe(
+        NativeGeometryMessageProbe previous)
+    {
+        var completed = _activeNativeGeometryMessageProbe;
+        _activeNativeGeometryMessageProbe = previous;
+        return completed;
+    }
+#endif
 
     // A tiny off-screen TOOLWINDOW serves as the native owner for a paper hidden from
     // Alt+Tab. Each paper must keep its own owner: papers sharing one owner become one
@@ -460,10 +527,16 @@ internal static class WindowNative
 
 #if DEBUG
         var immediateStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var inspectStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
         var positionChanged = true;
         var sizeChanged = true;
-        if (GetWindowRect(handle, out var before))
+        var inspected = GetWindowRect(handle, out var before);
+#if DEBUG
+        var inspectMilliseconds =
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(inspectStartedAt);
+#endif
+        if (inspected)
         {
             positionChanged = before.Left != bounds.Left || before.Top != bounds.Top;
             sizeChanged = before.Right - before.Left != bounds.Width ||
@@ -475,6 +548,8 @@ internal static class WindowNative
                     $"native.window phase=immediate-skip hwnd=0x{handle.ToInt64():X} " +
                     $"outcome=noop " +
                     $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
+                    $"inspectMs={inspectMilliseconds:F3} setMs=0.000 " +
+                    $"inspected=true nativeFlags=<none> axisFlags=strict " +
                     $"positionChanged=false sizeChanged=false " +
                     $"visibilityChanged=false zOrderChanged=false " +
                     $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
@@ -483,19 +558,49 @@ internal static class WindowNative
             }
         }
 
-        var applied = SetWindowPos(
-            handle,
-            IntPtr.Zero,
-            bounds.Left,
-            bounds.Top,
-            bounds.Width,
-            bounds.Height,
-            SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+        var nativeFlags = WindowNativeBoundsPolicy.FlagsForChanges(
+            SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder,
+            positionChanged,
+            sizeChanged);
 #if DEBUG
+        var previousMessageProbe = BeginNativeGeometryMessageProbe(handle);
+        var messageProbe = default(NativeGeometryMessageProbe);
+        var setStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var setCompletedAt = 0L;
+#endif
+        bool applied;
+#if DEBUG
+        try
+        {
+#endif
+            applied = SetWindowPos(
+                handle,
+                IntPtr.Zero,
+                bounds.Left,
+                bounds.Top,
+                bounds.Width,
+                bounds.Height,
+                nativeFlags);
+#if DEBUG
+            setCompletedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        }
+        finally
+        {
+            messageProbe = EndNativeGeometryMessageProbe(previousMessageProbe);
+        }
+        var setMilliseconds =
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                setStartedAt,
+                setCompletedAt);
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"native.window phase=immediate-set hwnd=0x{handle.ToInt64():X} " +
             $"outcome={(applied ? "success" : "failed")} " +
             $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(immediateStartedAt):F3} " +
+            $"inspectMs={inspectMilliseconds:F3} setMs={setMilliseconds:F3} " +
+            $"inspected={inspected} nativeFlags=0x{nativeFlags:X4} axisFlags=strict " +
+            $"windowPosChanging={messageProbe.WindowPosChangingCount} " +
+            $"windowPosChanged={messageProbe.WindowPosChangedCount} " +
+            $"moveMessages={messageProbe.MoveCount} sizeMessages={messageProbe.SizeCount} " +
             $"positionChanged={positionChanged} sizeChanged={sizeChanged} " +
             $"visibilityChanged=false zOrderChanged=false " +
             $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}");
@@ -643,6 +748,10 @@ internal static class WindowNative
         private double _deferMilliseconds;
         private double _endMilliseconds;
         private double _verifyMilliseconds;
+        private int _windowPosChangingMessageCount;
+        private int _windowPosChangedMessageCount;
+        private int _moveMessageCount;
+        private int _sizeMessageCount;
 
         private sealed class WindowBatchDiagnostic
         {
@@ -652,6 +761,8 @@ internal static class WindowNative
             public bool SkippedUnchanged { get; set; }
             public bool MoveChanged { get; set; }
             public bool SizeChanged { get; set; }
+            public bool ReplacedPendingBounds { get; set; }
+            public uint NativeFlags { get; set; }
             public bool Verified { get; set; }
             public double InspectMilliseconds { get; set; }
             public double DeferMilliseconds { get; set; }
@@ -693,15 +804,19 @@ internal static class WindowNative
                 return false;
             }
 
-            if (_pendingBounds.TryGetValue(handle, out var alreadyPending) &&
-                alreadyPending == bounds)
+            var hasPendingBounds = _pendingBounds.TryGetValue(
+                handle,
+                out var alreadyPending);
+            if (hasPendingBounds && alreadyPending == bounds)
             {
                 UnchangedWindowCount++;
                 return true;
             }
 
-            var moveChanged = false;
-            var sizeChanged = false;
+            // A failed inspection cannot prove either axis is stable. Preserve the historical
+            // full-bounds fallback instead of adding no-change flags to an unknown rectangle.
+            var moveChanged = true;
+            var sizeChanged = true;
             var sameAsNative = false;
 #if DEBUG
             var diagnostic = new WindowBatchDiagnostic { Expected = bounds };
@@ -751,6 +866,21 @@ internal static class WindowNative
             diagnostic.SizeChanged = sizeChanged;
 #endif
 
+            var baseNativeFlags = SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder;
+            // A second request for the same HWND must fully replace the already-deferred
+            // rectangle. Preserving an axis relative to the live HWND could accidentally retain
+            // that axis from the first pending request instead of the new final target.
+            var nativeFlags = hasPendingBounds
+                ? baseNativeFlags
+                : WindowNativeBoundsPolicy.FlagsForChanges(
+                    baseNativeFlags,
+                    moveChanged,
+                    sizeChanged);
+#if DEBUG
+            diagnostic.ReplacedPendingBounds = hasPendingBounds;
+            diagnostic.NativeFlags = nativeFlags;
+#endif
+
             if (!_beginAttempted)
             {
                 _beginAttempted = true;
@@ -786,7 +916,7 @@ internal static class WindowNative
                 bounds.Top,
                 bounds.Width,
                 bounds.Height,
-                SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+                nativeFlags);
 #if DEBUG
             diagnostic.DeferMilliseconds =
                 EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(deferStartedAt);
@@ -857,11 +987,31 @@ internal static class WindowNative
 
             _nativeCommitAttempted = true;
 #if DEBUG
+            var previousMessageProbe = BeginNativeGeometryMessageProbe(IntPtr.Zero);
+            var messageProbe = default(NativeGeometryMessageProbe);
             var endStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            var endCompletedAt = 0L;
 #endif
-            var committed = EndDeferWindowPos(_deferredWindowPosition);
+            bool committed;
 #if DEBUG
-            _endMilliseconds = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(endStartedAt);
+            try
+            {
+#endif
+                committed = EndDeferWindowPos(_deferredWindowPosition);
+#if DEBUG
+                endCompletedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            }
+            finally
+            {
+                messageProbe = EndNativeGeometryMessageProbe(previousMessageProbe);
+            }
+            _endMilliseconds = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                endStartedAt,
+                endCompletedAt);
+            _windowPosChangingMessageCount = messageProbe.WindowPosChangingCount;
+            _windowPosChangedMessageCount = messageProbe.WindowPosChangedCount;
+            _moveMessageCount = messageProbe.MoveCount;
+            _sizeMessageCount = messageProbe.SizeCount;
 #endif
             _deferredWindowPosition = IntPtr.Zero;
             if (!committed)
@@ -931,6 +1081,9 @@ internal static class WindowNative
                 $"nativeCommit={_nativeCommitAttempted} beginMs={_beginMilliseconds:F3} " +
                 $"inspectMs={_inspectMilliseconds:F3} deferMs={_deferMilliseconds:F3} " +
                 $"endMs={_endMilliseconds:F3} verifyMs={_verifyMilliseconds:F3} " +
+                $"windowPosChanging={_windowPosChangingMessageCount} " +
+                $"windowPosChanged={_windowPosChangedMessageCount} " +
+                $"moveMessages={_moveMessageCount} sizeMessages={_sizeMessageCount} " +
                 $"totalMs={totalMilliseconds:F3}");
             if (!shouldTraceDetails)
             {
@@ -944,7 +1097,9 @@ internal static class WindowNative
                     $"expected={FormatBounds(diagnostic.Expected)} " +
                     $"actual={(diagnostic.HasActual ? FormatBounds(diagnostic.Actual) : "<unknown>")} " +
                     $"skipped={diagnostic.SkippedUnchanged} move={diagnostic.MoveChanged} " +
-                    $"size={diagnostic.SizeChanged} visibility=false zOrder=false " +
+                    $"size={diagnostic.SizeChanged} replacedPending={diagnostic.ReplacedPendingBounds} " +
+                    $"visibility=false zOrder=false " +
+                    $"nativeFlags=0x{diagnostic.NativeFlags:X4} axisFlags=strict " +
                     $"inspectMs={diagnostic.InspectMilliseconds:F3} " +
                     $"deferMs={diagnostic.DeferMilliseconds:F3} " +
                     $"verifyMs={diagnostic.VerifyMilliseconds:F3} verified={diagnostic.Verified}");
