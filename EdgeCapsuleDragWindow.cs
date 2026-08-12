@@ -10,6 +10,9 @@ namespace PaperTodo;
 
 internal sealed record EdgeCapsuleDragWindowOptions
 {
+#if DEBUG
+    public required string DiagnosticId { get; init; }
+#endif
     public required EdgeCapsuleFloatingShape Shape { get; init; }
     public required double WindowChromeMargin { get; init; }
     public required double OutlineMargin { get; init; }
@@ -67,6 +70,21 @@ internal sealed class EdgeCapsuleDragWindow : Window
         Action<bool> Completed);
 
     private readonly ScaleTransform _entranceScale = new(1, 1);
+#if DEBUG
+    private static long _nextDiagnosticHostId;
+    private readonly long _diagnosticHostId;
+    private readonly string _diagnosticId;
+    private bool _diagnosticNativeDragTracking;
+    private long _diagnosticNativeDragStartedAt;
+    private long _diagnosticLastLocationAt;
+    private int _diagnosticLocationEvents;
+    private bool _diagnosticHandoffTracking;
+    private string _diagnosticHandoffPhase = "<none>";
+    private long _diagnosticHandoffStartedAt;
+    private long _diagnosticLastHandoffFrameAt;
+    private int _diagnosticHandoffFrames;
+    private int _diagnosticHandoffNativeMoves;
+#endif
     private readonly double _widthDip;
     private readonly double _heightDip;
     private readonly Grid _root;
@@ -82,6 +100,10 @@ internal sealed class EdgeCapsuleDragWindow : Window
 
     public EdgeCapsuleDragWindow(EdgeCapsuleDragWindowOptions options)
     {
+#if DEBUG
+        _diagnosticHostId = Interlocked.Increment(ref _nextDiagnosticHostId);
+        _diagnosticId = options.DiagnosticId;
+#endif
         ShowInTaskbar = false;
         ShowActivated = false;
         WindowStartupLocation = WindowStartupLocation.Manual;
@@ -120,28 +142,77 @@ internal sealed class EdgeCapsuleDragWindow : Window
         double scaleFrom,
         int durationMilliseconds)
     {
+#if DEBUG
+        var totalStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var stageStartedAt = totalStartedAt;
+#endif
         // Create only this detached HWND as System Aware, then let the Windows caption move loop
         // own cross-monitor drag position and bitmap scaling just as it did before PMv2.
         PlaceCenteredAtForShow(pointer);
+#if DEBUG
+        var placeMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+        stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         WindowNative.CreateSystemAwareTopLevelWindowHandle(this);
+#if DEBUG
+        var createHandleMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+#endif
         _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         if (!animate)
         {
             _entranceScale.ScaleX = 1;
             _entranceScale.ScaleY = 1;
+#if DEBUG
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             Show();
+#if DEBUG
+            var showMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             RefreshNativeMetricsLayout();
+#if DEBUG
+            var metricsMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             PlaceCenteredAtCursorForDrag(pointer);
+#if DEBUG
+            var centerMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+#endif
             Opacity = 1;
+#if DEBUG
+            TraceShowDiagnostics(
+                animate,
+                placeMs,
+                createHandleMs,
+                showMs,
+                metricsMs,
+                centerMs,
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(totalStartedAt));
+#endif
             return;
         }
 
         _entranceScale.ScaleX = scaleFrom;
         _entranceScale.ScaleY = scaleFrom;
+#if DEBUG
+        stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         Show();
+#if DEBUG
+        var animatedShowMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+        stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         RefreshNativeMetricsLayout();
+#if DEBUG
+        var animatedMetricsMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+        stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         PlaceCenteredAtCursorForDrag(pointer);
+#if DEBUG
+        var animatedCenterMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+#endif
         Opacity = 1;
         var animation = new DoubleAnimation
         {
@@ -152,7 +223,38 @@ internal sealed class EdgeCapsuleDragWindow : Window
         };
         _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, animation, HandoffBehavior.SnapshotAndReplace);
         _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, animation, HandoffBehavior.SnapshotAndReplace);
+#if DEBUG
+        TraceShowDiagnostics(
+            animate,
+            placeMs,
+            createHandleMs,
+            animatedShowMs,
+            animatedMetricsMs,
+            animatedCenterMs,
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(totalStartedAt));
+#endif
     }
+
+#if DEBUG
+    private void TraceShowDiagnostics(
+        bool animate,
+        double placeMs,
+        double createHandleMs,
+        double showMs,
+        double metricsMs,
+        double centerMs,
+        double totalMs)
+    {
+        var boundsText = WindowNative.TryGetWindowDeviceBounds(this, out var bounds)
+            ? $"{bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}"
+            : "<unavailable>";
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.host phase=shown paper={_diagnosticId} dragHost={_diagnosticHostId} " +
+            $"animate={animate} totalMs={totalMs:F3} placeMs={placeMs:F3} " +
+            $"createHandleMs={createHandleMs:F3} showMs={showMs:F3} " +
+            $"metricsMs={metricsMs:F3} centerMs={centerMs:F3} bounds={boundsText}");
+    }
+#endif
 
     private void PlaceCenteredAtForShow(DeviceScreenPoint pointer)
     {
@@ -186,6 +288,10 @@ internal sealed class EdgeCapsuleDragWindow : Window
         }
 
         _nativeDragAttemptActive = true;
+#if DEBUG
+        var diagnosticResult = EdgeCapsuleNativeDragResult.NotStarted;
+        BeginNativeDragDiagnostics();
+#endif
         try
         {
             // Caption drag is intentional and modal until the left button is released. Escape is not
@@ -211,19 +317,93 @@ internal sealed class EdgeCapsuleDragWindow : Window
 
             if (!WindowNative.TryGetCursorScreenPosition(out var finalCursor))
             {
+#if DEBUG
+                diagnosticResult = EdgeCapsuleNativeDragResult.Aborted;
+#endif
                 return new EdgeCapsuleNativeDragOutcome(
                     EdgeCapsuleNativeDragResult.Aborted,
                     default);
             }
 
+#if DEBUG
+            diagnosticResult = EdgeCapsuleNativeDragResult.Completed;
+#endif
             return new EdgeCapsuleNativeDragOutcome(
                 EdgeCapsuleNativeDragResult.Completed,
                 finalCursor);
         }
         finally
         {
+#if DEBUG
+            CompleteNativeDragDiagnostics(diagnosticResult);
+#endif
             _nativeDragAttemptActive = false;
         }
+    }
+
+#if DEBUG
+    private void BeginNativeDragDiagnostics()
+    {
+        _diagnosticNativeDragTracking = true;
+        _diagnosticNativeDragStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        _diagnosticLastLocationAt = 0;
+        _diagnosticLocationEvents = 0;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.native phase=loop-begin paper={_diagnosticId} " +
+            $"dragHost={_diagnosticHostId}");
+    }
+
+    private void CompleteNativeDragDiagnostics(EdgeCapsuleNativeDragResult result)
+    {
+        var durationMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            _diagnosticNativeDragStartedAt);
+        _diagnosticNativeDragTracking = false;
+        var boundsText = WindowNative.TryGetWindowDeviceBounds(this, out var bounds)
+            ? $"{bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}"
+            : "<unavailable>";
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.native phase=loop-summary paper={_diagnosticId} " +
+            $"dragHost={_diagnosticHostId} result={result} modalMs={durationMs:F3} " +
+            "modalIncludesPointerHold=true " +
+            $"locationEvents={_diagnosticLocationEvents} bounds={boundsText}");
+    }
+#endif
+
+    protected override void OnLocationChanged(EventArgs e)
+    {
+#if DEBUG
+        var eventAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var tracking = _diagnosticNativeDragTracking;
+        var sequence = 0;
+        var totalMs = 0.0;
+        var gapMs = 0.0;
+        if (tracking)
+        {
+            sequence = ++_diagnosticLocationEvents;
+            totalMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _diagnosticNativeDragStartedAt,
+                eventAt);
+            gapMs = _diagnosticLastLocationAt == 0
+                ? totalMs
+                : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    _diagnosticLastLocationAt,
+                    eventAt);
+            _diagnosticLastLocationAt = eventAt;
+        }
+        var handlerStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        base.OnLocationChanged(e);
+#if DEBUG
+        if (tracking)
+        {
+            var handlerMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                handlerStartedAt);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.motion paper={_diagnosticId} dragHost={_diagnosticHostId} " +
+                $"sequence={sequence} totalMs={totalMs:F3} gapMs={gapMs:F3} " +
+                $"handlerMs={handlerMs:F3} leftDip={Left:F2} topDip={Top:F2}");
+        }
+#endif
     }
 
     public void AnimateDockingHandoff(
@@ -289,6 +469,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var targetSurfaceWidthDip = geometry.SurfaceTargetWidthDip;
         _dockingPresentationActive = true;
         _currentDockingEdge = targetEdge;
+#if DEBUG
+        BeginHandoffDiagnostics("flight");
+#endif
 
         // The WPF Window keeps its fixed logical Width/Height. Each frame moves only the HWND and
         // changes only the child width, so there is no second native size owner to fight WPF.
@@ -297,6 +480,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 startSurfaceWidthDip,
                 targetEdge))
         {
+#if DEBUG
+            CompleteHandoffDiagnostics("initial-apply-failed");
+#endif
             completed(false);
             return;
         }
@@ -334,6 +520,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
             completed(true);
             return;
         }
+#if DEBUG
+        BeginHandoffDiagnostics("reveal");
+#endif
 
         _dockingHandoffAnimation = new DockingHandoffAnimation(
             DockingHandoffAnimationPhase.Reveal,
@@ -371,6 +560,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
         {
             return;
         }
+#if DEBUG
+        RecordHandoffFrameDiagnostics();
+#endif
 
         var elapsed = Math.Max(0, Stopwatch.GetTimestamp() - animation.StartedAtTimestamp);
         var rawProgress = Math.Clamp(
@@ -424,6 +616,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
             Dispatcher.HasShutdownFinished)
         {
             _dockingHandoffAnimation = null;
+#if DEBUG
+            CompleteHandoffDiagnostics("interrupted");
+#endif
             animation.Completed(false);
             return;
         }
@@ -432,6 +627,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
         {
             _surface.Opacity = 0;
             _dockingHandoffAnimation = null;
+#if DEBUG
+            CompleteHandoffDiagnostics("completed");
+#endif
             animation.Completed(true);
             return;
         }
@@ -444,6 +642,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 animation.Edge))
         {
             _dockingHandoffAnimation = null;
+#if DEBUG
+            CompleteHandoffDiagnostics("endpoint-apply-failed");
+#endif
             animation.Completed(false);
             return;
         }
@@ -475,6 +676,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 tolerance: 2) &&
             MatchesDockingSurfaceLayout(animation.SurfaceTargetWidthDip);
         _dockingHandoffAnimation = null;
+#if DEBUG
+        CompleteHandoffDiagnostics(settled ? "completed" : "endpoint-verify-failed");
+#endif
         animation.Completed(settled);
     }
 
@@ -517,6 +721,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var animation = _dockingHandoffAnimation;
         _dockingHandoffAnimation = null;
         CompositionTarget.Rendering -= OnDockingHandoffFrame;
+#if DEBUG
+        CompleteHandoffDiagnostics("cancelled");
+#endif
         animation.Completed(false);
     }
 
@@ -545,8 +752,94 @@ internal sealed class EdgeCapsuleDragWindow : Window
 
         // Position is committed last. Width/Height remain owned by the fixed WPF Window and are
         // never included in this native operation.
-        return WindowNative.TryMoveWindowDevicePosition(this, hostPosition);
+#if DEBUG
+        var nativeStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var moved = WindowNative.TryMoveWindowDevicePosition(this, hostPosition);
+#if DEBUG
+        RecordHandoffNativeMoveDiagnostics(
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(nativeStartedAt),
+            hostPosition,
+            moved);
+#endif
+        return moved;
     }
+
+#if DEBUG
+    private void BeginHandoffDiagnostics(string phase)
+    {
+        if (_diagnosticHandoffTracking)
+        {
+            CompleteHandoffDiagnostics("restarted");
+        }
+        _diagnosticHandoffTracking = true;
+        _diagnosticHandoffPhase = phase;
+        _diagnosticHandoffStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        _diagnosticLastHandoffFrameAt = 0;
+        _diagnosticHandoffFrames = 0;
+        _diagnosticHandoffNativeMoves = 0;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.handoff phase={phase} event=begin paper={_diagnosticId} " +
+            $"dragHost={_diagnosticHostId}");
+    }
+
+    private void RecordHandoffFrameDiagnostics()
+    {
+        if (!_diagnosticHandoffTracking)
+        {
+            return;
+        }
+        var frameAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var totalMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            _diagnosticHandoffStartedAt,
+            frameAt);
+        var gapMs = _diagnosticLastHandoffFrameAt == 0
+            ? totalMs
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _diagnosticLastHandoffFrameAt,
+                frameAt);
+        _diagnosticLastHandoffFrameAt = frameAt;
+        _diagnosticHandoffFrames++;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.handoff phase={_diagnosticHandoffPhase} event=frame " +
+            $"paper={_diagnosticId} dragHost={_diagnosticHostId} " +
+            $"sequence={_diagnosticHandoffFrames} totalMs={totalMs:F3} " +
+            $"gapMs={gapMs:F3}");
+    }
+
+    private void RecordHandoffNativeMoveDiagnostics(
+        double nativeMs,
+        DeviceScreenPoint hostPosition,
+        bool moved)
+    {
+        if (!_diagnosticHandoffTracking)
+        {
+            return;
+        }
+        _diagnosticHandoffNativeMoves++;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.handoff phase={_diagnosticHandoffPhase} event=native-move " +
+            $"paper={_diagnosticId} dragHost={_diagnosticHostId} " +
+            $"sequence={_diagnosticHandoffNativeMoves} outcome={(moved ? "success" : "failed")} " +
+            $"nativeMs={nativeMs:F3} target={hostPosition.X:F0},{hostPosition.Y:F0}");
+    }
+
+    private void CompleteHandoffDiagnostics(string outcome)
+    {
+        if (!_diagnosticHandoffTracking)
+        {
+            return;
+        }
+        var durationMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+            _diagnosticHandoffStartedAt);
+        _diagnosticHandoffTracking = false;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.handoff phase={_diagnosticHandoffPhase} event=summary " +
+            $"paper={_diagnosticId} dragHost={_diagnosticHostId} outcome={outcome} " +
+            $"totalMs={durationMs:F3} frames={_diagnosticHandoffFrames} " +
+            $"nativeMoves={_diagnosticHandoffNativeMoves}");
+    }
+#endif
 
     private static long AnimationDurationTicks(int durationMilliseconds) =>
         Math.Max(

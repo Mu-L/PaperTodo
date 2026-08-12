@@ -9,8 +9,14 @@ public sealed partial class PaperWindow
     // later drag cannot inherit an exhausted budget from an earlier floating HWND.
     private const int MaximumDeepCapsuleDockingHandoffRestarts = 1;
 
-    private void OnEdgeCapsulePointerPressed(DeviceScreenPoint screenPosition) =>
+    private void OnEdgeCapsulePointerPressed(DeviceScreenPoint screenPosition)
+    {
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.input phase=pointer-down " +
+            $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"pointer={screenPosition.X:F0},{screenPosition.Y:F0}");
         BeginEdgeCapsulePointerInteraction(screenPosition);
+    }
 
     private bool OnEdgeCapsulePointerMoved(
         DeviceScreenPoint currentScreenPosition,
@@ -56,6 +62,10 @@ public sealed partial class PaperWindow
         {
             if (movedEnough)
             {
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"drag.input phase=reorder-threshold " +
+                    $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"pointer={currentScreenPosition.X:F0},{currentScreenPosition.Y:F0}");
                 StartDeepCapsuleReorderDrag(currentScreenPosition);
                 return true;
             }
@@ -131,6 +141,9 @@ public sealed partial class PaperWindow
         var outlineMargin = WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap;
         var host = new EdgeCapsuleDragWindow(new EdgeCapsuleDragWindowOptions
         {
+#if DEBUG
+            DiagnosticId = EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id),
+#endif
             Shape = shape,
             WindowChromeMargin = WindowChromeMargin,
             OutlineMargin = outlineMargin,
@@ -903,26 +916,63 @@ public sealed partial class PaperWindow
             return;
         }
 
+#if DEBUG
+        var diagnosticId = EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id);
+        var transferStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var stageStartedAt = transferStartedAt;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"drag.transfer phase=unlock-begin paper={diagnosticId} " +
+            $"pointer={currentScreenPos.X:F0},{currentScreenPos.Y:F0}");
+#endif
         var edgeHost = _edgeCapsuleHost;
         if (!BeginEdgeCapsuleFloatingTransfer(currentScreenPos))
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.transfer phase=unlock-failed paper={diagnosticId} " +
+                "stage=begin-floating-transfer");
+#endif
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
             return;
         }
+#if DEBUG
+        var transferStateMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+#endif
         try
         {
+#if DEBUG
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             FlushEdgeCapsulePresentation(EdgeCapsuleTransitionReason.FloatingTransfer);
+#if DEBUG
+            var flushMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             var floatingHost = CreateDeepCapsuleFloatingDragHost(
                 currentScreenPos,
                 _edgeCapsule.FloatingShape);
+#if DEBUG
+            var createShowMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             if (!BeginEdgeCapsuleFloatingReorder())
             {
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"drag.transfer phase=unlock-failed paper={diagnosticId} " +
+                    "stage=begin-floating-reorder");
+#endif
                 CancelDeepCapsuleReorderDrag(restoreLayout: true);
                 return;
             }
             WindowNative.BringToFrontNoActivate(floatingHost);
             RefreshDeepCapsuleSlotTopmost();
             Mouse.OverrideCursor = Cursors.SizeAll;
+#if DEBUG
+            var stateAndZOrderMs =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
 
             // Push one render pass so the docked blank and new floating HWND share a layout tick.
             // Do not DwmFlush or pump Input here: both freeze this UI thread while the cursor keeps
@@ -932,6 +982,17 @@ public sealed partial class PaperWindow
             Dispatcher.Invoke(
                 () => { },
                 System.Windows.Threading.DispatcherPriority.Render);
+#if DEBUG
+            var renderBarrierMs =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.transfer phase=host-ready paper={diagnosticId} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(transferStartedAt):F3} " +
+                $"transferStateMs={transferStateMs:F3} flushMs={flushMs:F3} " +
+                $"createShowMs={createShowMs:F3} " +
+                $"stateAndZOrderMs={stateAndZOrderMs:F3} " +
+                $"renderBarrierMs={renderBarrierMs:F3}");
+#endif
 
             if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
                 !IsDeepCapsuleFloatingReordering)
@@ -949,8 +1010,19 @@ public sealed partial class PaperWindow
             // From here through button release, Windows is the sole drag owner. The reducer stays
             // in FloatingReordering only so queue/layout work remains deferred until we sample the
             // final native cursor position.
+#if DEBUG
+            var nativeDragStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
             var nativeDragOutcome = edgeHost.TransferContentPointerToNativeDrag(
                 floatingHost.RunNativeDragFromCursor);
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.transfer phase=native-return paper={diagnosticId} " +
+                $"result={nativeDragOutcome.Result} " +
+                $"nativeCallMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(nativeDragStartedAt):F3} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(transferStartedAt):F3} " +
+                $"drop={nativeDragOutcome.DropPosition.X:F0},{nativeDragOutcome.DropPosition.Y:F0}");
+#endif
             if (!ReferenceEquals(floatingHost, _deepCapsuleFloatingDragHost) ||
                 !IsDeepCapsuleFloatingReordering)
             {
@@ -966,8 +1038,14 @@ public sealed partial class PaperWindow
 
             CommitDeepCapsuleFloatingReorderAtCursor(nativeDragOutcome.DropPosition);
         }
-        catch
+        catch (Exception ex)
         {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.transfer phase=exception paper={diagnosticId} " +
+                $"type={ex.GetType().Name} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(transferStartedAt):F3}");
+#endif
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
         }
     }

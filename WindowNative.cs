@@ -638,7 +638,8 @@ internal static class WindowNative
             window,
             widthDip,
             heightDip,
-            out _);
+            out _,
+            "show-center");
 
     // Keep the cursor anchor private to this class: GetCursorPos is intentionally sampled while
     // the thread is System Aware, so these coordinates must never escape as a DeviceScreenPoint
@@ -648,20 +649,55 @@ internal static class WindowNative
         double widthDip,
         double heightDip)
     {
-        return TryCenterSystemAwareWindowAtCursor(
+#if DEBUG
+        var callStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var centered = TryCenterSystemAwareWindowAtCursor(
                 window,
                 widthDip,
                 heightDip,
-                out var cursorAnchor) &&
-            TryBeginWindowCaptionDrag(window, cursorAnchor);
+                out var cursorAnchor,
+                "pre-loop-center");
+#if DEBUG
+        var centerMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callStartedAt);
+#endif
+        if (!centered)
+        {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                "drag.native phase=caption-loop-return outcome=center-failed " +
+                $"centerMs={centerMs:F3} modalMs=0.000 " +
+                "modalIncludesPointerHold=true");
+#endif
+            return false;
+        }
+
+#if DEBUG
+        var modalStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var started = TryBeginWindowCaptionDrag(window, cursorAnchor);
+#if DEBUG
+        var handle = new WindowInteropHelper(window).Handle;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            "drag.native phase=caption-loop-return " +
+            $"hwnd=0x{handle.ToInt64():X} outcome={(started ? "completed" : "not-started")} " +
+            $"centerMs={centerMs:F3} " +
+            $"modalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(modalStartedAt):F3} " +
+            "modalIncludesPointerHold=true");
+#endif
+        return started;
     }
 
     private static bool TryCenterSystemAwareWindowAtCursor(
         Window window,
         double widthDip,
         double heightDip,
-        out CursorPoint cursorPosition)
+        out CursorPoint cursorPosition,
+        string diagnosticPhase)
     {
+#if DEBUG
+        var callStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
         cursorPosition = default;
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero ||
@@ -690,14 +726,44 @@ internal static class WindowNative
             var height = Math.Max(1, (int)Math.Round(heightDip * scale, MidpointRounding.AwayFromZero));
             var left = (int)Math.Round(cursorPosition.X - width / 2.0, MidpointRounding.AwayFromZero);
             var top = (int)Math.Round(cursorPosition.Y - height / 2.0, MidpointRounding.AwayFromZero);
-            return SetWindowPos(
-                handle,
-                IntPtr.Zero,
-                left,
-                top,
-                width,
-                height,
-                SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+#if DEBUG
+            var previousMessageProbe = BeginNativeGeometryMessageProbe(handle);
+            var messageProbe = default(NativeGeometryMessageProbe);
+            var setStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            var setCompletedAt = 0L;
+#endif
+            bool applied;
+#if DEBUG
+            try
+            {
+#endif
+                applied = SetWindowPos(
+                    handle,
+                    IntPtr.Zero,
+                    left,
+                    top,
+                    width,
+                    height,
+                    SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+#if DEBUG
+                setCompletedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            }
+            finally
+            {
+                messageProbe = EndNativeGeometryMessageProbe(previousMessageProbe);
+            }
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.native phase={diagnosticPhase} hwnd=0x{handle.ToInt64():X} " +
+                $"outcome={(applied ? "success" : "failed")} " +
+                $"callMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callStartedAt):F3} " +
+                $"setMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(setStartedAt, setCompletedAt):F3} " +
+                "nativeFlags=0x0214 axisFlags=strict " +
+                $"windowPosChanging={messageProbe.WindowPosChangingCount} " +
+                $"windowPosChanged={messageProbe.WindowPosChangedCount} " +
+                $"moveMessages={messageProbe.MoveCount} sizeMessages={messageProbe.SizeCount} " +
+                $"target={left},{top},{width}x{height}");
+#endif
+            return applied;
         }
         finally
         {
