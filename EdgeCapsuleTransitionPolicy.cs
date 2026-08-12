@@ -39,12 +39,21 @@ internal static class EdgeCapsuleTransitionPolicy
         var durationTicks = Math.Max(
             1,
             (long)Math.Round(timestampFrequency * durationMilliseconds / 1000.0));
+        var motionEnvelopeBounds =
+            EdgeCapsuleMotionEnvelopeExperiment.ShouldUse(applied, target)
+                ? EdgeCapsuleMotionEnvelopeExperiment.CreateVerticalEnvelope(
+                    applied.EffectiveHostBounds,
+                    target.HostBounds,
+                    target.Edge,
+                    target.WallDeviceX)
+                : default;
         return new EdgeCapsuleTransition(
             applied,
             target,
             nowTimestamp,
             durationTicks,
-            motion.Reason);
+            motion.Reason,
+            motionEnvelopeBounds);
     }
 
     public static EdgeCapsuleTransitionSample Sample(
@@ -58,7 +67,12 @@ internal static class EdgeCapsuleTransitionPolicy
             1);
         if (rawProgress >= 1)
         {
-            return new EdgeCapsuleTransitionSample(transition.Target.ToFrame(), true);
+            return new EdgeCapsuleTransitionSample(
+                transition.Target.ToFrame() with
+                {
+                    MotionEnvelopeBounds = transition.MotionEnvelopeBounds
+                },
+                true);
         }
 
         var progress = EaseOutCubic(rawProgress);
@@ -118,8 +132,21 @@ internal static class EdgeCapsuleTransitionPolicy
             Lerp(start.ContentOpacity, target.ContentOpacity, progress),
             target.OutlineVisible,
             hitTestVisible,
-            target.CloseSegmentActsAsContent);
+            target.CloseSegmentActsAsContent,
+            transition.MotionEnvelopeBounds);
         return new EdgeCapsuleTransitionSample(frame, false);
+    }
+
+    public static EdgeCapsulePresentationFrame ResolveSettledFrame(
+        EdgeCapsulePresentationFrame applied,
+        EdgeCapsuleTargetPresentation target)
+    {
+        // MotionEnvelopeBounds is physical experiment state rather than logical target state.
+        // Preserve it once the logical frame has settled; otherwise an unrelated force-apply would
+        // contract the HWND and invalidate the zero-native-move measurement.
+        return FramesMatch(applied, target)
+            ? applied
+            : target.ToFrame();
     }
 
     public static bool FramesMatch(

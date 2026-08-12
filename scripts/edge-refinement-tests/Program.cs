@@ -1,6 +1,15 @@
 extern alias PaperTodoApp;
 
 using NativeBoundsPolicy = PaperTodoApp::PaperTodo.WindowNativeBoundsPolicy;
+using AppEdge = PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
+using AppFrame = PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
+using AppMotionEnvelope = PaperTodoApp::PaperTodo.EdgeCapsuleMotionEnvelopeExperiment;
+using AppRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
+using AppSurface = PaperTodoApp::PaperTodo.EdgeCapsuleSurfaceKind;
+using AppTarget = PaperTodoApp::PaperTodo.EdgeCapsuleTargetPresentation;
+using AppTransition = PaperTodoApp::PaperTodo.EdgeCapsuleTransition;
+using AppTransitionPolicy = PaperTodoApp::PaperTodo.EdgeCapsuleTransitionPolicy;
+using AppTransitionReason = PaperTodoApp::PaperTodo.EdgeCapsuleTransitionReason;
 
 namespace PaperTodo;
 
@@ -9,6 +18,7 @@ internal static class Program
     private static int Main()
     {
         CheckNativeBoundsFlags();
+        CheckMotionEnvelopePolicy();
 
         var nodes = new[]
         {
@@ -223,6 +233,94 @@ internal static class Program
                 NativeBoundsPolicy.SwpNoMove |
                 NativeBoundsPolicy.SwpNoSize),
             "an unchanged rectangle must preserve both native axes");
+    }
+
+    private static void CheckMotionEnvelopePolicy()
+    {
+        const int rightWall = 1000;
+        var startBounds = new AppRect(920, 100, rightWall, 180);
+        var startHost = new AppRect(900, 100, rightWall, 260);
+        var targetBounds = new AppRect(900, 320, rightWall, 440);
+        var targetHost = new AppRect(880, 320, rightWall, 540);
+        var envelope = AppMotionEnvelope.CreateVerticalEnvelope(
+            startHost,
+            targetHost,
+            AppEdge.Right,
+            rightWall);
+        Assert(
+            envelope == new AppRect(880, 100, rightWall, 540),
+            "a right-edge motion envelope must cover both endpoint hosts and stay wall-pinned");
+
+        var start = new AppFrame(
+            true,
+            AppSurface.DockedResting,
+            startBounds,
+            startHost,
+            startBounds,
+            AppEdge.Right,
+            80,
+            rightWall,
+            1,
+            1,
+            20,
+            1,
+            1,
+            false,
+            true,
+            false);
+        var target = new AppTarget(
+            true,
+            AppSurface.DockedPreview,
+            targetBounds,
+            targetHost,
+            targetBounds,
+            AppEdge.Right,
+            80,
+            rightWall,
+            1,
+            1,
+            20,
+            1,
+            1,
+            false,
+            true,
+            false);
+        var transition = new AppTransition(
+            start,
+            target,
+            0,
+            100,
+            AppTransitionReason.Preview,
+            envelope);
+
+        var middle = AppTransitionPolicy.Sample(transition, 50);
+        Assert(
+            middle.Frame.EffectiveHostBounds == envelope,
+            "every in-flight WPF offset frame must keep one fixed native envelope");
+        Assert(
+            middle.Frame.HostBounds.Top == middle.Frame.Bounds.Top,
+            "the logical host capacity must continue to follow the sampled visible frame");
+
+        var complete = AppTransitionPolicy.Sample(transition, 100);
+        Assert(complete.IsComplete, "the envelope transition should still finish normally");
+        Assert(
+            complete.Frame.HostBounds == targetHost &&
+            complete.Frame.EffectiveHostBounds == envelope,
+            "the settled logical target must retain its physical envelope without an endpoint move");
+        Assert(
+            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, target) == complete.Frame,
+            "an idle reconcile must not silently contract a retained motion envelope");
+
+        var snapTarget = target with
+        {
+            Bounds = new AppRect(900, 600, rightWall, 720),
+            HostBounds = new AppRect(880, 600, rightWall, 820),
+            InteractiveBounds = new AppRect(900, 600, rightWall, 720)
+        };
+        Assert(
+            !AppTransitionPolicy.ResolveSettledFrame(complete.Frame, snapTarget)
+                .UsesMotionEnvelope,
+            "a logically different snap target must clear the old native envelope");
     }
 
     private static void CheckCorridorIntentPrediction()
