@@ -172,7 +172,9 @@ internal readonly record struct EdgeCapsulePresentationPlan(
 /// <summary>
 /// Complete Host.Apply contract. HostBounds is native capacity while Bounds is the actual visible
 /// capsule. Interactive bounds, body/close segmentation, opacity and input state still advance from
-/// this one frame; size animation never resizes the native host.
+/// this one frame; size animation never resizes the native host. MotionEnvelopeBounds is an
+/// experimental physical host override: logical capacity remains in HostBounds while the WPF
+/// surface moves within EffectiveHostBounds.
 /// </summary>
 internal readonly record struct EdgeCapsulePresentationFrame(
     bool Visible,
@@ -190,12 +192,17 @@ internal readonly record struct EdgeCapsulePresentationFrame(
     double ContentOpacity,
     bool OutlineVisible,
     bool IsHitTestVisible,
-    bool CloseSegmentActsAsContent)
+    bool CloseSegmentActsAsContent,
+    DeviceScreenRect MotionEnvelopeBounds = default)
 {
     public static EdgeCapsulePresentationFrame Hidden =>
         EdgeCapsuleTargetPresentation.Hidden.ToFrame();
 
     public bool IsUsable => !Visible || (!Bounds.IsEmpty && !HostBounds.IsEmpty);
+    public bool UsesMotionEnvelope => !MotionEnvelopeBounds.IsEmpty;
+    public DeviceScreenRect EffectiveHostBounds => UsesMotionEnvelope
+        ? MotionEnvelopeBounds
+        : HostBounds;
 }
 
 internal readonly record struct EdgeCapsuleTransition(
@@ -203,7 +210,8 @@ internal readonly record struct EdgeCapsuleTransition(
     EdgeCapsuleTargetPresentation Target,
     long StartedAtTimestamp,
     long DurationTimestampTicks,
-    EdgeCapsuleTransitionReason Reason);
+    EdgeCapsuleTransitionReason Reason,
+    DeviceScreenRect MotionEnvelopeBounds);
 
 internal readonly record struct EdgeCapsuleTransitionSample(
     EdgeCapsulePresentationFrame Frame,

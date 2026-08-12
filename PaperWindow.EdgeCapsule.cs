@@ -252,6 +252,19 @@ public sealed partial class PaperWindow
             Math.Min(
                 EdgeCapsuleLayout.HostCapacityWidth,
                 monitor.LocalWorkAreaDip.Width));
+        var motionEnvelopeExperiment =
+            EdgeCapsuleMotionEnvelopeExperiment.IsEnabledForEdge(MyDeepCapsuleEdge);
+        if (motionEnvelopeExperiment)
+        {
+            // The experiment must isolate WPF motion from both native movement and first-preview
+            // resize. Reserve the protocol's largest legal mini-card before the first interaction;
+            // the large overlapping transparent HWNDs are an intentional part of the viability test.
+            requestedHostWidth = Math.Max(
+                requestedHostWidth,
+                Math.Min(
+                    EdgeCapsulePreviewSize.MaximumWidthDip,
+                    monitor.LocalWorkAreaDip.Width));
+        }
         var applied = _edgeCapsule.AppliedPresentation;
         var appliedHostWidth = applied.Visible && !applied.HostBounds.IsEmpty
             ? applied.HostBounds.Width / Math.Max(1, applied.DpiScaleX)
@@ -267,6 +280,14 @@ public sealed partial class PaperWindow
         var hostHeight = Math.Max(
             Math.Max(PaperLayoutDefaults.CapsuleHeight, previewHeight),
             appliedHostHeight);
+        if (motionEnvelopeExperiment)
+        {
+            hostHeight = Math.Max(
+                hostHeight,
+                Math.Min(
+                    EdgeCapsulePreviewSize.MaximumHeightDip,
+                    monitor.LocalWorkAreaDip.Height));
+        }
         var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
             ? ExperimentalOpacityLevels.Normalize(
                 _controller.State.ExperimentalRestingCapsuleOpacityLevel,

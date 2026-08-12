@@ -319,7 +319,11 @@ internal sealed class EdgeCapsulePresenter
         _rebasePendingTransition = false;
         var sample = Transition is { } active
             ? EdgeCapsuleTransitionPolicy.Sample(active, nowTimestamp)
-            : new EdgeCapsuleTransitionSample(TargetPresentation.ToFrame(), true);
+            : new EdgeCapsuleTransitionSample(
+                EdgeCapsuleTransitionPolicy.ResolveSettledFrame(
+                    AppliedPresentation,
+                    TargetPresentation),
+                true);
         var shouldApply = forceApply || sample.Frame != AppliedPresentation || targetChanged;
         var applied = !shouldApply || ApplyPresentationFrame(apply, sample.Frame);
         if (applied && shouldApply)
