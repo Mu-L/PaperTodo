@@ -88,13 +88,27 @@ internal readonly record struct EdgeCapsuleInputDiagnosticSnapshot(
     EdgeCapsuleSurfaceKind Surface,
     bool PointerOver,
     bool Eligible,
-    IntPtr Hwnd);
+    IntPtr Hwnd,
+    string OwnerRole);
 
 public sealed partial class PaperWindow
 {
     internal EdgeCapsuleInputDiagnosticSnapshot CaptureEdgeCapsuleInputDiagnosticSnapshot()
     {
-        var frame = _edgeCapsule.AppliedPresentation;
+        var proxyOwned = _controller.TryGetEdgeCapsuleQueueProxyPresentation(
+            this,
+            out var proxyFrame);
+        var frame = proxyOwned
+            ? proxyFrame
+            : _edgeCapsule.AppliedPresentation;
+        var hwnd = _edgeCapsuleHost?.EdgeCapsuleInputDiagnosticHandle ?? IntPtr.Zero;
+        if (proxyOwned &&
+            _controller.TryGetEdgeCapsuleQueueProxyDiagnosticHandle(
+                this,
+                out var proxyHandle))
+        {
+            hwnd = proxyHandle;
+        }
         return new EdgeCapsuleInputDiagnosticSnapshot(
             frame.Bounds,
             frame.InteractiveBounds,
@@ -103,7 +117,8 @@ public sealed partial class PaperWindow
             frame.Surface,
             IsEdgeCapsulePointerOver,
             CanEnterEdgeCapsulePreview,
-            _edgeCapsuleHost?.EdgeCapsuleInputDiagnosticHandle ?? IntPtr.Zero);
+            hwnd,
+            proxyOwned ? "proxy" : "real");
     }
 
     internal void EnsureEdgeCapsuleInputDiagnostics(Action<string> trace)
@@ -401,6 +416,7 @@ public sealed partial class AppController
             TraceEdgeCapsulePreview(
                 $"input physical-enter target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
                 $"pointer={pointer.X},{pointer.Y} hwnd={FormatEdgeCapsuleInputDiagnosticHandle(targetSnapshot.Hwnd)} " +
+                $"ownerRole={targetSnapshot.OwnerRole} " +
                 $"hitTest={targetSnapshot.HitTestVisible} wpfOver={targetSnapshot.PointerOver} " +
                 $"eligible={targetSnapshot.Eligible} surface={targetSnapshot.Surface} " +
                 $"owner={EdgeCapsulePreviewTraceId(_edgeCapsulePreviewSession?.OwnerPaperId)} " +
@@ -428,6 +444,7 @@ public sealed partial class AppController
                 $"hitTest={targetSnapshot.HitTestVisible} wpfOver=False " +
                 $"eligible={targetSnapshot.Eligible} surface={targetSnapshot.Surface} " +
                 $"hwnd={FormatEdgeCapsuleInputDiagnosticHandle(targetSnapshot.Hwnd)} " +
+                $"ownerRole={targetSnapshot.OwnerRole} " +
                 $"hwndUnder={FormatEdgeCapsuleInputDiagnosticHandle(under)} " +
                 $"rootUnder={FormatEdgeCapsuleInputDiagnosticHandle(underRoot)} " +
                 $"underTarget={underTarget} " +

@@ -54,6 +54,10 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
     <PackageReference Include="ModelContextProtocol" Version="2.0.0" />
+    <!-- DirectComposition wraps live layered WPF capsule HWNDs without per-frame pixel copies or
+         the Windows App SDK runtime. Opening captures one compact shell; the queue proxy is
+         transient and falls back to the normal HWND path when a surface cannot be created. -->
+    <PackageReference Include="Vortice.DirectComposition" Version="3.8.3" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="EdgeRefinementChecks" />

@@ -188,6 +188,7 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewRequest request,
         bool animate)
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         var openStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         if (!DispatchEdgeCapsuleIntent(
                 EdgeCapsuleIntent.PreviewChanged(open: true),
@@ -529,6 +530,7 @@ public sealed partial class PaperWindow
 
     internal void SetEdgeCapsulePreviewClosed(bool animate)
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         if (!IsEdgeCapsulePreviewOpen)
         {
             _ = TryReleaseEdgeCapsulePreviewRequest();
@@ -558,6 +560,11 @@ public sealed partial class PaperWindow
     {
         if (!TryReleaseEdgeCapsulePreviewRequest())
         {
+            return;
+        }
+        if (_controller.IsEdgeCapsuleQueueProxyRetainingSource(this))
+        {
+            MarkEdgeCapsuleQueueProxyPreviewContentReleasePending();
             return;
         }
         _edgeCapsuleHost?.ClearPreviewContent();
@@ -625,6 +632,14 @@ public sealed partial class PaperWindow
     internal bool TryGetEdgeCapsuleAppliedGeometry(
         out EdgeCapsulePreviewScreenGeometry geometry)
     {
+        if (_controller.TryGetEdgeCapsuleQueueProxyPresentation(this, out var proxyFrame))
+        {
+            geometry = new EdgeCapsulePreviewScreenGeometry(
+                proxyFrame.Bounds,
+                proxyFrame.DpiScaleX,
+                proxyFrame.DpiScaleY);
+            return proxyFrame.Visible && !proxyFrame.Bounds.IsEmpty;
+        }
         var frame = EdgeCapsulePresentationFrame.Hidden;
         var hasFrame = _edgeCapsuleHost?.TryGetAppliedPresentation(
             out frame) == true;
@@ -637,6 +652,12 @@ public sealed partial class PaperWindow
 
     internal bool IsEdgeCapsuleInteractiveAt(DeviceScreenPoint pointer)
     {
+        if (_controller.TryGetEdgeCapsuleQueueProxyPresentation(this, out var proxyFrame))
+        {
+            return proxyFrame.Visible &&
+                proxyFrame.IsHitTestVisible &&
+                EdgeCapsuleGeometry.Contains(proxyFrame.InteractiveBounds, pointer);
+        }
         var frame = EdgeCapsulePresentationFrame.Hidden;
         return _edgeCapsuleHost?.TryGetAppliedPresentation(out frame) == true &&
             frame.Visible &&
@@ -647,6 +668,16 @@ public sealed partial class PaperWindow
     internal bool TryGetEdgeCapsuleInteractiveGeometry(
         out EdgeCapsulePreviewScreenGeometry geometry)
     {
+        if (_controller.TryGetEdgeCapsuleQueueProxyPresentation(this, out var proxyFrame))
+        {
+            geometry = new EdgeCapsulePreviewScreenGeometry(
+                proxyFrame.InteractiveBounds,
+                proxyFrame.DpiScaleX,
+                proxyFrame.DpiScaleY);
+            return proxyFrame.Visible &&
+                proxyFrame.IsHitTestVisible &&
+                !proxyFrame.InteractiveBounds.IsEmpty;
+        }
         var frame = EdgeCapsulePresentationFrame.Hidden;
         var hasFrame = _edgeCapsuleHost?.TryGetAppliedPresentation(
             out frame) == true;

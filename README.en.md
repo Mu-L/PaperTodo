@@ -270,6 +270,7 @@ Local packaging only builds the no-runtime single file; cloud Releases publish b
 - **[LMDB](https://github.com/LMDB/lmdb)** — Single-file transactional note image storage.
 - **[AvalonEdit](https://github.com/icsharpcode/AvalonEdit)** — Note editing and light Markdown highlighting.
 - **[Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon)** — Tray icon and menu.
+- **[Vortice.DirectComposition](https://github.com/amerkoleci/Vortice.Windows)** — Native DirectComposition interop for edge-preview animation (MIT).
 
 ## Other
 

@@ -220,8 +220,9 @@ internal sealed class EdgeCapsuleFrameScheduler
             presenters[0].NativeBatchTransactionGroupId;
         // A positive transaction id means several physical queues are still completing one
         // controller-owned visual transaction and need the existing atomic HDWP commit. Ordinary
-        // animation frames have no transaction id: V2 keeps their native host envelope settled and
-        // advances only inner WPF surfaces. The legacy A/B path may still issue direct X/Y changes;
+        // proxy-backed preview animation has no HWND frame work here: real hosts already sit at the
+        // endpoint and DirectComposition advances its visual tree. Fallback paths may still issue
+        // direct X/Y changes;
         // sending those through EndDeferWindowPos repeatedly blocks the UI thread for 10-20+ ms on
         // affected systems. Dispatcher processing stays disabled for the whole group, so no input
         // or app callback can observe an interleaved logical frame.

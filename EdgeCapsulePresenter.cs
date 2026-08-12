@@ -101,6 +101,10 @@ internal sealed class EdgeCapsulePresenter
     public int AppliedPresentationVersion { get; private set; }
     public DeviceScreenPoint? LastPointerSample { get; private set; }
     internal bool HasActiveTransition => Transition.HasValue;
+
+    internal EdgeCapsuleTargetPresentation PlanTargetPresentation(
+        EdgeCapsuleLayoutSnapshot layout) =>
+        EdgeCapsuleTargetPlanner.Calculate(Model, layout).Docked;
     private EdgeCapsuleTransition? Transition { get; set; }
 
     public EdgeCapsuleDispatchResult Dispatch(
@@ -187,6 +191,8 @@ internal sealed class EdgeCapsulePresenter
         EdgeCapsuleDirty dirty,
         Func<EdgeCapsuleLayoutSnapshot> captureLayout,
         Func<DeviceScreenPoint?> capturePointer,
+        Func<EdgeCapsulePresentationFrame, EdgeCapsulePresentationFrame>
+            resolvePresentedFrame,
         Func<EdgeCapsulePresentationFrame, bool> apply,
         long? nowTimestamp = null)
     {
@@ -199,14 +205,15 @@ internal sealed class EdgeCapsulePresenter
             : capturePointer();
         LastPointerSample = pointer;
 
-        // The fixed host is larger than the current visible surface. Every transition frame
-        // resamples the real physical interactive rectangle, so transparent reserve pixels never
-        // become hover intent and a shrinking surface can retarget in either direction.
+        // Every transition frame resamples the physical interactive rectangle. The queue proxy
+        // can expose its sampled visual frame to the controller while this Presenter's business
+        // frame is already at the endpoint; neither path may treat transparent pixels as intent.
         if ((dirty & EdgeCapsuleDirty.Frame) != 0)
         {
             dirty |= EdgeCapsuleDirty.Pointer;
         }
-        if ((dirty & EdgeCapsuleDirty.Pointer) != 0 && SamplePointer(pointer))
+        if ((dirty & EdgeCapsuleDirty.Pointer) != 0 &&
+            SamplePointer(pointer, resolvePresentedFrame(AppliedPresentation)))
         {
             RequestPresentation(EdgeCapsuleMotion.Animate(
                 EdgeCapsuleTransitionReason.Pointer,
@@ -268,7 +275,7 @@ internal sealed class EdgeCapsulePresenter
 
         // The frame just committed can change the physical hit rectangle. Re-evaluate once from
         // that exact frame; if intent changes, retarget from the frame already on screen.
-        if (SamplePointer(pointer))
+        if (SamplePointer(pointer, resolvePresentedFrame(AppliedPresentation)))
         {
             RequestPresentation(EdgeCapsuleMotion.Animate(
                 EdgeCapsuleTransitionReason.Pointer,
@@ -453,12 +460,14 @@ internal sealed class EdgeCapsulePresenter
         ResetPresentation();
     }
 
-    private bool SamplePointer(DeviceScreenPoint? pointer)
+    private bool SamplePointer(
+        DeviceScreenPoint? pointer,
+        EdgeCapsulePresentationFrame presentedFrame)
     {
         var over = pointer.HasValue &&
-            AppliedPresentation.IsHitTestVisible &&
+            presentedFrame.IsHitTestVisible &&
             EdgeCapsuleGeometry.Contains(
-                AppliedPresentation.InteractiveBounds,
+                presentedFrame.InteractiveBounds,
                 pointer.Value);
         return Dispatch(EdgeCapsuleIntent.PointerSampled(over)).Changed;
     }

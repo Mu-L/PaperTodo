@@ -123,6 +123,7 @@ public sealed partial class PaperWindow
 
     internal void PrepareForHide()
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CommitPendingEditsForSave();
         CancelExperimentalTetherPresentation(showMain: false);
         DetachExperimentalWindowAttachment(savePosition: false);
@@ -180,6 +181,7 @@ public sealed partial class PaperWindow
 
     internal void PrepareForCapsulePresentationModeChange()
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CommitPendingEditsForSave();
         SettlePaperFormPresentation();
         AbortAllInteractions(InteractionAbortReason.FormChanging);
@@ -193,6 +195,7 @@ public sealed partial class PaperWindow
 
     internal void SettleAnimationsForDisabledSetting()
     {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CancelPendingVisibilityTransitions();
         SettlePaperFormPresentation();
         RefreshExperimentalOpacity(animate: false);
@@ -224,6 +227,9 @@ public sealed partial class PaperWindow
             return;
         }
 
+        // The compositor proxy can only hand off while this window still accepts endpoint frames.
+        // Reveal the small real host before changing the lifecycle state to Closing.
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CommitPendingEditsForSave();
         _windowLifecycle = PaperWindowLifecycleState.Closing;
         _presentationState = PaperPresentationState.Closing;

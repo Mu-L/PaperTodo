@@ -61,39 +61,6 @@ internal static class EdgeCapsuleTargetPlanner
             bodyWidth,
             closeWidth,
             visibleHeight));
-        var hostBodyWidth = Math.Max(
-            bodyWidth,
-            layout.HostWidthDip - layout.MaximumCloseWidthDip);
-        var hostGeometry = EdgeCapsuleGeometry.Calculate(new EdgeCapsuleGeometryInput(
-            layout.Monitor,
-            layout.Edge,
-            layout.UsesFixedMotionHost
-                ? layout.HostEnvelopeTopDip
-                : top,
-            hostBodyWidth,
-            layout.MaximumCloseWidthDip,
-            layout.UsesFixedMotionHost
-                ? layout.HostEnvelopeHeightDip
-                : Math.Max(visibleHeight, layout.HostHeightDip)));
-        var hostBounds = hostGeometry.Bounds;
-        if (layout.UsesFixedMotionHost)
-        {
-            // A docking handoff may temporarily supply a top outside the normal queue range. Keep
-            // the preallocated queue envelope and extend it once to contain that explicit target.
-            var targetCapacity = EdgeCapsuleGeometry.Calculate(
-                new EdgeCapsuleGeometryInput(
-                    layout.Monitor,
-                    layout.Edge,
-                    top,
-                    hostBodyWidth,
-                    layout.MaximumCloseWidthDip,
-                    visibleHeight));
-            hostBounds = EdgeCapsuleMotionEnvelopePolicy.UnionWallPinned(
-                hostBounds,
-                targetCapacity.Bounds,
-                layout.Edge,
-                geometry.WallDeviceX);
-        }
         var surface = SurfaceFor(
             model,
             preview,
@@ -111,7 +78,7 @@ internal static class EdgeCapsuleTargetPlanner
             true,
             surface,
             geometry.Bounds,
-            hostBounds,
+            geometry.Bounds,
             interactiveBounds,
             layout.Edge,
             geometry.RestingWidthDevice,
@@ -124,8 +91,7 @@ internal static class EdgeCapsuleTargetPlanner
             !retracted && !dockedSuppressed &&
                 model.State.Visual == EdgeCapsuleVisualState.Active,
             hitTest,
-            preview ? false : layout.CloseSegmentActsAsContent,
-            layout.UsesFixedMotionHost);
+            preview ? false : layout.CloseSegmentActsAsContent);
 
         var floatingShape = ownsFloatingHost
             ? CreateFloatingShape(layout, model.State.Visual == EdgeCapsuleVisualState.Active)
