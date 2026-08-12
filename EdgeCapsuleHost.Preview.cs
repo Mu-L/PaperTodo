@@ -20,7 +20,9 @@ internal sealed partial class EdgeCapsuleHost
     private bool _previewInteractiveCaptureLease;
     private bool _compactLabelSuppressedForPreview;
     private readonly TranslateTransform _compactContentAnchorTransform = new();
+    private readonly TranslateTransform _compactPluginContentAnchorTransform = new();
     private double _compactContentAnchorWidthDip = double.NaN;
+    private double _compactPluginContentAnchorWidthDip = double.NaN;
     private double _compactContentAnchorCloseWidthDip = double.NaN;
     private long _previewInteractiveCaptureGraceUntil;
 
@@ -525,21 +527,14 @@ internal sealed partial class EdgeCapsuleHost
         }
         ApplyPreviewViewportClip(frame, bodyHeight);
 
-        // The compact title and the preview's own title-like content must never cross-fade. A
-        // protocol fallback may literally be a uniformly enlarged mirror of the compact capsule,
-        // while built-in previews also render their own heading. Showing both during the same 35 ms
-        // makes two different fixed-size trees look like one label is being scaled. Keep the final
-        // preview tree fully laid out but transparent until the compact label has actually reached
-        // zero opacity. On close the preview stays visible while the compact label's delayed restore
-        // is still at zero, then disappears as soon as that final-position title starts fading in.
-        var previewContentOpacity = _previewVisible && Label.Opacity <= 0.001
-            ? 1d
-            : 0d;
+        // Preview content is already laid out at final size. Reveal it from the first expanding
+        // frame while the fixed-geometry compact content simultaneously performs its 35 ms fade.
+        // The two visual trees may cross-fade; the invariant is that the compact tree itself never
+        // changes scale, width, height or screen anchor during that overlap.
         ApplyPreviewLayerState(
             _previewVisible,
-            previewContentOpacity,
+            _previewVisible ? previewProgress : 0,
             _previewVisible &&
-                previewContentOpacity > 0.001 &&
                 previewProgress > 0.001 &&
                 frame.IsHitTestVisible);
         if (!IsPreviewContentStageCurrent(presentationContentGeneration))
@@ -547,9 +542,8 @@ internal sealed partial class EdgeCapsuleHost
             return false;
         }
 
-        // Compact content stays layout-resident so closing never pays a fresh layout cost. The
-        // label has its own fixed-position 35 ms opacity channel; only the icon/custom compact
-        // content continues to use the preview progress cross-fade.
+        // Compact content stays layout-resident so closing never pays a fresh layout cost. Its
+        // built-in icon/title and optional custom plugin tree share one 35 ms opacity clock.
         ApplyCompactContentProgress(
             _previewVisible ? previewProgress : 0);
         _previewGeometryProgress = _previewVisible ? previewProgress : 0;
@@ -580,28 +574,39 @@ internal sealed partial class EdgeCapsuleHost
             _compactContentAnchorCloseWidthDip =
                 closeWidthOverride ?? _appliedCloseWidth;
         }
-        if (double.IsFinite(_compactContentAnchorWidthDip) &&
-            _compactContentAnchorWidthDip > 0)
-        {
-            return;
-        }
-
-        var actualWidth = ContentGrid.ActualWidth;
-        if (double.IsFinite(actualWidth) && actualWidth > 0.5)
-        {
-            _compactContentAnchorWidthDip = actualWidth;
-            return;
-        }
 
         var source = _appliedFrame.Visible
             ? _appliedFrame
             : frame;
         var sourceScaleX = Math.Max(1, source.DpiScaleX);
-        _compactContentAnchorWidthDip = Math.Max(
-            1,
-            source.BodyWindowWidthDevice / sourceScaleX -
-                _options.WindowChromeMargin -
-                ContentGrid.Margin.Left - ContentGrid.Margin.Right);
+
+        if (!double.IsFinite(_compactContentAnchorWidthDip) ||
+            _compactContentAnchorWidthDip <= 0)
+        {
+            var actualWidth = ContentGrid.ActualWidth;
+            _compactContentAnchorWidthDip =
+                double.IsFinite(actualWidth) && actualWidth > 0.5
+                    ? actualWidth
+                    : Math.Max(
+                        1,
+                        source.BodyWindowWidthDevice / sourceScaleX -
+                            _options.WindowChromeMargin -
+                            ContentGrid.Margin.Left - ContentGrid.Margin.Right);
+        }
+
+        if (_pluginContentLayer?.Child != null &&
+            (!double.IsFinite(_compactPluginContentAnchorWidthDip) ||
+             _compactPluginContentAnchorWidthDip <= 0))
+        {
+            var actualPluginWidth = _pluginContentLayer.ActualWidth;
+            _compactPluginContentAnchorWidthDip =
+                double.IsFinite(actualPluginWidth) && actualPluginWidth > 0.5
+                    ? actualPluginWidth
+                    : Math.Max(
+                        1,
+                        source.BodyWindowWidthDevice / sourceScaleX -
+                            _options.WindowChromeMargin);
+        }
     }
 
     private bool TryRetargetCompactContentAnchorForPreviewClose(
@@ -648,7 +653,10 @@ internal sealed partial class EdgeCapsuleHost
     {
         if (!double.IsFinite(_compactContentAnchorWidthDip) ||
             _compactContentAnchorWidthDip <= 0 ||
-            !double.IsFinite(_compactContentAnchorCloseWidthDip))
+            !double.IsFinite(_compactContentAnchorCloseWidthDip) ||
+            (_pluginContentLayer?.Child != null &&
+             (!double.IsFinite(_compactPluginContentAnchorWidthDip) ||
+              _compactPluginContentAnchorWidthDip <= 0)))
         {
             CaptureCompactContentAnchor(frame);
         }
@@ -661,22 +669,45 @@ internal sealed partial class EdgeCapsuleHost
         ContentGrid.VerticalAlignment = VerticalAlignment.Top;
 
         var closeWidthDelta = _appliedCloseWidth - _compactContentAnchorCloseWidthDip;
-        _compactContentAnchorTransform.X = frame.Edge == EdgeCapsuleEdge.Left
+        var anchorOffsetX = frame.Edge == EdgeCapsuleEdge.Left
             ? -closeWidthDelta
             : closeWidthDelta;
+        _compactContentAnchorTransform.X = anchorOffsetX;
         _compactContentAnchorTransform.Y = 0;
         if (!ReferenceEquals(ContentGrid.RenderTransform, _compactContentAnchorTransform))
         {
             ContentGrid.RenderTransform = _compactContentAnchorTransform;
+        }
+
+        if (_pluginContentLayer?.Child != null)
+        {
+            _pluginContentLayer.Width = Math.Max(1, _compactPluginContentAnchorWidthDip);
+            _pluginContentLayer.Height = _options.BodyHeight;
+            _pluginContentLayer.HorizontalAlignment = frame.Edge == EdgeCapsuleEdge.Left
+                ? HorizontalAlignment.Left
+                : HorizontalAlignment.Right;
+            _pluginContentLayer.VerticalAlignment = VerticalAlignment.Top;
+            _compactPluginContentAnchorTransform.X = anchorOffsetX;
+            _compactPluginContentAnchorTransform.Y = 0;
+            if (!ReferenceEquals(
+                    _pluginContentLayer.RenderTransform,
+                    _compactPluginContentAnchorTransform))
+            {
+                _pluginContentLayer.RenderTransform =
+                    _compactPluginContentAnchorTransform;
+            }
         }
     }
 
     private void RestoreCompactContentAnchor()
     {
         _compactContentAnchorWidthDip = double.NaN;
+        _compactPluginContentAnchorWidthDip = double.NaN;
         _compactContentAnchorCloseWidthDip = double.NaN;
         _compactContentAnchorTransform.X = 0;
         _compactContentAnchorTransform.Y = 0;
+        _compactPluginContentAnchorTransform.X = 0;
+        _compactPluginContentAnchorTransform.Y = 0;
         if (ReferenceEquals(ContentGrid.RenderTransform, _compactContentAnchorTransform))
         {
             ContentGrid.RenderTransform = null;
@@ -685,6 +716,20 @@ internal sealed partial class EdgeCapsuleHost
         ContentGrid.Height = double.NaN;
         ContentGrid.HorizontalAlignment = HorizontalAlignment.Stretch;
         ContentGrid.VerticalAlignment = VerticalAlignment.Center;
+
+        if (_pluginContentLayer != null)
+        {
+            if (ReferenceEquals(
+                    _pluginContentLayer.RenderTransform,
+                    _compactPluginContentAnchorTransform))
+            {
+                _pluginContentLayer.RenderTransform = null;
+            }
+            _pluginContentLayer.Width = double.NaN;
+            _pluginContentLayer.Height = double.NaN;
+            _pluginContentLayer.HorizontalAlignment = HorizontalAlignment.Stretch;
+            _pluginContentLayer.VerticalAlignment = VerticalAlignment.Stretch;
+        }
     }
 
     private void ApplyPreviewLayerState(
@@ -706,21 +751,22 @@ internal sealed partial class EdgeCapsuleHost
     private void ApplyCompactContentProgress(double previewProgress)
     {
         var progress = Math.Clamp(previewProgress, 0, 1);
-        var compactOpacity = 1 - progress;
 
-        // Keep compact content in layout. The label must not inherit preview-progress opacity or it
-        // would visually travel with the expanding/shrinking card; its independent animation below
-        // is the only opacity channel allowed to affect it.
+        // Compact geometry and opacity are independent. ContentGrid is the shared opacity owner for
+        // the built-in icon/title pair; custom plugin content binds to that same opacity. No child is
+        // allowed to derive opacity from previewProgress, otherwise icon/text drift or custom title
+        // scaling becomes visible during the overlap with the expanding preview.
         ContentGrid.Visibility = Visibility.Visible;
-        ContentGrid.Opacity = 1;
-        Icon.Opacity = compactOpacity;
+        Label.BeginAnimation(UIElement.OpacityProperty, null);
+        Icon.BeginAnimation(UIElement.OpacityProperty, null);
+        Label.Opacity = 1;
+        Icon.Opacity = 1;
         ContentGrid.IsHitTestVisible = progress <= 0.001;
         if (_pluginContentLayer != null)
         {
             _pluginContentLayer.Visibility = _pluginContentLayer.Child != null
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-            _pluginContentLayer.Opacity = compactOpacity;
         }
 
         ContentArea.Background = progress > 0.001
@@ -739,18 +785,23 @@ internal sealed partial class EdgeCapsuleHost
 
         _compactLabelSuppressedForPreview = suppressed;
         var targetOpacity = suppressed ? 0d : 1d;
-        var currentOpacity = Math.Clamp(Label.Opacity, 0, 1);
+        var currentOpacity = Math.Clamp(ContentGrid.Opacity, 0, 1);
 
-        // The compact title never scales with the preview card. It remains on the compact anchor
-        // and only changes opacity over this short independent animation.
+        // The compact icon/title pair and optional self-drawn plugin capsule are one visual unit.
+        // ContentGrid owns the 35 ms animation; plugin content binds to the same property. Geometry
+        // is separately pinned to the compact anchor, so fading never changes scale or position.
         Label.BeginAnimation(UIElement.OpacityProperty, null);
-        Label.Opacity = targetOpacity;
+        Icon.BeginAnimation(UIElement.OpacityProperty, null);
+        Label.Opacity = 1;
+        Icon.Opacity = 1;
+        ContentGrid.BeginAnimation(UIElement.OpacityProperty, null);
+        ContentGrid.Opacity = targetOpacity;
         if (Math.Abs(currentOpacity - targetOpacity) <= 0.001)
         {
             return;
         }
 
-        Label.BeginAnimation(
+        ContentGrid.BeginAnimation(
             UIElement.OpacityProperty,
             new DoubleAnimation
             {
@@ -789,7 +840,11 @@ internal sealed partial class EdgeCapsuleHost
 
         _compactLabelSuppressedForPreview = false;
         Label.BeginAnimation(UIElement.OpacityProperty, null);
+        Icon.BeginAnimation(UIElement.OpacityProperty, null);
         Label.Opacity = 1;
+        Icon.Opacity = 1;
+        ContentGrid.BeginAnimation(UIElement.OpacityProperty, null);
+        ContentGrid.Opacity = 1;
 
         var animation = new DoubleAnimationUsingKeyFrames
         {
@@ -808,7 +863,7 @@ internal sealed partial class EdgeCapsuleHost
             1,
             KeyTime.FromTimeSpan(
                 TimeSpan.FromMilliseconds(remainingMilliseconds))));
-        Label.BeginAnimation(
+        ContentGrid.BeginAnimation(
             UIElement.OpacityProperty,
             animation,
             HandoffBehavior.SnapshotAndReplace);
