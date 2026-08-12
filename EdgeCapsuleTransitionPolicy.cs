@@ -39,21 +39,20 @@ internal static class EdgeCapsuleTransitionPolicy
         var durationTicks = Math.Max(
             1,
             (long)Math.Round(timestampFrequency * durationMilliseconds / 1000.0));
-        var motionEnvelopeBounds =
-            EdgeCapsuleMotionEnvelopeExperiment.ShouldUse(applied, target)
-                ? EdgeCapsuleMotionEnvelopeExperiment.CreateVerticalEnvelope(
-                    applied.EffectiveHostBounds,
-                    target.HostBounds,
-                    target.Edge,
-                    target.WallDeviceX)
-                : default;
+        var transitionHostBounds = target.UsesFixedMotionHost
+            ? EdgeCapsuleMotionEnvelopePolicy.UnionWallPinned(
+                applied.HostBounds,
+                target.HostBounds,
+                target.Edge,
+                target.WallDeviceX)
+            : default;
         return new EdgeCapsuleTransition(
             applied,
             target,
             nowTimestamp,
             durationTicks,
             motion.Reason,
-            motionEnvelopeBounds);
+            transitionHostBounds);
     }
 
     public static EdgeCapsuleTransitionSample Sample(
@@ -67,11 +66,16 @@ internal static class EdgeCapsuleTransitionPolicy
             1);
         if (rawProgress >= 1)
         {
-            return new EdgeCapsuleTransitionSample(
-                transition.Target.ToFrame() with
+            var completeFrame = transition.Target.ToFrame();
+            if (transition.Target.UsesFixedMotionHost)
+            {
+                completeFrame = completeFrame with
                 {
-                    MotionEnvelopeBounds = transition.MotionEnvelopeBounds
-                },
+                    HostBounds = transition.HostBounds
+                };
+            }
+            return new EdgeCapsuleTransitionSample(
+                completeFrame,
                 true);
         }
 
@@ -88,19 +92,27 @@ internal static class EdgeCapsuleTransitionPolicy
             ? target.WallDeviceX + width
             : target.WallDeviceX;
         var bounds = new DeviceScreenRect(left, top, right, top + height);
-        // Capacity may grow immediately, but it never contracts around an in-flight larger visual.
-        var hostWidth = Math.Max(
-            bounds.Width,
-            Math.Max(start.HostBounds.Width, target.HostBounds.Width));
-        var hostHeight = Math.Max(
-            bounds.Height,
-            Math.Max(start.HostBounds.Height, target.HostBounds.Height));
-        var hostBounds = EdgeCapsuleGeometry.HostBoundsForVisibleBounds(
-            bounds,
-            target.Edge,
-            target.WallDeviceX,
-            hostWidth,
-            hostHeight);
+        DeviceScreenRect hostBounds;
+        if (target.UsesFixedMotionHost)
+        {
+            hostBounds = transition.HostBounds;
+        }
+        else
+        {
+            // Legacy A/B path: native capacity follows the interpolated top exactly.
+            var hostWidth = Math.Max(
+                bounds.Width,
+                Math.Max(start.HostBounds.Width, target.HostBounds.Width));
+            var hostHeight = Math.Max(
+                bounds.Height,
+                Math.Max(start.HostBounds.Height, target.HostBounds.Height));
+            hostBounds = EdgeCapsuleGeometry.HostBoundsForVisibleBounds(
+                bounds,
+                target.Edge,
+                target.WallDeviceX,
+                hostWidth,
+                hostHeight);
+        }
         // The old preview tree remains visible while its height shrinks, but it must stop owning
         // input as soon as the logical preview closes. Keep the outgoing surface identity through
         // retargets so a compact layout update cannot re-enable the tall card midway through.
@@ -133,7 +145,7 @@ internal static class EdgeCapsuleTransitionPolicy
             target.OutlineVisible,
             hitTestVisible,
             target.CloseSegmentActsAsContent,
-            transition.MotionEnvelopeBounds);
+            target.UsesFixedMotionHost);
         return new EdgeCapsuleTransitionSample(frame, false);
     }
 
@@ -141,12 +153,17 @@ internal static class EdgeCapsuleTransitionPolicy
         EdgeCapsulePresentationFrame applied,
         EdgeCapsuleTargetPresentation target)
     {
-        // MotionEnvelopeBounds is physical experiment state rather than logical target state.
-        // Preserve it once the logical frame has settled; otherwise an unrelated force-apply would
-        // contract the HWND and invalidate the zero-native-move measurement.
-        return FramesMatch(applied, target)
-            ? applied
-            : target.ToFrame();
+        if (FramesMatch(applied, target))
+        {
+            return applied;
+        }
+
+        var resolved = target.ToFrame();
+        if (CanRetainFixedHost(applied, target))
+        {
+            resolved = resolved with { HostBounds = applied.HostBounds };
+        }
+        return resolved;
     }
 
     public static bool FramesMatch(
@@ -155,7 +172,7 @@ internal static class EdgeCapsuleTransitionPolicy
         applied.Visible == target.Visible &&
         applied.Surface == target.Surface &&
         applied.Bounds == target.Bounds &&
-        applied.HostBounds == target.HostBounds &&
+        HostMatches(applied, target) &&
         applied.InteractiveBounds == target.InteractiveBounds &&
         applied.Edge == target.Edge &&
         applied.BodyWindowWidthDevice == target.BodyWindowWidthDevice &&
@@ -167,7 +184,29 @@ internal static class EdgeCapsuleTransitionPolicy
         Math.Abs(applied.ContentOpacity - target.ContentOpacity) < 0.001 &&
         applied.OutlineVisible == target.OutlineVisible &&
         applied.IsHitTestVisible == target.IsHitTestVisible &&
-        applied.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent;
+        applied.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent &&
+        applied.UsesFixedMotionHost == target.UsesFixedMotionHost;
+
+    private static bool HostMatches(
+        EdgeCapsulePresentationFrame applied,
+        EdgeCapsuleTargetPresentation target) =>
+        CanRetainFixedHost(applied, target) ||
+        applied.HostBounds == target.HostBounds;
+
+    private static bool CanRetainFixedHost(
+        EdgeCapsulePresentationFrame applied,
+        EdgeCapsuleTargetPresentation target) =>
+        applied.Visible &&
+        target.Visible &&
+        applied.UsesFixedMotionHost &&
+        target.UsesFixedMotionHost &&
+        applied.Edge == target.Edge &&
+        applied.WallDeviceX == target.WallDeviceX &&
+        Math.Abs(applied.DpiScaleX - target.DpiScaleX) < 0.001 &&
+        Math.Abs(applied.DpiScaleY - target.DpiScaleY) < 0.001 &&
+        EdgeCapsuleMotionEnvelopePolicy.Contains(
+            applied.HostBounds,
+            target.HostBounds);
 
     private static int LerpDevice(int from, int to, double progress) =>
         (int)Math.Round(Lerp(from, to, progress), MidpointRounding.AwayFromZero);

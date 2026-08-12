@@ -2,8 +2,8 @@ namespace PaperTodo;
 
 /// <summary>
 /// Adds only the native no-change flags that are proven by the current HWND rectangle. Keeping
-/// this policy pure makes the position-only experiment independently testable without invoking
-/// User32 from the regression checks.
+/// this policy pure keeps the strict axis contract independently testable without invoking User32
+/// from the regression checks.
 /// </summary>
 internal static class WindowNativeBoundsPolicy
 {

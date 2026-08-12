@@ -199,10 +199,8 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     }
 
     /// <summary>
-    /// The only docked-surface effect entry. The native HWND owns EffectiveHostBounds while the
-    /// real, wall-aligned visual surface follows frame.Bounds. Size animation changes only one WPF
-    /// tree; the motion-envelope experiment also converts vertical placement frames to a render
-    /// transform inside a retained native rectangle.
+    /// The only docked-surface effect entry. The native HWND owns the stable frame.HostBounds while
+    /// the real, wall-aligned visual surface follows frame.Bounds through a render transform.
     /// </summary>
     public bool Apply(EdgeCapsulePresentationFrame frame)
     {
@@ -212,7 +210,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         }
         var window = Window;
         var root = Root;
-        var nativeHostBounds = frame.EffectiveHostBounds;
+        var nativeHostBounds = frame.HostBounds;
         var visualOffsetYDevice = frame.Bounds.Top - nativeHostBounds.Top;
 #if DEBUG
         var applyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
@@ -231,7 +229,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             if (string.Equals(outcome, "success", StringComparison.Ordinal) &&
                 totalMilliseconds < 0.75 &&
                 forcedLayoutMilliseconds <= 0.001 &&
-                !frame.UsesMotionEnvelope)
+                !nativeSetRequested)
             {
                 return;
             }
@@ -243,7 +241,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 $"showMs={showMilliseconds:F3} verifyMs={verifyMilliseconds:F3} " +
                 $"surface={frame.Surface} visible={frame.Visible} " +
                 $"bounds={frame.Bounds.Width}x{frame.Bounds.Height} " +
-                $"nativeSet={nativeSetRequested} envelope={frame.UsesMotionEnvelope} " +
+                $"nativeSet={nativeSetRequested} motionV2={frame.UsesFixedMotionHost} " +
                 $"offsetYDevice={visualOffsetYDevice} " +
                 $"nativeBounds={nativeHostBounds.Left},{nativeHostBounds.Top}," +
                 $"{nativeHostBounds.Width}x{nativeHostBounds.Height}");
@@ -287,24 +285,15 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             frame.Surface != EdgeCapsuleSurfaceKind.FloatingFree,
             "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         Debug.Assert(
-            frame.HostBounds.Width >= frame.Bounds.Width &&
-            frame.HostBounds.Height >= frame.Bounds.Height &&
-            frame.HostBounds.Top == frame.Bounds.Top &&
-            (frame.Edge == EdgeCapsuleEdge.Left
-                ? frame.HostBounds.Left == frame.Bounds.Left
-                : frame.HostBounds.Right == frame.Bounds.Right),
-            "Logical host capacity must stay pinned to the visible capsule and wall.");
-        Debug.Assert(
-            nativeHostBounds.Left <= frame.Bounds.Left &&
-            nativeHostBounds.Top <= frame.Bounds.Top &&
-            nativeHostBounds.Right >= frame.Bounds.Right &&
-            nativeHostBounds.Bottom >= frame.Bounds.Bottom &&
+            EdgeCapsuleMotionEnvelopePolicy.Contains(
+                nativeHostBounds,
+                frame.Bounds) &&
             (frame.Edge == EdgeCapsuleEdge.Left
                 ? nativeHostBounds.Left == frame.WallDeviceX
                 : nativeHostBounds.Right == frame.WallDeviceX),
-            "The visible capsule must fit inside its effective native host.");
+            "The visible capsule must fit inside its stable native host.");
         var previousFrame = _appliedFrame;
-        var previousNativeHostBounds = previousFrame.EffectiveHostBounds;
+        var previousNativeHostBounds = previousFrame.HostBounds;
         var nativeMetricsVersion = _nativeMetricsVersion;
         var nativeMetricsChanged = _appliedNativeMetricsVersion != nativeMetricsVersion;
         var firstShow = !window.IsVisible;
@@ -578,7 +567,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     private bool MatchesNativePresentationLayout(EdgeCapsulePresentationFrame frame)
     {
-        var nativeHostBounds = frame.EffectiveHostBounds;
+        var nativeHostBounds = frame.HostBounds;
         if (_disposed ||
             !Window.IsVisible ||
             !WindowNative.TryGetWindowDeviceBounds(Window, out var actualBounds) ||
@@ -1339,7 +1328,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         surface.Height = frame.Bounds.Height / Math.Max(1, frame.DpiScaleY);
         VisualSurfaceOffset.X = 0;
         VisualSurfaceOffset.Y =
-            (frame.Bounds.Top - frame.EffectiveHostBounds.Top) /
+            (frame.Bounds.Top - frame.HostBounds.Top) /
             Math.Max(1, frame.DpiScaleY);
     }
 
