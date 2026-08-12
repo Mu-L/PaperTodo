@@ -627,6 +627,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         IntPtr lParam,
         ref bool handled)
     {
+#if DEBUG
+        WindowNative.ObserveNativeGeometryMessage(hwnd, msg);
+#endif
         if (msg is WmMouseMove or WmNcMouseMove &&
             _callbacks is { } callbacks &&
             (_appliedFrame.Surface is
