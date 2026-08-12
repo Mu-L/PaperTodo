@@ -19,8 +19,11 @@ internal sealed partial class EdgeCapsuleHost
     private bool _previewInteractiveCaptureLease;
     private bool _compactLabelSuppressedForPreview;
     private bool _compactLabelRestoreScheduledForPreviewClose;
+    private readonly TranslateTransform _compactContentAnchorTransform = new();
     private double _compactContentAnchorWidthDip = double.NaN;
+    private double _compactContentAnchorCloseWidthDip = double.NaN;
     private double _lastPreviewProgress;
+    private double _lastPreviewCloseWidthDip;
     private long _previewInteractiveCaptureGraceUntil;
 
     private const int PreviewInteractiveCaptureGraceMilliseconds = 250;
@@ -346,6 +349,8 @@ internal sealed partial class EdgeCapsuleHost
 
         var previousPreviewVisible = _previewVisible;
         var previousPreviewProgress = _lastPreviewProgress;
+        var previousCloseWidth = _lastPreviewCloseWidthDip;
+        var currentCloseWidth = _appliedCloseWidth;
         var hasContent =
             _previewViewportLayer != null &&
             _previewContentLayer != null &&
@@ -367,13 +372,18 @@ internal sealed partial class EdgeCapsuleHost
 
         if (_previewVisible)
         {
-            ApplyCompactContentAnchor(frame);
-            if (closingPreview)
+            if (closingPreview &&
+                TryRetargetCompactContentAnchorForPreviewClose(
+                    previousPreviewProgress,
+                    previewProgress,
+                    previousCloseWidth,
+                    currentCloseWidth))
             {
                 ScheduleCompactLabelRestoreForPreviewClose(
                     previousPreviewProgress,
                     previewProgress);
             }
+            ApplyCompactContentAnchor(frame);
         }
         else if (!retainPreview)
         {
@@ -419,6 +429,7 @@ internal sealed partial class EdgeCapsuleHost
         }
 
         _lastPreviewProgress = _previewVisible ? previewProgress : 0;
+        _lastPreviewCloseWidthDip = _previewVisible ? currentCloseWidth : 0;
 
         if (!retainPreview && hasContent)
         {
@@ -435,6 +446,10 @@ internal sealed partial class EdgeCapsuleHost
 
     private void CaptureCompactContentAnchor(EdgeCapsulePresentationFrame frame)
     {
+        if (!double.IsFinite(_compactContentAnchorCloseWidthDip))
+        {
+            _compactContentAnchorCloseWidthDip = _appliedCloseWidth;
+        }
         if (double.IsFinite(_compactContentAnchorWidthDip) &&
             _compactContentAnchorWidthDip > 0)
         {
@@ -458,10 +473,52 @@ internal sealed partial class EdgeCapsuleHost
                 ContentGrid.Margin.Left - ContentGrid.Margin.Right);
     }
 
+    private bool TryRetargetCompactContentAnchorForPreviewClose(
+        double previousPreviewProgress,
+        double previewProgress,
+        double previousCloseWidth,
+        double currentCloseWidth)
+    {
+        if (_compactLabelRestoreScheduledForPreviewClose ||
+            previousPreviewProgress <= 0.0001)
+        {
+            return _compactLabelRestoreScheduledForPreviewClose;
+        }
+
+        // Every interpolated field uses the same eased transition progress. On a close, preview
+        // height remaining and close-width distance to the target therefore share the same ratio.
+        // Solve the target close width from the first two closing samples, then move the invisible
+        // compact title to that final screen position before its last-35-ms fade begins.
+        var remainingRatio = Math.Clamp(
+            previewProgress / previousPreviewProgress,
+            0,
+            1);
+        var denominator = 1 - remainingRatio;
+        if (denominator <= 0.0001)
+        {
+            return false;
+        }
+
+        var targetCloseWidth =
+            (currentCloseWidth - previousCloseWidth * remainingRatio) /
+            denominator;
+        if (!double.IsFinite(targetCloseWidth))
+        {
+            return false;
+        }
+
+        _compactContentAnchorCloseWidthDip = Math.Clamp(
+            targetCloseWidth,
+            0,
+            Math.Max(0, _maximumCloseWidth));
+        return true;
+    }
+
     private void ApplyCompactContentAnchor(EdgeCapsulePresentationFrame frame)
     {
         if (!double.IsFinite(_compactContentAnchorWidthDip) ||
-            _compactContentAnchorWidthDip <= 0)
+            _compactContentAnchorWidthDip <= 0 ||
+            !double.IsFinite(_compactContentAnchorCloseWidthDip))
         {
             CaptureCompactContentAnchor(frame);
         }
@@ -472,11 +529,28 @@ internal sealed partial class EdgeCapsuleHost
             ? HorizontalAlignment.Left
             : HorizontalAlignment.Right;
         ContentGrid.VerticalAlignment = VerticalAlignment.Top;
+
+        var closeWidthDelta = _appliedCloseWidth - _compactContentAnchorCloseWidthDip;
+        _compactContentAnchorTransform.X = frame.Edge == EdgeCapsuleEdge.Left
+            ? -closeWidthDelta
+            : closeWidthDelta;
+        _compactContentAnchorTransform.Y = 0;
+        if (!ReferenceEquals(ContentGrid.RenderTransform, _compactContentAnchorTransform))
+        {
+            ContentGrid.RenderTransform = _compactContentAnchorTransform;
+        }
     }
 
     private void RestoreCompactContentAnchor()
     {
         _compactContentAnchorWidthDip = double.NaN;
+        _compactContentAnchorCloseWidthDip = double.NaN;
+        _compactContentAnchorTransform.X = 0;
+        _compactContentAnchorTransform.Y = 0;
+        if (ReferenceEquals(ContentGrid.RenderTransform, _compactContentAnchorTransform))
+        {
+            ContentGrid.RenderTransform = null;
+        }
         ContentGrid.Width = double.NaN;
         ContentGrid.Height = double.NaN;
         ContentGrid.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -642,6 +716,7 @@ internal sealed partial class EdgeCapsuleHost
         _previewContent = null;
         _previewVisible = false;
         _lastPreviewProgress = 0;
+        _lastPreviewCloseWidthDip = 0;
         _previewInteractiveCaptureLease = false;
         _previewInteractiveCaptureGraceUntil = 0;
         RestoreCompactContentAnchor();
