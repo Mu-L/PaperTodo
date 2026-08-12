@@ -245,6 +245,17 @@ public sealed partial class PaperWindow
             restingWidth + CapsuleCloseWidth;
         var previewHeight = previewSize?.HeightDip ??
             PaperLayoutDefaults.CapsuleHeight;
+        var usesFixedMotionHost = EdgeCapsuleMotionEnvelopePolicy.IsEnabled;
+        var maximumPreviewWidth = Math.Max(
+            EdgeCapsulePreviewSize.MinimumWidthDip,
+            Math.Min(
+                EdgeCapsulePreviewSize.MaximumWidthDip,
+                monitor.LocalWorkAreaDip.Width));
+        var maximumPreviewHeight = Math.Max(
+            EdgeCapsulePreviewSize.MinimumHeightDip,
+            Math.Min(
+                EdgeCapsulePreviewSize.MaximumHeightDip,
+                monitor.LocalWorkAreaDip.Height));
         var requestedHostWidth = Math.Max(
             Math.Max(
                 restingWidth + CapsuleCloseWidth,
@@ -252,41 +263,37 @@ public sealed partial class PaperWindow
             Math.Min(
                 EdgeCapsuleLayout.HostCapacityWidth,
                 monitor.LocalWorkAreaDip.Width));
-        var motionEnvelopeExperiment =
-            EdgeCapsuleMotionEnvelopeExperiment.IsEnabledForEdge(MyDeepCapsuleEdge);
-        if (motionEnvelopeExperiment)
+        if (usesFixedMotionHost)
         {
-            // The experiment must isolate WPF motion from both native movement and first-preview
-            // resize. Reserve the protocol's largest legal mini-card before the first interaction;
-            // the large overlapping transparent HWNDs are an intentional part of the viability test.
+            // V2 reserves every legal preview size before the host is first shown. Later preview
+            // opens and queue motion therefore change only the inner visual surface.
             requestedHostWidth = Math.Max(
                 requestedHostWidth,
-                Math.Min(
-                    EdgeCapsulePreviewSize.MaximumWidthDip,
-                    monitor.LocalWorkAreaDip.Width));
+                maximumPreviewWidth);
         }
         var applied = _edgeCapsule.AppliedPresentation;
-        var appliedHostWidth = applied.Visible && !applied.HostBounds.IsEmpty
+        var appliedHostWidth = !usesFixedMotionHost &&
+            applied.Visible &&
+            !applied.HostBounds.IsEmpty
             ? applied.HostBounds.Width / Math.Max(1, applied.DpiScaleX)
             : 0;
-        var appliedHostHeight = applied.Visible && !applied.HostBounds.IsEmpty
+        var appliedHostHeight = !usesFixedMotionHost &&
+            applied.Visible &&
+            !applied.HostBounds.IsEmpty
             ? applied.HostBounds.Height / Math.Max(1, applied.DpiScaleY)
             : 0;
 
-        // HostBounds is transparent composition capacity, not the current card. It may grow before
-        // a larger preview starts, but it does not contract while this host remains visible. Opening
-        // and closing therefore resize only VisualSurface; queue placement may still move the HWND.
+        // Legacy A/B keeps the old grow-only capacity. V2 instead feeds this maximum content size
+        // into one queue envelope before the HWND is first shown.
         var hostWidth = Math.Max(requestedHostWidth, appliedHostWidth);
         var hostHeight = Math.Max(
             Math.Max(PaperLayoutDefaults.CapsuleHeight, previewHeight),
             appliedHostHeight);
-        if (motionEnvelopeExperiment)
+        if (usesFixedMotionHost)
         {
             hostHeight = Math.Max(
                 hostHeight,
-                Math.Min(
-                    EdgeCapsulePreviewSize.MaximumHeightDip,
-                    monitor.LocalWorkAreaDip.Height));
+                maximumPreviewHeight);
         }
         var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
             ? ExperimentalOpacityLevels.Normalize(
@@ -312,6 +319,8 @@ public sealed partial class PaperWindow
             PaperLayoutDefaults.CapsuleHeight,
             previewWidth,
             previewHeight,
+            maximumPreviewHeight,
+            usesFixedMotionHost,
             _controller.State.HideEdgeCapsuleCloseButtonOnHover,
             restingOpacity,
             forcedOpacity));

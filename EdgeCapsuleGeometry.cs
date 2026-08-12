@@ -179,9 +179,8 @@ internal static class EdgeCapsuleGeometry
         point.Y < bounds.Bottom;
 
     /// <summary>
-    /// Keeps the transparent composition host pinned to the same wall and top anchor as the visible
-    /// capsule. Capacity comes from the fully expanded target in both axes, so a size transition
-    /// changes only the inner visual surface and never resizes the HWND.
+    /// Legacy A/B geometry whose transparent host follows the visible top. Production V2 instead
+    /// supplies one queue envelope through EdgeCapsuleMotionEnvelopePolicy.
     /// </summary>
     public static DeviceScreenRect HostBoundsForVisibleBounds(
         DeviceScreenRect visibleBounds,

@@ -13,6 +13,8 @@ internal readonly record struct EdgeCapsuleLayoutFacts(
     double HeightDip,
     double PreviewWidthDip,
     double PreviewHeightDip,
+    double MaximumPreviewHeightDip,
+    bool UsesFixedMotionHost,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
     double? ForcedContentOpacity);
@@ -44,6 +46,35 @@ internal static class EdgeCapsuleLayoutService
                 placement.SlotCount,
                 facts.GapDip)
             : normalTop;
+        var queueTop = placement.IsPlaced
+            ? EdgeCapsuleLayout.TopForIndex(
+                0,
+                facts.QueueStartTopMarginDip,
+                localWorkArea,
+                placement.SlotCount,
+                facts.GapDip)
+            : normalTop;
+        var lastSlotTop = placement.IsPlaced
+            ? EdgeCapsuleLayout.TopForIndex(
+                Math.Max(0, placement.SlotCount - 1),
+                facts.QueueStartTopMarginDip,
+                localWorkArea,
+                placement.SlotCount,
+                facts.GapDip)
+            : normalTop;
+        var hostEnvelope = facts.UsesFixedMotionHost
+            ? EdgeCapsuleMotionEnvelopePolicy.CalculateQueueEnvelope(
+                localWorkArea.Top,
+                localWorkArea.Bottom,
+                queueTop,
+                lastSlotTop,
+                normalTop,
+                facts.HostHeightDip,
+                facts.MaximumPreviewHeightDip,
+                Math.Max(facts.HeightDip, facts.PreviewHeightDip))
+            : new EdgeCapsuleHostEnvelopeLayout(
+                normalTop,
+                Math.Max(1, facts.HostHeightDip));
         return new EdgeCapsuleLayoutSnapshot(
             facts.Monitor,
             facts.Edge,
@@ -56,6 +87,9 @@ internal static class EdgeCapsuleLayoutService
             facts.HeightDip,
             facts.PreviewWidthDip,
             facts.PreviewHeightDip,
+            hostEnvelope.TopDip,
+            hostEnvelope.HeightDip,
+            facts.UsesFixedMotionHost,
             facts.CloseSegmentActsAsContent,
             facts.RestingContentOpacity,
             facts.ForcedContentOpacity);

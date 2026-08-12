@@ -3,7 +3,11 @@ extern alias PaperTodoApp;
 using NativeBoundsPolicy = PaperTodoApp::PaperTodo.WindowNativeBoundsPolicy;
 using AppEdge = PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
 using AppFrame = PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
-using AppMotionEnvelope = PaperTodoApp::PaperTodo.EdgeCapsuleMotionEnvelopeExperiment;
+using AppLayoutFacts = PaperTodoApp::PaperTodo.EdgeCapsuleLayoutFacts;
+using AppLayoutService = PaperTodoApp::PaperTodo.EdgeCapsuleLayoutService;
+using AppMonitor = PaperTodoApp::PaperTodo.MonitorGeometry;
+using AppMotionEnvelope = PaperTodoApp::PaperTodo.EdgeCapsuleMotionEnvelopePolicy;
+using AppPlacement = PaperTodoApp::PaperTodo.EdgeCapsulePlacement;
 using AppRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
 using AppSurface = PaperTodoApp::PaperTodo.EdgeCapsuleSurfaceKind;
 using AppTarget = PaperTodoApp::PaperTodo.EdgeCapsuleTargetPresentation;
@@ -19,6 +23,7 @@ internal static class Program
     {
         CheckNativeBoundsFlags();
         CheckMotionEnvelopePolicy();
+        CheckFixedHostLayout();
 
         var nodes = new[]
         {
@@ -238,11 +243,25 @@ internal static class Program
     private static void CheckMotionEnvelopePolicy()
     {
         const int rightWall = 1000;
+        var queueEnvelope = AppMotionEnvelope.CalculateQueueEnvelope(
+            workAreaTopDip: 0,
+            workAreaBottomDip: 1080,
+            queueTopDip: 100,
+            lastSlotTopDip: 400,
+            currentTopDip: 280,
+            hostCapacityHeightDip: 420,
+            maximumPreviewHeightDip: 420,
+            currentVisibleHeightDip: 420);
+        Assert(
+            queueEnvelope.TopDip == 0 &&
+            queueEnvelope.HeightDip == 1080,
+            "the startup host must reserve the work area and maximum content at every slot");
+
         var startBounds = new AppRect(920, 100, rightWall, 180);
         var startHost = new AppRect(900, 100, rightWall, 260);
         var targetBounds = new AppRect(900, 320, rightWall, 440);
         var targetHost = new AppRect(880, 320, rightWall, 540);
-        var envelope = AppMotionEnvelope.CreateVerticalEnvelope(
+        var envelope = AppMotionEnvelope.UnionWallPinned(
             startHost,
             targetHost,
             AppEdge.Right,
@@ -267,7 +286,8 @@ internal static class Program
             1,
             false,
             true,
-            false);
+            false,
+            true);
         var target = new AppTarget(
             true,
             AppSurface.DockedPreview,
@@ -284,7 +304,8 @@ internal static class Program
             1,
             false,
             true,
-            false);
+            false,
+            true);
         var transition = new AppTransition(
             start,
             target,
@@ -295,32 +316,96 @@ internal static class Program
 
         var middle = AppTransitionPolicy.Sample(transition, 50);
         Assert(
-            middle.Frame.EffectiveHostBounds == envelope,
+            middle.Frame.HostBounds == envelope,
             "every in-flight WPF offset frame must keep one fixed native envelope");
         Assert(
-            middle.Frame.HostBounds.Top == middle.Frame.Bounds.Top,
-            "the logical host capacity must continue to follow the sampled visible frame");
+            middle.Frame.HostBounds.Top < middle.Frame.Bounds.Top,
+            "the visible surface must move inside the fixed native envelope");
 
         var complete = AppTransitionPolicy.Sample(transition, 100);
         Assert(complete.IsComplete, "the envelope transition should still finish normally");
         Assert(
-            complete.Frame.HostBounds == targetHost &&
-            complete.Frame.EffectiveHostBounds == envelope,
-            "the settled logical target must retain its physical envelope without an endpoint move");
+            complete.Frame.HostBounds == envelope,
+            "the settled target must retain its native envelope without an endpoint move");
         Assert(
             AppTransitionPolicy.ResolveSettledFrame(complete.Frame, target) == complete.Frame,
             "an idle reconcile must not silently contract a retained motion envelope");
 
-        var snapTarget = target with
+        var containedTarget = target with
         {
-            Bounds = new AppRect(900, 600, rightWall, 720),
-            HostBounds = new AppRect(880, 600, rightWall, 820),
-            InteractiveBounds = new AppRect(900, 600, rightWall, 720)
+            Bounds = new AppRect(900, 340, rightWall, 460),
+            HostBounds = new AppRect(880, 300, rightWall, 520),
+            InteractiveBounds = new AppRect(900, 340, rightWall, 460)
         };
         Assert(
-            !AppTransitionPolicy.ResolveSettledFrame(complete.Frame, snapTarget)
-                .UsesMotionEnvelope,
-            "a logically different snap target must clear the old native envelope");
+            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, containedTarget)
+                .HostBounds == envelope,
+            "a logically changed target inside the retained host must not contract the HWND");
+
+        var largerTarget = containedTarget with
+        {
+            HostBounds = new AppRect(860, 80, rightWall, 620)
+        };
+        Assert(
+            AppTransitionPolicy.ResolveSettledFrame(complete.Frame, largerTarget)
+                .HostBounds == largerTarget.HostBounds,
+            "a target outside the retained host must request a new native envelope");
+    }
+
+    private static void CheckFixedHostLayout()
+    {
+        var facts = new AppLayoutFacts(
+            new AppMonitor(
+                "DISPLAY-V2",
+                new AppRect(0, 0, 1920, 1080),
+                1,
+                1),
+            AppEdge.Right,
+            new AppPlacement(
+                Index: 2,
+                VisualOffset: 0,
+                SlotCount: 6),
+            QueueStartTopMarginDip: 48,
+            GapDip: 4,
+            RestingWidthDip: 86,
+            MaximumCloseWidthDip: 28,
+            HostWidthDip: 480,
+            HostHeightDip: 420,
+            HeightDip: 58,
+            PreviewWidthDip: 220,
+            PreviewHeightDip: 140,
+            MaximumPreviewHeightDip: 420,
+            UsesFixedMotionHost: true,
+            CloseSegmentActsAsContent: false,
+            RestingContentOpacity: 1,
+            ForcedContentOpacity: null);
+        var resting = AppLayoutService.Calculate(facts);
+        var displaced = AppLayoutService.Calculate(facts with
+        {
+            Placement = facts.Placement with { TopOffsetDip = 362 },
+            PreviewWidthDip = 480,
+            PreviewHeightDip = 420
+        });
+        Assert(
+            resting.HostEnvelopeTopDip == displaced.HostEnvelopeTopDip &&
+            resting.HostEnvelopeHeightDip == displaced.HostEnvelopeHeightDip,
+            "the preallocated host must not change when a maximum-height preview displaces the queue");
+        Assert(
+            resting.HostEnvelopeTopDip <= resting.NormalTopDip &&
+            resting.HostEnvelopeTopDip + resting.HostEnvelopeHeightDip >=
+                displaced.NormalTopDip + displaced.HostHeightDip,
+            "the stable host must contain both resting and maximally displaced surface capacity");
+
+        var legacy = AppLayoutService.Calculate(facts with
+        {
+            UsesFixedMotionHost = false,
+            HostHeightDip = 140,
+            MaximumPreviewHeightDip = 420
+        });
+        Assert(
+            legacy.HostEnvelopeTopDip == legacy.NormalTopDip &&
+            legacy.HostEnvelopeHeightDip == 140,
+            "the same-binary A/B path must preserve the old top-following HWND geometry");
     }
 
     private static void CheckCorridorIntentPrediction()

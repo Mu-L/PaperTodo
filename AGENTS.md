@@ -50,15 +50,15 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 - `EdgeCapsuleTargetPlanner` 必须一次产出完整 shape plan；`Docked*` 和 `FloatingFree` 是互斥外形，悬浮拖拽窗口只能消费 planner 的 `FloatingFree`，不得由构造参数临时拼关闭区、圆角或宽度。
 - 显示器、边、顶部、内容宽度和关闭宽度到 `DeviceScreenRect` 的转换只走纯 `EdgeCapsuleGeometry`；不得在窗口移动、动画或 measure 回调中复制物理像素公式。
 - per-window 的显示器 settle、标题 measure、物理指针采样和 frame apply 共用一个 dirty/reconcile 调度入口；需要同步交接时调用同一管线的 `Flush`，不得直接调用 planner/apply，也不得为新条件增加独立 pending/scheduled 布尔对。跨胶囊 arrange 只由队列协调器单独合并。
-- 同一 Dispatcher 上的动画 Presenter 必须共用一个帧调度器和每帧一次的物理指针采样；布局快照只在标题、显示器或队列布局失效时重算。position-only 帧只移动 `HostBounds` 对应的 HWND，visible-width-only 帧只更新 `VisualSurface` 与固定分段，二者都不得触发 WPF `UpdateLayout`。
+- 同一 Dispatcher 上的动画 Presenter 必须共用一个帧调度器和每帧一次的物理指针采样；布局快照只在标题、显示器或队列布局失效时重算。普通纵向补位帧只能在稳定 `HostBounds` 内移动 `VisualSurface`，visible-width-only 帧只更新 `VisualSurface` 与固定分段，二者都不得逐帧提交 HWND 几何或触发 WPF `UpdateLayout`。
 - 指针是否位于胶囊上只根据 applied frame 的物理 `InteractiveBounds` 判断；该矩形排除透明阴影边距，WPF enter/leave 只负责唤醒采样，不能直接写 Hover。
 - 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 是真实选择区；每段连续可交互队列项的外接矩形是临时空白转移区，但不是胶囊命中区，固定透明 `HostBounds` 也不得混入。不可交互或正在收回的旧卡必须切断前后矩形。指针在空白转移区内时，开启移动意图只在轨迹明确朝向某个可浏览胶囊时保活，否则按五档分别约 0.2 / 0.35 / 0.5 / 0.65 / 0.8 秒收起；关闭移动意图时固定等待 1 秒。越出该外接矩形在两种模式下都必须无条件立即收起，预测没有否决权；指针捕获期间不得触发。
 - 每个队列的 index、master offset 和 slot count 只由 `EdgeCapsuleQueueCoordinator` 生成，`AppController` 和单个窗口不得各自重新推导。
 - **贴边胶囊队列永远不分页。** 不得按工作区高度做安全容量、隐藏溢出胶囊、页头、页码、自动翻页或容量截断；队列始终按完整顺序连续向下排列，超过当前显示器工作区就允许直接出屏。后续不要以“防重叠”“小屏适配”或任何其他名义重新引入分页。
 - 贴边 slot host 使用固定的最大展开透明合成面，真正可见的 Chrome / Shell 使用当前帧真实宽度并在该合成面内钉住墙边；透明预留区不是胶囊的一部分，外形不得依赖 `ClipToBounds`、屏幕边缘或超宽子元素裁切。slot 0 主胶囊不参与水平伸缩，继续使用自身真实窗口宽度。
 - 贴边胶囊的关闭区位于屏幕墙边、悬停时从 0 宽度展开并把图标/标题推向屏幕内部；靠墙侧始终为直角，内容区拥有朝屏幕内部的圆角。
-- 贴边胶囊水平伸缩只插值已经取整的可见物理宽度；水平伸缩动画期间不得水平移动或改变 docked HWND 宽度，垂直重排仍可移动宿主。关闭区宽度和透明度必须从该可见宽度反推，不得建立独立的布局插值通道。
-- `EdgeCapsuleHost.Apply(frame)` 是 docked HWND 的唯一呈现契约；`HostBounds` 只表示稳定的透明合成容量，`Bounds` 才是当前真实胶囊。正文段与关闭段必须使用明确固定宽度，且两段之和与当前可见宽度一致，禁止用 `Star`、隐藏列或额外动画吸收差值。
+- 贴边胶囊水平伸缩只插值已经取整的可见物理宽度；水平伸缩动画期间不得水平移动或改变 docked HWND 宽度，垂直重排也必须在固定宿主内通过内部位移完成。关闭区宽度和透明度必须从该可见宽度反推，不得建立独立的布局插值通道。
+- `EdgeCapsuleHost.Apply(frame)` 是 docked HWND 的唯一呈现契约；`HostBounds` 只表示当前显示器与边上的稳定透明运动包络，覆盖工作区、队列槽位和一次最大预览补位，`Bounds` 才是当前真实胶囊。已分配包络在宿主可见期间可以保留更大的旧范围，不得因目标缩小而收缩；正文段与关闭段必须使用明确固定宽度，且两段之和与当前可见宽度一致，禁止用 `Star`、隐藏列或额外动画吸收差值。
 - 固定宿主超出 `InteractiveBounds` 的透明区域必须在 `WM_NCHITTEST` 返回 `HTTRANSPARENT`，不得把最大宿主矩形当成悬停或点击区域。
 - 跨队列拖拽使用独立的 floating drag HWND；贴边 slot host 永远只保留贴边布局，禁止把它改造成自由胶囊或在两种外形间复用列顺序、圆角和宽度状态。
 - 拖动期间收到的全局 `ArrangeDeepCapsules` 请求必须合并并在拖动结束后刷新，不能静默丢弃；显示器指标刷新可用自己的延迟刷新吞并该请求。
