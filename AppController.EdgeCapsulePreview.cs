@@ -141,10 +141,12 @@ public sealed partial class AppController
                 $"queue={session.QueueKey}->{currentQueueKey}");
             session = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
                 basePlan,
+                null,
                 currentQueueKey,
                 session.OwnerPaperId,
                 session.Size,
-                PaperLayoutDefaults.CapsuleHeight);
+                PaperLayoutDefaults.CapsuleHeight,
+                DeepCapsuleGap);
             if (session == null)
             {
                 TraceEdgeCapsulePreview(
@@ -843,10 +845,12 @@ public sealed partial class AppController
         var queueKey = QueueKey(window.EdgeCapsulePreviewPaper);
         var next = EdgeCapsulePreviewLayoutCoordinator.OpenOrTransfer(
             basePlan,
+            previous,
             queueKey,
             window.EdgeCapsulePreviewPaperId,
             request.Size,
-            PaperLayoutDefaults.CapsuleHeight);
+            PaperLayoutDefaults.CapsuleHeight,
+            DeepCapsuleGap);
         if (next == null)
         {
             TraceEdgeCapsulePreview(
@@ -1182,6 +1186,11 @@ public sealed partial class AppController
                 QueueKey(target.EdgeCapsulePreviewPaper),
                 StringComparison.Ordinal);
     }
+
+    private static bool IsEdgeCapsulePreviewLayoutSuppressedFor(
+        EdgeCapsulePreviewPointerAnchor anchor,
+        string queueKey) =>
+        string.Equals(anchor.QueueKey, queueKey, StringComparison.Ordinal);
 
     private static bool IsEdgeCapsulePreviewLayoutSuppressionExpired(
         EdgeCapsulePreviewPointerAnchor anchor) =>
