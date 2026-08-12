@@ -66,16 +66,22 @@ public sealed partial class PaperWindow
                     size),
                 visible => NotifyNativePluginMiniViewVisibility(
                     nativeProvider,
-                    visible),
-                DeferContentCreation: true);
+                    visible));
         }
 
         if (_paperBodyHost.Current is WebPaperBodySession webSession &&
             webSession.HasMiniEntry)
         {
+            // A declared 1.8 mini surface is itself the preview content. Do not paint an enlarged
+            // 1.6/1.7 capsule while the WebView is becoming ready; that compatibility fallback is
+            // only the final preview for plugins that did not declare a 1.8 mini surface.
             return webSession.DescribeMiniView(
-                context,
-                BuildPluginCapsuleEdgePreviewContent);
+                    context,
+                    static (_, _) => new Grid { Background = Brushes.Transparent })
+                with
+                {
+                    DeferContentCreation = false
+                };
         }
 
         if (_bodyDescriptor?.Kind == PaperBodyPluginKind.Native &&
@@ -85,9 +91,17 @@ public sealed partial class PaperWindow
                 context,
                 out var migrationDescriptor))
         {
-            return migrationDescriptor;
+            // Migration is also an explicitly declared 1.8 preview capability. Stage its real
+            // preview wrapper in the opening transaction instead of showing the old capsule first
+            // and replacing it on a later background dispatcher turn.
+            return migrationDescriptor with
+            {
+                DeferContentCreation = false
+            };
         }
 
+        // No 1.8 preview capability: the enlarged 1.7/1.6/plain capsule is the final preview, not
+        // an intermediate loading view that will later be replaced.
         return DescribePluginCapsuleFallback(context);
     }
 
