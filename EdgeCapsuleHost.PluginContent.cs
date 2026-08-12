@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace PaperTodo;
 
@@ -42,9 +43,10 @@ internal sealed partial class EdgeCapsuleHost
             _pluginContentLayer.Child = content;
         }
         // Keep the compact plugin tree layout-resident for the same reason as ContentGrid: a
-        // closing preview can restore it by opacity without exposing a one-frame empty shell.
+        // closing preview can restore it without exposing a one-frame empty shell. Opacity is bound
+        // to ContentGrid so built-in icon/title and custom capsule content always share the exact
+        // same 35 ms compact fade clock.
         _pluginContentLayer.Visibility = Visibility.Visible;
-        _pluginContentLayer.Opacity = _previewVisible ? 0 : 1;
         ContentArea.ToolTip = toolTip;
     }
 
@@ -59,6 +61,14 @@ internal sealed partial class EdgeCapsuleHost
             ClipToBounds = true,
             Visibility = Visibility.Collapsed
         };
+        BindingOperations.SetBinding(
+            layer,
+            UIElement.OpacityProperty,
+            new Binding(nameof(UIElement.Opacity))
+            {
+                Source = ContentGrid,
+                Mode = BindingMode.OneWay
+            });
         Panel.SetZIndex(layer, 10);
         ContentHost.Children.Add(layer);
         return layer;
