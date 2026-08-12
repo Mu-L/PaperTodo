@@ -16,6 +16,7 @@ internal sealed partial class EdgeCapsuleHost
     private FrameworkElement? _previewContent;
     private int _previewContentStageGeneration;
     private bool _previewVisible;
+    private double _previewGeometryProgress;
     private bool _previewInteractiveCaptureLease;
     private bool _compactLabelSuppressedForPreview;
     private readonly TranslateTransform _compactContentAnchorTransform = new();
@@ -214,7 +215,8 @@ internal sealed partial class EdgeCapsuleHost
         // is content lifecycle work, not a second presentation entry point, and therefore cannot
         // advance geometry from an uncommitted native batch.
         var wasVisible = _previewVisible;
-        var progress = _previewViewportLayer?.Opacity ?? 0;
+        var contentOpacity = _previewViewportLayer?.Opacity ?? 0;
+        var geometryProgress = _previewGeometryProgress;
         var wasHitTestVisible = _previewViewportLayer?.IsHitTestVisible == true;
         if (!StagePreviewContent(content, contentWidthDip, contentHeightDip))
         {
@@ -223,14 +225,14 @@ internal sealed partial class EdgeCapsuleHost
 
         var replacementGeneration = _previewContentStageGeneration;
         _previewVisible = wasVisible;
-        ApplyPreviewLayerState(wasVisible, progress, wasHitTestVisible);
+        ApplyPreviewLayerState(wasVisible, contentOpacity, wasHitTestVisible);
         if (_disposed ||
             replacementGeneration != _previewContentStageGeneration ||
             !OwnsPreviewContent(content))
         {
             return false;
         }
-        ApplyCompactContentProgress(wasVisible ? progress : 0);
+        ApplyCompactContentProgress(wasVisible ? geometryProgress : 0);
         return !_disposed &&
             replacementGeneration == _previewContentStageGeneration &&
             OwnsPreviewContent(content);
@@ -463,7 +465,7 @@ internal sealed partial class EdgeCapsuleHost
             1);
 
         var previousPreviewVisible = _previewVisible;
-        var previousPreviewProgress = _previewViewportLayer?.Opacity ?? 0;
+        var previousPreviewProgress = _previewGeometryProgress;
         var currentCloseWidth = _appliedCloseWidth;
         var previousCloseWidth = _appliedFrame.Visible
             ? EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
@@ -487,7 +489,7 @@ internal sealed partial class EdgeCapsuleHost
 
         if (openingPreview)
         {
-            CaptureCompactContentAnchor(frame);
+            CaptureCompactContentAnchor(frame, previousCloseWidth);
             SetCompactLabelSuppressedForPreview(true);
         }
 
@@ -522,10 +524,22 @@ internal sealed partial class EdgeCapsuleHost
                 : HorizontalAlignment.Right;
         }
         ApplyPreviewViewportClip(frame, bodyHeight);
+
+        // The compact title and the preview's own title-like content must never cross-fade. A
+        // protocol fallback may literally be a uniformly enlarged mirror of the compact capsule,
+        // while built-in previews also render their own heading. Showing both during the same 35 ms
+        // makes two different fixed-size trees look like one label is being scaled. Keep the final
+        // preview tree fully laid out but transparent until the compact label has actually reached
+        // zero opacity. On close the preview stays visible while the compact label's delayed restore
+        // is still at zero, then disappears as soon as that final-position title starts fading in.
+        var previewContentOpacity = _previewVisible && Label.Opacity <= 0.001
+            ? 1d
+            : 0d;
         ApplyPreviewLayerState(
             _previewVisible,
-            _previewVisible ? previewProgress : 0,
+            previewContentOpacity,
             _previewVisible &&
+                previewContentOpacity > 0.001 &&
                 previewProgress > 0.001 &&
                 frame.IsHitTestVisible);
         if (!IsPreviewContentStageCurrent(presentationContentGeneration))
@@ -538,6 +552,7 @@ internal sealed partial class EdgeCapsuleHost
         // content continues to use the preview progress cross-fade.
         ApplyCompactContentProgress(
             _previewVisible ? previewProgress : 0);
+        _previewGeometryProgress = _previewVisible ? previewProgress : 0;
         if (!IsPreviewContentStageCurrent(presentationContentGeneration))
         {
             return false;
@@ -556,11 +571,14 @@ internal sealed partial class EdgeCapsuleHost
         return true;
     }
 
-    private void CaptureCompactContentAnchor(EdgeCapsulePresentationFrame frame)
+    private void CaptureCompactContentAnchor(
+        EdgeCapsulePresentationFrame frame,
+        double? closeWidthOverride = null)
     {
         if (!double.IsFinite(_compactContentAnchorCloseWidthDip))
         {
-            _compactContentAnchorCloseWidthDip = _appliedCloseWidth;
+            _compactContentAnchorCloseWidthDip =
+                closeWidthOverride ?? _appliedCloseWidth;
         }
         if (double.IsFinite(_compactContentAnchorWidthDip) &&
             _compactContentAnchorWidthDip > 0)
@@ -582,6 +600,7 @@ internal sealed partial class EdgeCapsuleHost
         _compactContentAnchorWidthDip = Math.Max(
             1,
             source.BodyWindowWidthDevice / sourceScaleX -
+                _options.WindowChromeMargin -
                 ContentGrid.Margin.Left - ContentGrid.Margin.Right);
     }
 
@@ -670,7 +689,7 @@ internal sealed partial class EdgeCapsuleHost
 
     private void ApplyPreviewLayerState(
         bool visible,
-        double progress,
+        double opacity,
         bool hitTestVisible)
     {
         if (_previewViewportLayer == null)
@@ -680,7 +699,7 @@ internal sealed partial class EdgeCapsuleHost
 
         _previewViewportLayer.Visibility =
             visible ? Visibility.Visible : Visibility.Collapsed;
-        _previewViewportLayer.Opacity = visible ? progress : 0;
+        _previewViewportLayer.Opacity = visible ? Math.Clamp(opacity, 0, 1) : 0;
         _previewViewportLayer.IsHitTestVisible = visible && hitTestVisible;
     }
 
@@ -822,6 +841,7 @@ internal sealed partial class EdgeCapsuleHost
         }
         _previewContent = null;
         _previewVisible = false;
+        _previewGeometryProgress = 0;
         _previewInteractiveCaptureLease = false;
         _previewInteractiveCaptureGraceUntil = 0;
         RestoreCompactContentAnchor();
