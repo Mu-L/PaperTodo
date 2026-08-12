@@ -218,6 +218,14 @@ internal sealed class EdgeCapsuleFrameScheduler
         _acceptingPostCommitCallbacks = true;
         var transactionGroupId =
             presenters[0].NativeBatchTransactionGroupId;
+        // A positive transaction id means several physical queues are still completing one
+        // controller-owned visual transaction and need the existing atomic HDWP commit. Ordinary
+        // animation frames have no transaction id: their native host capacity is already settled,
+        // so only X/Y changes remain. Sending those moves through EndDeferWindowPos repeatedly
+        // blocks the UI thread for 10-20+ ms on affected systems; let each HWND use the existing
+        // immediate SetWindowPos path instead. Dispatcher processing stays disabled for the whole
+        // group, so no input or app callback can observe an interleaved logical frame.
+        var useNativeBoundsBatch = transactionGroupId > 0;
 #if DEBUG
         var groupStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         double reconcileMilliseconds = 0;
@@ -233,6 +241,7 @@ internal sealed class EdgeCapsuleFrameScheduler
         var boundsUnchanged = 0;
         var boundsMoveChanges = 0;
         var boundsSizeChanges = 0;
+        var nativeMode = useNativeBoundsBatch ? "batch" : "direct";
 #endif
         try
         {
@@ -243,10 +252,15 @@ internal sealed class EdgeCapsuleFrameScheduler
             bool frameDeferred;
             using (_dispatcher.DisableProcessing())
             {
-                using (var nativeBoundsBatch =
-                    WindowNative.BeginWindowDeviceBoundsBatch(
-                        presenters.Count))
+                WindowNative.WindowDeviceBoundsBatch? nativeBoundsBatch = null;
+                try
                 {
+                    if (useNativeBoundsBatch)
+                    {
+                        nativeBoundsBatch = WindowNative.BeginWindowDeviceBoundsBatch(
+                            presenters.Count);
+                    }
+
                     for (var index = presenters.Count - 1;
                          index >= 0;
                          index--)
@@ -306,17 +320,24 @@ internal sealed class EdgeCapsuleFrameScheduler
                     var nativeCommitStartedAt =
                         EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-                    nativeBatchCommitted = nativeBoundsBatch.Commit();
+                    nativeBatchCommitted = nativeBoundsBatch?.Commit() ?? true;
 #if DEBUG
                     nativeCommitMilliseconds +=
                         EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
                             nativeCommitStartedAt);
-                    boundsRequested = nativeBoundsBatch.RequestedWindowCount;
-                    boundsPending = nativeBoundsBatch.PendingWindowCount;
-                    boundsUnchanged = nativeBoundsBatch.UnchangedWindowCount;
-                    boundsMoveChanges = nativeBoundsBatch.MoveChangeCount;
-                    boundsSizeChanges = nativeBoundsBatch.SizeChangeCount;
+                    if (nativeBoundsBatch != null)
+                    {
+                        boundsRequested = nativeBoundsBatch.RequestedWindowCount;
+                        boundsPending = nativeBoundsBatch.PendingWindowCount;
+                        boundsUnchanged = nativeBoundsBatch.UnchangedWindowCount;
+                        boundsMoveChanges = nativeBoundsBatch.MoveChangeCount;
+                        boundsSizeChanges = nativeBoundsBatch.SizeChangeCount;
+                    }
 #endif
+                }
+                finally
+                {
+                    nativeBoundsBatch?.Dispose();
                 }
 
                 frameDeferred = nativeBatchCommitted &&
@@ -411,7 +432,8 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"postCommitMs={postCommitMilliseconds:F3} presenters={presenters.Count} " +
                 $"boundsRequested={boundsRequested} boundsPending={boundsPending} " +
                 $"boundsUnchanged={boundsUnchanged} moveChanges={boundsMoveChanges} " +
-                $"sizeChanges={boundsSizeChanges} slowest={slowestPresenter}:{slowestPresenterMilliseconds:F3} " +
+                $"sizeChanges={boundsSizeChanges} nativeMode={nativeMode} " +
+                $"slowest={slowestPresenter}:{slowestPresenterMilliseconds:F3} " +
                 $"transaction={transactionGroupId}");
 #endif
             _acceptingPostCommitCallbacks = false;
