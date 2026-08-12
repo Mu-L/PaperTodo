@@ -386,7 +386,7 @@ internal static class EdgeCapsulePerformanceDiagnostics
         Trace(
             $"resource.host action={action} generation={generation} " +
             $"hostId={hostId} paper={diagnosticId} shown={shown} " +
-            $"bounds={(bounds.IsEmpty ? \"<none>\" : $\"{bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}\")} " +
+            $"bounds={(bounds.IsEmpty ? "<none>" : $"{bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height}")} " +
             $"pixels={pixels} rgbaEstimateMiB={ToMiB(pixels * 4):F3} " +
             $"registered={totals.RegisteredCount} bounded={totals.BoundedCount} " +
             $"shownTotal={totals.ShownCount} totalPixels={totals.PixelArea} " +
