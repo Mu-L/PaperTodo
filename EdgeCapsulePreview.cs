@@ -142,17 +142,19 @@ internal sealed record EdgeCapsulePreviewLayoutSession(
 
 /// <summary>
 /// Pure preview placement policy. The compact queue remains the base plan. During one browsing
-/// session only the owner has a non-standard height. Every endpoint is a tightly packed queue;
-/// shared transition progress then preserves the same gap between every adjacent pair in flight.
+/// session only the owner has a non-standard height; transfers reuse the old preview space and keep
+/// the newly hovered capsule anchored on the pointer side. Full compaction happens only on exit.
 /// </summary>
 internal static class EdgeCapsulePreviewLayoutCoordinator
 {
     public static EdgeCapsulePreviewLayoutSession? OpenOrTransfer(
         EdgeCapsuleQueuePlan basePlan,
+        EdgeCapsulePreviewLayoutSession? previous,
         string queueKey,
         string ownerPaperId,
         EdgeCapsulePreviewSize size,
-        double compactHeightDip)
+        double compactHeightDip,
+        double gapDip)
     {
         var queue = basePlan.Queues.FirstOrDefault(item =>
             string.Equals(item.Key, queueKey, StringComparison.Ordinal));
@@ -169,18 +171,103 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         }
 
         var compactHeight = Math.Max(1, compactHeightDip);
-        var paperIds = papers.Select(paper => paper.Id).ToArray();
-        var newHeight = Math.Max(compactHeight, size.HeightDip);
-        var expansion = newHeight - compactHeight;
+        var gap = Math.Max(0, gapDip);
+        var slotHeight = compactHeight + gap;
+        var baseTops = papers
+            .Select(paper =>
+                basePlan.Placements[paper.Id].VisualIndex * slotHeight)
+            .ToArray();
+        var currentTops = baseTops.ToArray();
 
-        // Accepted temporary 1.8 behavior: preview browsing preserves the queue-relative motion
-        // even when a tall card or its followers extend beyond the monitor work area. Do not clamp
-        // the card height or shrink the whole corridor here; that policy needs a separate design.
+        var paperIds = papers.Select(paper => paper.Id).ToArray();
+        var sameQueue = previous != null &&
+            string.Equals(previous.QueueKey, queueKey, StringComparison.Ordinal) &&
+            previous.QueuePaperIds.SequenceEqual(
+                paperIds,
+                StringComparer.Ordinal);
+        var oldIndex = -1;
+        if (sameQueue)
+        {
+            for (var index = 0; index < papers.Count; index++)
+            {
+                currentTops[index] += previous!.TopOffsetsDip
+                    .GetValueOrDefault(papers[index].Id);
+            }
+            oldIndex = IndexOf(papers, previous!.OwnerPaperId);
+        }
+
+        var newHeight = Math.Max(compactHeight, size.HeightDip);
+        var tops = currentTops.ToArray();
+
+        // Preview browsing deliberately keeps queue-relative motion even if a tall card or its
+        // followers extend beyond the monitor work area. Do not clamp the card height or shrink the
+        // whole corridor here; the important invariant is that a transfer does not move the target
+        // out from under a stationary pointer.
+        if (oldIndex < 0)
+        {
+            tops[newIndex] = baseTops[newIndex];
+            PushFollowingMembers(
+                tops,
+                currentTops,
+                newIndex,
+                newHeight,
+                compactHeight,
+                gap);
+        }
+        else if (newIndex > oldIndex)
+        {
+            // Moving downward: compact only the released upper side. Keep the lower anchor of the
+            // newly hovered capsule (and everything below it) where it already is, then grow the new
+            // preview upward into the space released by the old owner.
+            for (var index = 0; index < newIndex; index++)
+            {
+                tops[index] = baseTops[index];
+            }
+
+            var nextTop = newIndex + 1 < papers.Count
+                ? currentTops[newIndex + 1]
+                : currentTops[newIndex] + compactHeight + gap;
+            var proposedTop = nextTop - gap - newHeight;
+            var anchoredTop = Math.Min(
+                proposedTop,
+                currentTops[newIndex]);
+            var minimumTop = newIndex > 0
+                ? tops[newIndex - 1] + compactHeight + gap
+                : baseTops[newIndex];
+            tops[newIndex] = Math.Max(anchoredTop, minimumTop);
+            PushFollowingMembers(
+                tops,
+                currentTops,
+                newIndex,
+                newHeight,
+                compactHeight,
+                gap);
+        }
+        else if (newIndex < oldIndex)
+        {
+            // Moving upward: keep the target's upper anchor fixed and grow downward. Existing lower
+            // gaps are retained; followers move only if the expanded target would overlap them.
+            var minimumTop = newIndex > 0
+                ? tops[newIndex - 1] + compactHeight + gap
+                : baseTops[newIndex];
+            tops[newIndex] = Math.Max(currentTops[newIndex], minimumTop);
+            PushFollowingMembers(
+                tops,
+                currentTops,
+                newIndex,
+                newHeight,
+                compactHeight,
+                gap);
+        }
+        else
+        {
+            return previous! with { Size = size };
+        }
 
         var offsets = new Dictionary<string, double>(StringComparer.Ordinal);
         for (var index = 0; index < papers.Count; index++)
         {
-            offsets[papers[index].Id] = index > newIndex ? expansion : 0;
+            offsets[papers[index].Id] = tops[index] - baseTops[index];
         }
 
         return new EdgeCapsulePreviewLayoutSession(
@@ -213,6 +300,24 @@ internal static class EdgeCapsulePreviewLayoutCoordinator
         }
 
         return new EdgeCapsuleQueuePlan(basePlan.Queues, placements);
+    }
+
+    private static void PushFollowingMembers(
+        double[] tops,
+        double[] currentTops,
+        int ownerIndex,
+        double ownerHeight,
+        double compactHeight,
+        double gap)
+    {
+        for (var index = ownerIndex + 1; index < tops.Length; index++)
+        {
+            var previousHeight = index - 1 == ownerIndex
+                ? ownerHeight
+                : compactHeight;
+            var minimumTop = tops[index - 1] + previousHeight + gap;
+            tops[index] = Math.Max(currentTops[index], minimumTop);
+        }
     }
 
     private static int IndexOf(IReadOnlyList<PaperData> papers, string paperId)
