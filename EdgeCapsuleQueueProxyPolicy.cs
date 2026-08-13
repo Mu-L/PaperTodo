@@ -4,10 +4,13 @@ namespace PaperTodo;
 
 internal enum EdgeCapsuleQueueProxyMemberRole
 {
-    Moving,
-    ResizingShell,
-    OpeningPreview,
-    ClosingPreview
+    Moving = 0,
+    // Opening a preview and resizing the compact hover shell use the same visual contract: freeze
+    // the old pixels, prepare the real endpoint under cover, then crossfade both wall-anchored layers.
+    SnapshotMorph = 1,
+    OpeningPreview = SnapshotMorph,
+    ResizingShell = SnapshotMorph,
+    ClosingPreview = 2
 }
 
 internal readonly record struct EdgeCapsuleQueueProxyCandidate(
@@ -29,8 +32,7 @@ internal readonly record struct EdgeCapsuleQueueProxyMemberPlan(
         Role == EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
 
     public bool RequiresStartSnapshot =>
-        Role is EdgeCapsuleQueueProxyMemberRole.OpeningPreview or
-            EdgeCapsuleQueueProxyMemberRole.ResizingShell;
+        Role == EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
 
     public bool UsesEndpointLayer => RequiresStartSnapshot;
 }
@@ -101,7 +103,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
             .ToArray();
 
         // A pure queue displacement can keep wrapping the live real HWND. Anything that changes
-        // shell shape/content is promoted to ResizingShell and receives a frozen start snapshot plus
+        // shell shape/content is promoted to SnapshotMorph and receives a frozen start snapshot plus
         // a prepared endpoint layer, so the live source is never mutated beneath its own animation.
         var unsupportedMovingMember = changed.FirstOrDefault(member =>
             member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
@@ -288,7 +290,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
         if (start.Surface != EdgeCapsuleSurfaceKind.DockedPreview &&
             target.Surface == EdgeCapsuleSurfaceKind.DockedPreview)
         {
-            return EdgeCapsuleQueueProxyMemberRole.OpeningPreview;
+            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
         }
         if (start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
             target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
@@ -297,7 +299,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
         }
         if (!CanWrapMovingMemberLive(start, target))
         {
-            return EdgeCapsuleQueueProxyMemberRole.ResizingShell;
+            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
         }
         return EdgeCapsuleQueueProxyMemberRole.Moving;
     }
