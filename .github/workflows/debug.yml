@@ -67,6 +67,9 @@ jobs:
       - name: Restore
         run: dotnet restore .\PaperTodo.csproj -r win-x64
 
+      - name: Run edge refinement checks
+        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Debug
+
       - name: Publish Debug executables
         env:
           SELF_CONTAINED_EXE: ${{ steps.meta.outputs.self_contained_exe }}
