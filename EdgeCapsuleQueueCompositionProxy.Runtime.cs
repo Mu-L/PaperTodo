@@ -93,10 +93,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         public IDCompositionTarget Target { get; }
         public EdgeCapsuleQueueCompositionProxy? Current { get; private set; }
         public EdgeCapsuleQueueCompositionProxy? Staged { get; private set; }
+        public bool HasOwner => Current != null || Staged != null;
         public bool IsAvailable =>
             !_disposed &&
-            Current == null &&
-            Staged == null &&
+            !HasOwner &&
             Window.Handle != IntPtr.Zero;
 
         public static QueueHost? TryCreate(
@@ -408,25 +408,84 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 return;
             }
 
-            if (!broken)
+            if (broken)
             {
-                ReturnIdleHost(host);
+                InvalidateAndDrain(host);
                 return;
             }
 
-            _invalid = true;
-            foreach (var cached in _hosts.Values.ToArray())
+            if (_invalid)
             {
-                try { cached.Dispose(); } catch { }
+                RetireInvalidHostIfIdle(host);
+                TryDisposeDrainedRuntime();
+                return;
             }
-            _hosts.Clear();
+
+            ReturnIdleHost(host);
+        }
+
+        private void InvalidateAndDrain(QueueHost failedHost)
+        {
+            if (!_invalid)
+            {
+                _invalid = true;
+                SharedRuntimes.Remove(_dispatcher);
+            }
+
             while (_spareHosts.Count > 0)
             {
                 try { _spareHosts.Pop().Dispose(); } catch { }
             }
-            SharedRuntimes.Remove(_dispatcher);
-            try { Device.Dispose(); } catch { }
+
+            // A DComp device is shared by every monitor/edge queue on this dispatcher. Destroying
+            // their output HWNDs here would strand still-cloaked real sources. Retire only idle
+            // targets; active owners are told to reveal their own sources and drain themselves.
+            foreach (var cached in _hosts.Values.ToArray())
+            {
+                RetireInvalidHostIfIdle(cached);
+            }
+
+            var affected = _hosts.Values
+                .SelectMany(cached => new[] { cached.Current, cached.Staged })
+                .Where(proxy => proxy != null)
+                .Cast<EdgeCapsuleQueueCompositionProxy>()
+                .Distinct()
+                .ToArray();
+            foreach (var proxy in affected)
+            {
+                proxy.HandleSharedRuntimeLost();
+            }
+
+            RetireInvalidHostIfIdle(failedHost);
+            TryDisposeDrainedRuntime();
+        }
+
+        private void RetireInvalidHostIfIdle(QueueHost host)
+        {
+            if (!_invalid || host.HasOwner)
+            {
+                return;
+            }
+
+            foreach (var pair in _hosts
+                         .Where(pair => ReferenceEquals(pair.Value, host))
+                         .ToArray())
+            {
+                _hosts.Remove(pair.Key);
+            }
+            try { host.Dispose(); } catch { }
+        }
+
+        private void TryDisposeDrainedRuntime()
+        {
+            if (!_invalid || _disposed || _hosts.Count != 0)
+            {
+                return;
+            }
+
             _disposed = true;
+            _dispatcher.ShutdownStarted -= OnDispatcherShutdownStarted;
+            try { Device.Dispose(); } catch { }
         }
 
         internal void ReturnIdleHost(QueueHost host)

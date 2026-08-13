@@ -314,6 +314,29 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         CompleteNow(success: false);
     }
 
+    private void HandleSharedRuntimeLost()
+    {
+        if (_disposed || _sourcesReleased || _coverLost)
+        {
+            return;
+        }
+
+        _coverLost = true;
+        var dispatcher = _members[0].Window.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            CompleteNow(success: false);
+            return;
+        }
+
+        // Runtime invalidation can be discovered while another queue is inside its completion
+        // callback. Defer this queue's controller mutation, but mark cover loss immediately so no
+        // new input/apply is routed through the failed compositor generation.
+        _ = dispatcher.BeginInvoke(
+            DispatcherPriority.Send,
+            (Action)(() => CompleteNow(success: false)));
+    }
+
     private static DeviceScreenPoint MapPoint(
         DeviceScreenPoint point,
         DeviceScreenRect source,

@@ -25,6 +25,12 @@ internal static class QueueProxyBarrierRegression
         var closeForDrag = MaskTrivia(MethodBody(
             Read(repositoryRoot, "AppController.EdgeCapsulePreview.cs"),
             "internal bool CloseEdgeCapsulePreviewForDrag("));
+        var runtimeFailure = MaskTrivia(MethodBody(
+            Read(repositoryRoot, "EdgeCapsuleQueueCompositionProxy.Runtime.cs"),
+            "private void InvalidateAndDrain("));
+        var sharedRuntimeLoss = MaskTrivia(MethodBody(
+            Read(repositoryRoot, "EdgeCapsuleQueueCompositionProxy.Routing.cs"),
+            "private void HandleSharedRuntimeLost()"));
 
         Assert(
             Count(startup, "WaitForCommitCompletion") == 1,
@@ -114,6 +120,17 @@ internal static class QueueProxyBarrierRegression
                 StringComparison.Ordinal),
             "drag threshold must stage an animated preview conceal transaction");
         AssertNoSynchronousDragFlush(closeForDrag, "preview close for drag");
+
+        Assert(
+            runtimeFailure.Contains("HandleSharedRuntimeLost", StringComparison.Ordinal) &&
+            runtimeFailure.Contains("RetireInvalidHostIfIdle", StringComparison.Ordinal) &&
+            !runtimeFailure.Contains("_hosts.Clear", StringComparison.Ordinal),
+            "one failed DComp target must drain active queues before the shared device is destroyed");
+        Assert(
+            sharedRuntimeLoss.IndexOf("_coverLost = true", StringComparison.Ordinal) <
+                sharedRuntimeLoss.IndexOf("BeginInvoke", StringComparison.Ordinal) &&
+            sharedRuntimeLoss.Contains("CompleteNow(success: false)", StringComparison.Ordinal),
+            "an affected queue must stop routing immediately and schedule its own safe source reveal");
     }
 
     private static void AssertNoBarrierInsideMemberLoops(
