@@ -12,18 +12,18 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var startedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
         var startLayers = new Dictionary<string, VisualState>(StringComparer.Ordinal);
-        var openingEndpointSurfaces = new Dictionary<string, IUnknown>(StringComparer.Ordinal);
+        var endpointSurfaces = new Dictionary<string, IUnknown>(StringComparer.Ordinal);
         try
         {
-            // Wrap opening endpoints while their real HWNDs are still visible, but do not attach
-            // those wrappers until the HWNDs have rendered at the target size under the start cover.
-            foreach (var member in _members.Where(member =>
-                         member.Plan.Role == EdgeCapsuleQueueProxyMemberRole.OpeningPreview))
+            // A shell morph owns two immutable visual sources: a frozen start snapshot and the live
+            // real HWND prepared at its endpoint under the cover. Wrap the real HWND before its
+            // mutation, then attach that live wrapper only after WPF has rendered the endpoint.
+            foreach (var member in _members.Where(member => member.Plan.UsesEndpointLayer))
             {
                 _device.CreateSurfaceFromHwnd(
                     member.SourceHandle,
                     out var endpointSurface).CheckError();
-                openingEndpointSurfaces.Add(member.Plan.PaperId, endpointSurface);
+                endpointSurfaces.Add(member.Plan.PaperId, endpointSurface);
             }
 
             foreach (var member in _members)
@@ -91,13 +91,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             }
             if (endpointReady)
             {
-                // Translation-only peers keep the same WPF surface; moving their cloaked HWND to
-                // the endpoint does not require another layout/render/DwmFlush barrier. Only an
-                // opening preview has changed source size/content and must drain WPF before its
-                // endpoint wrapper is attached.
+                // Translation-only peers keep the same WPF surface. A shell morph (preview open or
+                // compact hover resize) changes source geometry/content and must drain WPF before
+                // the endpoint wrapper becomes visible in DirectComposition.
                 foreach (var member in endpointMembers.Where(member =>
-                             member.Plan.Role ==
-                                 EdgeCapsuleQueueProxyMemberRole.OpeningPreview))
+                             member.Plan.UsesEndpointLayer))
                 {
                     endpointReady &= member.Window
                         .PrepareEdgeCapsuleQueueProxyEndpointForHandoff();
@@ -107,7 +105,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"proxy.endpoint phase=prepare session={_sessionOrdinal} " +
                 $"cold={IsColdSession} queue={_plan.QueueKey} " +
-                $"members={endpointMembers.Length} ready={endpointReady} " +
+                $"members={endpointMembers.Length} morphs={endpointMembers.Count(member => member.Plan.UsesEndpointLayer)} " +
+                $"ready={endpointReady} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(endpointStartedAt):F3}");
 #endif
             if (!endpointReady)
@@ -115,10 +114,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 return false;
             }
 
-            foreach (var member in _members.Where(member =>
-                         member.Plan.Role == EdgeCapsuleQueueProxyMemberRole.OpeningPreview))
+            foreach (var member in _members.Where(member => member.Plan.UsesEndpointLayer))
             {
-                if (!openingEndpointSurfaces.Remove(
+                if (!endpointSurfaces.Remove(
                         member.Plan.PaperId,
                         out var endpointSurface))
                 {
@@ -169,7 +167,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
         finally
         {
-            foreach (var surface in openingEndpointSurfaces.Values)
+            foreach (var surface in endpointSurfaces.Values)
             {
                 try { surface.Dispose(); } catch { }
             }
