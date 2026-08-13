@@ -163,6 +163,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             return true;
         }
 
+        public bool ReleaseQueue()
+        {
+            if (!IsAvailable)
+            {
+                return false;
+            }
+            QueueKey = string.Empty;
+            return true;
+        }
+
         public bool CanStage(
             EdgeCapsuleQueueCompositionProxy? predecessor) =>
             !_disposed &&
@@ -393,8 +403,14 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         {
             _dispatcher.VerifyAccess();
             host.Detach(proxy);
-            if (!broken || _disposed)
+            if (_disposed)
             {
+                return;
+            }
+
+            if (!broken)
+            {
+                ReturnIdleHost(host);
                 return;
             }
 
@@ -411,6 +427,32 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             SharedRuntimes.Remove(_dispatcher);
             try { Device.Dispose(); } catch { }
             _disposed = true;
+        }
+
+        internal void ReturnIdleHost(QueueHost host)
+        {
+            _dispatcher.VerifyAccess();
+            if (_disposed || !host.IsAvailable)
+            {
+                return;
+            }
+
+            // Queue identity is an active-session concern, not a permanent cache key. Retain at
+            // most one dispatcher-wide spare; this preserves a warm DComp target without growing
+            // one transparent output HWND per monitor/edge queue.
+            if (_hosts.TryGetValue(host.QueueKey, out var cached) &&
+                ReferenceEquals(cached, host))
+            {
+                _hosts.Remove(host.QueueKey);
+            }
+            if (_spareHosts.Count == 0 && host.ReleaseQueue())
+            {
+                _spareHosts.Push(host);
+            }
+            else
+            {
+                try { host.Dispose(); } catch { }
+            }
         }
 
         private void OnDispatcherShutdownStarted(

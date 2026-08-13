@@ -19,6 +19,7 @@
     <Compile Include="NativeBatchReentrancyRegression.cs" />
     <Compile Include="QueueProxyNativeClipRegression.cs" />
     <Compile Include="QueueProxyAdmissionRegression.cs" />
+    <Compile Include="QueueProxyBarrierRegression.cs" />
     <Compile Include="..\..\ScreenGeometry.cs" Link="ScreenGeometry.cs" />
     <Compile Include="..\..\EdgeCapsulePreviewCorridor.cs" Link="EdgeCapsulePreviewCorridor.cs" />
     <Compile Include="..\..\EdgeCapsulePreviewExitPolicy.cs" Link="EdgeCapsulePreviewExitPolicy.cs" />

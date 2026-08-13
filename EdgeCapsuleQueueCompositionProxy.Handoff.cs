@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
 using Vortice.DirectComposition;
 
 namespace PaperTodo;
@@ -197,58 +198,35 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
-        var restored =
-            new List<IntPtr>(_cloakedRealSourceHandles.Count);
-        var allRestored = true;
-        foreach (var handle in _cloakedRealSourceHandles)
+        var liveHandles = _cloakedRealSourceHandles
+            .Where(WindowNative.IsWindowHandleAlive)
+            .ToArray();
+        var revealChanges = liveHandles
+            .Select(handle => new WindowNative.WindowCloakChange(
+                handle,
+                Cloaked: false,
+                RollbackCloaked: true))
+            .ToArray();
+        if (!WindowNative.TrySetWindowCloakedBatch(revealChanges))
         {
-            if (!WindowNative.IsWindowHandleAlive(handle))
-            {
-                continue;
-            }
-
-            if (WindowNative.TrySetWindowCloaked(
-                    handle,
-                    cloaked: false))
-            {
-                restored.Add(handle);
-            }
-            else
-            {
-                allRestored = false;
-            }
-        }
-
-        if (!allRestored)
-        {
-            foreach (var handle in restored)
-            {
-                if (WindowNative.IsWindowHandleAlive(handle))
-                {
-                    _ = WindowNative.TrySetWindowCloaked(
-                        handle,
-                        cloaked: true);
-                }
-            }
-            WindowNative.FlushDesktopComposition();
             return false;
         }
 
-        _sourcesReleased = true;
-        _cloakedRealSourceHandles.Clear();
         try
         {
-            // Keep the exact final proxy pixels above the newly uncloaked endpoints for one desktop
-            // composition barrier. Only after DWM accepts the real endpoints is the root detached.
-            WindowNative.FlushDesktopComposition();
+            // The batch above already crossed one desktop boundary and verified every real HWND.
+            // Hide the now-redundant output first. From this point the verified real endpoints are
+            // authoritative; DComp graph retirement is cleanup and must never re-cloak them.
             if (ReferenceEquals(_host.Current, this))
             {
+                _window.Hide();
                 _target.SetRoot(null!).CheckError();
                 _device.Commit().CheckError();
-                _device.WaitForCommitCompletion().CheckError();
                 _targetRootInstalled = false;
-                _window.Hide();
             }
+            _sourcesReleased = true;
+            _cloakedRealSourceHandles.Clear();
+            return true;
         }
         catch (Exception ex)
         {
@@ -257,8 +235,17 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 _plan.QueueKey,
                 _sessionOrdinal,
                 ex);
+
+            // Real HWNDs were already batch-revealed and verified before cleanup began. Restoring
+            // their cloak after a detach/Commit failure could leave both authorities invisible.
+            // Keep them visible, retire this broken target, and let the next session recreate the
+            // shared runtime instead of turning cleanup failure into a visible handoff failure.
+            _sourcesReleased = true;
+            _cloakedRealSourceHandles.Clear();
+            _targetRootInstalled = false;
+            _coverLost = true;
+            return true;
         }
-        return true;
     }
 
     public bool ReleaseAfterCoverLoss()
@@ -287,29 +274,23 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 
     private bool TryRestoreSourcesAfterCoverLoss()
     {
-        var allRestored = true;
-        foreach (var handle in _cloakedRealSourceHandles)
+        var liveHandles = _cloakedRealSourceHandles
+            .Where(WindowNative.IsWindowHandleAlive)
+            .ToArray();
+        var changes = liveHandles
+            .Select(handle => new WindowNative.WindowCloakChange(
+                handle,
+                Cloaked: false,
+                RollbackCloaked: true))
+            .ToArray();
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            if (!WindowNative.IsWindowHandleAlive(handle))
+            if (WindowNative.TrySetWindowCloakedBatch(changes))
             {
-                continue;
+                return true;
             }
-
-            var restored = false;
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                if (WindowNative.TrySetWindowCloaked(
-                        handle,
-                        cloaked: false))
-                {
-                    restored = true;
-                    break;
-                }
-            }
-            allRestored &= restored;
         }
-        WindowNative.FlushDesktopComposition();
-        return allRestored;
+        return false;
     }
 
     public void Dispose()
@@ -333,6 +314,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return;
         }
+        if (_sourcesReleased && !_targetRootInstalled && !_coverLost)
+        {
+            ScheduleSuccessfulRetire();
+            return;
+        }
+        if (_sourcesReleased && _coverLost)
+        {
+            DisposeCore(clearTargetRoot: false);
+            return;
+        }
         DisposeCore(clearTargetRoot: true);
     }
 
@@ -340,6 +331,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     {
         if (_disposed)
         {
+            RetireVisualResources();
+            ReleaseRuntimeOnce(broken: _coverLost);
             return;
         }
 
@@ -349,6 +342,79 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         DisposeCore(
             clearTargetRoot:
                 ReferenceEquals(_host.Current, this));
+    }
+
+    private void ScheduleSuccessfulRetire()
+    {
+        if (_disposed || _successfulRetireScheduled)
+        {
+            return;
+        }
+
+        _successfulRetireScheduled = true;
+        _disposed = true;
+        _sampleTimer.Stop();
+        _completionTimer.Stop();
+        // Keep this generation logically attached until ContextIdle releases the old client-side
+        // graph. SetRoot(null) has already been committed, but reusing the same target before that
+        // retirement turn could rewrite it while the preceding detach commit is still in flight.
+        // A successor is promoted before this path; a new cold session may wait one idle turn.
+
+        var dispatcher = _members[0].Window.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            RetireVisualResources();
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(
+            DispatcherPriority.ContextIdle,
+            (Action)RetireVisualResources);
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.handoff phase=retire-scheduled session={_sessionOrdinal} " +
+            $"cold={IsColdSession} queue={_plan.QueueKey} " +
+            $"visuals={_visuals.Count}");
+#endif
+    }
+
+    private void RetireVisualResources()
+    {
+        if (_visualResourcesRetired)
+        {
+            return;
+        }
+
+        _visualResourcesRetired = true;
+        foreach (var visual in _visuals)
+        {
+            try { visual.Dispose(); } catch { }
+        }
+        _visuals.Clear();
+        try { _root.Dispose(); } catch { }
+        foreach (var member in _members)
+        {
+            try { member.SnapshotHost?.Dispose(); } catch { }
+        }
+        ReleaseRuntimeOnce(broken: _coverLost);
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.handoff phase=retired session={_sessionOrdinal} " +
+            $"cold={IsColdSession} queue={_plan.QueueKey}");
+#endif
+    }
+
+    private void ReleaseRuntimeOnce(bool broken)
+    {
+        if (_runtimeReleased)
+        {
+            return;
+        }
+        _runtimeReleased = true;
+        _runtime.Release(
+            _host,
+            this,
+            broken);
     }
 
     private void DisposeCore(bool clearTargetRoot)
@@ -371,23 +437,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 _targetRootInstalled = false;
             }
 
-            foreach (var visual in _visuals)
-            {
-                try { visual.Dispose(); } catch { }
-            }
-            _visuals.Clear();
-            try { _root.Dispose(); } catch { }
+            RetireVisualResources();
         }
         finally
         {
-            foreach (var member in _members)
-            {
-                try { member.SnapshotHost?.Dispose(); } catch { }
-            }
-            _runtime.Release(
-                _host,
-                this,
-                broken: _coverLost);
+            ReleaseRuntimeOnce(broken: _coverLost);
         }
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(

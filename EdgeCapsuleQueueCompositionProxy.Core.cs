@@ -48,6 +48,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private bool _pendingSuccessorCompletionSuccess = true;
     private bool _coverPublished;
     private bool _targetRootInstalled;
+    private bool _runtimeReleased;
+    private bool _visualResourcesRetired;
+    private bool _successfulRetireScheduled;
 
     private EdgeCapsuleQueueCompositionProxy(
         long sessionOrdinal,

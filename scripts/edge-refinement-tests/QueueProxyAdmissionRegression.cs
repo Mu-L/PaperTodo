@@ -152,6 +152,37 @@ internal static class QueueProxyAdmissionRegression
                closeAfterPlacementMerge.Members[0].DefersRealEndpoint,
             "preview close must conceal source before endpoint mutation");
 
+        var closeForDrag = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                Candidate(
+                    "closing-for-drag",
+                    queue,
+                    preview,
+                    preview,
+                    compact,
+                    AppMotion.Animate(AppReason.Drag, 180))
+            });
+        Assert(closeForDrag is { Members.Count: 1 } &&
+               closeForDrag.Members[0].DefersRealEndpoint,
+            "drag threshold must conceal preview through the queue proxy");
+
+        var snappedCloseForDrag = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                Candidate(
+                    "snapped-closing-for-drag",
+                    queue,
+                    preview,
+                    preview,
+                    compact,
+                    AppMotion.Snap(AppReason.Drag))
+            });
+        Assert(snappedCloseForDrag == null,
+            "drag threshold must not downgrade preview concealment to a native Snap");
+
         var intermediate = preview with
         {
             Bounds = new AppRect(4920, 100, 5120, 240),
@@ -239,6 +270,27 @@ internal static class QueueProxyAdmissionRegression
             });
         Assert(ordinaryPlacement == null,
             "ordinary placement without preview/pointer pixels must stay on existing backend");
+
+        var ordinaryDrag = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                Candidate(
+                    "ordinary-drag",
+                    queue,
+                    compact,
+                    compact,
+                    compact with
+                    {
+                        Bounds = new AppRect(5020, 220, 5120, 278),
+                        HostBounds = new AppRect(5020, 220, 5120, 278),
+                        InteractiveBounds =
+                            new AppRect(5020, 220, 5120, 278)
+                    },
+                    AppMotion.Animate(AppReason.Drag, 180))
+            });
+        Assert(ordinaryDrag == null,
+            "ordinary drag reflow must not bypass preview/pointer admission");
 
         var rejected = AppPolicy.TryCreate(
             queue,

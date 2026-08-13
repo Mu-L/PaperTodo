@@ -15,7 +15,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
 {
-    private const int MaximumPoolSize = 4;
+    private const int MaximumPoolSize = 1;
     private static readonly DeviceScreenRect ParkingBounds =
         new(-32000, -32000, -31996, -31996);
     private static readonly ConditionalWeakTable<

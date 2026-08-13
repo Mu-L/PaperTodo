@@ -28,19 +28,6 @@ public sealed partial class PaperWindow
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        if (EdgeCapsuleQueueProxyPolicy.IsEnabled &&
-            !source.Bounds.IsEmpty)
-        {
-            // Consume the dispatcher-prewarmed output and bind it to this queue before any optional
-            // snapshot capture. Subsequent generations reuse the same HWND and DComp target.
-            EdgeCapsuleQueueCompositionProxy.PrewarmQueue(
-                host.Dispatcher,
-                queueKey,
-                host.IsTopmost,
-                EdgeCapsuleQueueProxyGeometry.OutputBounds(
-                    source.Bounds));
-        }
-
         return new EdgeCapsuleQueueProxyCandidate(
             _paper.Id,
             queueKey,
@@ -132,14 +119,16 @@ public sealed partial class PaperWindow
         return EnsureDeepCapsuleSlotHost().Apply(endpoint);
     }
 
-    internal bool PrepareEdgeCapsuleQueueProxyEndpointForHandoff() =>
+    internal bool PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff() =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         !IsClosed &&
         (_edgeCapsuleHost?
-            .PrepareCompositionSourceForHandoff() ?? false);
+            .PrepareCompositionSourceLayoutForBatchHandoff() ?? false);
 
-    internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint()
+    internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
+        out EdgeCapsulePresentationFrame endpoint)
     {
+        endpoint = EdgeCapsulePresentationFrame.Hidden;
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
             IsClosed)
         {
@@ -147,18 +136,21 @@ public sealed partial class PaperWindow
                 !WindowNative.IsWindowHandleAlive(handle);
         }
 
-        var endpoint = _edgeCapsule
+        endpoint = _edgeCapsule
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        if (!ApplyEdgeCapsuleQueueProxyEndpoint(endpoint))
+        return ApplyEdgeCapsuleQueueProxyEndpoint(endpoint);
+    }
+
+    internal bool VerifyEdgeCapsuleQueueProxyEndpoint(
+        EdgeCapsulePresentationFrame endpoint)
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
         {
-            return false;
-        }
-        if (endpoint.Visible &&
-            !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
-        {
-            return false;
+            return _edgeCapsuleHost?.Handle is not { } handle ||
+                !WindowNative.IsWindowHandleAlive(handle);
         }
         return endpoint.Visible
             ? _edgeCapsuleHost?.MatchesPresentation(endpoint) == true

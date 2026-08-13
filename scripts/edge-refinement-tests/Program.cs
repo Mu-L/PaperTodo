@@ -295,14 +295,14 @@ internal static class Program
             "DISPLAY|right",
             new[]
             {
-                new AppProxyCandidate(
+                Candidate(
                     "paper-a",
                     "DISPLAY|right",
                     start,
                     target,
                     motion,
-                    HostReady: true,
-                    Topmost: true)
+                    hostReady: true,
+                    topmost: true)
             });
         Assert(plan != null, "a preview geometry change should create one queue proxy plan");
         Assert(
@@ -310,7 +310,8 @@ internal static class Program
             "the proxy envelope should be only the source/target union, not the work area");
         Assert(
             plan.Members.Count == 1 &&
-            plan.Members[0].Role == AppProxyRole.OpeningPreview &&
+            plan.Members[0].Role ==
+                AppProxyRole.RevealTargetWithSnapshot &&
             !plan.Members[0].DefersRealEndpoint,
             "preview opening should be represented as one queue member transition");
         var openingStart = AppProxyPolicy.SampleLogicalFrame(
@@ -354,26 +355,26 @@ internal static class Program
             "DISPLAY|right",
             new[]
             {
-                new AppProxyCandidate(
+                Candidate(
                     "paper-a",
                     "DISPLAY|right",
                     start,
                     target,
                     motion,
-                    HostReady: true,
-                    Topmost: true),
-                new AppProxyCandidate(
+                    hostReady: true,
+                    topmost: true),
+                Candidate(
                     "paper-b",
                     "DISPLAY|right",
                     movingStart,
                     movingTarget,
                     motion,
-                    HostReady: true,
-                    Topmost: true)
+                    hostReady: true,
+                    topmost: true)
             });
         Assert(
             queuePlan is { Members.Count: 2 } &&
-            queuePlan.Members[1].Role == AppProxyRole.Moving &&
+            queuePlan.Members[1].Role == AppProxyRole.MovingSource &&
             !queuePlan.Members[1].DefersRealEndpoint &&
             queuePlan.Envelope == new AppRect(900, 100, rightWall, 530),
             "one queue proxy should group the preview owner and every translation-only peer");
@@ -381,22 +382,22 @@ internal static class Program
             "DISPLAY|right",
             new[]
             {
-                new AppProxyCandidate(
+                Candidate(
                     "paper-a",
                     "DISPLAY|right",
                     start,
                     target,
                     AppMotion.Animate(AppTransitionReason.Preview, 240),
-                    HostReady: true,
-                    Topmost: true),
-                new AppProxyCandidate(
+                    hostReady: true,
+                    topmost: true),
+                Candidate(
                     "paper-c",
                     "DISPLAY|right",
                     movingStart,
                     movingStart,
                     AppMotion.Animate(AppTransitionReason.Preview, 180),
-                    HostReady: true,
-                    Topmost: true)
+                    hostReady: true,
+                    topmost: true)
             });
         Assert(
             unchangedPeerPlan is { Members.Count: 1, DurationMilliseconds: 240, Topmost: true },
@@ -406,18 +407,18 @@ internal static class Program
             "DISPLAY|right",
             new[]
             {
-                new AppProxyCandidate(
+                Candidate(
                     "paper-a",
                     "DISPLAY|right",
                     target,
                     start,
                     motion,
-                    HostReady: true,
-                    Topmost: true)
+                    hostReady: true,
+                    topmost: true)
             });
         Assert(
             closePlan is { Members.Count: 1 } &&
-            closePlan.Members[0].Role == AppProxyRole.ClosingPreview &&
+            closePlan.Members[0].Role == AppProxyRole.ConcealSource &&
             closePlan.Members[0].DefersRealEndpoint,
             "a closing preview must retain its live real source until compositor handoff");
         var closingMiddle = AppProxyPolicy.SampleLogicalFrame(
@@ -435,15 +436,15 @@ internal static class Program
                 "DISPLAY|right",
                 new[]
                 {
-                    new AppProxyCandidate(
+                    Candidate(
                         "paper-a",
                         "DISPLAY|right",
                         start,
                         target,
                         motion,
-                        HostReady: true,
-                        Topmost: true),
-                    new AppProxyCandidate(
+                        hostReady: true,
+                        topmost: true),
+                    Candidate(
                         "paper-b",
                         "DISPLAY|right",
                         movingStart,
@@ -453,8 +454,8 @@ internal static class Program
                             HostBounds = new AppRect(900, 450, rightWall, 550)
                         },
                         motion,
-                        HostReady: true,
-                        Topmost: true)
+                        hostReady: true,
+                        topmost: true)
                 }) == null,
             "a peer that changes shape cannot be wrapped as a translation-only live surface");
         Assert(
@@ -462,14 +463,14 @@ internal static class Program
                 "DISPLAY|right",
                 new[]
                 {
-                    new AppProxyCandidate(
+                    Candidate(
                         "paper-a",
                         "DISPLAY|right",
                         start,
                         target,
                         AppMotion.Snap(AppTransitionReason.Preview),
-                        HostReady: true,
-                        Topmost: true)
+                        hostReady: true,
+                        topmost: true)
                 }) == null,
             "snap transactions must never allocate a compositor proxy");
         Assert(
@@ -477,14 +478,14 @@ internal static class Program
                 "DISPLAY|right",
                 new[]
                 {
-                    new AppProxyCandidate(
+                    Candidate(
                         "paper-a",
                         "DISPLAY|right",
                         movingStart,
                         movingTarget,
                         AppMotion.Animate(AppTransitionReason.Placement, 200),
-                        HostReady: true,
-                        Topmost: true)
+                        hostReady: true,
+                        topmost: true)
                 }) == null,
             "ordinary placement without preview pixels must stay on the existing presentation backend");
 
@@ -502,35 +503,35 @@ internal static class Program
                 "DISPLAY|right",
                 new[]
                 {
-                    new AppProxyCandidate(
+                    Candidate(
                         "paper-a", "DISPLAY|right", oversizedHostFrame, target,
-                        motion, HostReady: true, Topmost: true)
+                        motion, hostReady: true, topmost: true)
                 }) == null,
             "a real HostBounds envelope larger than Bounds must be structurally rejected");
 
         foreach (var rejected in new[]
                  {
-                     new AppProxyCandidate(
+                     Candidate(
                          "paper-a", "DISPLAY|right", start, target, motion,
-                         HostReady: false, Topmost: true),
-                     new AppProxyCandidate(
+                         hostReady: false, topmost: true),
+                     Candidate(
                          "paper-a", "OTHER|right", start, target, motion,
-                         HostReady: true, Topmost: true),
-                     new AppProxyCandidate(
+                         hostReady: true, topmost: true),
+                     Candidate(
                          "paper-a", "DISPLAY|right", start, target, motion,
-                         HostReady: true, Topmost: false),
-                     new AppProxyCandidate(
+                         hostReady: true, topmost: false),
+                     Candidate(
                          "paper-a", "DISPLAY|right", start,
                          target with { DpiScaleX = 1.25 }, motion,
-                         HostReady: true, Topmost: true),
-                     new AppProxyCandidate(
+                         hostReady: true, topmost: true),
+                     Candidate(
                          "paper-a", "DISPLAY|right", start,
                          target with { WallDeviceX = rightWall + 1 }, motion,
-                         HostReady: true, Topmost: true),
-                     new AppProxyCandidate(
+                         hostReady: true, topmost: true),
+                     Candidate(
                          "paper-a", "DISPLAY|right", start,
                          target with { Edge = AppEdge.Left }, motion,
-                         HostReady: true, Topmost: true)
+                         hostReady: true, topmost: true)
                  })
         {
             Assert(
@@ -562,9 +563,9 @@ internal static class Program
             "DISPLAY|left",
             new[]
             {
-                new AppProxyCandidate(
+                Candidate(
                     "paper-left", "DISPLAY|left", leftStart, leftTarget,
-                    motion, HostReady: true, Topmost: true)
+                    motion, hostReady: true, topmost: true)
             });
         Assert(
             leftPlan is { Edge: AppEdge.Left, WallDeviceX: 0 } &&
@@ -572,6 +573,26 @@ internal static class Program
             Math.Abs(leftPlan.DpiScaleX - 1.5) < 0.001,
             "left-edge proxy geometry must remain wall-pinned at non-100% DPI");
     }
+
+    private static AppProxyCandidate Candidate(
+        string paperId,
+        string queueKey,
+        AppFrame start,
+        AppFrame target,
+        AppMotion motion,
+        bool hostReady = true,
+        bool topmost = true,
+        bool retained = false,
+        AppFrame? source = null) => new(
+        paperId,
+        queueKey,
+        start,
+        source ?? start,
+        target,
+        motion,
+        hostReady,
+        topmost,
+        retained);
 
     private static void CheckCompactRealHostLayout()
     {

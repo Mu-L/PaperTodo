@@ -9,6 +9,16 @@ namespace PaperTodo;
 // verbatim across PaperWindow.Native and MasterCapsuleWindow.
 internal static class WindowNative
 {
+    /// <summary>
+    /// One member of an all-or-rollback DWM cloak transaction. Callers provide the known state to
+    /// restore because every queue handoff already owns a uniform source state: newly acquired
+    /// sources are visible, while sources released at the endpoint are app-cloaked.
+    /// </summary>
+    internal readonly record struct WindowCloakChange(
+        IntPtr Handle,
+        bool Cloaked,
+        bool RollbackCloaked);
+
     [ThreadStatic]
     private static WindowDeviceBoundsBatch? _currentDeviceBoundsBatch;
 #if DEBUG
@@ -1288,6 +1298,150 @@ internal static class WindowNative
                 out int flags,
                 Marshal.SizeOf<int>()) == 0 &&
             ((flags & DwmCloakedApp) != 0) == cloaked;
+    }
+
+    /// <summary>
+    /// Applies a set of DWMWA_CLOAK changes as one desktop-composition boundary. DWM has no native
+    /// multi-HWND cloak API, so the important ordering is: set every handle, flush once, then verify
+    /// every handle. If any set, flush or verification fails, every handle whose set was attempted
+    /// is restored to the caller-supplied state and that rollback is flushed before returning.
+    /// </summary>
+    internal static bool TrySetWindowCloakedBatch(
+        IReadOnlyCollection<WindowCloakChange> requestedChanges)
+    {
+        if (requestedChanges.Count == 0)
+        {
+            return true;
+        }
+
+        var changesByHandle = new Dictionary<IntPtr, WindowCloakChange>();
+        foreach (var change in requestedChanges)
+        {
+            if (change.Handle == IntPtr.Zero || !IsWindow(change.Handle))
+            {
+                return false;
+            }
+            if (changesByHandle.TryGetValue(change.Handle, out var existing))
+            {
+                if (existing.Cloaked != change.Cloaked ||
+                    existing.RollbackCloaked != change.RollbackCloaked)
+                {
+                    return false;
+                }
+                continue;
+            }
+            changesByHandle.Add(change.Handle, change);
+        }
+
+        var changes = changesByHandle.Values.ToArray();
+        var attempted = new List<WindowCloakChange>(changes.Length);
+#if DEBUG
+        var batchStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var setStartedAt = batchStartedAt;
+#endif
+        var setSucceeded = true;
+        foreach (var change in changes)
+        {
+            attempted.Add(change);
+            if (!TrySetWindowCloakAttribute(
+                    change.Handle,
+                    change.Cloaked))
+            {
+                setSucceeded = false;
+                break;
+            }
+        }
+#if DEBUG
+        var setMilliseconds =
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                setStartedAt);
+        var flushStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var flushed = setSucceeded && DwmFlush() == 0;
+#if DEBUG
+        var flushMilliseconds =
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                flushStartedAt);
+        var verifyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var verified = flushed;
+        if (verified)
+        {
+            foreach (var change in changes)
+            {
+                if (!TryGetWindowAppCloaked(
+                        change.Handle,
+                        out var actual) ||
+                    actual != change.Cloaked)
+                {
+                    verified = false;
+                    break;
+                }
+            }
+        }
+#if DEBUG
+        var verifyMilliseconds =
+            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                verifyStartedAt);
+#endif
+        if (!verified)
+        {
+            for (var index = attempted.Count - 1; index >= 0; index--)
+            {
+                var change = attempted[index];
+                _ = TrySetWindowCloakAttribute(
+                    change.Handle,
+                    change.RollbackCloaked);
+            }
+            _ = DwmFlush();
+        }
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"native.cloak phase=batch outcome={(verified ? "success" : "rollback")} " +
+            $"count={changes.Length} attempted={attempted.Count} " +
+            $"target={(changes.All(change => change.Cloaked) ? "cloaked" : changes.All(change => !change.Cloaked) ? "visible" : "mixed")} " +
+            $"setMs={setMilliseconds:F3} flushMs={flushMilliseconds:F3} " +
+            $"verifyMs={verifyMilliseconds:F3} " +
+            $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(batchStartedAt):F3}");
+#endif
+        return verified;
+    }
+
+    private static bool TrySetWindowCloakAttribute(
+        IntPtr handle,
+        bool cloaked)
+    {
+        if (handle == IntPtr.Zero || !IsWindow(handle))
+        {
+            return false;
+        }
+        var value = cloaked ? 1 : 0;
+        return DwmSetWindowAttribute(
+            handle,
+            DwmWaCloak,
+            ref value,
+            Marshal.SizeOf<int>()) == 0;
+    }
+
+    private static bool TryGetWindowAppCloaked(
+        IntPtr handle,
+        out bool cloaked)
+    {
+        cloaked = false;
+        if (handle == IntPtr.Zero || !IsWindow(handle))
+        {
+            return false;
+        }
+        if (DwmGetWindowAttribute(
+                handle,
+                DwmWaCloaked,
+                out int flags,
+                Marshal.SizeOf<int>()) != 0)
+        {
+            return false;
+        }
+        cloaked = (flags & DwmCloakedApp) != 0;
+        return true;
     }
 
     public static bool IsWindowHandleAlive(IntPtr handle) =>

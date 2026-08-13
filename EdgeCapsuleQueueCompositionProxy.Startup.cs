@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows.Threading;
 using SharpGen.Runtime;
 using Vortice.DirectComposition;
 
@@ -158,35 +159,30 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             // The controller callback has transferred predecessor-owned cloak handles. Only newly
             // participating sources need another cloak call. Snapshot hosts are ordinary off-screen
             // HWNDs and are cloaked once DirectComposition owns their exact start pixels.
-            var desktopBarrierRequired = false;
+            var cloakChanges =
+                new List<WindowNative.WindowCloakChange>();
             foreach (var member in _members)
             {
                 if (_cloakedRealSourceHandles.Add(member.SourceHandle))
                 {
-                    if (!WindowNative.TrySetWindowCloaked(
-                            member.SourceHandle,
-                            cloaked: true))
-                    {
-                        _cloakedRealSourceHandles.Remove(
-                            member.SourceHandle);
-                        return false;
-                    }
-                    desktopBarrierRequired = true;
+                    cloakChanges.Add(new WindowNative.WindowCloakChange(
+                        member.SourceHandle,
+                        Cloaked: true,
+                        RollbackCloaked: false));
                 }
 
-                if (member.SnapshotHost != null)
+                if (member.SnapshotHost is { Handle: var snapshotHandle } &&
+                    snapshotHandle != IntPtr.Zero)
                 {
-                    if (!member.SnapshotHost.TrySetCloaked(
-                            cloaked: true))
-                    {
-                        return false;
-                    }
-                    desktopBarrierRequired = true;
+                    cloakChanges.Add(new WindowNative.WindowCloakChange(
+                        snapshotHandle,
+                        Cloaked: true,
+                        RollbackCloaked: false));
                 }
             }
-            if (desktopBarrierRequired)
+            if (!WindowNative.TrySetWindowCloakedBatch(cloakChanges))
             {
-                WindowNative.FlushDesktopComposition();
+                return false;
             }
             if (_coverLost)
             {
@@ -215,7 +211,33 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                              member.Plan.UsesTargetSurface))
                 {
                     endpointReady &= member.Window
-                        .PrepareEdgeCapsuleQueueProxyEndpointForHandoff();
+                        .PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff();
+                }
+            }
+
+            var nativeRevealMembers = endpointMembers
+                .Where(member => member.Plan.UsesTargetSurface)
+                .ToArray();
+            if (endpointReady && nativeRevealMembers.Length > 0)
+            {
+                try
+                {
+                    // Every endpoint tree has already completed Measure/Arrange. Submit them in one
+                    // Render turn, cross the desktop boundary once, then verify the whole set.
+                    _members[0].Window.Dispatcher.Invoke(
+                        static () => { },
+                        DispatcherPriority.Render);
+                    WindowNative.FlushDesktopComposition();
+                    foreach (var member in nativeRevealMembers)
+                    {
+                        endpointReady &= member.Window
+                            .VerifyEdgeCapsuleQueueProxyEndpoint(
+                                member.Plan.Target);
+                    }
+                }
+                catch
+                {
+                    endpointReady = false;
                 }
             }
 #if DEBUG

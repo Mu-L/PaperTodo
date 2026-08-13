@@ -16,6 +16,7 @@ public sealed partial class PaperWindow
             $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
             $"pointer={screenPosition.X:F0},{screenPosition.Y:F0}");
         BeginEdgeCapsulePointerInteraction(screenPosition);
+        QueueDeepCapsuleFloatingDragHostPrewarm();
     }
 
     private bool OnEdgeCapsulePointerMoved(
@@ -132,14 +133,11 @@ public sealed partial class PaperWindow
         ClearCapsuleInteractionKeyboardFocus();
     }
 
-    private EdgeCapsuleDragWindow CreateDeepCapsuleFloatingDragHost(
-        DeviceScreenPoint pointer,
+    private EdgeCapsuleDragWindowOptions CreateDeepCapsuleFloatingDragHostOptions(
         EdgeCapsuleFloatingShape shape)
     {
-        CloseDeepCapsuleFloatingDragHost();
-
         var outlineMargin = WindowChromeMargin - DeepCapsuleSlotOutlineThickness + DeepCapsuleSlotOutlineOverlap;
-        var host = new EdgeCapsuleDragWindow(new EdgeCapsuleDragWindowOptions
+        return new EdgeCapsuleDragWindowOptions
         {
 #if DEBUG
             DiagnosticId = EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id),
@@ -166,7 +164,53 @@ public sealed partial class PaperWindow
             LabelBrush = WeakTextBrush,
             OutlineBrush = Theme.CapsuleFocusBorderBrush,
             Topmost = _edgeCapsuleHost?.IsTopmost == true
-        });
+        };
+    }
+
+    private void QueueDeepCapsuleFloatingDragHostPrewarm(
+        System.Windows.Threading.DispatcherPriority priority =
+            System.Windows.Threading.DispatcherPriority.Background)
+    {
+        _ = Dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+                    (!IsDeepCapsuleSlotPendingClick && !IsDeepCapsuleReordering))
+                {
+                    return;
+                }
+
+                var layout = CaptureEdgeCapsuleLayoutSnapshot();
+                if (!layout.IsUsable)
+                {
+                    return;
+                }
+                var shape = EdgeCapsuleTargetPlanner.CreateFloatingShape(
+                    layout,
+                    _edgeCapsule.State.Visual == EdgeCapsuleVisualState.Active);
+                if (!shape.Visible ||
+                    shape.Kind != EdgeCapsuleSurfaceKind.FloatingFree ||
+                    !double.IsFinite(shape.WindowWidthDip) ||
+                    !double.IsFinite(shape.WindowHeightDip) ||
+                    shape.WindowWidthDip <= 0 ||
+                    shape.WindowHeightDip <= 0)
+                {
+                    return;
+                }
+                _ = EdgeCapsuleDragWindow.TryPrewarm(
+                    CreateDeepCapsuleFloatingDragHostOptions(shape));
+            }),
+            priority);
+    }
+
+    private EdgeCapsuleDragWindow CreateDeepCapsuleFloatingDragHost(
+        DeviceScreenPoint pointer,
+        EdgeCapsuleFloatingShape shape)
+    {
+        CloseDeepCapsuleFloatingDragHost();
+
+        var host = EdgeCapsuleDragWindow.Rent(
+            CreateDeepCapsuleFloatingDragHostOptions(shape));
         host.UnexpectedlyClosed += OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
         host.LocationChanged += OnDeepCapsuleFloatingDragHostLocationChanged;
 
@@ -192,11 +236,12 @@ public sealed partial class PaperWindow
             host.LocationChanged -= OnDeepCapsuleFloatingDragHostLocationChanged;
             try
             {
-                host.CloseFromOwner();
+                host.ReturnToPool();
             }
             catch
             {
-                // Preserve the original Show failure; the interaction caller owns rollback.
+                // Preserve the original Show failure; the interaction caller owns rollback and
+                // the pool discards an unusable host on its next validation.
             }
             throw;
         }
@@ -212,7 +257,7 @@ public sealed partial class PaperWindow
             host.UnexpectedlyClosed -= OnDeepCapsuleFloatingDragHostUnexpectedlyClosed;
             host.LocationChanged -= OnDeepCapsuleFloatingDragHostLocationChanged;
             _deepCapsuleFloatingFullscreenAvoidanceWindow = IntPtr.Zero;
-            host.CloseFromOwner();
+            host.ReturnToPool();
         }
     }
 
@@ -831,7 +876,12 @@ public sealed partial class PaperWindow
 
         _controller.BeginDeepCapsuleReorderDrag(_paper);
         CloseDeepCapsuleFloatingDragHost();
-        FlushEdgeCapsulePresentation(EdgeCapsuleTransitionReason.Drag);
+        // The docked phase normally gives this deferred work tens of milliseconds before the
+        // cross-queue unlock. Render priority makes the first-ever warm-up run ahead of the next
+        // input sample; later drags reuse the same host and this is effectively a cheap validity
+        // check. Rent still has a synchronous fallback if deferred work cannot run.
+        QueueDeepCapsuleFloatingDragHostPrewarm(
+            System.Windows.Threading.DispatcherPriority.Render);
         _edgeCapsuleHost.BringToFrontNoActivate();
 
         Mouse.OverrideCursor = Cursors.SizeAll;

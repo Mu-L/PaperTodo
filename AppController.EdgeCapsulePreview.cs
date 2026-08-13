@@ -442,9 +442,7 @@ public sealed partial class AppController
             session.OwnerPaperId,
             draggedWindow.EdgeCapsulePreviewPaperId,
             StringComparison.Ordinal);
-        _windows.TryGetValue(session.OwnerPaperId, out var owner);
-        CloseEdgeCapsulePreview(animate: false, arrange: true);
-        owner?.FlushEdgeCapsulePreviewCompactPresentation();
+        CloseEdgeCapsulePreview(animate: true, arrange: true);
         return draggedWindowWasOwner;
     }
 

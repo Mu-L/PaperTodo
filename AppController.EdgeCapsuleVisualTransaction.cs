@@ -949,6 +949,9 @@ public sealed partial class AppController
         }
 
         var endpointsReady = true;
+        var endpoints = new List<(
+            PaperWindow Window,
+            EdgeCapsulePresentationFrame Endpoint)>(windows.Length);
 #if DEBUG
         var handoffStartedAt =
             EdgeCapsulePerformanceDiagnostics.Timestamp();
@@ -958,8 +961,43 @@ public sealed partial class AppController
         {
             foreach (var window in windows)
             {
-                endpointsReady &= window
-                    .TryApplyLatestEdgeCapsuleQueueProxyEndpoint();
+                var applied = window
+                    .TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
+                        out var endpoint);
+                endpointsReady &= applied;
+                endpoints.Add((window, endpoint));
+            }
+
+            if (endpointsReady)
+            {
+                foreach (var item in endpoints.Where(item =>
+                             item.Endpoint.Visible))
+                {
+                    endpointsReady &= item.Window
+                        .PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff();
+                }
+            }
+
+            if (endpointsReady &&
+                endpoints.Any(item => item.Endpoint.Visible))
+            {
+                // Submit every real endpoint in one WPF render turn and cross DWM once for the
+                // queue. Verification stays per HWND, but no member can serialize its own Render +
+                // DwmFlush pair ahead of the next member.
+                windows[0].Dispatcher.Invoke(
+                    static () => { },
+                    DispatcherPriority.Render);
+                WindowNative.FlushDesktopComposition();
+            }
+
+            if (endpointsReady)
+            {
+                foreach (var item in endpoints)
+                {
+                    endpointsReady &= item.Window
+                        .VerifyEdgeCapsuleQueueProxyEndpoint(
+                            item.Endpoint);
+                }
             }
         }
         catch (Exception ex)

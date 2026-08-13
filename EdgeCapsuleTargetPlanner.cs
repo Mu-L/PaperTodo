@@ -130,7 +130,7 @@ internal static class EdgeCapsuleTargetPlanner
         };
     }
 
-    private static EdgeCapsuleFloatingShape CreateFloatingShape(
+    internal static EdgeCapsuleFloatingShape CreateFloatingShape(
         EdgeCapsuleLayoutSnapshot layout,
         bool outlineVisible)
     {
