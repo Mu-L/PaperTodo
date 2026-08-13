@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows.Threading;
+using Vortice.DirectComposition;
 
 namespace PaperTodo;
 
