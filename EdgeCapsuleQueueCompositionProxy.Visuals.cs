@@ -131,7 +131,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             state.Scale.SetScaleX(scaleX).CheckError();
             state.Scale.SetScaleY(scaleY).CheckError();
 
-            if (member.Plan.Role == EdgeCapsuleQueueProxyMemberRole.OpeningPreview)
+            // Any source whose real HWND changes shape/content under the cover uses two immutable
+            // layers. Crossfade them while both follow identical wall-anchored geometry; preview
+            // opening and compact hover resize therefore share one compositor transaction.
+            if (member.Plan.UsesEndpointLayer)
             {
                 opacity = CreateEaseOutCubicAnimation(
                     state.IsEndpointLayer ? 0 : 1,
