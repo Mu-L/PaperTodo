@@ -17,15 +17,14 @@ public sealed partial class AppController
             return;
         }
 
-        // Consume the physical over/out bit before preview intent uses it. If that bit changes the
-        // compact shell geometry, the queue compositor is installed synchronously while the real
-        // HWND still matches the previous frame. The caller's normal Send reconcile then advances
-        // Presenter state behind that cover instead of exposing a per-frame native resize.
-        inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
-
         var session = _edgeCapsulePreviewSession;
         if (session != null)
         {
+            // During continuous browsing, the candidate spends the transfer-intent interval in its
+            // compact hover shape. Prime that resize before the caller's Send reconcile so the real
+            // HWND never exposes intermediate width frames.
+            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
+
             // Physical host input is only the wake-up authority. Once a preview session exists,
             // the owner remains the single queue-wide arbiter for owner/target/corridor/outside
             // resolution, transfer timing and close timing. Do not recreate that state machine in
@@ -40,6 +39,7 @@ public sealed partial class AppController
         ResetEdgeCapsulePreviewCorridorExitIntent();
         if (!pointer.HasValue)
         {
+            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             return;
         }
 
@@ -49,11 +49,17 @@ public sealed partial class AppController
             !inputWindow.IsEdgeCapsuleInteractiveAt(point) ||
             IsEdgeCapsulePreviewLayoutSuppressedFor(inputWindow))
         {
+            // With no preview transaction available, compact hover is the visible interaction and
+            // therefore needs compositor ownership itself.
+            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             CancelEdgeCapsulePreviewActivationIntent(
                 inputWindow.EdgeCapsulePreviewPaperId);
             return;
         }
 
+        // The first eligible card opens immediately from this verified physical hit. Do not insert
+        // a redundant Resting→Hovered proxy immediately before the larger preview proxy; that would
+        // add startup work and a visual phase the historical first-hit contract never had.
         if (!inputWindow.IsEdgeCapsulePointerOver)
         {
             TraceEdgeCapsulePreview(
