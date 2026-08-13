@@ -68,21 +68,27 @@ internal static class EdgeCapsuleQueueProxyPolicy
             return Reject(queueKey, "no-candidates", candidates);
         }
 
-        var supportedReason = candidates.Any(candidate =>
-            candidate.Motion.Reason is
-                EdgeCapsuleTransitionReason.Preview or
-                EdgeCapsuleTransitionReason.Pointer);
-        if (!supportedReason)
-        {
-            return Reject(queueKey, "unsupported-transaction", candidates);
-        }
-
         var changedCandidates = candidates
             .Where(candidate => !FramesVisuallyMatch(candidate.Start, candidate.Target))
             .ToArray();
         if (changedCandidates.Length == 0)
         {
             return Reject(queueKey, "no-visual-change", candidates);
+        }
+
+        // The transaction entry's Motion.Reason is per-member bookkeeping, not transaction
+        // identity. Preview open/close stages Preview first and queue placement afterwards; that
+        // later Placement motion can legitimately become the merged member motion. The immutable
+        // surface transition is the authoritative proof that this transaction owns preview pixels.
+        // Pointer shell morphs have no preview surface, so they retain their explicit Pointer reason.
+        var ownsPreviewPixels = changedCandidates.Any(candidate =>
+            candidate.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview ||
+            candidate.Target.Surface == EdgeCapsuleSurfaceKind.DockedPreview);
+        var ownsPointerMorph = changedCandidates.Any(candidate =>
+            candidate.Motion.Reason == EdgeCapsuleTransitionReason.Pointer);
+        if (!ownsPreviewPixels && !ownsPointerMorph)
+        {
+            return Reject(queueKey, "no-preview-or-pointer-transition", candidates);
         }
 
         foreach (var candidate in changedCandidates)
@@ -151,7 +157,9 @@ internal static class EdgeCapsuleQueueProxyPolicy
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.admission outcome=accepted queue={queueKey} " +
             $"candidates={candidates.Count} changed={changed.Length} " +
+            $"previewPixels={ownsPreviewPixels} pointerMorph={ownsPointerMorph} " +
             $"roles={string.Join(',', changed.Select(member => $"{EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)}:{member.Role}"))} " +
+            $"motions={string.Join(',', changedCandidates.Select(candidate => $"{EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)}:{candidate.Motion.Kind}/{candidate.Motion.Reason}"))} " +
             $"durationMs={changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)}");
 #endif
         return new EdgeCapsuleQueueProxyPlan(
@@ -227,8 +235,9 @@ internal static class EdgeCapsuleQueueProxyPolicy
         EdgeCapsuleQueueProxyCandidate? offending = null)
     {
 #if DEBUG
-        var changedCount = candidates.Count(candidate =>
-            !FramesVisuallyMatch(candidate.Start, candidate.Target));
+        var changed = candidates
+            .Where(candidate => !FramesVisuallyMatch(candidate.Start, candidate.Target))
+            .ToArray();
         var detail = offending is { } candidate
             ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
               $"motion={candidate.Motion.Kind}/{candidate.Motion.Reason} " +
@@ -240,10 +249,12 @@ internal static class EdgeCapsuleQueueProxyPolicy
               $"wall={candidate.Start.WallDeviceX}->{candidate.Target.WallDeviceX} " +
               $"dpi={candidate.Start.DpiScaleX:F3},{candidate.Start.DpiScaleY:F3}->" +
               $"{candidate.Target.DpiScaleX:F3},{candidate.Target.DpiScaleY:F3}"
-            : string.Empty;
+            : changed.Length == 0
+                ? string.Empty
+                : $" motions={string.Join(',', changed.Select(candidate => $"{EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)}:{candidate.Motion.Kind}/{candidate.Motion.Reason}:{candidate.Start.Surface}->{candidate.Target.Surface}"))}";
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.admission outcome=rejected queue={queueKey} reason={reason} " +
-            $"candidates={candidates.Count} changed={changedCount}{detail}");
+            $"candidates={candidates.Count} changed={changed.Length}{detail}");
 #endif
         return null;
     }
