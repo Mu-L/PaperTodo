@@ -30,4 +30,12 @@ internal static class EdgeCapsuleNativeTransactionPolicy
         !retryPending &&
         !applyActive &&
         !hasPresentationWork;
+
+    // EndDeferWindowPos may synchronously dispatch WPF resize/render messages while a controller-
+    // owned visual transaction still owns the Presenter's native apply state. A shared render
+    // callback must not open a second native apply over that state; it simply waits for the outer
+    // transaction to complete and consumes the next composition frame.
+    public static bool ShouldDeferSharedFrameForNativeApply(
+        bool nativeBatchApplyActive) =>
+        nativeBatchApplyActive;
 }

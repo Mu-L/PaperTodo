@@ -91,11 +91,28 @@ internal sealed class EdgeCapsuleFrameScheduler
         return true;
     }
 
+    private bool HasExternallyOwnedNativeBatchApply()
+    {
+        // The scheduler always completes its own BeginNativeBatchApply calls before _isTicking is
+        // cleared. Therefore an active apply observed here belongs to a controller-owned visual
+        // transaction that was synchronously re-entered by native HWND message dispatch.
+        for (var index = 0; index < _presenters.Count; index++)
+        {
+            if (EdgeCapsuleNativeTransactionPolicy.ShouldDeferSharedFrameForNativeApply(
+                    _presenters[index].NativeBatchApplyActive))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void OnRendering(object? sender, EventArgs e)
     {
         if (!_dispatcher.CheckAccess() ||
             _isTicking ||
-            _pendingLoadedReconciles > 0)
+            _pendingLoadedReconciles > 0 ||
+            HasExternallyOwnedNativeBatchApply())
         {
             return;
         }
