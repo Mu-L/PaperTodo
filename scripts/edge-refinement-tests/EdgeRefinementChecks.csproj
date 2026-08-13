@@ -16,6 +16,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="HoverIntentSensitivityTestShim.cs" />
     <Compile Include="PreviewTransferLayoutRegression.cs" />
+    <Compile Include="NativeBatchReentrancyRegression.cs" />
+    <Compile Include="QueueProxyWallAnchorRegression.cs" />
     <Compile Include="..\..\ScreenGeometry.cs" Link="ScreenGeometry.cs" />
     <Compile Include="..\..\EdgeCapsulePreviewCorridor.cs" Link="EdgeCapsulePreviewCorridor.cs" />
     <Compile Include="..\..\EdgeCapsulePreviewExitPolicy.cs" Link="EdgeCapsulePreviewExitPolicy.cs" />
