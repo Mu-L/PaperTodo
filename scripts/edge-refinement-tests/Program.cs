@@ -253,7 +253,7 @@ internal static class Program
         const int rightWall = 1000;
         var startBounds = new AppRect(920, 100, rightWall, 180);
         var startHost = startBounds;
-        var targetBounds = new AppRect(900, 320, rightWall, 440);
+        var targetBounds = new AppRect(900, 100, rightWall, 220);
         var targetHost = targetBounds;
 
         var start = new AppFrame(
@@ -306,7 +306,7 @@ internal static class Program
             });
         Assert(plan != null, "a preview geometry change should create one queue proxy plan");
         Assert(
-            plan!.Envelope == new AppRect(900, 100, rightWall, 440),
+            plan!.Envelope == new AppRect(900, 100, rightWall, 220),
             "the proxy envelope should be only the source/target union, not the work area");
         Assert(
             plan.Members.Count == 1 &&
@@ -332,8 +332,11 @@ internal static class Program
         Assert(
             openingStart.Bounds == start.Bounds &&
             openingStart.HostBounds == openingStart.Bounds &&
-            openingMiddle.Bounds.Top > start.Bounds.Top &&
-            openingMiddle.Bounds.Top < target.Bounds.Top &&
+            openingMiddle.Bounds.Top == start.Bounds.Top &&
+            openingMiddle.Bounds.Left < start.Bounds.Left &&
+            openingMiddle.Bounds.Left > target.Bounds.Left &&
+            openingMiddle.Bounds.Bottom > start.Bounds.Bottom &&
+            openingMiddle.Bounds.Bottom < target.Bounds.Bottom &&
             openingMiddle.HostBounds == openingMiddle.Bounds &&
             openingEnd.HostBounds == openingEnd.Bounds &&
             openingEnd == target,
@@ -551,9 +554,9 @@ internal static class Program
         };
         var leftTarget = target with
         {
-            Bounds = new AppRect(0, 260, 150, 440),
-            HostBounds = new AppRect(0, 260, 150, 440),
-            InteractiveBounds = new AppRect(0, 260, 150, 440),
+            Bounds = new AppRect(0, 120, 150, 300),
+            HostBounds = new AppRect(0, 120, 150, 300),
+            InteractiveBounds = new AppRect(0, 120, 150, 300),
             Edge = AppEdge.Left,
             WallDeviceX = 0,
             DpiScaleX = 1.5,
@@ -569,7 +572,7 @@ internal static class Program
             });
         Assert(
             leftPlan is { Edge: AppEdge.Left, WallDeviceX: 0 } &&
-            leftPlan.Envelope == new AppRect(0, 120, 150, 440) &&
+            leftPlan.Envelope == new AppRect(0, 120, 150, 300) &&
             Math.Abs(leftPlan.DpiScaleX - 1.5) < 0.001,
             "left-edge proxy geometry must remain wall-pinned at non-100% DPI");
     }
