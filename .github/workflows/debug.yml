@@ -67,9 +67,6 @@ jobs:
       - name: Restore
         run: dotnet restore .\PaperTodo.csproj -r win-x64
 
-      - name: Run edge refinement checks
-        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Debug
-
       - name: Publish Debug executables
         env:
           SELF_CONTAINED_EXE: ${{ steps.meta.outputs.self_contained_exe }}
@@ -126,6 +123,9 @@ jobs:
 
           Copy-Item -LiteralPath (Join-Path $frameworkDependentOut "PaperTodo.exe") -Destination (Join-Path $debugDir $env:FRAMEWORK_DEPENDENT_EXE)
           Get-ChildItem -LiteralPath $debugDir -File | Sort-Object Name | Format-Table Name, Length
+
+      - name: Run edge refinement checks
+        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Debug
 
       - name: Upload self-contained Debug executable
         uses: actions/upload-artifact@v7
