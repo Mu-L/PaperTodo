@@ -1,0 +1,7 @@
+<Project>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'PaperTodo'">
+    <!-- V2.5 is split into focused partials so the reusable runtime, session routing,
+         compositor start path and handoff can evolve independently. -->
+    <Compile Remove="EdgeCapsuleQueueCompositionProxy.cs" />
+  </ItemGroup>
+</Project>
