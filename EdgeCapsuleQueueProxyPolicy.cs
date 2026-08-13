@@ -99,12 +99,12 @@ internal static class EdgeCapsuleQueueProxyPolicy
                 candidate.PaperId,
                 candidate.Start,
                 candidate.Target,
-                RoleFor(candidate.Start, candidate.Target)))
+                RoleFor(candidate)))
             .ToArray();
 
-        // A pure queue displacement can keep wrapping the live real HWND. Anything that changes
-        // shell shape/content is promoted to SnapshotMorph and receives a frozen start snapshot plus
-        // a prepared endpoint layer, so the live source is never mutated beneath its own animation.
+        // Preview queue peers remain intentionally conservative: only translation-only live
+        // surfaces are admitted. Pointer-driven compact shell resize is the explicit exception and
+        // is promoted to SnapshotMorph, where the live HWND is never mutated beneath itself.
         var unsupportedMovingMember = changed.FirstOrDefault(member =>
             member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
             !CanWrapMovingMemberLive(member.Start, member.Target));
@@ -284,9 +284,10 @@ internal static class EdgeCapsuleQueueProxyPolicy
     }
 
     private static EdgeCapsuleQueueProxyMemberRole RoleFor(
-        EdgeCapsulePresentationFrame start,
-        EdgeCapsulePresentationFrame target)
+        EdgeCapsuleQueueProxyCandidate candidate)
     {
+        var start = candidate.Start;
+        var target = candidate.Target;
         if (start.Surface != EdgeCapsuleSurfaceKind.DockedPreview &&
             target.Surface == EdgeCapsuleSurfaceKind.DockedPreview)
         {
@@ -297,7 +298,8 @@ internal static class EdgeCapsuleQueueProxyPolicy
         {
             return EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
         }
-        if (!CanWrapMovingMemberLive(start, target))
+        if (candidate.Motion.Reason == EdgeCapsuleTransitionReason.Pointer &&
+            !CanWrapMovingMemberLive(start, target))
         {
             return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
         }
