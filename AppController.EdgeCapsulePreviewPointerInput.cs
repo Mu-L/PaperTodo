@@ -17,6 +17,12 @@ public sealed partial class AppController
             return;
         }
 
+        // Consume the physical over/out bit before preview intent uses it. If that bit changes the
+        // compact shell geometry, the queue compositor is installed synchronously while the real
+        // HWND still matches the previous frame. The caller's normal Send reconcile then advances
+        // Presenter state behind that cover instead of exposing a per-frame native resize.
+        inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
+
         var session = _edgeCapsulePreviewSession;
         if (session != null)
         {
