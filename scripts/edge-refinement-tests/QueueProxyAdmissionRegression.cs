@@ -22,6 +22,10 @@ internal static class QueueProxyAdmissionRegression
             AppSurface.DockedResting,
             new AppRect(5020, 100, 5120, 158),
             bodyWidth: 100);
+        var hovered = Frame(
+            AppSurface.DockedHovered,
+            new AppRect(5000, 100, 5120, 158),
+            bodyWidth: 100);
         var preview = Frame(
             AppSurface.DockedPreview,
             new AppRect(4800, 100, 5120, 300),
@@ -53,6 +57,28 @@ internal static class QueueProxyAdmissionRegression
         Assert(plan != null, "unchanged queue bookkeeping vetoed a valid preview proxy");
         Assert(plan!.Members.Count == 1, "unchanged member entered the compositor ownership set");
         Assert(plan.Members[0].PaperId == "opening", "opening member was not retained");
+        Assert(plan.Members[0].RequiresStartSnapshot,
+            "preview opening must freeze its start shell before endpoint mutation");
+
+        var hoverPlan = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                new AppCandidate(
+                    "hover",
+                    queue,
+                    compact,
+                    hovered,
+                    AppMotion.Animate(AppReason.Pointer, 120),
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(hoverPlan != null, "pointer-driven compact resize was not admitted");
+        Assert(hoverPlan!.Members.Count == 1, "hover morph must own exactly one shell");
+        Assert(hoverPlan.Members[0].RequiresStartSnapshot,
+            "hover resize must use the snapshot/endpoint morph path");
+        Assert(hoverPlan.Members[0].UsesEndpointLayer,
+            "hover resize must prepare a separate live endpoint layer");
 
         var rejected = AppPolicy.TryCreate(
             queue,
