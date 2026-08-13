@@ -7,158 +7,252 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
     private VisualState AddVisual(
         EdgeCapsuleQueueCompositionProxyMember member,
+        EdgeCapsuleQueueProxyVisualLayer layer,
         IntPtr sourceHandle,
         DeviceScreenRect sourceBounds,
-        DeviceScreenRect initialVisualBounds,
-        float initialOpacity,
-        bool endpointLayer,
+        DeviceScreenRect startVisualBounds,
+        DeviceScreenRect targetVisualBounds,
+        EdgeCapsuleProxyClipRect startClip,
+        EdgeCapsuleProxyClipRect targetClip,
+        float startOpacity,
+        float targetOpacity,
         IDCompositionVisual? referenceVisual,
+        bool insertAbove = true,
         IUnknown? existingSurface = null)
     {
         IUnknown? surface = existingSurface;
         IDCompositionVisual? visual = null;
-        IDCompositionScaleTransform? scale = null;
         IDCompositionEffectGroup? effect = null;
+        IDCompositionRectangleClip? clip = null;
         try
         {
             if (surface == null)
             {
-                _device.CreateSurfaceFromHwnd(sourceHandle, out var createdSurface)
-                    .CheckError();
+                _device.CreateSurfaceFromHwnd(
+                    sourceHandle,
+                    out var createdSurface).CheckError();
                 surface = createdSurface;
             }
-            _device.CreateVisual(out IDCompositionVisual2 createdVisual).CheckError();
+
+            _device.CreateVisual(
+                out IDCompositionVisual2 createdVisual).CheckError();
             visual = createdVisual;
             visual.SetContent(surface).CheckError();
 
-            var sourceWidth = Math.Max(1, sourceBounds.Width);
-            var sourceHeight = Math.Max(1, sourceBounds.Height);
-            var initialScaleX = initialVisualBounds.Width / (float)sourceWidth;
-            var initialScaleY = initialVisualBounds.Height / (float)sourceHeight;
-            scale = _device.CreateScaleTransform();
-            scale.SetCenterX(
-                EdgeCapsuleQueueProxyGeometry.ScaleCenterX(
-                    member.Plan.Start.Edge,
-                    sourceWidth)).CheckError();
-            scale.SetCenterY(0).CheckError();
-            scale.SetScaleX(initialScaleX).CheckError();
-            scale.SetScaleY(initialScaleY).CheckError();
-            visual.SetTransform(scale).CheckError();
+            var startOffsetX =
+                startVisualBounds.Left - _outputBounds.Left;
+            var startOffsetY =
+                startVisualBounds.Top - _outputBounds.Top;
+            var targetOffsetX =
+                targetVisualBounds.Left - _outputBounds.Left;
+            var targetOffsetY =
+                targetVisualBounds.Top - _outputBounds.Top;
+            visual.SetOffsetX(startOffsetX).CheckError();
+            visual.SetOffsetY(startOffsetY).CheckError();
 
-            // Horizontal attachment is algebraic: the source's wall-side edge is the transform
-            // centre, and the visual's X offset never animates. Width can no longer drift inward
-            // for one frame and then be corrected by an unrelated offset sample.
-            visual.SetOffsetX(
-                EdgeCapsuleQueueProxyGeometry.WallPinnedOffsetX(
-                    member.Plan.Start.Edge,
-                    member.Plan.Start.WallDeviceX,
-                    sourceWidth,
-                    _outputBounds)).CheckError();
-            visual.SetOffsetY(initialVisualBounds.Top - _outputBounds.Top).CheckError();
+            clip = _device.CreateRectangleClip();
+            ApplyClip(clip, startClip);
+            ApplyClipRadii(
+                clip,
+                member,
+                layer,
+                startClip,
+                targetClip);
+            visual.SetClip(clip).CheckError();
 
             effect = _device.CreateEffectGroup();
-            effect.SetOpacity(initialOpacity).CheckError();
+            effect.SetOpacity(startOpacity).CheckError();
             visual.SetEffect(effect).CheckError();
+
             _root.AddVisual(
                 visual,
-                insertAbove: true,
-                referenceVisual: referenceVisual!).CheckError();
+                insertAbove,
+                referenceVisual!).CheckError();
 
             var state = new VisualState
             {
                 Member = member,
+                Layer = layer,
                 PresentedSourceHandle = sourceHandle,
                 SourceBounds = sourceBounds,
                 Surface = surface,
                 Visual = visual,
                 Effect = effect,
-                Scale = scale,
-                IsEndpointLayer = endpointLayer
+                Clip = clip,
+                StartOffsetX = startOffsetX,
+                StartOffsetY = startOffsetY,
+                TargetOffsetX = targetOffsetX,
+                TargetOffsetY = targetOffsetY,
+                StartClip = startClip,
+                TargetClip = targetClip,
+                StartOpacity = startOpacity,
+                TargetOpacity = targetOpacity,
+                OpacityDurationMilliseconds =
+                    layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot
+                        ? Math.Min(48, _plan.DurationMilliseconds)
+                        : _plan.DurationMilliseconds
             };
             _visuals.Add(state);
             surface = null;
             visual = null;
             effect = null;
-            scale = null;
+            clip = null;
             return state;
         }
         finally
         {
-            scale?.Dispose();
+            clip?.Dispose();
             effect?.Dispose();
             visual?.Dispose();
             surface?.Dispose();
         }
     }
 
+    private void ConfigureAnimations()
+    {
+        foreach (var state in _visuals)
+        {
+            ConfigureAnimations(state);
+        }
+    }
+
     private void ConfigureAnimations(VisualState state)
     {
-        var member = state.Member;
-        var targetBounds = member.Plan.Target.Bounds;
-        var sourceWidth = Math.Max(1, state.SourceBounds.Width);
-        var sourceHeight = Math.Max(1, state.SourceBounds.Height);
-        var targetScaleX = state.IsEndpointLayer
-            ? 1
-            : targetBounds.Width / (float)sourceWidth;
-        var targetScaleY = state.IsEndpointLayer
-            ? 1
-            : targetBounds.Height / (float)sourceHeight;
-        var targetOffsetY = targetBounds.Top - _outputBounds.Top;
+        state.OffsetXAnimation = ApplyAnimatedValue(
+            state.StartOffsetX,
+            state.TargetOffsetX,
+            value => state.Visual.SetOffsetX(value),
+            animation => state.Visual.SetOffsetX(animation));
+        state.OffsetYAnimation = ApplyAnimatedValue(
+            state.StartOffsetY,
+            state.TargetOffsetY,
+            value => state.Visual.SetOffsetY(value),
+            animation => state.Visual.SetOffsetY(animation));
 
-        IDCompositionAnimation? offsetY = null;
-        IDCompositionAnimation? scaleX = null;
-        IDCompositionAnimation? scaleY = null;
-        IDCompositionAnimation? opacity = null;
+        state.ClipLeftAnimation = ApplyAnimatedValue(
+            state.StartClip.Left,
+            state.TargetClip.Left,
+            value => state.Clip.SetLeft(value),
+            animation => state.Clip.SetLeft(animation));
+        state.ClipTopAnimation = ApplyAnimatedValue(
+            state.StartClip.Top,
+            state.TargetClip.Top,
+            value => state.Clip.SetTop(value),
+            animation => state.Clip.SetTop(animation));
+        state.ClipRightAnimation = ApplyAnimatedValue(
+            state.StartClip.Right,
+            state.TargetClip.Right,
+            value => state.Clip.SetRight(value),
+            animation => state.Clip.SetRight(animation));
+        state.ClipBottomAnimation = ApplyAnimatedValue(
+            state.StartClip.Bottom,
+            state.TargetClip.Bottom,
+            value => state.Clip.SetBottom(value),
+            animation => state.Clip.SetBottom(animation));
+
+        state.OpacityAnimation = ApplyAnimatedValue(
+            state.StartOpacity,
+            state.TargetOpacity,
+            value => state.Effect.SetOpacity(value),
+            animation => state.Effect.SetOpacity(animation),
+            state.OpacityDurationMilliseconds);
+    }
+
+    private IDCompositionAnimation? ApplyAnimatedValue(
+        float from,
+        float to,
+        Func<float, SharpGen.Runtime.Result> applyStatic,
+        Func<IDCompositionAnimation, SharpGen.Runtime.Result> applyAnimation,
+        int? durationMilliseconds = null)
+    {
+        if (Math.Abs(from - to) < 0.001f)
+        {
+            applyStatic(to).CheckError();
+            return null;
+        }
+
+        var animation = CreateEaseOutCubicAnimation(
+            from,
+            to,
+            durationMilliseconds ?? _plan.DurationMilliseconds);
         try
         {
-            var initialBounds = state.IsEndpointLayer
-                ? member.Plan.Start.Bounds
-                : state.SourceBounds;
-            offsetY = CreateEaseOutCubicAnimation(
-                initialBounds.Top - _outputBounds.Top,
-                targetOffsetY,
-                _plan.DurationMilliseconds);
-            scaleX = CreateEaseOutCubicAnimation(
-                initialBounds.Width / (float)sourceWidth,
-                targetScaleX,
-                _plan.DurationMilliseconds);
-            scaleY = CreateEaseOutCubicAnimation(
-                initialBounds.Height / (float)sourceHeight,
-                targetScaleY,
-                _plan.DurationMilliseconds);
-
-            state.Visual.SetOffsetY(offsetY).CheckError();
-            state.Scale.SetScaleX(scaleX).CheckError();
-            state.Scale.SetScaleY(scaleY).CheckError();
-
-            // Any source whose real HWND changes shape/content under the cover uses two immutable
-            // layers. Crossfade them while both follow identical wall-anchored geometry; preview
-            // opening and compact hover resize therefore share one compositor transaction.
-            if (member.Plan.UsesEndpointLayer)
-            {
-                opacity = CreateEaseOutCubicAnimation(
-                    state.IsEndpointLayer ? 0 : 1,
-                    state.IsEndpointLayer ? 1 : 0,
-                    _plan.DurationMilliseconds);
-                state.Effect.SetOpacity(opacity).CheckError();
-            }
-
-            state.OffsetYAnimation = offsetY;
-            state.ScaleXAnimation = scaleX;
-            state.ScaleYAnimation = scaleY;
-            state.OpacityAnimation = opacity;
-            offsetY = null;
-            scaleX = null;
-            scaleY = null;
-            opacity = null;
+            applyAnimation(animation).CheckError();
+            return animation;
         }
-        finally
+        catch
         {
-            opacity?.Dispose();
-            scaleY?.Dispose();
-            scaleX?.Dispose();
-            offsetY?.Dispose();
+            animation.Dispose();
+            throw;
         }
+    }
+
+    private static void ApplyClip(
+        IDCompositionRectangleClip clip,
+        EdgeCapsuleProxyClipRect value)
+    {
+        clip.SetLeft(value.Left).CheckError();
+        clip.SetTop(value.Top).CheckError();
+        clip.SetRight(value.Right).CheckError();
+        clip.SetBottom(value.Bottom).CheckError();
+    }
+
+    private static void ApplyClipRadii(
+        IDCompositionRectangleClip clip,
+        EdgeCapsuleQueueCompositionProxyMember member,
+        EdgeCapsuleQueueProxyVisualLayer layer,
+        EdgeCapsuleProxyClipRect start,
+        EdgeCapsuleProxyClipRect target)
+    {
+        // Moving and snapshot layers already carry their native WPF silhouette. Reveal/conceal
+        // clips create a new moving viewport edge, so only the screen-internal corners are rounded;
+        // the monitor-wall side remains square throughout the transition.
+        if (layer is EdgeCapsuleQueueProxyVisualLayer.MovingSource or
+            EdgeCapsuleQueueProxyVisualLayer.StartSnapshot)
+        {
+            return;
+        }
+
+        var smallestWidth = Math.Max(
+            1,
+            Math.Min(start.Width, target.Width));
+        var smallestHeight = Math.Max(
+            1,
+            Math.Min(start.Height, target.Height));
+        var radiusX = (float)Math.Min(
+            EdgeCapsuleLayout.CornerRadius *
+                member.Plan.Target.DpiScaleX,
+            smallestWidth / 2);
+        var radiusY = (float)Math.Min(
+            EdgeCapsuleLayout.CornerRadius *
+                member.Plan.Target.DpiScaleY,
+            smallestHeight / 2);
+
+        var leftRadiusX =
+            member.Plan.Target.Edge == EdgeCapsuleEdge.Right
+                ? radiusX
+                : 0;
+        var leftRadiusY =
+            member.Plan.Target.Edge == EdgeCapsuleEdge.Right
+                ? radiusY
+                : 0;
+        var rightRadiusX =
+            member.Plan.Target.Edge == EdgeCapsuleEdge.Left
+                ? radiusX
+                : 0;
+        var rightRadiusY =
+            member.Plan.Target.Edge == EdgeCapsuleEdge.Left
+                ? radiusY
+                : 0;
+
+        clip.SetTopLeftRadiusX(leftRadiusX).CheckError();
+        clip.SetTopLeftRadiusY(leftRadiusY).CheckError();
+        clip.SetBottomLeftRadiusX(leftRadiusX).CheckError();
+        clip.SetBottomLeftRadiusY(leftRadiusY).CheckError();
+        clip.SetTopRightRadiusX(rightRadiusX).CheckError();
+        clip.SetTopRightRadiusY(rightRadiusY).CheckError();
+        clip.SetBottomRightRadiusX(rightRadiusX).CheckError();
+        clip.SetBottomRightRadiusY(rightRadiusY).CheckError();
     }
 
     private IDCompositionAnimation CreateEaseOutCubicAnimation(
@@ -166,7 +260,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         float to,
         int durationMilliseconds)
     {
-        var durationSeconds = Math.Max(0.001, durationMilliseconds / 1000.0);
+        var durationSeconds =
+            Math.Max(0.001, durationMilliseconds / 1000.0);
         var delta = to - from;
         var animation = _device.CreateAnimation();
         try
@@ -175,8 +270,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 0,
                 from,
                 (float)(3 * delta / durationSeconds),
-                (float)(-3 * delta / (durationSeconds * durationSeconds)),
-                (float)(delta / (durationSeconds * durationSeconds * durationSeconds)))
+                (float)(-3 * delta /
+                    (durationSeconds * durationSeconds)),
+                (float)(delta /
+                    (durationSeconds * durationSeconds * durationSeconds)))
                 .CheckError();
             animation.End(durationSeconds, to).CheckError();
             return animation;

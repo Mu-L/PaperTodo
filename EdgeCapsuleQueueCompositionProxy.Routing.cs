@@ -28,9 +28,17 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             _starting = false;
         }
+
+        if (!started && !_coverPublished)
+        {
+            _ = TryRollbackInstalledRoot();
+        }
+
         if (started && _completionPendingDuringStart)
         {
             var pendingSuccess = _pendingStartCompletionSuccess;
+            _completionPendingDuringStart = false;
+            _pendingStartCompletionSuccess = true;
             _ = _members[0].Window.Dispatcher.BeginInvoke(
                 DispatcherPriority.Send,
                 (Action)(() => CompleteNow(pendingSuccess)));
@@ -42,11 +50,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         PaperWindow window,
         out EdgeCapsulePresentationFrame frame)
     {
-        if (_coverLost)
+        if (_disposed || _coverLost)
         {
             frame = EdgeCapsulePresentationFrame.Hidden;
             return false;
         }
+
         var member = _members.FirstOrDefault(candidate =>
             ReferenceEquals(candidate.Window, window));
         if (member == null)
@@ -54,26 +63,135 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             frame = EdgeCapsulePresentationFrame.Hidden;
             return false;
         }
+
         frame = EdgeCapsuleQueueProxyPolicy.SampleLogicalFrame(
             member.Plan,
             AnimationStartedAtTimestamp,
             _plan.DurationMilliseconds,
-            Stopwatch.GetTimestamp());
+            PresentationTimestamp);
         return true;
+    }
+
+    public bool TryGetSourcePresentation(
+        PaperWindow window,
+        out EdgeCapsulePresentationFrame frame)
+    {
+        var member = _members.FirstOrDefault(candidate =>
+            ReferenceEquals(candidate.Window, window));
+        if (_disposed || member == null)
+        {
+            frame = EdgeCapsulePresentationFrame.Hidden;
+            return false;
+        }
+
+        // Opening/moving generations prepare their real HWND at Target beneath the cover. A
+        // conceal generation intentionally keeps the larger Source HWND alive until final handoff.
+        frame = member.Plan.DefersRealEndpoint
+            ? member.Plan.Source
+            : member.Plan.Target;
+        return frame.IsUsable;
     }
 
     public bool RetainsSource(PaperWindow window) =>
         !_disposed &&
+        !_sourcesReleased &&
         _members.Any(member =>
             ReferenceEquals(member.Window, window) &&
             member.SourceHandle != IntPtr.Zero);
 
     public bool Routes(PaperWindow window) =>
-        !_disposed && _members.Any(member => ReferenceEquals(member.Window, window));
+        !_disposed &&
+        _members.Any(member =>
+            ReferenceEquals(member.Window, window));
 
     public IntPtr SourceHandleFor(PaperWindow window) =>
-        _members.FirstOrDefault(member => ReferenceEquals(member.Window, window))
+        _members.FirstOrDefault(member =>
+            ReferenceEquals(member.Window, window))
             ?.SourceHandle ?? IntPtr.Zero;
+
+    public bool TryHoldForSuccessor()
+    {
+        if (_disposed ||
+            _starting ||
+            _finishing ||
+            _coverLost ||
+            _sourcesReleased ||
+            !_coverPublished ||
+            _successorHeld)
+        {
+            return false;
+        }
+
+        _heldAtTimestamp = Stopwatch.GetTimestamp();
+        _successorHeld = true;
+        _completionPendingDuringSuccessorHold = false;
+        _pendingSuccessorCompletionSuccess = true;
+        _sampleTimer.Stop();
+        _completionTimer.Stop();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.successor phase=hold session={_sessionOrdinal} " +
+            $"queue={_plan.QueueKey} progress=" +
+            $"{EdgeCapsuleQueueProxyPolicy.SampleProgress(AnimationStartedAtTimestamp, _plan.DurationMilliseconds, _heldAtTimestamp):F4}");
+#endif
+        return true;
+    }
+
+    public void CompleteAfterFailedSuccessor(bool success)
+    {
+        if (_disposed || !_successorHeld)
+        {
+            return;
+        }
+
+        var pendingCompletion =
+            _completionPendingDuringSuccessorHold;
+        var pendingSuccess =
+            _pendingSuccessorCompletionSuccess && success;
+        var heldAt = _heldAtTimestamp;
+        _successorHeld = false;
+        _heldAtTimestamp = 0;
+        _completionPendingDuringSuccessorHold = false;
+        _pendingSuccessorCompletionSuccess = true;
+
+        if (pendingCompletion)
+        {
+            CompleteNow(pendingSuccess);
+            return;
+        }
+
+        var durationTicks = Math.Max(
+            1,
+            (long)Math.Round(
+                Stopwatch.Frequency *
+                Math.Max(1, _plan.DurationMilliseconds) /
+                1000.0));
+        var elapsedTicks = Math.Max(
+            0,
+            heldAt - AnimationStartedAtTimestamp);
+        if (elapsedTicks >= durationTicks)
+        {
+            CompleteNow(success);
+            return;
+        }
+
+        var remainingMilliseconds = Math.Max(
+            1,
+            (int)Math.Ceiling(
+                (durationTicks - elapsedTicks) *
+                1000.0 /
+                Stopwatch.Frequency));
+        _sampleTimer.Start();
+        _completionTimer.Interval =
+            TimeSpan.FromMilliseconds(
+                remainingMilliseconds + 34);
+        _completionTimer.Start();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.successor phase=resume session={_sessionOrdinal} " +
+            $"queue={_plan.QueueKey} remainingMs={remainingMilliseconds}");
+#endif
+    }
 
     public bool TryRouteApply(
         PaperWindow window,
@@ -90,18 +208,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
-        // Preview transactions snap the Presenter to Target immediately, while compact pointer
-        // morphs intentionally let its logical transition continue for input/corridor semantics.
-        // In both cases the immutable target is the session identity. As long as the reducer still
-        // wants that same target, every Presenter sample is already represented by the compositor
-        // and must not resize/move the cloaked real HWND again.
-        if (window.IsEdgeCapsuleQueueProxyTargetCurrent(member.Plan.Target))
-        {
-            return true;
-        }
-
-        QueueAbortAfterCurrentApply();
-        return false;
+        // The Presenter remains the authority for the next target, but the current queue owner must
+        // keep covering until the controller can stage its successor. Returning true here prevents a
+        // re-entrant Presenter sample from moving the cloaked real HWND or completing predecessor A
+        // before successor B has an exact start root ready.
+        return true;
     }
 
     public bool TryResolveInputTarget(
@@ -109,13 +220,14 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         out IntPtr targetHandle,
         out DeviceScreenPoint endpointPoint)
     {
-        if (_coverLost)
+        if (_disposed || _coverLost)
         {
             targetHandle = IntPtr.Zero;
             endpointPoint = point;
             return false;
         }
-        var now = Stopwatch.GetTimestamp();
+
+        var now = PresentationTimestamp;
         foreach (var member in _members)
         {
             if (!member.Window.CanRouteEdgeCapsuleQueueProxyInput)
@@ -129,7 +241,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 now);
             if (current.IsHitTestVisible &&
                 !current.InteractiveBounds.IsEmpty &&
-                EdgeCapsuleGeometry.Contains(current.InteractiveBounds, point))
+                EdgeCapsuleGeometry.Contains(
+                    current.InteractiveBounds,
+                    point))
             {
                 targetHandle = member.SourceHandle;
                 endpointPoint = MapPoint(
@@ -141,12 +255,15 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 return targetHandle != IntPtr.Zero;
             }
         }
+
         targetHandle = IntPtr.Zero;
         endpointPoint = point;
         return false;
     }
 
-    private void HandleInteractionRequested(DeviceScreenPoint point, int message)
+    private void HandleInteractionRequested(
+        DeviceScreenPoint point,
+        int message)
     {
         if (!_disposed && !_coverLost)
         {
@@ -156,8 +273,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 
     private void HandleEnvironmentChanged()
     {
-        // Initial placement of a pooled output can raise WM_DPICHANGED. Exact physical output
-        // bounds already own startup; later environment changes invalidate the immutable plan.
+        // Initial placement of a pooled output can raise WM_DPICHANGED. Exact physical output bounds
+        // already own startup; subsequent monitor changes invalidate this immutable generation.
         if (!_disposed && !_starting)
         {
             _environmentChanged();
@@ -172,7 +289,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
         try
         {
-            using var baseDevice = _device.QueryInterface<IDCompositionDevice>();
+            using var baseDevice =
+                _device.QueryInterface<IDCompositionDevice>();
             baseDevice.CheckDeviceState(out var valid).CheckError();
             if (valid)
             {
@@ -206,32 +324,18 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return point;
         }
         var relativeX = Math.Clamp(
-            (point.X - source.Left) / Math.Max(1.0, source.Width),
+            (point.X - source.Left) /
+            Math.Max(1.0, source.Width),
             0,
             1);
         var relativeY = Math.Clamp(
-            (point.Y - source.Top) / Math.Max(1.0, source.Height),
+            (point.Y - source.Top) /
+            Math.Max(1.0, source.Height),
             0,
             1);
         return new DeviceScreenPoint(
             target.Left + relativeX * target.Width,
             target.Top + relativeY * target.Height);
-    }
-
-    private void QueueAbortAfterCurrentApply()
-    {
-        if (_abortQueued || _disposed || _finishing)
-        {
-            return;
-        }
-        _abortQueued = true;
-        _ = _members[0].Window.Dispatcher.BeginInvoke(
-            DispatcherPriority.Send,
-            (Action)(() =>
-            {
-                _abortQueued = false;
-                CompleteNow(success: false);
-            }));
     }
 
     public void CompleteNow(bool success)
@@ -242,10 +346,17 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             _pendingStartCompletionSuccess &= success;
             return;
         }
+        if (_successorHeld)
+        {
+            _completionPendingDuringSuccessorHold = true;
+            _pendingSuccessorCompletionSuccess &= success;
+            return;
+        }
         if (_disposed || _finishing)
         {
             return;
         }
+
         _finishing = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
@@ -270,16 +381,24 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return;
         }
-        if (_sourcesReleased)
+        if (_successorHeld)
         {
-            DisposeCore();
+            _completionPendingDuringSuccessorHold = true;
+            _pendingSuccessorCompletionSuccess &= success;
             return;
         }
+        if (_sourcesReleased)
+        {
+            DisposeCore(clearTargetRoot: true);
+            return;
+        }
+
         _finishing = false;
         _completionRetrySuccess = success;
         _completionRetryCount++;
         _completionTimer.Stop();
-        _completionTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _completionTimer.Interval =
+            TimeSpan.FromMilliseconds(50);
         _completionTimer.Start();
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(

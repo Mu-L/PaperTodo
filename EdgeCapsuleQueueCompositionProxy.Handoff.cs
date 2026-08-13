@@ -8,11 +8,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
     private bool ContainsVisual(DeviceScreenPoint point)
     {
-        if (_coverLost)
+        if (_disposed || _coverLost)
         {
             return false;
         }
-        var now = Stopwatch.GetTimestamp();
+
+        var now = PresentationTimestamp;
         return _members.Any(member =>
         {
             if (!member.Window.CanRouteEdgeCapsuleQueueProxyInput)
@@ -27,18 +28,26 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return frame.Visible &&
                 frame.IsHitTestVisible &&
                 !frame.InteractiveBounds.IsEmpty &&
-                EdgeCapsuleGeometry.Contains(frame.InteractiveBounds, point);
+                EdgeCapsuleGeometry.Contains(
+                    frame.InteractiveBounds,
+                    point);
         });
     }
 
     private long AnimationStartedAtTimestamp =>
-        Volatile.Read(ref _animationStartedAtTimestamp) is var started && started > 0
+        Volatile.Read(ref _animationStartedAtTimestamp) is var started &&
+        started > 0
             ? started
+            : Stopwatch.GetTimestamp();
+
+    private long PresentationTimestamp =>
+        _successorHeld && _heldAtTimestamp > 0
+            ? _heldAtTimestamp
             : Stopwatch.GetTimestamp();
 
     private void OnSampleTimerTick(object? sender, EventArgs e)
     {
-        if (_disposed || _finishing)
+        if (_disposed || _finishing || _successorHeld)
         {
             return;
         }
@@ -54,6 +63,125 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         CompleteNow(_completionRetrySuccess);
     }
 
+    internal void AdoptCloakedSource(IntPtr handle)
+    {
+        if (handle != IntPtr.Zero)
+        {
+            _cloakedRealSourceHandles.Add(handle);
+        }
+    }
+
+    public bool TryTransferCloakedSourcesTo(
+        EdgeCapsuleQueueCompositionProxy successor)
+    {
+        if (_disposed ||
+            _sourcesReleased ||
+            successor._disposed ||
+            !ReferenceEquals(_host, successor._host) ||
+            !ReferenceEquals(_host.Current, successor))
+        {
+            return false;
+        }
+
+        foreach (var handle in _cloakedRealSourceHandles)
+        {
+            successor.AdoptCloakedSource(handle);
+        }
+        _cloakedRealSourceHandles.Clear();
+        _sourcesReleased = true;
+        _sampleTimer.Stop();
+        _completionTimer.Stop();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.successor phase=source-transfer from={_sessionOrdinal} " +
+            $"to={successor._sessionOrdinal} queue={_plan.QueueKey}");
+#endif
+        return true;
+    }
+
+    public void DisposeAfterSuccessorTransfer()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _sourcesReleased = true;
+        _cloakedRealSourceHandles.Clear();
+        DisposeCore(clearTargetRoot: false);
+    }
+
+    private bool TryRollbackInstalledRoot()
+    {
+        if (!_targetRootInstalled)
+        {
+            return _host.RollbackPromotion(
+                this,
+                _predecessor);
+        }
+
+        try
+        {
+            if (_predecessor == null)
+            {
+                _target.SetRoot(null!).CheckError();
+            }
+            else
+            {
+                _target.SetRoot(_predecessor._root).CheckError();
+            }
+            _device.Commit().CheckError();
+            _device.WaitForCommitCompletion().CheckError();
+            if (!_host.RollbackPromotion(
+                    this,
+                    _predecessor))
+            {
+                throw new InvalidOperationException(
+                    "The queue compositor host could not restore its predecessor owner.");
+            }
+
+            _targetRootInstalled = false;
+            _coverPublished = false;
+            if (_predecessor == null)
+            {
+                _window.Hide();
+            }
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.successor phase=rollback session={_sessionOrdinal} " +
+                $"predecessor={_predecessor?.SessionOrdinal.ToString() ?? "<none>"} " +
+                $"queue={_plan.QueueKey} outcome=restored");
+#endif
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _coverLost = true;
+            Trace.TraceError(
+                "Edge capsule queue root rollback failed. Queue={0}; Session={1}; Exception={2}",
+                _plan.QueueKey,
+                _sessionOrdinal,
+                ex);
+            return false;
+        }
+    }
+
+    public void AbortStaged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = TryRollbackInstalledRoot();
+        if (_cloakedRealSourceHandles.Count > 0)
+        {
+            _ = TryRestoreSourcesAfterCoverLoss();
+        }
+        _sourcesReleased = true;
+        _cloakedRealSourceHandles.Clear();
+        DisposeCore(clearTargetRoot: false);
+    }
+
     public bool TryReleaseForHandoff()
     {
         if (_disposed || _sourcesReleased)
@@ -64,8 +192,13 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return ReleaseAfterCoverLoss();
         }
+        if (!ReferenceEquals(_host.Current, this))
+        {
+            return false;
+        }
 
-        var restored = new List<IntPtr>(_cloakedRealSourceHandles.Count);
+        var restored =
+            new List<IntPtr>(_cloakedRealSourceHandles.Count);
         var allRestored = true;
         foreach (var handle in _cloakedRealSourceHandles)
         {
@@ -73,7 +206,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             {
                 continue;
             }
-            if (WindowNative.TrySetWindowCloaked(handle, cloaked: false))
+
+            if (WindowNative.TrySetWindowCloaked(
+                    handle,
+                    cloaked: false))
             {
                 restored.Add(handle);
             }
@@ -82,18 +218,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 allRestored = false;
             }
         }
+
         if (!allRestored)
         {
-            if (_coverLost)
-            {
-                WindowNative.FlushDesktopComposition();
-                return false;
-            }
             foreach (var handle in restored)
             {
                 if (WindowNative.IsWindowHandleAlive(handle))
                 {
-                    _ = WindowNative.TrySetWindowCloaked(handle, cloaked: true);
+                    _ = WindowNative.TrySetWindowCloaked(
+                        handle,
+                        cloaked: true);
                 }
             }
             WindowNative.FlushDesktopComposition();
@@ -104,14 +238,17 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _cloakedRealSourceHandles.Clear();
         try
         {
-            // Keep the exact final proxy pixels over the newly uncloaked endpoints for one desktop
-            // composition barrier. A bounded overlap is visually identical; an uncovered gap is
-            // the edge flash reported by users. Only after DWM has accepted the real endpoints do
-            // we hide the reusable output and detach its root.
+            // Keep the exact final proxy pixels above the newly uncloaked endpoints for one desktop
+            // composition barrier. Only after DWM accepts the real endpoints is the root detached.
             WindowNative.FlushDesktopComposition();
-            _window.Hide();
-            _target.SetRoot(null!).CheckError();
-            _device.Commit().CheckError();
+            if (ReferenceEquals(_host.Current, this))
+            {
+                _target.SetRoot(null!).CheckError();
+                _device.Commit().CheckError();
+                _device.WaitForCommitCompletion().CheckError();
+                _targetRootInstalled = false;
+                _window.Hide();
+            }
         }
         catch (Exception ex)
         {
@@ -134,11 +271,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return false;
         }
+
         _sourcesReleased = true;
         _cloakedRealSourceHandles.Clear();
-        try { _target.SetRoot(null!).CheckError(); } catch { }
-        try { _device.Commit().CheckError(); } catch { }
-        _window.Hide();
+        if (ReferenceEquals(_host.Current, this))
+        {
+            try { _target.SetRoot(null!).CheckError(); } catch { }
+            try { _device.Commit().CheckError(); } catch { }
+            _targetRootInstalled = false;
+            _window.Hide();
+        }
         WindowNative.FlushDesktopComposition();
         return true;
     }
@@ -152,10 +294,13 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             {
                 continue;
             }
+
             var restored = false;
             for (var attempt = 0; attempt < 3; attempt++)
             {
-                if (WindowNative.TrySetWindowCloaked(handle, cloaked: false))
+                if (WindowNative.TrySetWindowCloaked(
+                        handle,
+                        cloaked: false))
                 {
                     restored = true;
                     break;
@@ -173,11 +318,22 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return;
         }
+        if (!_coverPublished)
+        {
+            AbortStaged();
+            return;
+        }
+        if (_sourcesReleased &&
+            !ReferenceEquals(_host.Current, this))
+        {
+            DisposeCore(clearTargetRoot: false);
+            return;
+        }
         if (!_sourcesReleased && !TryReleaseForHandoff())
         {
             return;
         }
-        DisposeCore();
+        DisposeCore(clearTargetRoot: true);
     }
 
     public void ForceDisposeForShutdown()
@@ -186,25 +342,35 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return;
         }
+
         _ = TryRestoreSourcesAfterCoverLoss();
         _sourcesReleased = true;
         _cloakedRealSourceHandles.Clear();
-        DisposeCore();
+        DisposeCore(
+            clearTargetRoot:
+                ReferenceEquals(_host.Current, this));
     }
 
-    private void DisposeCore()
+    private void DisposeCore(bool clearTargetRoot)
     {
         if (_disposed)
         {
             return;
         }
+
         _disposed = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
         try
         {
-            try { _target.SetRoot(null!).CheckError(); } catch { }
-            try { _device.Commit().CheckError(); } catch { }
+            if (clearTargetRoot &&
+                ReferenceEquals(_host.Current, this))
+            {
+                try { _target.SetRoot(null!).CheckError(); } catch { }
+                try { _device.Commit().CheckError(); } catch { }
+                _targetRootInstalled = false;
+            }
+
             foreach (var visual in _visuals)
             {
                 try { visual.Dispose(); } catch { }
@@ -227,7 +393,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.handoff phase=dispose session={_sessionOrdinal} " +
             $"cold={IsColdSession} queue={_plan.QueueKey} " +
-            $"released={_sourcesReleased} reusedHost=true");
+            $"released={_sourcesReleased} successor={_predecessor != null} " +
+            $"reusedHost=true");
 #endif
     }
 
