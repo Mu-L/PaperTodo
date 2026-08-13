@@ -21,6 +21,17 @@ public sealed partial class PaperWindow
         var target = _edgeCapsule
             .PlanTargetPresentation(CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
+        if (EdgeCapsuleQueueProxyPolicy.IsEnabled && !start.Bounds.IsEmpty)
+        {
+            // Consume the dispatcher-prewarmed output and bind it to this queue before snapshot
+            // capture. Subsequent preview transfers reuse the same HWND and DComp target.
+            EdgeCapsuleQueueCompositionProxy.PrewarmQueue(
+                host.Dispatcher,
+                queueKey,
+                host.IsTopmost,
+                EdgeCapsuleQueueProxyGeometry.OutputBounds(start.Bounds));
+        }
+
         return new EdgeCapsuleQueueProxyCandidate(
             _paper.Id,
             queueKey,
@@ -39,8 +50,7 @@ public sealed partial class PaperWindow
 
     internal IntPtr EdgeCapsuleQueueProxySourceHandle =>
         _edgeCapsuleHost?.Handle ?? IntPtr.Zero;
-    internal bool CanRouteEdgeCapsuleQueueProxyInput =>
-        CanEnterEdgeCapsulePreview;
+    internal bool CanRouteEdgeCapsuleQueueProxyInput => CanEnterEdgeCapsulePreview;
 
     internal BitmapSource? CaptureEdgeCapsuleQueueProxySnapshot(
         EdgeCapsulePresentationFrame source) =>
@@ -69,8 +79,6 @@ public sealed partial class PaperWindow
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
         {
-            // Do not reveal a still-alive captured preview while close is between lifecycle state
-            // mutation and HWND destruction. The caller can only release after this host is gone.
             return _edgeCapsuleHost?.Handle is not { } handle ||
                 !WindowNative.IsWindowHandleAlive(handle);
         }
@@ -81,15 +89,13 @@ public sealed partial class PaperWindow
         {
             return false;
         }
-        if (endpoint.Visible &&
-            !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
+        if (endpoint.Visible && !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
         {
             return false;
         }
         return endpoint.Visible
             ? _edgeCapsuleHost?.MatchesPresentation(endpoint) == true
-            : _edgeCapsuleHost == null ||
-                _edgeCapsuleHost.MatchesPresentation(endpoint);
+            : _edgeCapsuleHost == null || _edgeCapsuleHost.MatchesPresentation(endpoint);
     }
 
     internal void ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent()
@@ -133,5 +139,4 @@ public sealed partial class PaperWindow
             EdgeCapsuleDirty.Measure |
             EdgeCapsuleDirty.Pointer);
     }
-
 }
