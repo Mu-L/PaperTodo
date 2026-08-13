@@ -5,6 +5,7 @@ namespace PaperTodo;
 internal enum EdgeCapsuleQueueProxyMemberRole
 {
     Moving,
+    ResizingShell,
     OpeningPreview,
     ClosingPreview
 }
@@ -26,6 +27,12 @@ internal readonly record struct EdgeCapsuleQueueProxyMemberPlan(
 {
     public bool DefersRealEndpoint =>
         Role == EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
+
+    public bool RequiresStartSnapshot =>
+        Role is EdgeCapsuleQueueProxyMemberRole.OpeningPreview or
+            EdgeCapsuleQueueProxyMemberRole.ResizingShell;
+
+    public bool UsesEndpointLayer => RequiresStartSnapshot;
 }
 
 internal sealed record EdgeCapsuleQueueProxyPlan(
@@ -40,15 +47,14 @@ internal sealed record EdgeCapsuleQueueProxyPlan(
     IReadOnlyList<EdgeCapsuleQueueProxyMemberPlan> Members);
 
 /// <summary>
-/// Admission and geometry policy for the queue compositor. Preview transactions must not silently
-/// fall back because an unchanged member carries stale/snap bookkeeping: only members whose pixels
-/// actually change need a live compositor source. Every rejection is diagnosed in Debug builds.
+/// Admission and geometry policy for the queue compositor. Preview transactions and the compact
+/// shell's pointer-driven resize share the same compositor owner. Unchanged queue bookkeeping can
+/// never silently veto a session; every changed pixel owner is validated explicitly.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyPolicy
 {
-    // V2.5 is now the production preview-animation path. The old environment kill switch made a
-    // persisted comparison setting silently turn the entire product back into per-frame HWND motion,
-    // exactly the state the compositor exists to remove. Historical A/B branches remain available.
+    // V2.5 is now the production edge-animation path. Historical A/B branches remain available;
+    // a persisted process environment variable must not silently restore per-frame HWND motion.
     public static bool IsEnabled => true;
 
     public static EdgeCapsuleQueueProxyPlan? TryCreate(
@@ -60,10 +66,13 @@ internal static class EdgeCapsuleQueueProxyPolicy
             return Reject(queueKey, "no-candidates", candidates);
         }
 
-        if (!candidates.Any(candidate =>
-                candidate.Motion.Reason == EdgeCapsuleTransitionReason.Preview))
+        var supportedReason = candidates.Any(candidate =>
+            candidate.Motion.Reason is
+                EdgeCapsuleTransitionReason.Preview or
+                EdgeCapsuleTransitionReason.Pointer);
+        if (!supportedReason)
         {
-            return Reject(queueKey, "not-preview-transaction", candidates);
+            return Reject(queueKey, "unsupported-transaction", candidates);
         }
 
         var changedCandidates = candidates
@@ -74,10 +83,6 @@ internal static class EdgeCapsuleQueueProxyPolicy
             return Reject(queueKey, "no-visual-change", candidates);
         }
 
-        // Unchanged queue members remain ordinary real HWNDs and are not compositor sources. They
-        // therefore must not veto a session merely because their staged bookkeeping uses Snap or
-        // their host is between no-op presentation generations. Strict admission applies only to
-        // pixels the proxy will actually own.
         foreach (var candidate in changedCandidates)
         {
             var rejection = ChangedCandidateRejection(candidate, queueKey);
@@ -95,9 +100,9 @@ internal static class EdgeCapsuleQueueProxyPolicy
                 RoleFor(candidate.Start, candidate.Target)))
             .ToArray();
 
-        // Peer capsules affected by preview displacement are translation-only live surfaces. If a
-        // peer also changes shape/content/opacity, applying its real endpoint underneath a wrapper
-        // would mutate the source being animated and can cause double scaling or a jump.
+        // A pure queue displacement can keep wrapping the live real HWND. Anything that changes
+        // shell shape/content is promoted to ResizingShell and receives a frozen start snapshot plus
+        // a prepared endpoint layer, so the live source is never mutated beneath its own animation.
         var unsupportedMovingMember = changed.FirstOrDefault(member =>
             member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
             !CanWrapMovingMemberLive(member.Start, member.Target));
@@ -144,7 +149,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.admission outcome=accepted queue={queueKey} " +
             $"candidates={candidates.Count} changed={changed.Length} " +
-            $"members={string.Join(',', changed.Select(member => EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)))} " +
+            $"roles={string.Join(',', changed.Select(member => $"{EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)}:{member.Role}"))} " +
             $"durationMs={changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)}");
 #endif
         return new EdgeCapsuleQueueProxyPlan(
@@ -289,6 +294,10 @@ internal static class EdgeCapsuleQueueProxyPolicy
             target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
         {
             return EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
+        }
+        if (!CanWrapMovingMemberLive(start, target))
+        {
+            return EdgeCapsuleQueueProxyMemberRole.ResizingShell;
         }
         return EdgeCapsuleQueueProxyMemberRole.Moving;
     }
