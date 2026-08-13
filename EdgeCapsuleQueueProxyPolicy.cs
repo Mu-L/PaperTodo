@@ -40,82 +40,93 @@ internal sealed record EdgeCapsuleQueueProxyPlan(
     IReadOnlyList<EdgeCapsuleQueueProxyMemberPlan> Members);
 
 /// <summary>
-/// Pure admission and geometry policy for the transient queue compositor. The proxy covers only
-/// source/target rectangles that actually change; it never reserves an entire monitor and never
-/// changes the reducer's logical queue plan.
+/// Admission and geometry policy for the queue compositor. Preview transactions must not silently
+/// fall back because an unchanged member carries stale/snap bookkeeping: only members whose pixels
+/// actually change need a live compositor source. Every rejection is diagnosed in Debug builds.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyPolicy
 {
-    private const string EnabledEnvironmentVariable =
-        "PAPERTODO_EDGE_QUEUE_COMPOSITION_PROXY";
-
-    public static bool IsEnabled { get; } = ReadEnabledOverride();
+    // V2.5 is now the production preview-animation path. The old environment kill switch made a
+    // persisted comparison setting silently turn the entire product back into per-frame HWND motion,
+    // exactly the state the compositor exists to remove. Historical A/B branches remain available.
+    public static bool IsEnabled => true;
 
     public static EdgeCapsuleQueueProxyPlan? TryCreate(
         string queueKey,
         IReadOnlyList<EdgeCapsuleQueueProxyCandidate> candidates)
     {
-        if (!IsEnabled ||
-            candidates.Count == 0 ||
-            candidates.Any(candidate => !candidate.Topmost) ||
-            candidates.Any(candidate =>
-                !candidate.HostReady ||
-                !candidate.Start.IsUsable ||
-                !candidate.Target.IsUsable ||
-                !candidate.Start.Visible ||
-                !candidate.Target.Visible ||
-                candidate.Start.Bounds.IsEmpty ||
-                candidate.Target.Bounds.IsEmpty ||
-                candidate.Motion.Kind != EdgeCapsuleMotionKind.Animate ||
-                candidate.Start.Edge != candidate.Target.Edge ||
-                candidate.Start.WallDeviceX != candidate.Target.WallDeviceX ||
-                Math.Abs(candidate.Start.DpiScaleX - candidate.Target.DpiScaleX) > 0.001 ||
-                Math.Abs(candidate.Start.DpiScaleY - candidate.Target.DpiScaleY) > 0.001 ||
-                !string.Equals(candidate.QueueKey, queueKey, StringComparison.Ordinal)))
+        if (candidates.Count == 0)
         {
-            return null;
+            return Reject(queueKey, "no-candidates", candidates);
         }
 
-        // The queue compositor is introduced for preview open/close/transfer and the placement
-        // motion caused by those transactions. Other docked animations retain their existing
-        // path until their input and drag semantics are migrated explicitly.
         if (!candidates.Any(candidate =>
                 candidate.Motion.Reason == EdgeCapsuleTransitionReason.Preview))
         {
-            return null;
+            return Reject(queueKey, "not-preview-transaction", candidates);
         }
 
-        var changed = candidates
+        var changedCandidates = candidates
             .Where(candidate => !FramesVisuallyMatch(candidate.Start, candidate.Target))
+            .ToArray();
+        if (changedCandidates.Length == 0)
+        {
+            return Reject(queueKey, "no-visual-change", candidates);
+        }
+
+        // Unchanged queue members remain ordinary real HWNDs and are not compositor sources. They
+        // therefore must not veto a session merely because their staged bookkeeping uses Snap or
+        // their host is between no-op presentation generations. Strict admission applies only to
+        // pixels the proxy will actually own.
+        foreach (var candidate in changedCandidates)
+        {
+            var rejection = ChangedCandidateRejection(candidate, queueKey);
+            if (rejection != null)
+            {
+                return Reject(queueKey, rejection, candidates, candidate);
+            }
+        }
+
+        var changed = changedCandidates
             .Select(candidate => new EdgeCapsuleQueueProxyMemberPlan(
                 candidate.PaperId,
                 candidate.Start,
                 candidate.Target,
                 RoleFor(candidate.Start, candidate.Target)))
             .ToArray();
-        if (changed.Length == 0)
-        {
-            return null;
-        }
 
         // Peer capsules affected by preview displacement are translation-only live surfaces. If a
         // peer also changes shape/content/opacity, applying its real endpoint underneath a wrapper
-        // would mutate the very source being animated and can cause double scaling or a jump.
-        if (changed.Any(member =>
-                member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
-                !CanWrapMovingMemberLive(member.Start, member.Target)))
+        // would mutate the source being animated and can cause double scaling or a jump.
+        var unsupportedMovingMember = changed.FirstOrDefault(member =>
+            member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
+            !CanWrapMovingMemberLive(member.Start, member.Target));
+        if (!string.IsNullOrEmpty(unsupportedMovingMember.PaperId))
         {
-            return null;
+            return Reject(
+                queueKey,
+                "moving-member-not-translation-only",
+                candidates,
+                changedCandidates.First(candidate =>
+                    string.Equals(
+                        candidate.PaperId,
+                        unsupportedMovingMember.PaperId,
+                        StringComparison.Ordinal)));
         }
 
         var first = changed[0];
-        if (changed.Any(member =>
-                member.Start.Edge != first.Start.Edge ||
-                member.Start.WallDeviceX != first.Start.WallDeviceX ||
-                Math.Abs(member.Start.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
-                Math.Abs(member.Start.DpiScaleY - first.Start.DpiScaleY) > 0.001))
+        var mismatchedGeometry = changedCandidates.FirstOrDefault(candidate =>
+            candidate.Start.Edge != first.Start.Edge ||
+            candidate.Start.WallDeviceX != first.Start.WallDeviceX ||
+            Math.Abs(candidate.Start.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(candidate.Start.DpiScaleY - first.Start.DpiScaleY) > 0.001);
+        if (!string.IsNullOrEmpty(mismatchedGeometry.PaperId))
         {
-            return null;
+            return Reject(
+                queueKey,
+                "queue-geometry-mismatch",
+                candidates,
+                mismatchedGeometry);
         }
 
         var envelope = default(DeviceScreenRect);
@@ -126,9 +137,16 @@ internal static class EdgeCapsuleQueueProxyPolicy
         }
         if (envelope.IsEmpty)
         {
-            return null;
+            return Reject(queueKey, "empty-envelope", candidates);
         }
 
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.admission outcome=accepted queue={queueKey} " +
+            $"candidates={candidates.Count} changed={changed.Length} " +
+            $"members={string.Join(',', changed.Select(member => EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)))} " +
+            $"durationMs={changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)}");
+#endif
         return new EdgeCapsuleQueueProxyPlan(
             queueKey,
             envelope,
@@ -138,9 +156,89 @@ internal static class EdgeCapsuleQueueProxyPolicy
             first.Start.DpiScaleY,
             Math.Max(
                 1,
-                candidates.Max(candidate => candidate.Motion.DurationMilliseconds)),
+                changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)),
             Topmost: true,
             changed);
+    }
+
+    private static string? ChangedCandidateRejection(
+        EdgeCapsuleQueueProxyCandidate candidate,
+        string queueKey)
+    {
+        if (!candidate.Topmost)
+        {
+            return "changed-member-not-topmost";
+        }
+        if (!candidate.HostReady)
+        {
+            return "changed-member-host-not-ready";
+        }
+        if (!candidate.Start.IsUsable)
+        {
+            return "changed-member-start-unusable";
+        }
+        if (!candidate.Target.IsUsable)
+        {
+            return "changed-member-target-unusable";
+        }
+        if (!candidate.Start.Visible || !candidate.Target.Visible)
+        {
+            return "changed-member-hidden";
+        }
+        if (candidate.Start.Bounds.IsEmpty || candidate.Target.Bounds.IsEmpty)
+        {
+            return "changed-member-empty-bounds";
+        }
+        if (candidate.Motion.Kind != EdgeCapsuleMotionKind.Animate)
+        {
+            return $"changed-member-motion-{candidate.Motion.Kind}";
+        }
+        if (candidate.Start.Edge != candidate.Target.Edge)
+        {
+            return "changed-member-edge-change";
+        }
+        if (candidate.Start.WallDeviceX != candidate.Target.WallDeviceX)
+        {
+            return "changed-member-wall-change";
+        }
+        if (Math.Abs(candidate.Start.DpiScaleX - candidate.Target.DpiScaleX) > 0.001 ||
+            Math.Abs(candidate.Start.DpiScaleY - candidate.Target.DpiScaleY) > 0.001)
+        {
+            return "changed-member-dpi-change";
+        }
+        if (!string.Equals(candidate.QueueKey, queueKey, StringComparison.Ordinal))
+        {
+            return "changed-member-queue-change";
+        }
+        return null;
+    }
+
+    private static EdgeCapsuleQueueProxyPlan? Reject(
+        string queueKey,
+        string reason,
+        IReadOnlyList<EdgeCapsuleQueueProxyCandidate> candidates,
+        EdgeCapsuleQueueProxyCandidate? offending = null)
+    {
+#if DEBUG
+        var changedCount = candidates.Count(candidate =>
+            !FramesVisuallyMatch(candidate.Start, candidate.Target));
+        var detail = offending is { } candidate
+            ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
+              $"motion={candidate.Motion.Kind}/{candidate.Motion.Reason} " +
+              $"hostReady={candidate.HostReady} topmost={candidate.Topmost} " +
+              $"start={candidate.Start.Surface}:{candidate.Start.Bounds.Left},{candidate.Start.Bounds.Top}," +
+              $"{candidate.Start.Bounds.Width}x{candidate.Start.Bounds.Height} " +
+              $"target={candidate.Target.Surface}:{candidate.Target.Bounds.Left},{candidate.Target.Bounds.Top}," +
+              $"{candidate.Target.Bounds.Width}x{candidate.Target.Bounds.Height} " +
+              $"wall={candidate.Start.WallDeviceX}->{candidate.Target.WallDeviceX} " +
+              $"dpi={candidate.Start.DpiScaleX:F3},{candidate.Start.DpiScaleY:F3}->" +
+              $"{candidate.Target.DpiScaleX:F3},{candidate.Target.DpiScaleY:F3}"
+            : string.Empty;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.admission outcome=rejected queue={queueKey} reason={reason} " +
+            $"candidates={candidates.Count} changed={changedCount}{detail}");
+#endif
+        return null;
     }
 
     internal static EdgeCapsulePresentationFrame SampleLogicalFrame(
@@ -248,13 +346,5 @@ internal static class EdgeCapsuleQueueProxyPolicy
             Math.Min(first.Top, second.Top),
             Math.Max(first.Right, second.Right),
             Math.Max(first.Bottom, second.Bottom));
-    }
-
-    private static bool ReadEnabledOverride()
-    {
-        var value = Environment.GetEnvironmentVariable(EnabledEnvironmentVariable)
-            ?.Trim()
-            .ToLowerInvariant();
-        return value is not ("0" or "false" or "off" or "none");
     }
 }
