@@ -82,6 +82,39 @@ internal static class QueueProxyAdmissionRegression
         Assert(previewAfterPlacementMerge!.Members[0].RequiresStartSnapshot,
             "merged preview opening must still use snapshot morph ownership");
 
+        // PreviewChanged can advance the reducer surface before the compact HWND/presentation has
+        // reached preview geometry. The production trace then presents Preview(94x58) ->
+        // Preview(full-size), Motion=Placement. Treating that as Moving rejects the entire queue
+        // because a live moving member is translation-only. This is still an opening morph: freeze
+        // the compact pixels and prepare the wall-pinned preview endpoint under the cover.
+        var stagedPreviewCompact = Frame(
+            AppSurface.DockedPreview,
+            new AppRect(5026, 185, 5120, 243),
+            bodyWidth: 94);
+        var stagedPreviewTarget = Frame(
+            AppSurface.DockedPreview,
+            new AppRect(4745, 185, 5120, 423),
+            bodyWidth: 375);
+        var stagedSurfaceOpening = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                new AppCandidate(
+                    "opening-staged-surface",
+                    queue,
+                    stagedPreviewCompact,
+                    stagedPreviewTarget,
+                    AppMotion.Animate(AppReason.Placement, 200),
+                    HostReady: true,
+                    Topmost: true)
+            });
+        Assert(stagedSurfaceOpening is { Members.Count: 1 },
+            "staged Preview surface with compact geometry must still enter the compositor");
+        Assert(stagedSurfaceOpening!.Members[0].RequiresStartSnapshot,
+            "staged Preview compact-to-full geometry must be a snapshot morph, not live Moving");
+        Assert(!stagedSurfaceOpening.Members[0].DefersRealEndpoint,
+            "staged Preview compact-to-full geometry is opening, not closing");
+
         var closeAfterPlacementMerge = AppPolicy.TryCreate(
             queue,
             new[]
