@@ -480,13 +480,13 @@ internal static class Program
                     new AppProxyCandidate(
                         "paper-a",
                         "DISPLAY|right",
-                        start,
-                        target,
+                        movingStart,
+                        movingTarget,
                         AppMotion.Animate(AppTransitionReason.Placement, 200),
                         HostReady: true,
                         Topmost: true)
                 }) == null,
-            "a transaction without a preview reason must stay on the existing presentation backend");
+            "ordinary placement without preview pixels must stay on the existing presentation backend");
 
         var oversizedHostFrame = start with
         {
