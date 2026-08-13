@@ -13,33 +13,58 @@ internal sealed record EdgeCapsuleQueueCompositionProxyMember(
     IntPtr SourceHandle,
     EdgeCapsuleProxySnapshotHost? SnapshotHost);
 
+internal enum EdgeCapsuleQueueProxyVisualLayer
+{
+    MovingSource = 0,
+    RevealTarget = 1,
+    ConcealSource = 2,
+    StartSnapshot = 3
+}
+
 /// <summary>
-/// Shared DirectComposition runtime, reusable native output targets and session-owned visual state.
+/// Dispatcher-shared DirectComposition device, queue-scoped output hosts and generation-owned
+/// visual resources. A queue host may have one current generation and one staged successor.
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
 {
     private sealed class VisualState : IDisposable
     {
         public required EdgeCapsuleQueueCompositionProxyMember Member { get; init; }
+        public required EdgeCapsuleQueueProxyVisualLayer Layer { get; init; }
         public required IntPtr PresentedSourceHandle { get; init; }
         public required DeviceScreenRect SourceBounds { get; init; }
         public required IUnknown Surface { get; init; }
         public required IDCompositionVisual Visual { get; init; }
         public required IDCompositionEffectGroup Effect { get; init; }
-        public required IDCompositionScaleTransform Scale { get; init; }
+        public required IDCompositionRectangleClip Clip { get; init; }
+        public required float StartOffsetX { get; init; }
+        public required float StartOffsetY { get; init; }
+        public required float TargetOffsetX { get; init; }
+        public required float TargetOffsetY { get; init; }
+        public required EdgeCapsuleProxyClipRect StartClip { get; init; }
+        public required EdgeCapsuleProxyClipRect TargetClip { get; init; }
+        public required float StartOpacity { get; init; }
+        public required float TargetOpacity { get; init; }
+        public required int OpacityDurationMilliseconds { get; init; }
+
+        public IDCompositionAnimation? OffsetXAnimation { get; set; }
         public IDCompositionAnimation? OffsetYAnimation { get; set; }
-        public IDCompositionAnimation? ScaleXAnimation { get; set; }
-        public IDCompositionAnimation? ScaleYAnimation { get; set; }
+        public IDCompositionAnimation? ClipLeftAnimation { get; set; }
+        public IDCompositionAnimation? ClipTopAnimation { get; set; }
+        public IDCompositionAnimation? ClipRightAnimation { get; set; }
+        public IDCompositionAnimation? ClipBottomAnimation { get; set; }
         public IDCompositionAnimation? OpacityAnimation { get; set; }
-        public bool IsEndpointLayer { get; init; }
 
         public void Dispose()
         {
             OpacityAnimation?.Dispose();
-            ScaleYAnimation?.Dispose();
-            ScaleXAnimation?.Dispose();
+            ClipBottomAnimation?.Dispose();
+            ClipRightAnimation?.Dispose();
+            ClipTopAnimation?.Dispose();
+            ClipLeftAnimation?.Dispose();
             OffsetYAnimation?.Dispose();
-            Scale.Dispose();
+            OffsetXAnimation?.Dispose();
+            Clip.Dispose();
             Effect.Dispose();
             Visual.Dispose();
             Surface.Dispose();
@@ -67,7 +92,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         public EdgeCapsuleQueueProxyWindow Window { get; }
         public IDCompositionTarget Target { get; }
         public EdgeCapsuleQueueCompositionProxy? Current { get; private set; }
-        public bool IsAvailable => !_disposed && Current == null && Window.Handle != IntPtr.Zero;
+        public EdgeCapsuleQueueCompositionProxy? Staged { get; private set; }
+        public bool IsAvailable =>
+            !_disposed &&
+            Current == null &&
+            Staged == null &&
+            Window.Handle != IntPtr.Zero;
 
         public static QueueHost? TryCreate(
             SharedRuntime runtime,
@@ -89,7 +119,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                     initialBounds,
                     topmost,
                     point => host?.Current?.ContainsVisual(point) == true,
-                    (point, message) => host?.Current?.HandleInteractionRequested(point, message),
+                    (point, message) =>
+                        host?.Current?.HandleInteractionRequested(point, message),
                     () => host?.Current?.HandleEnvironmentChanged(),
                     () => host?.Current?.HandleCompositionPaint(),
                     () => host?.Current?.HandleOutputLost());
@@ -121,7 +152,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
 
         public bool AssignQueue(string queueKey)
         {
-            if (_disposed || Current != null || string.IsNullOrWhiteSpace(queueKey))
+            if (_disposed ||
+                Current != null ||
+                Staged != null ||
+                string.IsNullOrWhiteSpace(queueKey))
             {
                 return false;
             }
@@ -129,23 +163,90 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             return true;
         }
 
-        public bool Attach(EdgeCapsuleQueueCompositionProxy proxy)
+        public bool CanStage(
+            EdgeCapsuleQueueCompositionProxy? predecessor) =>
+            !_disposed &&
+            Window.Handle != IntPtr.Zero &&
+            Staged == null &&
+            (predecessor == null
+                ? Current == null
+                : ReferenceEquals(Current, predecessor));
+
+        public bool TryStage(
+            EdgeCapsuleQueueCompositionProxy proxy,
+            EdgeCapsuleQueueCompositionProxy? predecessor)
         {
-            if (!IsAvailable)
+            if (!CanStage(predecessor))
             {
                 return false;
             }
+            Staged = proxy;
+            return true;
+        }
+
+        public bool Promote(
+            EdgeCapsuleQueueCompositionProxy proxy,
+            EdgeCapsuleQueueCompositionProxy? predecessor)
+        {
+            if (_disposed ||
+                !ReferenceEquals(Staged, proxy) ||
+                (predecessor == null
+                    ? Current != null
+                    : !ReferenceEquals(Current, predecessor)))
+            {
+                return false;
+            }
+
             Current = proxy;
+            Staged = null;
+            return true;
+        }
+
+        public bool RollbackPromotion(
+            EdgeCapsuleQueueCompositionProxy proxy,
+            EdgeCapsuleQueueCompositionProxy? predecessor)
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(Staged, proxy))
+            {
+                Staged = null;
+            }
+
+            if (ReferenceEquals(Current, proxy))
+            {
+                Current = predecessor;
+            }
+            else if (predecessor != null &&
+                     !ReferenceEquals(Current, predecessor))
+            {
+                return false;
+            }
+
+            if (Current == null && Staged == null)
+            {
+                Window.Hide();
+            }
             return true;
         }
 
         public void Detach(EdgeCapsuleQueueCompositionProxy proxy)
         {
+            if (ReferenceEquals(Staged, proxy))
+            {
+                Staged = null;
+            }
             if (ReferenceEquals(Current, proxy))
             {
                 Current = null;
             }
-            Window.Hide();
+            if (Current == null && Staged == null)
+            {
+                Window.Hide();
+            }
         }
 
         public void Dispose()
@@ -156,6 +257,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             }
             _disposed = true;
             Current = null;
+            Staged = null;
             try { Target.SetRoot(null!).CheckError(); } catch { }
             try { _runtime.Device.Commit().CheckError(); } catch { }
             try { Target.Dispose(); } catch { }
@@ -195,7 +297,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 return;
             }
 
-            var offscreen = new DeviceScreenRect(-32000, -32000, -31996, -31996);
+            var offscreen =
+                new DeviceScreenRect(-32000, -32000, -31996, -31996);
             var host = QueueHost.TryCreate(
                 this,
                 string.Empty,
@@ -216,7 +319,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             while (_spareHosts.Count > 0 && host == null)
             {
                 var candidate = _spareHosts.Pop();
-                if (candidate.IsAvailable && candidate.AssignQueue(queueKey))
+                if (candidate.IsAvailable &&
+                    candidate.AssignQueue(queueKey))
                 {
                     host = candidate;
                 }
@@ -255,7 +359,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         internal QueueHost? TryAcquire(
             string queueKey,
             bool topmost,
-            DeviceScreenRect initialBounds)
+            DeviceScreenRect initialBounds,
+            EdgeCapsuleQueueCompositionProxy? predecessor)
         {
             _dispatcher.VerifyAccess();
             if (!IsUsable)
@@ -264,6 +369,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             }
             if (!_hosts.TryGetValue(queueKey, out var host))
             {
+                if (predecessor != null)
+                {
+                    return null;
+                }
                 host = TakeOrCreateHost(
                     queueKey,
                     topmost,
@@ -274,7 +383,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 }
                 _hosts[queueKey] = host;
             }
-            return host.IsAvailable ? host : null;
+            return host.CanStage(predecessor) ? host : null;
         }
 
         internal void Release(
@@ -304,7 +413,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
             _disposed = true;
         }
 
-        private void OnDispatcherShutdownStarted(object? sender, EventArgs e) => Dispose();
+        private void OnDispatcherShutdownStarted(
+            object? sender,
+            EventArgs e) => Dispose();
 
         public void Dispose()
         {
@@ -327,6 +438,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         }
     }
 
-    private static readonly ConditionalWeakTable<Dispatcher, SharedRuntime> SharedRuntimes = new();
+    private static readonly ConditionalWeakTable<Dispatcher, SharedRuntime>
+        SharedRuntimes = new();
     private static long _nextSessionOrdinal;
 }

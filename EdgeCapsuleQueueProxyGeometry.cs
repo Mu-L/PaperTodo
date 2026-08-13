@@ -1,10 +1,20 @@
 namespace PaperTodo;
 
+internal readonly record struct EdgeCapsuleProxyClipRect(
+    float Left,
+    float Top,
+    float Right,
+    float Bottom)
+{
+    public float Width => Math.Max(0, Right - Left);
+    public float Height => Math.Max(0, Bottom - Top);
+    public bool IsEmpty => Width <= 0 || Height <= 0;
+}
+
 /// <summary>
-/// Pure physical-pixel geometry for the queue compositor. The output HWND deliberately owns a
-/// small transparent overscan so DComp filtering and the WPF shadow never meet an exact window
-/// boundary. Horizontal scaling is anchored directly at the monitor wall; no independent X
-/// translation animation is required to keep a resizing capsule attached to the edge.
+/// Pure physical-pixel geometry for the queue compositor. A morph reveals or conceals a
+/// native-resolution HWND surface with a rectangle clip; no bitmap or live HWND surface is scaled
+/// to simulate another window size.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyGeometry
 {
@@ -24,28 +34,105 @@ internal static class EdgeCapsuleQueueProxyGeometry
             envelope.Bottom + OutputOverscanPixels);
     }
 
-    internal static float ScaleCenterX(EdgeCapsuleEdge edge, int sourceWidth) =>
-        edge == EdgeCapsuleEdge.Left ? 0 : Math.Max(1, sourceWidth);
+    internal static bool Contains(
+        DeviceScreenRect outer,
+        DeviceScreenRect inner) =>
+        !outer.IsEmpty &&
+        !inner.IsEmpty &&
+        inner.Left >= outer.Left &&
+        inner.Top >= outer.Top &&
+        inner.Right <= outer.Right &&
+        inner.Bottom <= outer.Bottom;
 
-    internal static float WallPinnedOffsetX(
-        EdgeCapsuleEdge edge,
-        int wallDeviceX,
-        int sourceWidth,
-        DeviceScreenRect outputBounds) =>
-        edge == EdgeCapsuleEdge.Left
-            ? wallDeviceX - outputBounds.Left
-            : wallDeviceX - outputBounds.Left - Math.Max(1, sourceWidth);
-
-    internal static double PresentedWallDeviceX(
-        EdgeCapsuleEdge edge,
-        double outputLeft,
-        double offsetX,
-        double sourceWidth,
-        double scaleX)
+    internal static DeviceScreenRect Union(
+        DeviceScreenRect first,
+        DeviceScreenRect second)
     {
-        var centerX = edge == EdgeCapsuleEdge.Left ? 0 : sourceWidth;
-        var left = outputLeft + offsetX + centerX * (1 - scaleX);
-        var right = left + sourceWidth * scaleX;
-        return edge == EdgeCapsuleEdge.Left ? left : right;
+        if (first.IsEmpty)
+        {
+            return second;
+        }
+        if (second.IsEmpty)
+        {
+            return first;
+        }
+
+        return new DeviceScreenRect(
+            Math.Min(first.Left, second.Left),
+            Math.Min(first.Top, second.Top),
+            Math.Max(first.Right, second.Right),
+            Math.Max(first.Bottom, second.Bottom));
     }
+
+    internal static DeviceScreenRect WithDownwardCapacity(
+        DeviceScreenRect bounds,
+        int downwardShiftDevice,
+        int workAreaBottomDevice)
+    {
+        if (bounds.IsEmpty || downwardShiftDevice <= 0)
+        {
+            return bounds;
+        }
+
+        var requestedBottom = Math.Min(
+            int.MaxValue,
+            (long)bounds.Bottom + downwardShiftDevice);
+        return new DeviceScreenRect(
+            bounds.Left,
+            bounds.Top,
+            bounds.Right,
+            (int)Math.Min(
+                requestedBottom,
+                workAreaBottomDevice));
+    }
+
+    internal static EdgeCapsuleProxyClipRect ClipForVisibleBounds(
+        DeviceScreenRect sourceBounds,
+        DeviceScreenRect visibleBounds)
+    {
+        if (sourceBounds.IsEmpty || visibleBounds.IsEmpty)
+        {
+            return default;
+        }
+
+        var left = Math.Clamp(
+            visibleBounds.Left - sourceBounds.Left,
+            0,
+            sourceBounds.Width);
+        var top = Math.Clamp(
+            visibleBounds.Top - sourceBounds.Top,
+            0,
+            sourceBounds.Height);
+        var right = Math.Clamp(
+            visibleBounds.Right - sourceBounds.Left,
+            0,
+            sourceBounds.Width);
+        var bottom = Math.Clamp(
+            visibleBounds.Bottom - sourceBounds.Top,
+            0,
+            sourceBounds.Height);
+        return new EdgeCapsuleProxyClipRect(left, top, right, bottom);
+    }
+
+    internal static EdgeCapsuleProxyClipRect FullClip(
+        DeviceScreenRect sourceBounds) =>
+        sourceBounds.IsEmpty
+            ? default
+            : new EdgeCapsuleProxyClipRect(
+                0,
+                0,
+                sourceBounds.Width,
+                sourceBounds.Height);
+
+    internal static EdgeCapsuleProxyClipRect Interpolate(
+        EdgeCapsuleProxyClipRect start,
+        EdgeCapsuleProxyClipRect target,
+        double progress) => new(
+        Lerp(start.Left, target.Left, progress),
+        Lerp(start.Top, target.Top, progress),
+        Lerp(start.Right, target.Right, progress),
+        Lerp(start.Bottom, target.Bottom, progress));
+
+    private static float Lerp(float from, float to, double progress) =>
+        (float)(from + (to - from) * progress);
 }

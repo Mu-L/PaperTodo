@@ -6,9 +6,13 @@ public sealed partial class PaperWindow
 {
     private int? _edgeCapsuleProxyPreviewContentReleaseGeneration;
 
-    internal EdgeCapsuleQueueProxyCandidate? CaptureEdgeCapsuleQueueProxyCandidate(
-        string queueKey,
-        EdgeCapsuleMotion motion)
+    internal EdgeCapsuleQueueProxyCandidate?
+        CaptureEdgeCapsuleQueueProxyCandidate(
+            string queueKey,
+            EdgeCapsuleMotion motion,
+            EdgeCapsulePresentationFrame? startOverride = null,
+            EdgeCapsulePresentationFrame? sourceOverride = null,
+            bool retainedByCurrentProxy = false)
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
             IsClosed ||
@@ -17,40 +21,97 @@ public sealed partial class PaperWindow
             return null;
         }
 
-        var start = _edgeCapsule.AppliedPresentation;
+        var applied = _edgeCapsule.AppliedPresentation;
+        var start = startOverride ?? applied;
+        var source = sourceOverride ?? applied;
         var target = _edgeCapsule
-            .PlanTargetPresentation(CaptureEdgeCapsuleLayoutSnapshot())
+            .PlanTargetPresentation(
+                CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        if (EdgeCapsuleQueueProxyPolicy.IsEnabled && !start.Bounds.IsEmpty)
+        if (EdgeCapsuleQueueProxyPolicy.IsEnabled &&
+            !source.Bounds.IsEmpty)
         {
-            // Consume the dispatcher-prewarmed output and bind it to this queue before snapshot
-            // capture. Subsequent edge animations reuse the same HWND and DComp target.
+            // Consume the dispatcher-prewarmed output and bind it to this queue before any optional
+            // snapshot capture. Subsequent generations reuse the same HWND and DComp target.
             EdgeCapsuleQueueCompositionProxy.PrewarmQueue(
                 host.Dispatcher,
                 queueKey,
                 host.IsTopmost,
-                EdgeCapsuleQueueProxyGeometry.OutputBounds(start.Bounds));
+                EdgeCapsuleQueueProxyGeometry.OutputBounds(
+                    source.Bounds));
         }
 
         return new EdgeCapsuleQueueProxyCandidate(
             _paper.Id,
             queueKey,
             start,
+            source,
             target,
             motion,
             host.Handle != IntPtr.Zero &&
-                host.MatchesPresentation(start) &&
+                host.MatchesPresentation(source) &&
                 !IsExperimentalPassive &&
                 !_advancedInteractionLocked &&
-                !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
+                !_controller.State
+                    .ExperimentalDockedCapsulesNonTopmost &&
                 _controller.FullscreenAvoidanceWindowForQueue(
                     _paper.CapsuleMonitorDeviceName) == IntPtr.Zero,
-            host.IsTopmost);
+            host.IsTopmost,
+            retainedByCurrentProxy);
+    }
+
+    internal (
+        DeviceScreenRect PreviewBounds,
+        int MaximumDownwardShiftDevice,
+        int WorkAreaBottomDevice)
+        CaptureEdgeCapsuleQueueProxyCapacity()
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
+        {
+            return default;
+        }
+
+        var layout = CaptureEdgeCapsuleLayoutSnapshot();
+        if (!layout.IsUsable)
+        {
+            return default;
+        }
+
+        var previewBodyWidth = Math.Max(
+            1,
+            layout.PreviewWidthDip -
+            layout.MaximumCloseWidthDip);
+        var preview = EdgeCapsuleGeometry.Calculate(
+            new EdgeCapsuleGeometryInput(
+                layout.Monitor,
+                layout.Edge,
+                layout.NormalTopDip,
+                previewBodyWidth,
+                layout.MaximumCloseWidthDip,
+                layout.PreviewHeightDip));
+        var compact = EdgeCapsuleGeometry.Calculate(
+            new EdgeCapsuleGeometryInput(
+                layout.Monitor,
+                layout.Edge,
+                layout.NormalTopDip,
+                layout.RestingWidthDip,
+                0,
+                layout.HeightDip));
+        return (
+            preview.Bounds,
+            Math.Max(
+                0,
+                preview.Bounds.Height -
+                compact.Bounds.Height),
+            layout.Monitor.WorkArea.Bottom);
     }
 
     internal IntPtr EdgeCapsuleQueueProxySourceHandle =>
         _edgeCapsuleHost?.Handle ?? IntPtr.Zero;
-    internal bool CanRouteEdgeCapsuleQueueProxyInput => CanEnterEdgeCapsulePreview;
+
+    internal bool CanRouteEdgeCapsuleQueueProxyInput =>
+        CanEnterEdgeCapsulePreview;
 
     internal BitmapSource? CaptureEdgeCapsuleQueueProxySnapshot(
         EdgeCapsulePresentationFrame source) =>
@@ -59,7 +120,8 @@ public sealed partial class PaperWindow
     internal bool ApplyEdgeCapsuleQueueProxyEndpoint(
         EdgeCapsulePresentationFrame endpoint)
     {
-        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
         {
             return false;
         }
@@ -73,34 +135,41 @@ public sealed partial class PaperWindow
     internal bool PrepareEdgeCapsuleQueueProxyEndpointForHandoff() =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         !IsClosed &&
-        (_edgeCapsuleHost?.PrepareCompositionSourceForHandoff() ?? false);
+        (_edgeCapsuleHost?
+            .PrepareCompositionSourceForHandoff() ?? false);
 
     internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint()
     {
-        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
         {
             return _edgeCapsuleHost?.Handle is not { } handle ||
                 !WindowNative.IsWindowHandleAlive(handle);
         }
+
         var endpoint = _edgeCapsule
-            .PlanTargetPresentation(CaptureEdgeCapsuleLayoutSnapshot())
+            .PlanTargetPresentation(
+                CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
         if (!ApplyEdgeCapsuleQueueProxyEndpoint(endpoint))
         {
             return false;
         }
-        if (endpoint.Visible && !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
+        if (endpoint.Visible &&
+            !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
         {
             return false;
         }
         return endpoint.Visible
             ? _edgeCapsuleHost?.MatchesPresentation(endpoint) == true
-            : _edgeCapsuleHost == null || _edgeCapsuleHost.MatchesPresentation(endpoint);
+            : _edgeCapsuleHost == null ||
+              _edgeCapsuleHost.MatchesPresentation(endpoint);
     }
 
     internal void ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent()
     {
-        if (_edgeCapsuleProxyPreviewContentReleaseGeneration is not { } generation)
+        if (_edgeCapsuleProxyPreviewContentReleaseGeneration is not
+            { } generation)
         {
             return;
         }
@@ -120,22 +189,24 @@ public sealed partial class PaperWindow
 
     internal void InvalidateEdgeCapsuleQueueProxyPointer()
     {
-        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
         {
             return;
         }
 
         var pointer = CaptureEdgeCapsulePointerPosition();
         // While real source HWNDs are cloaked, this timer is the physical-pointer wake-up path.
-        // Route it through the same priming seam as native host input so a reverse hover resize can
-        // install its next compositor owner instead of falling back to visible HWND frames.
-        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(this, pointer);
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
+            this,
+            pointer);
         InvalidateEdgeCapsulePointer();
     }
 
     internal void FlushEdgeCapsuleQueueProxyEndpoint()
     {
-        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
         {
             return;
         }

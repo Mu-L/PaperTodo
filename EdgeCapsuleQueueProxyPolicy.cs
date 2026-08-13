@@ -4,37 +4,39 @@ namespace PaperTodo;
 
 internal enum EdgeCapsuleQueueProxyMemberRole
 {
-    Moving = 0,
-    // Opening a preview and resizing the compact hover shell use the same visual contract: freeze
-    // the old pixels, prepare the real endpoint under cover, then crossfade both wall-anchored layers.
-    SnapshotMorph = 1,
-    OpeningPreview = SnapshotMorph,
-    ResizingShell = SnapshotMorph,
-    ClosingPreview = 2
+    MovingSource = 0,
+    RevealTarget = 1,
+    RevealTargetWithSnapshot = 2,
+    ConcealSource = 3
 }
 
 internal readonly record struct EdgeCapsuleQueueProxyCandidate(
     string PaperId,
     string QueueKey,
     EdgeCapsulePresentationFrame Start,
+    EdgeCapsulePresentationFrame Source,
     EdgeCapsulePresentationFrame Target,
     EdgeCapsuleMotion Motion,
     bool HostReady,
-    bool Topmost);
+    bool Topmost,
+    bool RetainedByCurrentProxy);
 
 internal readonly record struct EdgeCapsuleQueueProxyMemberPlan(
     string PaperId,
     EdgeCapsulePresentationFrame Start,
+    EdgeCapsulePresentationFrame Source,
     EdgeCapsulePresentationFrame Target,
     EdgeCapsuleQueueProxyMemberRole Role)
 {
     public bool DefersRealEndpoint =>
-        Role == EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
+        Role == EdgeCapsuleQueueProxyMemberRole.ConcealSource;
 
     public bool RequiresStartSnapshot =>
-        Role == EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
+        Role == EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot;
 
-    public bool UsesEndpointLayer => RequiresStartSnapshot;
+    public bool UsesTargetSurface =>
+        Role is EdgeCapsuleQueueProxyMemberRole.RevealTarget or
+            EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot;
 }
 
 internal sealed record EdgeCapsuleQueueProxyPlan(
@@ -49,14 +51,12 @@ internal sealed record EdgeCapsuleQueueProxyPlan(
     IReadOnlyList<EdgeCapsuleQueueProxyMemberPlan> Members);
 
 /// <summary>
-/// Admission and geometry policy for the queue compositor. Preview transactions and the compact
-/// shell's pointer-driven resize share the same compositor owner. Unchanged queue bookkeeping can
-/// never silently veto a session; every changed pixel owner is validated explicitly.
+/// Admission and immutable geometry policy for the queue compositor. The real HWND presentation is
+/// the authoritative endpoint; DirectComposition only presents the transition pixels between the
+/// sampled start and that endpoint.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyPolicy
 {
-    // V2.5 is now the production edge-animation path. Historical A/B branches remain available;
-    // a persisted process environment variable must not silently restore per-frame HWND motion.
     public static bool IsEnabled => true;
 
     public static EdgeCapsuleQueueProxyPlan? TryCreate(
@@ -76,19 +76,20 @@ internal static class EdgeCapsuleQueueProxyPolicy
             return Reject(queueKey, "no-visual-change", candidates);
         }
 
-        // The transaction entry's Motion.Reason is per-member bookkeeping, not transaction
-        // identity. Preview open/close stages Preview first and queue placement afterwards; that
-        // later Placement motion can legitimately become the merged member motion. The immutable
-        // surface transition is the authoritative proof that this transaction owns preview pixels.
-        // Pointer shell morphs have no preview surface, so they retain their explicit Pointer reason.
+        // Motion.Reason is transaction bookkeeping. Preview may be staged first and then merged
+        // with Placement; immutable surface/geometry identity is the authoritative admission proof.
         var ownsPreviewPixels = changedCandidates.Any(candidate =>
             candidate.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview ||
+            candidate.Source.Surface == EdgeCapsuleSurfaceKind.DockedPreview ||
             candidate.Target.Surface == EdgeCapsuleSurfaceKind.DockedPreview);
         var ownsPointerMorph = changedCandidates.Any(candidate =>
             candidate.Motion.Reason == EdgeCapsuleTransitionReason.Pointer);
         if (!ownsPreviewPixels && !ownsPointerMorph)
         {
-            return Reject(queueKey, "no-preview-or-pointer-transition", candidates);
+            return Reject(
+                queueKey,
+                "no-preview-or-pointer-transition",
+                candidates);
         }
 
         foreach (var candidate in changedCandidates)
@@ -100,41 +101,53 @@ internal static class EdgeCapsuleQueueProxyPolicy
             }
         }
 
-        var changed = changedCandidates
+        // A successor replaces the complete predecessor root. Every predecessor-owned source must
+        // therefore appear in the new root even when its business frame is currently unchanged.
+        var ownedCandidates = candidates
+            .Where(candidate =>
+                !FramesVisuallyMatch(candidate.Start, candidate.Target) ||
+                candidate.RetainedByCurrentProxy)
+            .ToArray();
+        var members = ownedCandidates
             .Select(candidate => new EdgeCapsuleQueueProxyMemberPlan(
                 candidate.PaperId,
                 candidate.Start,
+                candidate.Source,
                 candidate.Target,
                 RoleFor(candidate)))
             .ToArray();
 
-        // Preview queue peers remain intentionally conservative: only translation-only live
-        // surfaces are admitted. Any preview-owned shape/property morph is promoted to
-        // SnapshotMorph, where the old pixels stay frozen while a wall-pinned endpoint layer is
-        // prepared underneath the cover. This also handles Preview state being staged before its
-        // compact HWND has reached preview geometry.
-        var unsupportedMovingMember = changed.FirstOrDefault(member =>
-            member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
-            !CanWrapMovingMemberLive(member.Start, member.Target));
-        if (!string.IsNullOrEmpty(unsupportedMovingMember.PaperId))
+        foreach (var member in members)
         {
-            return Reject(
-                queueKey,
-                "moving-member-not-translation-only",
-                candidates,
-                changedCandidates.First(candidate =>
-                    string.Equals(
-                        candidate.PaperId,
-                        unsupportedMovingMember.PaperId,
-                        StringComparison.Ordinal)));
+            var rejection = MemberGeometryRejection(member);
+            if (rejection != null)
+            {
+                return Reject(
+                    queueKey,
+                    rejection,
+                    candidates,
+                    candidates.First(candidate =>
+                        string.Equals(
+                            candidate.PaperId,
+                            member.PaperId,
+                            StringComparison.Ordinal)));
+            }
         }
 
-        var first = changed[0];
-        var mismatchedGeometry = changedCandidates.FirstOrDefault(candidate =>
+        var first = members[0];
+        var mismatchedGeometry = ownedCandidates.FirstOrDefault(candidate =>
             candidate.Start.Edge != first.Start.Edge ||
+            candidate.Source.Edge != first.Start.Edge ||
+            candidate.Target.Edge != first.Start.Edge ||
             candidate.Start.WallDeviceX != first.Start.WallDeviceX ||
+            candidate.Source.WallDeviceX != first.Start.WallDeviceX ||
+            candidate.Target.WallDeviceX != first.Start.WallDeviceX ||
             Math.Abs(candidate.Start.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
-            Math.Abs(candidate.Start.DpiScaleY - first.Start.DpiScaleY) > 0.001);
+            Math.Abs(candidate.Start.DpiScaleY - first.Start.DpiScaleY) > 0.001 ||
+            Math.Abs(candidate.Source.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(candidate.Source.DpiScaleY - first.Start.DpiScaleY) > 0.001 ||
+            Math.Abs(candidate.Target.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(candidate.Target.DpiScaleY - first.Start.DpiScaleY) > 0.001);
         if (!string.IsNullOrEmpty(mismatchedGeometry.PaperId))
         {
             return Reject(
@@ -145,10 +158,17 @@ internal static class EdgeCapsuleQueueProxyPolicy
         }
 
         var envelope = default(DeviceScreenRect);
-        foreach (var member in changed)
+        foreach (var member in members)
         {
-            envelope = Union(envelope, member.Start.Bounds);
-            envelope = Union(envelope, member.Target.Bounds);
+            envelope = EdgeCapsuleQueueProxyGeometry.Union(
+                envelope,
+                member.Start.Bounds);
+            envelope = EdgeCapsuleQueueProxyGeometry.Union(
+                envelope,
+                member.Source.Bounds);
+            envelope = EdgeCapsuleQueueProxyGeometry.Union(
+                envelope,
+                member.Target.Bounds);
         }
         if (envelope.IsEmpty)
         {
@@ -158,9 +178,10 @@ internal static class EdgeCapsuleQueueProxyPolicy
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.admission outcome=accepted queue={queueKey} " +
-            $"candidates={candidates.Count} changed={changed.Length} " +
-            $"previewPixels={ownsPreviewPixels} pointerMorph={ownsPointerMorph} " +
-            $"roles={string.Join(',', changed.Select(member => $"{EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)}:{member.Role}"))} " +
+            $"candidates={candidates.Count} changed={changedCandidates.Length} " +
+            $"owned={members.Length} previewPixels={ownsPreviewPixels} " +
+            $"pointerMorph={ownsPointerMorph} " +
+            $"roles={string.Join(',', members.Select(member => $"{EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)}:{member.Role}"))} " +
             $"motions={string.Join(',', changedCandidates.Select(candidate => $"{EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)}:{candidate.Motion.Kind}/{candidate.Motion.Reason}"))} " +
             $"durationMs={changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)}");
 #endif
@@ -173,9 +194,10 @@ internal static class EdgeCapsuleQueueProxyPolicy
             first.Start.DpiScaleY,
             Math.Max(
                 1,
-                changedCandidates.Max(candidate => candidate.Motion.DurationMilliseconds)),
+                changedCandidates.Max(candidate =>
+                    candidate.Motion.DurationMilliseconds)),
             Topmost: true,
-            changed);
+            members);
     }
 
     private static string? ChangedCandidateRejection(
@@ -194,15 +216,23 @@ internal static class EdgeCapsuleQueueProxyPolicy
         {
             return "changed-member-start-unusable";
         }
+        if (!candidate.Source.IsUsable)
+        {
+            return "changed-member-source-unusable";
+        }
         if (!candidate.Target.IsUsable)
         {
             return "changed-member-target-unusable";
         }
-        if (!candidate.Start.Visible || !candidate.Target.Visible)
+        if (!candidate.Start.Visible ||
+            !candidate.Source.Visible ||
+            !candidate.Target.Visible)
         {
             return "changed-member-hidden";
         }
-        if (candidate.Start.Bounds.IsEmpty || candidate.Target.Bounds.IsEmpty)
+        if (candidate.Start.Bounds.IsEmpty ||
+            candidate.Source.Bounds.IsEmpty ||
+            candidate.Target.Bounds.IsEmpty)
         {
             return "changed-member-empty-bounds";
         }
@@ -210,55 +240,93 @@ internal static class EdgeCapsuleQueueProxyPolicy
         {
             return $"changed-member-motion-{candidate.Motion.Kind}";
         }
-        if (candidate.Start.Edge != candidate.Target.Edge)
-        {
-            return "changed-member-edge-change";
-        }
-        if (candidate.Start.WallDeviceX != candidate.Target.WallDeviceX)
-        {
-            return "changed-member-wall-change";
-        }
-        if (Math.Abs(candidate.Start.DpiScaleX - candidate.Target.DpiScaleX) > 0.001 ||
-            Math.Abs(candidate.Start.DpiScaleY - candidate.Target.DpiScaleY) > 0.001)
-        {
-            return "changed-member-dpi-change";
-        }
-        if (!string.Equals(candidate.QueueKey, queueKey, StringComparison.Ordinal))
+        if (!string.Equals(
+                candidate.QueueKey,
+                queueKey,
+                StringComparison.Ordinal))
         {
             return "changed-member-queue-change";
         }
         return null;
     }
 
-    private static EdgeCapsuleQueueProxyPlan? Reject(
-        string queueKey,
-        string reason,
-        IReadOnlyList<EdgeCapsuleQueueProxyCandidate> candidates,
-        EdgeCapsuleQueueProxyCandidate? offending = null)
+    private static string? MemberGeometryRejection(
+        EdgeCapsuleQueueProxyMemberPlan member)
     {
-#if DEBUG
-        var changed = candidates
-            .Where(candidate => !FramesVisuallyMatch(candidate.Start, candidate.Target))
-            .ToArray();
-        var detail = offending is { } candidate
-            ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
-              $"motion={candidate.Motion.Kind}/{candidate.Motion.Reason} " +
-              $"hostReady={candidate.HostReady} topmost={candidate.Topmost} " +
-              $"start={candidate.Start.Surface}:{candidate.Start.Bounds.Left},{candidate.Start.Bounds.Top}," +
-              $"{candidate.Start.Bounds.Width}x{candidate.Start.Bounds.Height} " +
-              $"target={candidate.Target.Surface}:{candidate.Target.Bounds.Left},{candidate.Target.Bounds.Top}," +
-              $"{candidate.Target.Bounds.Width}x{candidate.Target.Bounds.Height} " +
-              $"wall={candidate.Start.WallDeviceX}->{candidate.Target.WallDeviceX} " +
-              $"dpi={candidate.Start.DpiScaleX:F3},{candidate.Start.DpiScaleY:F3}->" +
-              $"{candidate.Target.DpiScaleX:F3},{candidate.Target.DpiScaleY:F3}"
-            : changed.Length == 0
-                ? string.Empty
-                : $" motions={string.Join(',', changed.Select(candidate => $"{EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)}:{candidate.Motion.Kind}/{candidate.Motion.Reason}:{candidate.Start.Surface}->{candidate.Target.Surface}"))}";
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"proxy.admission outcome=rejected queue={queueKey} reason={reason} " +
-            $"candidates={candidates.Count} changed={changed.Length}{detail}");
-#endif
-        return null;
+        switch (member.Role)
+        {
+            case EdgeCapsuleQueueProxyMemberRole.MovingSource:
+                return CanWrapMovingMemberLive(
+                    member.Source,
+                    member.Target)
+                    ? null
+                    : "moving-member-not-translation-only";
+
+            case EdgeCapsuleQueueProxyMemberRole.RevealTarget:
+            case EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot:
+                return EdgeCapsuleQueueProxyGeometry.Contains(
+                    member.Target.Bounds,
+                    member.Start.Bounds)
+                    ? null
+                    : "reveal-target-does-not-contain-start";
+
+            case EdgeCapsuleQueueProxyMemberRole.ConcealSource:
+                return EdgeCapsuleQueueProxyGeometry.Contains(
+                           member.Source.Bounds,
+                           member.Start.Bounds) &&
+                       EdgeCapsuleQueueProxyGeometry.Contains(
+                           member.Source.Bounds,
+                           member.Target.Bounds)
+                    ? null
+                    : "conceal-source-does-not-contain-frames";
+
+            default:
+                return "unsupported-member-role";
+        }
+    }
+
+    private static EdgeCapsuleQueueProxyMemberRole RoleFor(
+        EdgeCapsuleQueueProxyCandidate candidate)
+    {
+        var start = candidate.Start;
+        var source = candidate.Source;
+        var target = candidate.Target;
+
+        if (FramesVisuallyMatch(start, target))
+        {
+            return EdgeCapsuleQueueProxyMemberRole.MovingSource;
+        }
+
+        if (CanWrapMovingMemberLive(source, target) &&
+            source.Bounds.Width == start.Bounds.Width &&
+            source.Bounds.Height == start.Bounds.Height)
+        {
+            return EdgeCapsuleQueueProxyMemberRole.MovingSource;
+        }
+
+        var closesPreview =
+            (start.Surface == EdgeCapsuleSurfaceKind.DockedPreview ||
+             source.Surface == EdgeCapsuleSurfaceKind.DockedPreview) &&
+            target.Surface != EdgeCapsuleSurfaceKind.DockedPreview;
+        var shrinksNativeSource =
+            source.Bounds.Width >= target.Bounds.Width &&
+            source.Bounds.Height >= target.Bounds.Height &&
+            (source.Bounds.Width > target.Bounds.Width ||
+             source.Bounds.Height > target.Bounds.Height) &&
+            EdgeCapsuleQueueProxyGeometry.Contains(
+                source.Bounds,
+                target.Bounds);
+        if (closesPreview || shrinksNativeSource)
+        {
+            return EdgeCapsuleQueueProxyMemberRole.ConcealSource;
+        }
+
+        // When the real HWND already equals the requested endpoint (the usual successor case), its
+        // native surface can be revealed directly from the sampled predecessor clip. Otherwise the
+        // first exact start frame is held by a 1:1 snapshot while the real endpoint is prepared.
+        return FramesVisuallyMatch(source, target)
+            ? EdgeCapsuleQueueProxyMemberRole.RevealTarget
+            : EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot;
     }
 
     internal static EdgeCapsulePresentationFrame SampleLogicalFrame(
@@ -270,7 +338,9 @@ internal static class EdgeCapsuleQueueProxyPolicy
         var durationTicks = Math.Max(
             1,
             (long)Math.Round(
-                Stopwatch.Frequency * Math.Max(1, durationMilliseconds) / 1000.0));
+                Stopwatch.Frequency *
+                Math.Max(1, durationMilliseconds) /
+                1000.0));
         var transition = new EdgeCapsuleTransition(
             member.Start,
             new EdgeCapsuleTargetPresentation(
@@ -293,94 +363,107 @@ internal static class EdgeCapsuleQueueProxyPolicy
             startedAtTimestamp,
             durationTicks,
             EdgeCapsuleTransitionReason.Preview);
-        return EdgeCapsuleTransitionPolicy.Sample(transition, nowTimestamp).Frame;
+        return EdgeCapsuleTransitionPolicy
+            .Sample(transition, nowTimestamp)
+            .Frame;
     }
 
-    private static EdgeCapsuleQueueProxyMemberRole RoleFor(
-        EdgeCapsuleQueueProxyCandidate candidate)
+    internal static double SampleProgress(
+        long startedAtTimestamp,
+        int durationMilliseconds,
+        long nowTimestamp)
     {
-        var start = candidate.Start;
-        var target = candidate.Target;
-        if (start.Surface != EdgeCapsuleSurfaceKind.DockedPreview &&
-            target.Surface == EdgeCapsuleSurfaceKind.DockedPreview)
+        if (startedAtTimestamp <= 0)
         {
-            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
+            return 0;
         }
-        if (start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
-            target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
-        {
-            return EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
-        }
-        if (start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
-            target.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
-            !CanWrapMovingMemberLive(start, target))
-        {
-            // PreviewChanged updates the reducer surface before the visual transaction commits.
-            // The captured start can therefore already say DockedPreview while still carrying the
-            // compact 94x58-style geometry. A same-surface shape/property change is not a moving
-            // live HWND; it is the same wall-anchored snapshot/endpoint morph as preview opening.
-            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
-        }
-        if (candidate.Motion.Reason == EdgeCapsuleTransitionReason.Pointer &&
-            !CanWrapMovingMemberLive(start, target))
-        {
-            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
-        }
-        return EdgeCapsuleQueueProxyMemberRole.Moving;
+        var durationTicks = Math.Max(
+            1,
+            (long)Math.Round(
+                Stopwatch.Frequency *
+                Math.Max(1, durationMilliseconds) /
+                1000.0));
+        var raw = Math.Clamp(
+            Math.Max(0, nowTimestamp - startedAtTimestamp) /
+            (double)durationTicks,
+            0,
+            1);
+        return 1.0 - Math.Pow(1.0 - raw, 3.0);
     }
 
     private static bool FramesVisuallyMatch(
-        EdgeCapsulePresentationFrame start,
-        EdgeCapsulePresentationFrame target) => start == target;
+        EdgeCapsulePresentationFrame first,
+        EdgeCapsulePresentationFrame second) =>
+        first == second;
 
     private static bool CanWrapMovingMemberLive(
-        EdgeCapsulePresentationFrame start,
+        EdgeCapsulePresentationFrame source,
         EdgeCapsulePresentationFrame target) =>
-        start.Surface == target.Surface &&
-        start.Bounds.Width == target.Bounds.Width &&
-        start.Bounds.Height == target.Bounds.Height &&
-        start.BodyWindowWidthDevice == target.BodyWindowWidthDevice &&
-        Math.Abs(start.Opacity - target.Opacity) < 0.001 &&
-        Math.Abs(start.ContentOpacity - target.ContentOpacity) < 0.001 &&
-        Math.Abs(start.MaximumCloseWidthDip - target.MaximumCloseWidthDip) < 0.001 &&
-        start.OutlineVisible == target.OutlineVisible &&
-        start.IsHitTestVisible == target.IsHitTestVisible &&
-        start.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent &&
-        InteractiveBoundsTranslateWithVisual(start, target);
+        source.Surface == target.Surface &&
+        source.Bounds.Width == target.Bounds.Width &&
+        source.Bounds.Height == target.Bounds.Height &&
+        source.BodyWindowWidthDevice == target.BodyWindowWidthDevice &&
+        Math.Abs(source.Opacity - target.Opacity) < 0.001 &&
+        Math.Abs(source.ContentOpacity - target.ContentOpacity) < 0.001 &&
+        Math.Abs(
+            source.MaximumCloseWidthDip -
+            target.MaximumCloseWidthDip) < 0.001 &&
+        source.OutlineVisible == target.OutlineVisible &&
+        source.IsHitTestVisible == target.IsHitTestVisible &&
+        source.CloseSegmentActsAsContent ==
+            target.CloseSegmentActsAsContent &&
+        InteractiveBoundsTranslateWithVisual(source, target);
 
     private static bool InteractiveBoundsTranslateWithVisual(
-        EdgeCapsulePresentationFrame start,
+        EdgeCapsulePresentationFrame source,
         EdgeCapsulePresentationFrame target)
     {
-        if (start.InteractiveBounds.IsEmpty || target.InteractiveBounds.IsEmpty)
+        if (source.InteractiveBounds.IsEmpty ||
+            target.InteractiveBounds.IsEmpty)
         {
-            return start.InteractiveBounds.IsEmpty && target.InteractiveBounds.IsEmpty;
+            return source.InteractiveBounds.IsEmpty &&
+                target.InteractiveBounds.IsEmpty;
         }
-        var deltaX = target.Bounds.Left - start.Bounds.Left;
-        var deltaY = target.Bounds.Top - start.Bounds.Top;
+        var deltaX = target.Bounds.Left - source.Bounds.Left;
+        var deltaY = target.Bounds.Top - source.Bounds.Top;
         return target.InteractiveBounds == new DeviceScreenRect(
-            start.InteractiveBounds.Left + deltaX,
-            start.InteractiveBounds.Top + deltaY,
-            start.InteractiveBounds.Right + deltaX,
-            start.InteractiveBounds.Bottom + deltaY);
+            source.InteractiveBounds.Left + deltaX,
+            source.InteractiveBounds.Top + deltaY,
+            source.InteractiveBounds.Right + deltaX,
+            source.InteractiveBounds.Bottom + deltaY);
     }
 
-    private static DeviceScreenRect Union(
-        DeviceScreenRect first,
-        DeviceScreenRect second)
+    private static EdgeCapsuleQueueProxyPlan? Reject(
+        string queueKey,
+        string reason,
+        IReadOnlyList<EdgeCapsuleQueueProxyCandidate> candidates,
+        EdgeCapsuleQueueProxyCandidate? offending = null)
     {
-        if (first.IsEmpty)
-        {
-            return second;
-        }
-        if (second.IsEmpty)
-        {
-            return first;
-        }
-        return new DeviceScreenRect(
-            Math.Min(first.Left, second.Left),
-            Math.Min(first.Top, second.Top),
-            Math.Max(first.Right, second.Right),
-            Math.Max(first.Bottom, second.Bottom));
+#if DEBUG
+        var changed = candidates
+            .Where(candidate =>
+                !FramesVisuallyMatch(
+                    candidate.Start,
+                    candidate.Target))
+            .ToArray();
+        var detail = offending is { } candidate
+            ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
+              $"motion={candidate.Motion.Kind}/{candidate.Motion.Reason} " +
+              $"retained={candidate.RetainedByCurrentProxy} " +
+              $"hostReady={candidate.HostReady} topmost={candidate.Topmost} " +
+              $"start={candidate.Start.Surface}:{candidate.Start.Bounds.Left},{candidate.Start.Bounds.Top}," +
+              $"{candidate.Start.Bounds.Width}x{candidate.Start.Bounds.Height} " +
+              $"source={candidate.Source.Surface}:{candidate.Source.Bounds.Left},{candidate.Source.Bounds.Top}," +
+              $"{candidate.Source.Bounds.Width}x{candidate.Source.Bounds.Height} " +
+              $"target={candidate.Target.Surface}:{candidate.Target.Bounds.Left},{candidate.Target.Bounds.Top}," +
+              $"{candidate.Target.Bounds.Width}x{candidate.Target.Bounds.Height}"
+            : changed.Length == 0
+                ? string.Empty
+                : $" motions={string.Join(',', changed.Select(candidate => $"{EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)}:{candidate.Motion.Kind}/{candidate.Motion.Reason}:{candidate.Start.Surface}->{candidate.Target.Surface}"))}";
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.admission outcome=rejected queue={queueKey} reason={reason} " +
+            $"candidates={candidates.Count} changed={changed.Length}{detail}");
+#endif
+        return null;
     }
 }
