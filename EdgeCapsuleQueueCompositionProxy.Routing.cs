@@ -89,7 +89,13 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             return false;
         }
-        if (member.Plan.Target == frame)
+
+        // Preview transactions snap the Presenter to Target immediately, while compact pointer
+        // morphs intentionally let its logical transition continue for input/corridor semantics.
+        // In both cases the immutable target is the session identity. As long as the reducer still
+        // wants that same target, every Presenter sample is already represented by the compositor
+        // and must not resize/move the cloaked real HWND again.
+        if (window.IsEdgeCapsuleQueueProxyTargetCurrent(member.Plan.Target))
         {
             return true;
         }
