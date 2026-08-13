@@ -24,7 +24,7 @@ public sealed partial class PaperWindow
         if (EdgeCapsuleQueueProxyPolicy.IsEnabled && !start.Bounds.IsEmpty)
         {
             // Consume the dispatcher-prewarmed output and bind it to this queue before snapshot
-            // capture. Subsequent preview transfers reuse the same HWND and DComp target.
+            // capture. Subsequent edge animations reuse the same HWND and DComp target.
             EdgeCapsuleQueueCompositionProxy.PrewarmQueue(
                 host.Dispatcher,
                 queueKey,
@@ -120,10 +120,17 @@ public sealed partial class PaperWindow
 
     internal void InvalidateEdgeCapsuleQueueProxyPointer()
     {
-        if (_windowLifecycle == PaperWindowLifecycleState.Alive && !IsClosed)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive || IsClosed)
         {
-            InvalidateEdgeCapsulePointer();
+            return;
         }
+
+        var pointer = CaptureEdgeCapsulePointerPosition();
+        // While real source HWNDs are cloaked, this timer is the physical-pointer wake-up path.
+        // Route it through the same priming seam as native host input so a reverse hover resize can
+        // install its next compositor owner instead of falling back to visible HWND frames.
+        _controller.NotifyEdgeCapsulePreviewPhysicalPointer(this, pointer);
+        InvalidateEdgeCapsulePointer();
     }
 
     internal void FlushEdgeCapsuleQueueProxyEndpoint()
