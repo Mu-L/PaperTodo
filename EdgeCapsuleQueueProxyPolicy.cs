@@ -109,8 +109,10 @@ internal static class EdgeCapsuleQueueProxyPolicy
             .ToArray();
 
         // Preview queue peers remain intentionally conservative: only translation-only live
-        // surfaces are admitted. Pointer-driven compact shell resize is the explicit exception and
-        // is promoted to SnapshotMorph, where the live HWND is never mutated beneath itself.
+        // surfaces are admitted. Any preview-owned shape/property morph is promoted to
+        // SnapshotMorph, where the old pixels stay frozen while a wall-pinned endpoint layer is
+        // prepared underneath the cover. This also handles Preview state being staged before its
+        // compact HWND has reached preview geometry.
         var unsupportedMovingMember = changed.FirstOrDefault(member =>
             member.Role == EdgeCapsuleQueueProxyMemberRole.Moving &&
             !CanWrapMovingMemberLive(member.Start, member.Target));
@@ -308,6 +310,16 @@ internal static class EdgeCapsuleQueueProxyPolicy
             target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
         {
             return EdgeCapsuleQueueProxyMemberRole.ClosingPreview;
+        }
+        if (start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+            target.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+            !CanWrapMovingMemberLive(start, target))
+        {
+            // PreviewChanged updates the reducer surface before the visual transaction commits.
+            // The captured start can therefore already say DockedPreview while still carrying the
+            // compact 94x58-style geometry. A same-surface shape/property change is not a moving
+            // live HWND; it is the same wall-anchored snapshot/endpoint morph as preview opening.
+            return EdgeCapsuleQueueProxyMemberRole.SnapshotMorph;
         }
         if (candidate.Motion.Reason == EdgeCapsuleTransitionReason.Pointer &&
             !CanWrapMovingMemberLive(start, target))
