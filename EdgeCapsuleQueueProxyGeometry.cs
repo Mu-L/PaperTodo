@@ -125,32 +125,62 @@ internal static class EdgeCapsuleQueueProxyGeometry
                 sourceBounds.Height);
 
     /// <summary>
-    /// The native body starts inside the transparent top/bottom chrome margin, while DComp rounds
-    /// from the outer HWND clip edge. Expand that outer radius so the still-visible part of the arc
-    /// reaches the intended body radius at the opaque edge; cap it for compact endpoint clips.
+    /// Returns the clip that owns a newly-created moving capsule edge. A WPF edge HWND includes a
+    /// transparent shadow margin above, below and on the screen-internal side. Rounding the outer
+    /// HWND rectangle therefore leaves the opaque body almost square; compensate by moving only
+    /// the temporary clip edge to the body silhouette. A full source keeps its native WPF alpha so
+    /// the compositor converges exactly on the endpoint before authority is handed back.
     /// </summary>
-    internal static float OuterClipRadiusForBodyCorner(
-        double dpiScale,
-        float smallestClipSpan)
+    internal static EdgeCapsuleProxyClipRect RoundedBodyClipForVisibleBounds(
+        DeviceScreenRect sourceBounds,
+        DeviceScreenRect visibleBounds,
+        EdgeCapsuleEdge edge,
+        double dpiScaleX,
+        double dpiScaleY)
     {
-        if (smallestClipSpan <= 0)
+        var clip = ClipForVisibleBounds(
+            sourceBounds,
+            visibleBounds);
+        if (clip.IsEmpty || clip == FullClip(sourceBounds))
         {
-            return 0;
+            return clip;
         }
 
-        var scale = Math.Max(1, dpiScale);
-        var bodyRadius =
-            EdgeCapsuleLayout.CornerRadius * scale;
-        var chromeMargin =
-            EdgeCapsuleLayout.WindowChromeMargin * scale;
-        var compensated =
-            bodyRadius +
-            chromeMargin +
-            Math.Sqrt(2 * bodyRadius * chromeMargin);
-        return (float)Math.Min(
-            compensated,
-            smallestClipSpan / 2.0);
+        var marginX = (float)(
+            EdgeCapsuleLayout.WindowChromeMargin *
+            Math.Max(1, dpiScaleX));
+        var marginY = (float)(
+            EdgeCapsuleLayout.WindowChromeMargin *
+            Math.Max(1, dpiScaleY));
+        var left = clip.Left;
+        var right = clip.Right;
+        if (edge == EdgeCapsuleEdge.Right)
+        {
+            left = Math.Min(right, left + marginX);
+        }
+        else
+        {
+            right = Math.Max(left, right - marginX);
+        }
+
+        var top = Math.Min(clip.Bottom, clip.Top + marginY);
+        var bottom = Math.Max(top, clip.Bottom - marginY);
+        return new EdgeCapsuleProxyClipRect(
+            left,
+            top,
+            right,
+            bottom);
     }
+
+    internal static float RoundedBodyClipRadius(
+        double dpiScale,
+        float clipSpan) =>
+        clipSpan <= 0
+            ? 0
+            : (float)Math.Min(
+                EdgeCapsuleLayout.CornerRadius *
+                    Math.Max(1, dpiScale),
+                clipSpan / 2.0);
 
     internal static EdgeCapsuleProxyClipRect Interpolate(
         EdgeCapsuleProxyClipRect start,

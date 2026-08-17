@@ -176,8 +176,17 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             // current small surface before that mutation so DirectComposition can cross-fade the
             // compact shell without attempting to snapshot WebView2 or another preview control.
             VisualSurface.UpdateLayout();
-            var width = Math.Max(1, frame.Bounds.Width);
-            var height = Math.Max(1, frame.Bounds.Height);
+            var renderedFrame = _appliedFrame.Visible
+                ? _appliedFrame
+                : frame;
+            var requestedWidth = Math.Max(1, frame.Bounds.Width);
+            var requestedHeight = Math.Max(1, frame.Bounds.Height);
+            var width = Math.Max(
+                requestedWidth,
+                renderedFrame.Bounds.Width);
+            var height = Math.Max(
+                requestedHeight,
+                renderedFrame.Bounds.Height);
             var bitmap = new RenderTargetBitmap(
                 width,
                 height,
@@ -185,8 +194,29 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 Math.Max(1, frame.DpiScaleY) * 96,
                 PixelFormats.Pbgra32);
             bitmap.Render(VisualSurface);
-            bitmap.Freeze();
-            return bitmap;
+
+            BitmapSource snapshot = bitmap;
+            if (requestedWidth != width ||
+                requestedHeight != height)
+            {
+                var cropX = Math.Clamp(
+                    frame.Bounds.Left - renderedFrame.Bounds.Left,
+                    0,
+                    width - requestedWidth);
+                var cropY = Math.Clamp(
+                    frame.Bounds.Top - renderedFrame.Bounds.Top,
+                    0,
+                    height - requestedHeight);
+                snapshot = new CroppedBitmap(
+                    bitmap,
+                    new Int32Rect(
+                        cropX,
+                        cropY,
+                        requestedWidth,
+                        requestedHeight));
+            }
+            snapshot.Freeze();
+            return snapshot;
         }
         catch (Exception ex)
         {

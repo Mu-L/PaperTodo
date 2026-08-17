@@ -15,7 +15,10 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
 {
-    private const int MaximumPoolSize = 1;
+    // A normal A-to-B browse briefly owns the outgoing pointer morph and the incoming preview
+    // snapshot at the same time. Two warm hosts cover that bounded overlap without returning to
+    // the old unbounded/per-queue cache shape.
+    private const int MaximumPoolSize = 2;
     private static readonly DeviceScreenRect ParkingBounds =
         new(-32000, -32000, -31996, -31996);
     private static readonly ConditionalWeakTable<

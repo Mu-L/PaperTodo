@@ -55,8 +55,34 @@ internal static class QueueProxyBarrierRegression
             render < endpointBarrier && endpointBarrier < verifyLoop,
             "endpoint publish must render and flush once before per-member verification");
         Assert(
-            Count(visuals, "OuterClipRadiusForBodyCorner(") == 2,
-            "reveal/conceal clips must compensate both axes for transparent chrome");
+            Count(visuals, "RoundedBodyClipRadius(") == 2 &&
+            Count(startup, "RoundedBodyClipForVisibleBounds(") == 4,
+            "reveal/conceal clips must round the visible body on both axes");
+
+        var previewModel = Read(root, "PaperWindow.EdgeCapsulePreview.cs");
+        var previewOpen = Between(
+            previewModel,
+            "internal bool SetEdgeCapsulePreviewOpen(",
+            "internal void SetEdgeCapsulePreviewClosed(");
+        var previewClose = Between(
+            previewModel,
+            "internal void SetEdgeCapsulePreviewClosed(",
+            "internal void ClearEdgeCapsulePreviewContent(");
+        Assert(
+            !previewOpen.Contains(
+                "CompleteEdgeCapsuleQueueCompositionProxyFor",
+                StringComparison.Ordinal) &&
+            !previewClose.Contains(
+                "CompleteEdgeCapsuleQueueCompositionProxyFor",
+                StringComparison.Ordinal),
+            "preview model changes must leave the active hover cover available to a successor");
+
+        var snapshotHost = Read(root, "EdgeCapsuleProxySnapshotHost.cs");
+        Assert(
+            snapshotHost.Contains(
+                "private const int MaximumPoolSize = 2;",
+                StringComparison.Ordinal),
+            "A-to-B browsing needs exactly two bounded snapshot leases");
 
         var reveal = RequiredIndex(handoff, "TrySetWindowCloakedBatch");
         var detach = RequiredIndex(handoff, "_target.SetRoot(null!)");

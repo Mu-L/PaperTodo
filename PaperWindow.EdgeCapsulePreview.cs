@@ -188,7 +188,9 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewRequest request,
         bool animate)
     {
-        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        // Keep an in-flight compact pointer cover alive. The visual transaction below promotes
+        // the preview generation as its successor, avoiding an exposed real-HWND frame between
+        // hover and expansion.
         var openStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         if (!DispatchEdgeCapsuleIntent(
                 EdgeCapsuleIntent.PreviewChanged(open: true),
@@ -530,7 +532,8 @@ public sealed partial class PaperWindow
 
     internal void SetEdgeCapsulePreviewClosed(bool animate)
     {
-        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        // The staged close can replace the current queue root directly; completing it here would
+        // insert an unnecessary reveal/hide cycle before the conceal generation is ready.
         if (!IsEdgeCapsulePreviewOpen)
         {
             _ = TryReleaseEdgeCapsulePreviewRequest();

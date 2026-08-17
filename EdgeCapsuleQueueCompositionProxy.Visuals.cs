@@ -221,12 +221,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             Math.Min(start.Height, target.Height));
         var radiusX =
             EdgeCapsuleQueueProxyGeometry
-                .OuterClipRadiusForBodyCorner(
+                .RoundedBodyClipRadius(
                     member.Plan.Target.DpiScaleX,
                     smallestWidth);
         var radiusY =
             EdgeCapsuleQueueProxyGeometry
-                .OuterClipRadiusForBodyCorner(
+                .RoundedBodyClipRadius(
                     member.Plan.Target.DpiScaleY,
                     smallestHeight);
 

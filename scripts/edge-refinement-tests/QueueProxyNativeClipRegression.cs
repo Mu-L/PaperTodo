@@ -3,6 +3,8 @@ extern alias PaperTodoApp;
 using System.Runtime.CompilerServices;
 using AppClip =
     PaperTodoApp::PaperTodo.EdgeCapsuleProxyClipRect;
+using AppEdge =
+    PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
 using AppGeometry =
     PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyGeometry;
 using AppLayout =
@@ -19,80 +21,73 @@ internal static class QueueProxyNativeClipRegression
     {
         var target = new AppRect(4745, 185, 5120, 423);
         var compact = new AppRect(5026, 185, 5120, 243);
-        var revealStart = AppGeometry.ClipForVisibleBounds(
+        var revealStart = AppGeometry.RoundedBodyClipForVisibleBounds(
             target,
-            compact);
+            compact,
+            AppEdge.Right,
+            dpiScaleX: 1,
+            dpiScaleY: 1);
         AssertClip(
             revealStart,
-            left: 281,
-            top: 0,
+            left: 289,
+            top: 8,
             right: 375,
-            bottom: 58,
+            bottom: 50,
             "right-wall reveal start");
         Assert(
             AppGeometry.FullClip(target) ==
                 new AppClip(0, 0, 375, 238),
             "full target clip changed");
+        Assert(
+            AppGeometry.RoundedBodyClipForVisibleBounds(
+                target,
+                target,
+                AppEdge.Right,
+                dpiScaleX: 1,
+                dpiScaleY: 1) == AppGeometry.FullClip(target),
+            "full endpoint must keep its native WPF silhouette");
 
-        var compensatedRadiusX =
-            AppGeometry.OuterClipRadiusForBodyCorner(
+        var radiusX =
+            AppGeometry.RoundedBodyClipRadius(
                 dpiScale: 1,
                 revealStart.Width);
-        var compensatedRadiusY =
-            AppGeometry.OuterClipRadiusForBodyCorner(
+        var radiusY =
+            AppGeometry.RoundedBodyClipRadius(
                 dpiScale: 1,
                 revealStart.Height);
-        var expectedUnclampedRadius =
-            AppLayout.CornerRadius +
-            AppLayout.WindowChromeMargin +
-            Math.Sqrt(
-                2 *
-                AppLayout.CornerRadius *
-                AppLayout.WindowChromeMargin);
         Assert(
-            Math.Abs(compensatedRadiusX - expectedUnclampedRadius) < 0.001,
-            "wide reveal clip must compensate the transparent chrome margin");
+            Math.Abs(radiusX - AppLayout.CornerRadius) < 0.001,
+            "rounded body clip must retain the native horizontal radius");
         Assert(
-            Math.Abs(
-                compensatedRadiusY -
-                revealStart.Height / 2) < 0.001,
-            "compact reveal clip radius must stay within its height");
-
-        var bodyTop = (float)AppLayout.WindowChromeMargin;
-        var normalizedY =
-            (compensatedRadiusY - bodyTop) /
-            compensatedRadiusY;
-        var visibleBodyInset =
-            compensatedRadiusX *
-            (1 - Math.Sqrt(
-                Math.Max(
-                    0,
-                    1 - normalizedY * normalizedY)));
-        Assert(
-            visibleBodyInset >=
-                AppLayout.CornerRadius * 0.75,
-            "outer clip rounding must remain visible at the opaque body edge");
+            Math.Abs(radiusY - AppLayout.CornerRadius) < 0.001,
+            "rounded body clip must retain the native vertical radius");
 
         var intermediate = new AppRect(4920, 185, 5120, 325);
-        var concealStart = AppGeometry.ClipForVisibleBounds(
+        var concealStart = AppGeometry.RoundedBodyClipForVisibleBounds(
             target,
-            intermediate);
-        var concealEnd = AppGeometry.ClipForVisibleBounds(
+            intermediate,
+            AppEdge.Right,
+            dpiScaleX: 1,
+            dpiScaleY: 1);
+        var concealEnd = AppGeometry.RoundedBodyClipForVisibleBounds(
             target,
-            compact);
+            compact,
+            AppEdge.Right,
+            dpiScaleX: 1,
+            dpiScaleY: 1);
         AssertClip(
             concealStart,
-            left: 175,
-            top: 0,
+            left: 183,
+            top: 8,
             right: 375,
-            bottom: 140,
+            bottom: 132,
             "mid-flight conceal start");
         AssertClip(
             concealEnd,
-            left: 281,
-            top: 0,
+            left: 289,
+            top: 8,
             right: 375,
-            bottom: 58,
+            bottom: 50,
             "conceal endpoint");
         Assert(
             revealStart.Right == target.Width &&
@@ -101,15 +96,18 @@ internal static class QueueProxyNativeClipRegression
 
         var leftTarget = new AppRect(0, 185, 375, 423);
         var leftCompact = new AppRect(0, 185, 94, 243);
-        var leftReveal = AppGeometry.ClipForVisibleBounds(
+        var leftReveal = AppGeometry.RoundedBodyClipForVisibleBounds(
             leftTarget,
-            leftCompact);
+            leftCompact,
+            AppEdge.Left,
+            dpiScaleX: 1,
+            dpiScaleY: 1);
         AssertClip(
             leftReveal,
             left: 0,
-            top: 0,
-            right: 94,
-            bottom: 58,
+            top: 8,
+            right: 86,
+            bottom: 50,
             "left-wall reveal start");
         Assert(leftReveal.Left == 0,
             "left-wall clip must keep the wall-side edge fixed");

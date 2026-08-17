@@ -65,9 +65,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                             member.Plan.Target.Bounds,
                             member.Plan.Target.Bounds,
                             member.Plan.Target.Bounds,
-                            EdgeCapsuleQueueProxyGeometry.ClipForVisibleBounds(
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
                                 member.Plan.Target.Bounds,
-                                member.Plan.Start.Bounds),
+                                member.Plan.Start.Bounds,
+                                member.Plan.Target.Edge,
+                                member.Plan.Target.DpiScaleX,
+                                member.Plan.Target.DpiScaleY),
                             EdgeCapsuleQueueProxyGeometry.FullClip(
                                 member.Plan.Target.Bounds),
                             1,
@@ -83,12 +86,18 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                             member.Plan.Source.Bounds,
                             member.Plan.Source.Bounds,
                             member.Plan.Source.Bounds,
-                            EdgeCapsuleQueueProxyGeometry.ClipForVisibleBounds(
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
                                 member.Plan.Source.Bounds,
-                                member.Plan.Start.Bounds),
-                            EdgeCapsuleQueueProxyGeometry.ClipForVisibleBounds(
+                                member.Plan.Start.Bounds,
+                                member.Plan.Source.Edge,
+                                member.Plan.Source.DpiScaleX,
+                                member.Plan.Source.DpiScaleY),
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
                                 member.Plan.Source.Bounds,
-                                member.Plan.Target.Bounds),
+                                member.Plan.Target.Bounds,
+                                member.Plan.Source.Edge,
+                                member.Plan.Source.DpiScaleX,
+                                member.Plan.Source.DpiScaleY),
                             1,
                             1,
                             reference);
@@ -276,9 +285,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     member.Plan.Target.Bounds,
                     member.Plan.Target.Bounds,
                     member.Plan.Target.Bounds,
-                    EdgeCapsuleQueueProxyGeometry.ClipForVisibleBounds(
+                    EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
                         member.Plan.Target.Bounds,
-                        member.Plan.Start.Bounds),
+                        member.Plan.Start.Bounds,
+                        member.Plan.Target.Edge,
+                        member.Plan.Target.DpiScaleX,
+                        member.Plan.Target.DpiScaleY),
                     EdgeCapsuleQueueProxyGeometry.FullClip(
                         member.Plan.Target.Bounds),
                     1,
