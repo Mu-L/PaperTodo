@@ -59,17 +59,21 @@ internal static class QueueProxyBarrierRegression
             Count(startup, "RoundedBodyClipForVisibleBounds(") == 6,
             "reveal/conceal clips must keep start and endpoint on one rounded silhouette");
         Assert(
+            Count(visuals, "SetBitmapInterpolationMode(") == 1 &&
             visuals.Contains(
-                "SetBitmapInterpolationMode(\n                BitmapInterpolationMode.Linear)",
+                "BitmapInterpolationMode.Linear",
                 StringComparison.Ordinal) &&
-            visuals.Contains(
-                "SetBorderMode(BorderMode.Soft)",
-                StringComparison.Ordinal),
+            Count(visuals, "SetBorderMode(") == 1 &&
+            visuals.Contains("BorderMode.Soft", StringComparison.Ordinal),
             "every proxy layer must explicitly use linear sampling and antialiased clip edges");
         Assert(
             visuals.Contains(
-                "layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot\n                        ? 0",
-                StringComparison.Ordinal),
+                "OpacityDurationMilliseconds =",
+                StringComparison.Ordinal) &&
+            visuals.Contains(
+                "layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot",
+                StringComparison.Ordinal) &&
+            visuals.Contains("? 0", StringComparison.Ordinal),
             "the old snapshot outline must disappear atomically when the endpoint layer starts");
 
         var previewModel = Read(root, "PaperWindow.EdgeCapsulePreview.cs");
