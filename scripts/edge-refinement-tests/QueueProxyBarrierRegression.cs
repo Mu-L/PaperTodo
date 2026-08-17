@@ -36,9 +36,23 @@ internal static class QueueProxyBarrierRegression
             "private static DeviceScreenPoint MapPoint(");
 
         Assert(
-            startup.Contains("TrySetWindowCloakedBatch", StringComparison.Ordinal) &&
+            Count(startup, "TrySetWindowCloakedBatch") == 1 &&
+            Count(startup, "WaitForCommitCompletion") == 1 &&
             !startup.Contains("TrySetWindowCloaked(", StringComparison.Ordinal),
-            "startup must submit queue cloak changes as one verified batch");
+            "startup must retain one root wait and one verified queue cloak batch");
+
+        var endpointStage = startup[RequiredIndex(startup, "var endpointMembers =")..];
+        var render = RequiredIndex(endpointStage, "Dispatcher.Invoke(");
+        var endpointBarrier = RequiredIndex(
+            endpointStage,
+            "FlushDesktopComposition");
+        var verifyLoop = RequiredIndex(
+            endpointStage,
+            "foreach (var member in nativeRevealMembers)");
+        Assert(
+            Count(endpointStage, "FlushDesktopComposition") == 1 &&
+            render < endpointBarrier && endpointBarrier < verifyLoop,
+            "endpoint publish must render and flush once before per-member verification");
 
         var reveal = RequiredIndex(handoff, "TrySetWindowCloakedBatch");
         var detach = RequiredIndex(handoff, "_target.SetRoot(null!)");
@@ -69,11 +83,13 @@ internal static class QueueProxyBarrierRegression
             "drag threshold must stage the preview close animation");
         foreach (var forbidden in new[]
                  {
+                     "FlushEdgeCapsulePreviewCompactPresentation",
                      "FlushEdgeCapsulePresentation",
                      "FlushDesktopComposition",
                      "DwmFlush(",
                      "WaitForCommitCompletion",
-                     "Dispatcher.Invoke("
+                     "Dispatcher.Invoke(",
+                     ".Wait("
                  })
         {
             Assert(
