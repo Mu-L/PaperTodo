@@ -434,33 +434,37 @@ internal static class Program
             closingMiddle.InteractiveBounds.IsEmpty,
             "an outgoing preview must stop owning input immediately while it animates out");
 
+        var movingAndGrowingPeerPlan = AppProxyPolicy.TryCreate(
+            "DISPLAY|right",
+            new[]
+            {
+                Candidate(
+                    "paper-a",
+                    "DISPLAY|right",
+                    start,
+                    target,
+                    motion,
+                    hostReady: true,
+                    topmost: true),
+                Candidate(
+                    "paper-b",
+                    "DISPLAY|right",
+                    movingStart,
+                    movingTarget with
+                    {
+                        Bounds = new AppRect(900, 450, rightWall, 550),
+                        HostBounds = new AppRect(900, 450, rightWall, 550)
+                    },
+                    motion,
+                    hostReady: true,
+                    topmost: true)
+            });
         Assert(
-            AppProxyPolicy.TryCreate(
-                "DISPLAY|right",
-                new[]
-                {
-                    Candidate(
-                        "paper-a",
-                        "DISPLAY|right",
-                        start,
-                        target,
-                        motion,
-                        hostReady: true,
-                        topmost: true),
-                    Candidate(
-                        "paper-b",
-                        "DISPLAY|right",
-                        movingStart,
-                        movingTarget with
-                        {
-                            Bounds = new AppRect(900, 450, rightWall, 550),
-                            HostBounds = new AppRect(900, 450, rightWall, 550)
-                        },
-                        motion,
-                        hostReady: true,
-                        topmost: true)
-                }) == null,
-            "a peer that changes shape cannot be wrapped as a translation-only live surface");
+            movingAndGrowingPeerPlan is { Members.Count: 2 } &&
+            movingAndGrowingPeerPlan.Members[1].Role ==
+                AppProxyRole.RevealTargetWithSnapshot &&
+            movingAndGrowingPeerPlan.Members[1].RequiresStartSnapshot,
+            "a moving peer that also grows must use an exact snapshot reveal, not a scaled live surface");
         Assert(
             AppProxyPolicy.TryCreate(
                 "DISPLAY|right",

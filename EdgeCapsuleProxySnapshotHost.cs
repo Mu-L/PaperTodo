@@ -174,9 +174,13 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
             _ = WindowNative.TrySetWindowDeviceBounds(
                 window,
                 ParkingBounds);
-            _ = WindowNative.TrySetWindowCloaked(
-                handle,
-                cloaked: true);
+            if (!WindowNative.TrySetWindowCloaked(
+                    handle,
+                    cloaked: true))
+            {
+                window.Close();
+                return null;
+            }
             return new EdgeCapsuleProxySnapshotHost(
                 dispatcher,
                 window,

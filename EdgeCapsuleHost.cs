@@ -178,9 +178,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
         try
         {
-            // Opening a preview changes this same host into the endpoint tree. Capture only the
-            // current small surface before that mutation so DirectComposition can cross-fade the
-            // compact shell without attempting to snapshot WebView2 or another preview control.
+            // Opening a preview changes this same host into the endpoint tree. Capture the complete
+            // current native source before that mutation; a successor can then clip an exact late
+            // presentation frame without scaling pixels or snapshotting the incoming WebView2 (or
+            // another preview control).
             VisualSurface.UpdateLayout();
             var renderedFrame = _appliedFrame.Visible
                 ? _appliedFrame

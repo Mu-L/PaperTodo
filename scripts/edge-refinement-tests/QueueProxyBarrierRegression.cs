@@ -148,9 +148,12 @@ internal static class QueueProxyBarrierRegression
                 "cloaked: false",
                 StringComparison.Ordinal) &&
             snapshotHost.Contains(
+                "if (!WindowNative.TrySetWindowCloaked(",
+                StringComparison.Ordinal) &&
+            snapshotHost.Contains(
                 "DispatcherPriority.Render",
                 StringComparison.Ordinal),
-            "snapshot preparation must render while cloaked and reuse startup's desktop boundary");
+            "snapshot hosts must verify their permanent cloak, render while cloaked and reuse startup's desktop boundary");
 
         var capacity = Between(
             Read(root, "PaperWindow.EdgeCapsuleQueueProxy.cs"),
