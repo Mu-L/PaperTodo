@@ -355,10 +355,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _disposed = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
-        // Keep this generation logically attached until ContextIdle releases the old client-side
-        // graph. SetRoot(null) has already been committed, but reusing the same target before that
-        // retirement turn could rewrite it while the preceding detach commit is still in flight.
-        // A successor is promoted before this path; a new cold session may wait one idle turn.
+        // Keep this generation logically attached for one deferred dispatcher turn. SetRoot(null)
+        // has already been committed, but reusing the same target immediately could rewrite it
+        // while the preceding detach is still in flight. Background runs after render/input work
+        // without requiring the dispatcher to become fully idle under continuous pointer input.
 
         var dispatcher = _members[0].Window.Dispatcher;
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
@@ -368,7 +368,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
 
         _ = dispatcher.BeginInvoke(
-            DispatcherPriority.ContextIdle,
+            DispatcherPriority.Background,
             (Action)RetireVisualResources);
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(

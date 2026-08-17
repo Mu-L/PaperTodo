@@ -632,6 +632,15 @@ public sealed partial class AppController
         EdgeCapsulePreviewStableAnchor? stableAnchor = null)
     {
         var paperId = window.EdgeCapsulePreviewPaperId;
+        if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                QueueKey(window.EdgeCapsulePreviewPaper)))
+        {
+            CancelPreviewActivationBehindDrag();
+            TraceEdgeCapsulePreview(
+                $"transfer blocked target={EdgeCapsulePreviewTraceId(paperId)} " +
+                "reason=drag-authority");
+            return;
+        }
         if (string.Equals(
                 _edgeCapsulePreviewQueuedTransferPaperId,
                 paperId,
@@ -681,6 +690,15 @@ public sealed partial class AppController
                     _edgeCapsulePreviewQueuedTransferPaperId = null;
                     TraceEdgeCapsulePreview(
                         $"transfer dropped target={EdgeCapsulePreviewTraceId(paperId)} reason=window-changed");
+                    return;
+                }
+                if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                        QueueKey(current.EdgeCapsulePreviewPaper)))
+                {
+                    CancelPreviewActivationBehindDrag();
+                    TraceEdgeCapsulePreview(
+                        $"transfer dropped target={EdgeCapsulePreviewTraceId(paperId)} " +
+                        "reason=drag-authority");
                     return;
                 }
                 if (!current.CanEnterEdgeCapsulePreview)

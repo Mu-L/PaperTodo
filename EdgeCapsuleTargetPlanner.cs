@@ -37,7 +37,11 @@ internal static class EdgeCapsuleTargetPlanner
         var preview = !retracted &&
             !dockedSuppressed &&
             model.Preview == EdgeCapsulePreviewState.Open;
-        var expanded = !preview &&
+        // The detached floating HWND owns every visible drag pixel. Keep the suppressed permanent
+        // docked endpoint compact so Hovered/Active cannot continue hidden width mutations behind
+        // that cover.
+        var expanded = !ownsFloatingHost &&
+            !preview &&
             !retracted &&
             (model.State.Visual is
                 EdgeCapsuleVisualState.Hovered or

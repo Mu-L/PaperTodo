@@ -660,6 +660,27 @@ internal static class Program
             displacedTarget.Bounds.Top > target.Bounds.Top,
             "preview, hover, and displaced peers must all keep endpoint-sized real hosts");
 
+        var floatingPlan = AppTargetPlanner.Calculate(
+            model with
+            {
+                State = model.State with
+                {
+                    Visual = AppVisualState.Hovered,
+                    Gesture = AppGestureState.FloatingTransfer
+                },
+                DockedDragTopDipOverride = 220
+            },
+            resting);
+        Assert(
+            floatingPlan.Docked.Surface == AppSurface.DockedSuppressed &&
+            floatingPlan.Docked.Bounds.Width == target.Bounds.Width &&
+            floatingPlan.Docked.HostBounds == floatingPlan.Docked.Bounds &&
+            floatingPlan.Docked.InteractiveBounds.IsEmpty &&
+            !floatingPlan.Docked.IsHitTestVisible &&
+            Math.Abs(floatingPlan.Docked.ContentOpacity) < 0.001 &&
+            floatingPlan.Floating.Visible,
+            "floating ownership must leave one compact, inert permanent docked endpoint");
+
         var leftFacts = facts with
         {
             Monitor = new AppMonitor(

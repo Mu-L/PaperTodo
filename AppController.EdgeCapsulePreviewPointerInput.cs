@@ -2,6 +2,18 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private bool AllowsEdgeCapsuleQueueProxyOwnership(string queueKey) =>
+        !_windows.Values.Any(candidate =>
+            !candidate.IsClosed &&
+            !candidate.AllowsDeepCapsuleQueueProxyOwnership &&
+            string.Equals(
+                QueueKey(candidate.EdgeCapsulePreviewPaper),
+                queueKey,
+                StringComparison.Ordinal));
+
+    private void CancelPreviewActivationBehindDrag() =>
+        CancelEdgeCapsulePreviewActivationIntent();
+
     /// <summary>
     /// Physical pointer authority for edge-preview input. Host/native input may prove that the
     /// pointer is inside a real applied rectangle even while the Presenter's cosmetic hover bit is
@@ -14,6 +26,15 @@ public sealed partial class AppController
     {
         if (IsExiting)
         {
+            return;
+        }
+
+        // Once reorder starts, the drag gesture owns this queue's visible transition. Invalidate
+        // work queued before that gesture change and never start a preview underneath it.
+        if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                QueueKey(inputWindow.EdgeCapsulePreviewPaper)))
+        {
+            CancelPreviewActivationBehindDrag();
             return;
         }
 

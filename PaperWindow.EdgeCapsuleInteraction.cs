@@ -9,6 +9,10 @@ public sealed partial class PaperWindow
     // later drag cannot inherit an exhausted budget from an earlier floating HWND.
     private const int MaximumDeepCapsuleDockingHandoffRestarts = 1;
 
+    internal bool AllowsDeepCapsuleQueueProxyOwnership =>
+        EdgeCapsuleQueueProxyPolicy.AllowsQueueProxyOwnership(
+            EdgeCapsuleGesture);
+
     private void OnEdgeCapsulePointerPressed(DeviceScreenPoint screenPosition)
     {
         EdgeCapsulePerformanceDiagnostics.Trace(

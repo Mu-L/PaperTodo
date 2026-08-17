@@ -59,6 +59,12 @@ internal static class EdgeCapsuleQueueProxyPolicy
 {
     public static bool IsEnabled => true;
 
+    internal static bool AllowsQueueProxyOwnership(
+        EdgeCapsuleGestureState gesture) =>
+        gesture is
+            EdgeCapsuleGestureState.Idle or
+            EdgeCapsuleGestureState.PendingClick;
+
     public static EdgeCapsuleQueueProxyPlan? TryCreate(
         string queueKey,
         IReadOnlyList<EdgeCapsuleQueueProxyCandidate> candidates)

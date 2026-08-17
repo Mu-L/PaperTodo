@@ -7,6 +7,8 @@ using AppEdge =
     PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
 using AppFrame =
     PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
+using AppGesture =
+    PaperTodoApp::PaperTodo.EdgeCapsuleGestureState;
 using AppMotion =
     PaperTodoApp::PaperTodo.EdgeCapsuleMotion;
 using AppPolicy =
@@ -38,6 +40,24 @@ internal static class QueueProxyAdmissionRegression
             AppSurface.DockedPreview,
             new AppRect(4800, 100, 5120, 300),
             bodyWidth: 280);
+
+        Assert(
+            AppPolicy.AllowsQueueProxyOwnership(AppGesture.Idle) &&
+            AppPolicy.AllowsQueueProxyOwnership(AppGesture.PendingClick),
+            "idle and pre-drag interaction must retain queue-proxy admission");
+        foreach (var gesture in new[]
+                 {
+                     AppGesture.DockedReordering,
+                     AppGesture.FloatingTransfer,
+                     AppGesture.FloatingReordering,
+                     AppGesture.DockingHandoff,
+                     AppGesture.DockingReveal
+                 })
+        {
+            Assert(
+                !AppPolicy.AllowsQueueProxyOwnership(gesture),
+                $"drag authority must veto queue proxy admission: {gesture}");
+        }
 
         var plan = AppPolicy.TryCreate(
             queue,

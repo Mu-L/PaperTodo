@@ -518,6 +518,12 @@ public sealed partial class AppController
             return null;
         }
 
+        var queueKey = entries[0].QueueKey;
+        if (!AllowsEdgeCapsuleQueueProxyOwnership(queueKey))
+        {
+            return null;
+        }
+
         var candidates =
             new List<EdgeCapsuleQueueProxyCandidate>(
                 entries.Length);
@@ -560,7 +566,7 @@ public sealed partial class AppController
         }
 
         var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
-            entries[0].QueueKey,
+            queueKey,
             candidates);
         if (plan == null)
         {
