@@ -122,6 +122,41 @@ internal static class QueueProxyNativeClipRegression
         Assert(leftReveal.Left == 0,
             "left-wall clip must keep the wall-side edge fixed");
 
+        var translatedCompact = new AppRect(
+            compact.Left,
+            500,
+            compact.Right,
+            558);
+        var translatedSurface =
+            AppGeometry.PositionSurfaceForVisibleBounds(
+                target,
+                translatedCompact,
+                AppEdge.Right);
+        Assert(
+            translatedSurface == new AppRect(
+                target.Left,
+                500,
+                target.Right,
+                738) &&
+            AppGeometry.Contains(
+                translatedSurface,
+                translatedCompact),
+            "a fixed right-wall surface must translate with a smaller visible viewport");
+        var translatedClip =
+            AppGeometry.RoundedBodyClipForVisibleBounds(
+                translatedSurface,
+                translatedCompact,
+                AppEdge.Right,
+                dpiScaleX: 1,
+                dpiScaleY: 1);
+        AssertClip(
+            translatedClip,
+            left: 288,
+            top: 7,
+            right: 375,
+            bottom: 51,
+            "translated right-wall reveal start");
+
         Assert(AppGeometry.Contains(target, compact),
             "target must contain compact reveal rectangle");
         Assert(!AppGeometry.Contains(compact, target),

@@ -248,7 +248,7 @@ public sealed partial class AppController
                 out predecessor);
             if (predecessor != null)
             {
-                if (!predecessor.TryHoldForSuccessor())
+                if (!predecessor.TryReserveForSuccessor())
                 {
                     // A generation that is still starting or handing off already retains the real
                     // sources. Its completion resolves the latest reducer endpoint under cover.
@@ -685,9 +685,18 @@ public sealed partial class AppController
         var members =
             new List<EdgeCapsuleQueueCompositionProxyMember>(
                 plan.Members.Count);
+        var preparedSnapshots =
+            new Dictionary<string, (
+                EdgeCapsulePresentationFrame Source,
+                EdgeCapsuleProxySnapshotHost Host)>(
+                StringComparer.Ordinal);
         EdgeCapsuleQueueCompositionProxy? proxy = null;
         try
         {
+            // Prepare a complete 1:1 copy of the real source while the predecessor compositor keeps
+            // advancing. The final successor start is latched afterwards and represented by a
+            // rounded clip into this full source; snapshot-host layout can therefore never make the
+            // sampled A-to-B frame stale.
             foreach (var memberPlan in plan.Members)
             {
                 if (!byPaperId.TryGetValue(
@@ -706,7 +715,7 @@ public sealed partial class AppController
 #endif
                     var snapshot = entry.Window
                         .CaptureEdgeCapsuleQueueProxySnapshot(
-                            memberPlan.Start);
+                            memberPlan.Source);
 #if DEBUG
                     var captureMilliseconds =
                         EdgeCapsulePerformanceDiagnostics
@@ -719,7 +728,7 @@ public sealed partial class AppController
                         ? null
                         : EdgeCapsuleProxySnapshotHost.TryCreate(
                             snapshot,
-                            memberPlan.Start);
+                            memberPlan.Source);
 #if DEBUG
                     EdgeCapsulePerformanceDiagnostics.Trace(
                         $"proxy.snapshot session={sessionOrdinal} " +
@@ -728,12 +737,61 @@ public sealed partial class AppController
                         $"captureMs={captureMilliseconds:F3} " +
                         $"hostCreateMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(hostStartedAt):F3} " +
                         $"outcome={(snapshotHost == null ? "failed" : "ready")} " +
-                        $"pixels={(long)memberPlan.Start.Bounds.Width * memberPlan.Start.Bounds.Height}");
+                        $"pixels={(long)memberPlan.Source.Bounds.Width * memberPlan.Source.Bounds.Height}");
 #endif
                     if (snapshotHost == null)
                     {
                         return false;
                     }
+                    preparedSnapshots.Add(
+                        memberPlan.PaperId,
+                        (memberPlan.Source, snapshotHost));
+                }
+            }
+
+            if (predecessor != null)
+            {
+                if (!predecessor.TryLatchForSuccessor())
+                {
+                    return false;
+                }
+
+                var latchedPlan =
+                    TryCreateEdgeCapsuleQueueProxyPlan(
+                        entries,
+                        predecessor);
+                if (latchedPlan == null ||
+                    !string.Equals(
+                        latchedPlan.QueueKey,
+                        plan.QueueKey,
+                        StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                plan = latchedPlan;
+            }
+
+            foreach (var memberPlan in plan.Members)
+            {
+                if (!byPaperId.TryGetValue(
+                        memberPlan.PaperId,
+                        out var entry))
+                {
+                    return false;
+                }
+
+                EdgeCapsuleProxySnapshotHost? snapshotHost = null;
+                if (memberPlan.RequiresStartSnapshot)
+                {
+                    if (!preparedSnapshots.TryGetValue(
+                            memberPlan.PaperId,
+                            out var prepared) ||
+                        prepared.Source != memberPlan.Source)
+                    {
+                        return false;
+                    }
+                    preparedSnapshots.Remove(memberPlan.PaperId);
+                    snapshotHost = prepared.Host;
                 }
 
                 members.Add(
@@ -811,6 +869,10 @@ public sealed partial class AppController
                 {
                     member.SnapshotHost?.Dispose();
                 }
+            }
+            foreach (var prepared in preparedSnapshots.Values)
+            {
+                prepared.Host.Dispose();
             }
         }
     }

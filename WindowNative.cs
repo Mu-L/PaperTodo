@@ -1233,6 +1233,9 @@ internal static class WindowNative
     // hand-off boundary, never on an animation frame or ordinary presentation update.
     public static void FlushDesktopComposition() => _ = DwmFlush();
 
+    internal static bool TryFlushDesktopComposition() =>
+        DwmFlush() == 0;
+
     public static bool TryPostMouseButtonDown(
         IntPtr handle,
         int message,

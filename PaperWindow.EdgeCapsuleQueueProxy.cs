@@ -65,9 +65,22 @@ public sealed partial class PaperWindow
             return default;
         }
 
+        // Pointer morphs begin before the target provider is asked for its final card size. Reserve
+        // the documented preview ceiling here, not the previous/default request, so the same queue
+        // HWND can accept a wider or taller A-to-B successor without moving its visible root.
+        var workAreaDip = layout.Monitor.LocalWorkAreaDip;
+        var maximumPreview = new EdgeCapsulePreviewSize(
+            EdgeCapsulePreviewSize.MaximumWidthDip,
+            EdgeCapsulePreviewSize.MaximumHeightDip).Normalize(
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumWidthDip,
+                    workAreaDip.Width - 16),
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumHeightDip,
+                    workAreaDip.Height - 16));
         var previewBodyWidth = Math.Max(
             1,
-            layout.PreviewWidthDip -
+            maximumPreview.WidthDip -
             layout.MaximumCloseWidthDip);
         var preview = EdgeCapsuleGeometry.Calculate(
             new EdgeCapsuleGeometryInput(
@@ -76,7 +89,7 @@ public sealed partial class PaperWindow
                 layout.NormalTopDip,
                 previewBodyWidth,
                 layout.MaximumCloseWidthDip,
-                layout.PreviewHeightDip));
+                maximumPreview.HeightDip));
         var compact = EdgeCapsuleGeometry.Calculate(
             new EdgeCapsuleGeometryInput(
                 layout.Monitor,

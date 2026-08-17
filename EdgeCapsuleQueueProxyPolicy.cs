@@ -269,22 +269,31 @@ internal static class EdgeCapsuleQueueProxyPolicy
                     : "moving-member-not-translation-only";
 
             case EdgeCapsuleQueueProxyMemberRole.RevealTarget:
-            case EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot:
-                return EdgeCapsuleQueueProxyGeometry.Contains(
+                return EdgeCapsuleQueueProxyGeometry.CanClipVisibleBounds(
                     member.Target.Bounds,
                     member.Start.Bounds)
                     ? null
-                    : "reveal-target-does-not-contain-start";
+                    : "reveal-target-cannot-clip-start";
+
+            case EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot:
+                return EdgeCapsuleQueueProxyGeometry.CanClipVisibleBounds(
+                           member.Target.Bounds,
+                           member.Start.Bounds) &&
+                       EdgeCapsuleQueueProxyGeometry.CanClipVisibleBounds(
+                           member.Source.Bounds,
+                           member.Start.Bounds)
+                    ? null
+                    : "snapshot-reveal-cannot-clip-start";
 
             case EdgeCapsuleQueueProxyMemberRole.ConcealSource:
-                return EdgeCapsuleQueueProxyGeometry.Contains(
+                return EdgeCapsuleQueueProxyGeometry.CanClipVisibleBounds(
                            member.Source.Bounds,
                            member.Start.Bounds) &&
-                       EdgeCapsuleQueueProxyGeometry.Contains(
+                       EdgeCapsuleQueueProxyGeometry.CanClipVisibleBounds(
                            member.Source.Bounds,
                            member.Target.Bounds)
                     ? null
-                    : "conceal-source-does-not-contain-frames";
+                    : "conceal-source-cannot-clip-frames";
 
             default:
                 return "unsupported-member-role";
@@ -318,10 +327,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
             source.Bounds.Width >= target.Bounds.Width &&
             source.Bounds.Height >= target.Bounds.Height &&
             (source.Bounds.Width > target.Bounds.Width ||
-             source.Bounds.Height > target.Bounds.Height) &&
-            EdgeCapsuleQueueProxyGeometry.Contains(
-                source.Bounds,
-                target.Bounds);
+             source.Bounds.Height > target.Bounds.Height);
         if (closesPreview || shrinksNativeSource)
         {
             return EdgeCapsuleQueueProxyMemberRole.ConcealSource;

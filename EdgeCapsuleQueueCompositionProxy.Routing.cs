@@ -109,7 +109,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             ReferenceEquals(member.Window, window))
             ?.SourceHandle ?? IntPtr.Zero;
 
-    public bool TryHoldForSuccessor()
+    public bool TryReserveForSuccessor()
     {
         if (_disposed ||
             _starting ||
@@ -122,15 +122,44 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
-        _heldAtTimestamp = Stopwatch.GetTimestamp();
         _successorHeld = true;
+        _heldAtTimestamp = 0;
         _completionPendingDuringSuccessorHold = false;
         _pendingSuccessorCompletionSuccess = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
-            $"proxy.successor phase=hold session={_sessionOrdinal} " +
+            $"proxy.successor phase=reserve session={_sessionOrdinal} " +
+            $"queue={_plan.QueueKey} progress=" +
+            $"{EdgeCapsuleQueueProxyPolicy.SampleProgress(AnimationStartedAtTimestamp, _plan.DurationMilliseconds, Stopwatch.GetTimestamp()):F4}");
+#endif
+        return true;
+    }
+
+    /// <summary>
+    /// Latches one queue-wide presentation timestamp only after successor snapshot sources have
+    /// been prepared. DirectComposition keeps advancing during the reservation, so the expensive
+    /// WPF snapshot-host work cannot turn into a visible pause or a stale A-to-B start frame.
+    /// </summary>
+    public bool TryLatchForSuccessor()
+    {
+        if (_disposed ||
+            _starting ||
+            _finishing ||
+            _coverLost ||
+            _sourcesReleased ||
+            !_coverPublished ||
+            !_successorHeld ||
+            _heldAtTimestamp != 0)
+        {
+            return false;
+        }
+
+        _heldAtTimestamp = Stopwatch.GetTimestamp();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.successor phase=latch session={_sessionOrdinal} " +
             $"queue={_plan.QueueKey} progress=" +
             $"{EdgeCapsuleQueueProxyPolicy.SampleProgress(AnimationStartedAtTimestamp, _plan.DurationMilliseconds, _heldAtTimestamp):F4}");
 #endif
@@ -166,9 +195,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 Stopwatch.Frequency *
                 Math.Max(1, _plan.DurationMilliseconds) /
                 1000.0));
+        // Reservation/latching only pauses the controller clock. The compositor animation keeps
+        // running independently, so a rejected successor must rejoin its current time rather than
+        // replaying the interval spent preparing the rejected generation.
         var elapsedTicks = Math.Max(
             0,
-            heldAt - AnimationStartedAtTimestamp);
+            Stopwatch.GetTimestamp() - AnimationStartedAtTimestamp);
         if (elapsedTicks >= durationTicks)
         {
             CompleteNow(success);
@@ -189,7 +221,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.successor phase=resume session={_sessionOrdinal} " +
-            $"queue={_plan.QueueKey} remainingMs={remainingMilliseconds}");
+            $"queue={_plan.QueueKey} latched={heldAt > 0} " +
+            $"remainingMs={remainingMilliseconds}");
 #endif
     }
 

@@ -44,6 +44,41 @@ internal static class EdgeCapsuleQueueProxyGeometry
         inner.Right <= outer.Right &&
         inner.Bottom <= outer.Bottom;
 
+    internal static bool CanClipVisibleBounds(
+        DeviceScreenRect surfaceBounds,
+        DeviceScreenRect visibleBounds) =>
+        !surfaceBounds.IsEmpty &&
+        !visibleBounds.IsEmpty &&
+        visibleBounds.Width <= surfaceBounds.Width &&
+        visibleBounds.Height <= surfaceBounds.Height;
+
+    /// <summary>
+    /// Positions a fixed-size native surface so a smaller visible viewport can move with the queue
+    /// without scaling its pixels. The surface follows the viewport top and stays anchored to the
+    /// monitor wall; a local rectangle clip owns the actual visible bounds.
+    /// </summary>
+    internal static DeviceScreenRect PositionSurfaceForVisibleBounds(
+        DeviceScreenRect surfaceBounds,
+        DeviceScreenRect visibleBounds,
+        EdgeCapsuleEdge edge)
+    {
+        if (!CanClipVisibleBounds(
+                surfaceBounds,
+                visibleBounds))
+        {
+            return default;
+        }
+
+        var left = edge == EdgeCapsuleEdge.Right
+            ? visibleBounds.Right - surfaceBounds.Width
+            : visibleBounds.Left;
+        return new DeviceScreenRect(
+            left,
+            visibleBounds.Top,
+            left + surfaceBounds.Width,
+            visibleBounds.Top + surfaceBounds.Height);
+    }
+
     internal static DeviceScreenRect Union(
         DeviceScreenRect first,
         DeviceScreenRect second)

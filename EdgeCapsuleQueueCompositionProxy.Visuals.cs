@@ -113,53 +113,64 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
     }
 
-    private void ConfigureAnimations()
+    private void ConfigureAnimations(long absoluteBeginTimestamp)
     {
         foreach (var state in _visuals)
         {
-            ConfigureAnimations(state);
+            ConfigureAnimations(
+                state,
+                absoluteBeginTimestamp);
         }
     }
 
-    private void ConfigureAnimations(VisualState state)
+    private void ConfigureAnimations(
+        VisualState state,
+        long absoluteBeginTimestamp)
     {
         state.OffsetXAnimation = ApplyAnimatedValue(
             state.StartOffsetX,
             state.TargetOffsetX,
             value => state.Visual.SetOffsetX(value),
-            animation => state.Visual.SetOffsetX(animation));
+            animation => state.Visual.SetOffsetX(animation),
+            absoluteBeginTimestamp);
         state.OffsetYAnimation = ApplyAnimatedValue(
             state.StartOffsetY,
             state.TargetOffsetY,
             value => state.Visual.SetOffsetY(value),
-            animation => state.Visual.SetOffsetY(animation));
+            animation => state.Visual.SetOffsetY(animation),
+            absoluteBeginTimestamp);
 
         state.ClipLeftAnimation = ApplyAnimatedValue(
             state.StartClip.Left,
             state.TargetClip.Left,
             value => state.Clip.SetLeft(value),
-            animation => state.Clip.SetLeft(animation));
+            animation => state.Clip.SetLeft(animation),
+            absoluteBeginTimestamp);
         state.ClipTopAnimation = ApplyAnimatedValue(
             state.StartClip.Top,
             state.TargetClip.Top,
             value => state.Clip.SetTop(value),
-            animation => state.Clip.SetTop(animation));
+            animation => state.Clip.SetTop(animation),
+            absoluteBeginTimestamp);
         state.ClipRightAnimation = ApplyAnimatedValue(
             state.StartClip.Right,
             state.TargetClip.Right,
             value => state.Clip.SetRight(value),
-            animation => state.Clip.SetRight(animation));
+            animation => state.Clip.SetRight(animation),
+            absoluteBeginTimestamp);
         state.ClipBottomAnimation = ApplyAnimatedValue(
             state.StartClip.Bottom,
             state.TargetClip.Bottom,
             value => state.Clip.SetBottom(value),
-            animation => state.Clip.SetBottom(animation));
+            animation => state.Clip.SetBottom(animation),
+            absoluteBeginTimestamp);
 
         state.OpacityAnimation = ApplyAnimatedValue(
             state.StartOpacity,
             state.TargetOpacity,
             value => state.Effect.SetOpacity(value),
             animation => state.Effect.SetOpacity(animation),
+            absoluteBeginTimestamp,
             state.OpacityDurationMilliseconds);
     }
 
@@ -168,6 +179,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         float to,
         Func<float, SharpGen.Runtime.Result> applyStatic,
         Func<IDCompositionAnimation, SharpGen.Runtime.Result> applyAnimation,
+        long absoluteBeginTimestamp,
         int? durationMilliseconds = null)
     {
         if (durationMilliseconds is <= 0)
@@ -184,6 +196,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var animation = CreateEaseOutCubicAnimation(
             from,
             to,
+            absoluteBeginTimestamp,
             durationMilliseconds ?? _plan.DurationMilliseconds);
         try
         {
@@ -214,11 +227,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsuleProxyClipRect start,
         EdgeCapsuleProxyClipRect target)
     {
-        // Moving and snapshot layers already carry their native WPF silhouette. Reveal/conceal
-        // clips create a new moving viewport edge, so only the screen-internal corners are rounded;
-        // the monitor-wall side remains square throughout the transition.
-        if (layer is EdgeCapsuleQueueProxyVisualLayer.MovingSource or
-            EdgeCapsuleQueueProxyVisualLayer.StartSnapshot)
+        // A translation-only moving layer already carries its complete WPF silhouette. Reveal,
+        // conceal and full-source snapshot layers create a moving viewport edge, so the internal
+        // corners need the same rounded clip while the monitor-wall side remains square.
+        if (layer == EdgeCapsuleQueueProxyVisualLayer.MovingSource)
         {
             return;
         }
@@ -270,6 +282,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private IDCompositionAnimation CreateEaseOutCubicAnimation(
         float from,
         float to,
+        long absoluteBeginTimestamp,
         int durationMilliseconds)
     {
         var durationSeconds =
@@ -278,6 +291,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var animation = _device.CreateAnimation();
         try
         {
+            animation.SetAbsoluteBeginTime(
+                absoluteBeginTimestamp).CheckError();
             animation.AddCubic(
                 0,
                 from,

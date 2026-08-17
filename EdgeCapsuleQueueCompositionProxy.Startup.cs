@@ -58,15 +58,22 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                         break;
 
                     case EdgeCapsuleQueueProxyMemberRole.RevealTarget:
+                    {
+                        var startSurfaceBounds =
+                            EdgeCapsuleQueueProxyGeometry
+                                .PositionSurfaceForVisibleBounds(
+                                    member.Plan.Target.Bounds,
+                                    member.Plan.Start.Bounds,
+                                    member.Plan.Target.Edge);
                         _ = AddVisual(
                             member,
                             EdgeCapsuleQueueProxyVisualLayer.RevealTarget,
                             member.SourceHandle,
                             member.Plan.Target.Bounds,
-                            member.Plan.Target.Bounds,
+                            startSurfaceBounds,
                             member.Plan.Target.Bounds,
                             EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
-                                member.Plan.Target.Bounds,
+                                startSurfaceBounds,
                                 member.Plan.Start.Bounds,
                                 member.Plan.Target.Edge,
                                 member.Plan.Target.DpiScaleX,
@@ -81,23 +88,37 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                             1,
                             reference);
                         break;
+                    }
 
                     case EdgeCapsuleQueueProxyMemberRole.ConcealSource:
+                    {
+                        var startSurfaceBounds =
+                            EdgeCapsuleQueueProxyGeometry
+                                .PositionSurfaceForVisibleBounds(
+                                    member.Plan.Source.Bounds,
+                                    member.Plan.Start.Bounds,
+                                    member.Plan.Source.Edge);
+                        var targetSurfaceBounds =
+                            EdgeCapsuleQueueProxyGeometry
+                                .PositionSurfaceForVisibleBounds(
+                                    member.Plan.Source.Bounds,
+                                    member.Plan.Target.Bounds,
+                                    member.Plan.Source.Edge);
                         _ = AddVisual(
                             member,
                             EdgeCapsuleQueueProxyVisualLayer.ConcealSource,
                             member.SourceHandle,
                             member.Plan.Source.Bounds,
-                            member.Plan.Source.Bounds,
-                            member.Plan.Source.Bounds,
+                            startSurfaceBounds,
+                            targetSurfaceBounds,
                             EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
-                                member.Plan.Source.Bounds,
+                                startSurfaceBounds,
                                 member.Plan.Start.Bounds,
                                 member.Plan.Source.Edge,
                                 member.Plan.Source.DpiScaleX,
                                 member.Plan.Source.DpiScaleY),
                             EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
-                                member.Plan.Source.Bounds,
+                                targetSurfaceBounds,
                                 member.Plan.Target.Bounds,
                                 member.Plan.Source.Edge,
                                 member.Plan.Source.DpiScaleX,
@@ -106,6 +127,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                             1,
                             reference);
                         break;
+                    }
 
                     case EdgeCapsuleQueueProxyMemberRole.RevealTargetWithSnapshot:
                     {
@@ -116,17 +138,31 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                             return false;
                         }
 
+                        var snapshotSurfaceBounds =
+                            EdgeCapsuleQueueProxyGeometry
+                                .PositionSurfaceForVisibleBounds(
+                                    member.Plan.Source.Bounds,
+                                    member.Plan.Start.Bounds,
+                                    member.Plan.Source.Edge);
                         var snapshot = AddVisual(
                             member,
                             EdgeCapsuleQueueProxyVisualLayer.StartSnapshot,
                             snapshotHost.Handle,
-                            member.Plan.Start.Bounds,
-                            member.Plan.Start.Bounds,
-                            member.Plan.Start.Bounds,
-                            EdgeCapsuleQueueProxyGeometry.FullClip(
-                                member.Plan.Start.Bounds),
-                            EdgeCapsuleQueueProxyGeometry.FullClip(
-                                member.Plan.Start.Bounds),
+                            member.Plan.Source.Bounds,
+                            snapshotSurfaceBounds,
+                            snapshotSurfaceBounds,
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
+                                snapshotSurfaceBounds,
+                                member.Plan.Start.Bounds,
+                                member.Plan.Source.Edge,
+                                member.Plan.Source.DpiScaleX,
+                                member.Plan.Source.DpiScaleY),
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
+                                snapshotSurfaceBounds,
+                                member.Plan.Start.Bounds,
+                                member.Plan.Source.Edge,
+                                member.Plan.Source.DpiScaleX,
+                                member.Plan.Source.DpiScaleY),
                             1,
                             0,
                             reference);
@@ -141,12 +177,33 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 }
             }
 
-            // For a successor this commit replaces predecessor.Root on the same target HWND. The
-            // new root describes exactly the predecessor's sampled frame, so DWM never observes a
-            // frame in which the still-cloaked real sources are uncovered.
+            // Collect only sources that are not already retained by the predecessor. Snapshot
+            // hosts stay cloaked for their whole lifetime; CreateSurfaceFromHwnd explicitly
+            // supports composing a cloaked layered HWND, so publishing them never needs another
+            // uncloak/re-cloak desktop frame.
+            var cloakChanges =
+                new List<WindowNative.WindowCloakChange>();
+            foreach (var member in _members)
+            {
+                var inherited =
+                    _predecessor?.RetainsSource(member.Window) == true;
+                if (!inherited &&
+                    _cloakedRealSourceHandles.Add(member.SourceHandle))
+                {
+                    cloakChanges.Add(new WindowNative.WindowCloakChange(
+                        member.SourceHandle,
+                        Cloaked: true,
+                        RollbackCloaked: false));
+                }
+            }
+
+            // Root replacement and newly-owned source cloaks share one desktop boundary. The old
+            // code synchronously waited for Commit and then immediately crossed DWM again for the
+            // cloaks, leaving every A-to-B start frame static for an extra composition interval.
+            // DwmFlush publishes all queued DirectX updates from this process; keep the predecessor
+            // alive until that boundary has completed, then transfer ownership and retire it.
             _target.SetRoot(_root).CheckError();
             _device.Commit().CheckError();
-            _device.WaitForCommitCompletion().CheckError();
             _targetRootInstalled = true;
 
             // The initial generation must place/show the prewarmed output. A successor already owns
@@ -161,46 +218,21 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 WindowNative.FlushDesktopComposition();
             }
 
-            if (_coverLost ||
-                !_host.Promote(this, _predecessor) ||
+            var rootPublished = cloakChanges.Count > 0
+                ? WindowNative.TrySetWindowCloakedBatch(cloakChanges)
+                : _predecessor == null ||
+                  WindowNative.TryFlushDesktopComposition();
+            if (!rootPublished || _coverLost)
+            {
+                return false;
+            }
+
+            if (!_host.Promote(this, _predecessor) ||
                 !_coverReady(this))
             {
                 return false;
             }
             _coverPublished = true;
-
-            // The controller callback has transferred predecessor-owned cloak handles. Only newly
-            // participating sources need another cloak call. Snapshot hosts are ordinary off-screen
-            // HWNDs and are cloaked once DirectComposition owns their exact start pixels.
-            var cloakChanges =
-                new List<WindowNative.WindowCloakChange>();
-            foreach (var member in _members)
-            {
-                if (_cloakedRealSourceHandles.Add(member.SourceHandle))
-                {
-                    cloakChanges.Add(new WindowNative.WindowCloakChange(
-                        member.SourceHandle,
-                        Cloaked: true,
-                        RollbackCloaked: false));
-                }
-
-                if (member.SnapshotHost is { Handle: var snapshotHandle } &&
-                    snapshotHandle != IntPtr.Zero)
-                {
-                    cloakChanges.Add(new WindowNative.WindowCloakChange(
-                        snapshotHandle,
-                        Cloaked: true,
-                        RollbackCloaked: false));
-                }
-            }
-            if (!WindowNative.TrySetWindowCloakedBatch(cloakChanges))
-            {
-                return false;
-            }
-            if (_coverLost)
-            {
-                return false;
-            }
 
             _realEndpointMutationStarted = true;
 #if DEBUG
@@ -283,15 +315,21 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     return false;
                 }
 
+                var startSurfaceBounds =
+                    EdgeCapsuleQueueProxyGeometry
+                        .PositionSurfaceForVisibleBounds(
+                            member.Plan.Target.Bounds,
+                            member.Plan.Start.Bounds,
+                            member.Plan.Target.Edge);
                 _ = AddVisual(
                     member,
                     EdgeCapsuleQueueProxyVisualLayer.RevealTarget,
                     member.SourceHandle,
                     member.Plan.Target.Bounds,
-                    member.Plan.Target.Bounds,
+                    startSurfaceBounds,
                     member.Plan.Target.Bounds,
                     EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
-                        member.Plan.Target.Bounds,
+                        startSurfaceBounds,
                         member.Plan.Start.Bounds,
                         member.Plan.Target.Edge,
                         member.Plan.Target.DpiScaleX,
@@ -309,11 +347,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     existingSurface: targetSurface);
             }
 
-            ConfigureAnimations();
-
             // Animation commit is asynchronous. All WPF layout and source preparation completed
-            // while the exact start cover was already on screen.
+            // while the exact start cover was already on screen. Give DirectComposition the same
+            // QPC timestamp used by logical hit-testing so commit pickup latency cannot put the GPU
+            // animation on a different frame from the controller clock.
             _animationStartedAtTimestamp = Stopwatch.GetTimestamp();
+            ConfigureAnimations(_animationStartedAtTimestamp);
             _device.Commit().CheckError();
             _sampleTimer.Start();
             _completionTimer.Interval =

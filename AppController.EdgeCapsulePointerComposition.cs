@@ -24,7 +24,7 @@ public sealed partial class AppController
         }
 
         if (predecessor != null &&
-            !predecessor.TryHoldForSuccessor())
+            !predecessor.TryReserveForSuccessor())
         {
             return false;
         }

@@ -15,6 +15,10 @@ internal static class QueueProxyBarrierRegression
         var root = RepositoryRoot();
         var startup = Read(root, "EdgeCapsuleQueueCompositionProxy.Startup.cs");
         var visuals = Read(root, "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
+        var transaction = Between(
+            Read(root, "AppController.EdgeCapsuleVisualTransaction.cs"),
+            "private bool TryStartEdgeCapsuleQueueCompositionProxy(",
+            "private bool PublishEdgeCapsuleQueueCompositionProxy(");
         var handoff = Between(
             Read(root, "EdgeCapsuleQueueCompositionProxy.Handoff.cs"),
             "public bool TryReleaseForHandoff()",
@@ -38,9 +42,17 @@ internal static class QueueProxyBarrierRegression
 
         Assert(
             Count(startup, "TrySetWindowCloakedBatch") == 1 &&
-            Count(startup, "WaitForCommitCompletion") == 1 &&
+            Count(startup, "WaitForCommitCompletion") == 0 &&
+            Count(startup, "TryFlushDesktopComposition") == 1 &&
             !startup.Contains("TrySetWindowCloaked(", StringComparison.Ordinal),
-            "startup must retain one root wait and one verified queue cloak batch");
+            "startup must publish the root and new source cloaks at one desktop boundary");
+
+        var rootCommit = RequiredIndex(startup, "_target.SetRoot(_root)");
+        var cloakBoundary = RequiredIndex(startup, "TrySetWindowCloakedBatch");
+        var promote = RequiredIndex(startup, "_host.Promote");
+        Assert(
+            rootCommit < cloakBoundary && cloakBoundary < promote,
+            "the predecessor must stay alive until the successor root/cloak boundary completes");
 
         var endpointStage = startup[RequiredIndex(startup, "var endpointMembers =")..];
         var render = RequiredIndex(endpointStage, "Dispatcher.Invoke(");
@@ -56,8 +68,19 @@ internal static class QueueProxyBarrierRegression
             "endpoint publish must render and flush once before per-member verification");
         Assert(
             Count(visuals, "RoundedBodyClipRadius(") == 2 &&
-            Count(startup, "RoundedBodyClipForVisibleBounds(") == 6,
+            Count(startup, "RoundedBodyClipForVisibleBounds(") == 8,
             "reveal/conceal clips must keep start and endpoint on one rounded silhouette");
+        Assert(
+            Count(startup, "PositionSurfaceForVisibleBounds(") == 5,
+            "fixed native surfaces must translate with A-to-B queue reflow instead of being scaled");
+        Assert(
+            visuals.Contains(
+                "layer == EdgeCapsuleQueueProxyVisualLayer.MovingSource",
+                StringComparison.Ordinal) &&
+            !visuals.Contains(
+                "EdgeCapsuleQueueProxyVisualLayer.StartSnapshot)",
+                StringComparison.Ordinal),
+            "a full-source successor snapshot must receive the same rounded moving clip");
         Assert(
             Count(visuals, "SetBitmapInterpolationMode(") == 1 &&
             visuals.Contains(
@@ -66,6 +89,9 @@ internal static class QueueProxyBarrierRegression
             Count(visuals, "SetBorderMode(") == 1 &&
             visuals.Contains("BorderMode.Soft", StringComparison.Ordinal),
             "every proxy layer must explicitly use linear sampling and antialiased clip edges");
+        Assert(
+            Count(visuals, "SetAbsoluteBeginTime(") == 1,
+            "GPU animation and logical sampling must share one absolute QPC start time");
         Assert(
             visuals.Contains(
                 "OpacityDurationMilliseconds =",
@@ -114,6 +140,46 @@ internal static class QueueProxyBarrierRegression
                 "private const int MaximumPoolSize = 2;",
                 StringComparison.Ordinal),
             "A-to-B browsing needs exactly two bounded snapshot leases");
+        Assert(
+            !snapshotHost.Contains(
+                "FlushDesktopComposition",
+                StringComparison.Ordinal) &&
+            !snapshotHost.Contains(
+                "cloaked: false",
+                StringComparison.Ordinal) &&
+            snapshotHost.Contains(
+                "DispatcherPriority.Render",
+                StringComparison.Ordinal),
+            "snapshot preparation must render while cloaked and reuse startup's desktop boundary");
+
+        var capacity = Between(
+            Read(root, "PaperWindow.EdgeCapsuleQueueProxy.cs"),
+            "CaptureEdgeCapsuleQueueProxyCapacity()",
+            "internal IntPtr EdgeCapsuleQueueProxySourceHandle");
+        Assert(
+            capacity.Contains(
+                "EdgeCapsulePreviewSize.MaximumWidthDip",
+                StringComparison.Ordinal) &&
+            capacity.Contains(
+                "EdgeCapsulePreviewSize.MaximumHeightDip",
+                StringComparison.Ordinal),
+            "pointer generation capacity must cover a provider size learned by its A-to-B successor");
+
+        var snapshotCapture = RequiredIndex(
+            transaction,
+            "CaptureEdgeCapsuleQueueProxySnapshot(");
+        var latch = RequiredIndex(
+            transaction,
+            "TryLatchForSuccessor");
+        var latchedPlan = RequiredIndex(
+            transaction,
+            "var latchedPlan =");
+        Assert(
+            transaction[snapshotCapture..latch].Contains(
+                "memberPlan.Source",
+                StringComparison.Ordinal) &&
+            snapshotCapture < latch && latch < latchedPlan,
+            "successor snapshots must use the full source before one late queue-wide latch");
 
         var reveal = RequiredIndex(handoff, "TrySetWindowCloakedBatch");
         var detach = RequiredIndex(handoff, "_target.SetRoot(null!)");

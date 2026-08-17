@@ -156,6 +156,57 @@ internal static class QueueProxyAdmissionRegression
         Assert(successorReveal.Members[0].UsesTargetSurface,
             "successor must reveal the native target surface");
 
+        var shiftedHovered = hovered with
+        {
+            Bounds = new AppRect(5000, 500, 5120, 558),
+            HostBounds = new AppRect(5000, 500, 5120, 558),
+            InteractiveBounds = new AppRect(5000, 500, 5120, 558)
+        };
+        var shiftedPreview = preview with
+        {
+            Bounds = new AppRect(4800, 200, 5120, 400),
+            HostBounds = new AppRect(4800, 200, 5120, 400),
+            InteractiveBounds = new AppRect(4800, 200, 5120, 400)
+        };
+        var translatedReveal = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                Candidate(
+                    "translated-reveal",
+                    queue,
+                    shiftedHovered,
+                    shiftedHovered,
+                    shiftedPreview,
+                    AppMotion.Animate(AppReason.Placement, 200),
+                    retained: true)
+            });
+        Assert(translatedReveal is { Members.Count: 1 } &&
+               translatedReveal.Members[0].RequiresStartSnapshot,
+            "A-to-B reveal must support queue translation without scaling its source");
+
+        var translatedCompact = compact with
+        {
+            Bounds = new AppRect(5020, 500, 5120, 558),
+            HostBounds = new AppRect(5020, 500, 5120, 558),
+            InteractiveBounds = new AppRect(5020, 500, 5120, 558)
+        };
+        var translatedConceal = AppPolicy.TryCreate(
+            queue,
+            new[]
+            {
+                Candidate(
+                    "translated-conceal",
+                    queue,
+                    preview,
+                    preview,
+                    translatedCompact,
+                    AppMotion.Animate(AppReason.Placement, 200))
+            });
+        Assert(translatedConceal is { Members.Count: 1 } &&
+               translatedConceal.Members[0].DefersRealEndpoint,
+            "A-to-B conceal must move its fixed source surface with the queue");
+
         var closeAfterPlacementMerge = AppPolicy.TryCreate(
             queue,
             new[]

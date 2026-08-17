@@ -9,8 +9,9 @@ using System.Windows.Threading;
 namespace PaperTodo;
 
 /// <summary>
-/// Reusable layered bitmap source for a 1:1 start cover. Hosts are shown once, parked off-screen and
-/// cloaked while idle; a lease only swaps a frozen bitmap, lays it out and moves the existing HWND.
+/// Reusable layered bitmap source for a 1:1 start cover. Hosts are shown once and remain cloaked;
+/// an active lease moves one to the source bounds because an off-screen layered HWND is no longer
+/// composed. DirectComposition can still wrap the cloaked window without exposing a second copy.
 /// The completed V2.5 path never scales this bitmap.
 /// </summary>
 internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
@@ -223,14 +224,13 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
 
             _window.UpdateLayout();
             WindowNative.ApplyBottomZOrder(_window);
-            if (!WindowNative.TrySetWindowCloaked(
-                    handle,
-                    cloaked: false))
-            {
-                return false;
-            }
-
-            WindowNative.FlushDesktopComposition();
+            // Submit the new frozen Image into the layered HWND. Do not uncloak and DwmFlush here:
+            // startup's one verified root/cloak boundary publishes both this source update and the
+            // queue root. The old path spent one full desktop frame exposing then re-cloaking an
+            // otherwise invisible source before every A-to-B handoff.
+            _dispatcher.Invoke(
+                static () => { },
+                DispatcherPriority.Render);
             return true;
         }
         catch
@@ -238,13 +238,6 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
             return false;
         }
     }
-
-    public bool TrySetCloaked(bool cloaked) =>
-        !_closed &&
-        _leased &&
-        WindowNative.TrySetWindowCloaked(
-            Handle,
-            cloaked);
 
     public void Dispose()
     {
