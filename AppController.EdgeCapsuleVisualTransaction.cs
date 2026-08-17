@@ -579,7 +579,6 @@ public sealed partial class AppController
         var capacityEnvelope = plan.Envelope;
         var maximumDownwardShift = 0;
         var workAreaBottom = plan.Envelope.Bottom;
-        var queueKey = entries[0].QueueKey;
         foreach (var capacityWindow in _windows.Values.Where(window =>
                      !window.IsClosed &&
                      string.Equals(
