@@ -5,7 +5,9 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private const double EdgeCapsulePreviewTransferStableMilliseconds = 50;
+    // Two 60-Hz frames reject incidental pass-through without adding the visibly sluggish 50-ms
+    // floor to every A-to-B switch. The negative-only predictor can still extend or veto motion.
+    private const double EdgeCapsulePreviewTransferStableMilliseconds = 32;
     private const double EdgeCapsulePreviewPointerToleranceDip = 2;
     private const double EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds = 24;
     private const double EdgeCapsulePreviewActivationIntentTrackingMilliseconds = 16;
@@ -1297,9 +1299,9 @@ public sealed partial class AppController
         var stableElapsed = Stopwatch.GetElapsedTime(
             currentIntent.StableSinceTimestamp,
             now).TotalMilliseconds;
-        // Fifty stable milliseconds inside a 2-DIP radius is the positive transfer authority in
-        // every mode. The predictor is negative-only and may add delay/veto after this baseline; it
-        // can never shorten it.
+        // A short stable dwell inside a 2-DIP radius is the positive transfer authority in every
+        // mode. The predictor is negative-only and may add delay/veto after this baseline; it can
+        // never shorten it.
         if (stableElapsed < EdgeCapsulePreviewTransferStableMilliseconds)
         {
             ScheduleEdgeCapsulePreviewActivationIntentCheck(

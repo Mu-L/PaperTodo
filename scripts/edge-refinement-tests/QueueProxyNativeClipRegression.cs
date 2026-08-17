@@ -29,23 +29,32 @@ internal static class QueueProxyNativeClipRegression
             dpiScaleY: 1);
         AssertClip(
             revealStart,
-            left: 289,
-            top: 8,
+            left: 288,
+            top: 7,
             right: 375,
-            bottom: 50,
+            bottom: 51,
             "right-wall reveal start");
         Assert(
             AppGeometry.FullClip(target) ==
                 new AppClip(0, 0, 375, 238),
             "full target clip changed");
-        Assert(
+        var revealTarget =
             AppGeometry.RoundedBodyClipForVisibleBounds(
                 target,
                 target,
                 AppEdge.Right,
                 dpiScaleX: 1,
-                dpiScaleY: 1) == AppGeometry.FullClip(target),
-            "full endpoint must keep its native WPF silhouette");
+                dpiScaleY: 1);
+        AssertClip(
+            revealTarget,
+            left: 7,
+            top: 7,
+            right: 375,
+            bottom: 231,
+            "right-wall reveal endpoint");
+        Assert(
+            revealTarget != AppGeometry.FullClip(target),
+            "the endpoint clip must stay on the outline silhouette, not the transparent HWND");
 
         var radiusX =
             AppGeometry.RoundedBodyClipRadius(
@@ -56,11 +65,12 @@ internal static class QueueProxyNativeClipRegression
                 dpiScale: 1,
                 revealStart.Height);
         Assert(
-            Math.Abs(radiusX - AppLayout.CornerRadius) < 0.001,
-            "rounded body clip must retain the native horizontal radius");
+            Math.Abs(radiusX - (AppLayout.CornerRadius + 1)) < 0.001,
+            "rounded clip must retain the outer outline horizontal radius");
         Assert(
-            Math.Abs(radiusY - AppLayout.CornerRadius) < 0.001,
-            "rounded body clip must retain the native vertical radius");
+            Math.Abs(radiusY - (AppLayout.CornerRadius + 1)) < 0.001 &&
+            Math.Abs(radiusX - radiusY) < 0.001,
+            "rounded clip must retain one circular outer outline radius");
 
         var intermediate = new AppRect(4920, 185, 5120, 325);
         var concealStart = AppGeometry.RoundedBodyClipForVisibleBounds(
@@ -77,17 +87,17 @@ internal static class QueueProxyNativeClipRegression
             dpiScaleY: 1);
         AssertClip(
             concealStart,
-            left: 183,
-            top: 8,
+            left: 182,
+            top: 7,
             right: 375,
-            bottom: 132,
+            bottom: 133,
             "mid-flight conceal start");
         AssertClip(
             concealEnd,
-            left: 289,
-            top: 8,
+            left: 288,
+            top: 7,
             right: 375,
-            bottom: 50,
+            bottom: 51,
             "conceal endpoint");
         Assert(
             revealStart.Right == target.Width &&
@@ -105,9 +115,9 @@ internal static class QueueProxyNativeClipRegression
         AssertClip(
             leftReveal,
             left: 0,
-            top: 8,
-            right: 86,
-            bottom: 50,
+            top: 7,
+            right: 87,
+            bottom: 51,
             "left-wall reveal start");
         Assert(leftReveal.Left == 0,
             "left-wall clip must keep the wall-side edge fixed");

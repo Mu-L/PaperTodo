@@ -126,10 +126,9 @@ internal static class EdgeCapsuleQueueProxyGeometry
 
     /// <summary>
     /// Returns the clip that owns a newly-created moving capsule edge. A WPF edge HWND includes a
-    /// transparent shadow margin above, below and on the screen-internal side. Rounding the outer
-    /// HWND rectangle therefore leaves the opaque body almost square; compensate by moving only
-    /// the temporary clip edge to the body silhouette. A full source keeps its native WPF alpha so
-    /// the compositor converges exactly on the endpoint before authority is handed back.
+    /// transparent shadow margin above, below and on the screen-internal side. Keep every animation
+    /// endpoint on the focus-outline silhouette: transitioning the clip to the outer HWND while
+    /// holding a fixed radius intersects two offset arcs and makes the visible corner shrink.
     /// </summary>
     internal static EdgeCapsuleProxyClipRect RoundedBodyClipForVisibleBounds(
         DeviceScreenRect sourceBounds,
@@ -141,16 +140,16 @@ internal static class EdgeCapsuleQueueProxyGeometry
         var clip = ClipForVisibleBounds(
             sourceBounds,
             visibleBounds);
-        if (clip.IsEmpty || clip == FullClip(sourceBounds))
+        if (clip.IsEmpty)
         {
             return clip;
         }
 
         var marginX = (float)(
-            EdgeCapsuleLayout.WindowChromeMargin *
+            EdgeCapsuleLayout.OutlineSilhouetteInset *
             Math.Max(1, dpiScaleX));
         var marginY = (float)(
-            EdgeCapsuleLayout.WindowChromeMargin *
+            EdgeCapsuleLayout.OutlineSilhouetteInset *
             Math.Max(1, dpiScaleY));
         var left = clip.Left;
         var right = clip.Right;
@@ -178,7 +177,7 @@ internal static class EdgeCapsuleQueueProxyGeometry
         clipSpan <= 0
             ? 0
             : (float)Math.Min(
-                EdgeCapsuleLayout.CornerRadius *
+                EdgeCapsuleLayout.OutlineSilhouetteRadius *
                     Math.Max(1, dpiScale),
                 clipSpan / 2.0);
 

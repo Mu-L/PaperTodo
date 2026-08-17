@@ -56,8 +56,21 @@ internal static class QueueProxyBarrierRegression
             "endpoint publish must render and flush once before per-member verification");
         Assert(
             Count(visuals, "RoundedBodyClipRadius(") == 2 &&
-            Count(startup, "RoundedBodyClipForVisibleBounds(") == 4,
-            "reveal/conceal clips must round the visible body on both axes");
+            Count(startup, "RoundedBodyClipForVisibleBounds(") == 6,
+            "reveal/conceal clips must keep start and endpoint on one rounded silhouette");
+        Assert(
+            visuals.Contains(
+                "SetBitmapInterpolationMode(\n                BitmapInterpolationMode.Linear)",
+                StringComparison.Ordinal) &&
+            visuals.Contains(
+                "SetBorderMode(BorderMode.Soft)",
+                StringComparison.Ordinal),
+            "every proxy layer must explicitly use linear sampling and antialiased clip edges");
+        Assert(
+            visuals.Contains(
+                "layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot\n                        ? 0",
+                StringComparison.Ordinal),
+            "the old snapshot outline must disappear atomically when the endpoint layer starts");
 
         var previewModel = Read(root, "PaperWindow.EdgeCapsulePreview.cs");
         var previewOpen = Between(
@@ -76,6 +89,20 @@ internal static class QueueProxyBarrierRegression
                 "CompleteEdgeCapsuleQueueCompositionProxyFor",
                 StringComparison.Ordinal),
             "preview model changes must leave the active hover cover available to a successor");
+
+        var topmostRefresh = Between(
+            Read(root, "PaperWindow.cs"),
+            "internal void RefreshDeepCapsuleSlotTopmost()",
+            "private void RefreshPaperIconButton");
+        Assert(
+            RequiredIndex(topmostRefresh, "WouldChangeZOrder(") <
+                RequiredIndex(
+                    topmostRefresh,
+                    "CompleteEdgeCapsuleQueueCompositionProxyFor") &&
+            Count(
+                topmostRefresh,
+                "CompleteEdgeCapsuleQueueCompositionProxyFor") == 1,
+            "ordinary placement refresh must not retire a proxy unless z-order really changes");
 
         var snapshotHost = Read(root, "EdgeCapsuleProxySnapshotHost.cs");
         Assert(

@@ -38,6 +38,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 out IDCompositionVisual2 createdVisual).CheckError();
             visual = createdVisual;
             visual.SetContent(surface).CheckError();
+            // DirectComposition resolves an all-INHERIT tree to aliased clip edges. Fractional
+            // animation offsets also require linear sampling; set both explicitly on every layer.
+            visual.SetBitmapInterpolationMode(
+                BitmapInterpolationMode.Linear).CheckError();
+            visual.SetBorderMode(BorderMode.Soft).CheckError();
 
             var startOffsetX =
                 startVisualBounds.Left - _outputBounds.Left;
@@ -89,7 +94,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 TargetOpacity = targetOpacity,
                 OpacityDurationMilliseconds =
                     layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot
-                        ? Math.Min(48, _plan.DurationMilliseconds)
+                        ? 0
                         : _plan.DurationMilliseconds
             };
             _visuals.Add(state);
@@ -165,6 +170,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         Func<IDCompositionAnimation, SharpGen.Runtime.Result> applyAnimation,
         int? durationMilliseconds = null)
     {
+        if (durationMilliseconds is <= 0)
+        {
+            applyStatic(to).CheckError();
+            return null;
+        }
         if (Math.Abs(from - to) < 0.001f)
         {
             applyStatic(to).CheckError();

@@ -71,8 +71,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                                 member.Plan.Target.Edge,
                                 member.Plan.Target.DpiScaleX,
                                 member.Plan.Target.DpiScaleY),
-                            EdgeCapsuleQueueProxyGeometry.FullClip(
-                                member.Plan.Target.Bounds),
+                            EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
+                                member.Plan.Target.Bounds,
+                                member.Plan.Target.Bounds,
+                                member.Plan.Target.Edge,
+                                member.Plan.Target.DpiScaleX,
+                                member.Plan.Target.DpiScaleY),
                             1,
                             1,
                             reference);
@@ -264,7 +268,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             }
 
             // Insert the native endpoint below its 1:1 start cover. The bitmap never changes size;
-            // it fades quickly while RectangleClip reveals the already-rendered native endpoint.
+            // the animation commit replaces it atomically so its old outline cannot remain visible
+            // inside the expanding endpoint.
             foreach (var member in _members.Where(member =>
                          member.Plan.RequiresStartSnapshot))
             {
@@ -291,8 +296,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                         member.Plan.Target.Edge,
                         member.Plan.Target.DpiScaleX,
                         member.Plan.Target.DpiScaleY),
-                    EdgeCapsuleQueueProxyGeometry.FullClip(
-                        member.Plan.Target.Bounds),
+                    EdgeCapsuleQueueProxyGeometry.RoundedBodyClipForVisibleBounds(
+                        member.Plan.Target.Bounds,
+                        member.Plan.Target.Bounds,
+                        member.Plan.Target.Edge,
+                        member.Plan.Target.DpiScaleX,
+                        member.Plan.Target.DpiScaleY),
                     1,
                     1,
                     snapshotLayer.Visual,

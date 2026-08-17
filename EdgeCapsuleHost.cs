@@ -79,6 +79,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private EdgeCapsuleCaptureLossReason _contentCaptureLossReason;
     private int _nativeMetricsVersion;
     private int _appliedNativeMetricsVersion;
+    private bool _zOrderStateInitialized;
+    private bool _appliedTopmost;
+    private IntPtr _appliedTopmostInsertAfter;
     private bool _experimentalPassive;
     private bool _interactionLocked;
     private bool _disposed;
@@ -115,6 +118,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         TextBlock label)
     {
         _options = options;
+        _zOrderStateInitialized = true;
+        _appliedTopmost = options.Topmost;
+        _appliedTopmostInsertAfter = IntPtr.Zero;
 #if DEBUG
         _diagnosticResourceId =
             EdgeCapsulePerformanceDiagnostics.RegisterTransparentHost(
@@ -1251,6 +1257,19 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         CloseGlyph.FontSize = closeGlyphFontSize;
     }
 
+    public bool WouldChangeZOrder(bool topmost, IntPtr insertAfter)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var effectiveTopmost = topmost && !_experimentalPassive;
+        return !_zOrderStateInitialized ||
+            _appliedTopmost != effectiveTopmost ||
+            _appliedTopmostInsertAfter != insertAfter;
+    }
+
     public void SetTopmost(bool topmost, IntPtr insertAfter)
     {
         if (_disposed)
@@ -1273,6 +1292,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                     insertAfter);
             }
         }
+        _zOrderStateInitialized = true;
+        _appliedTopmost = effectiveTopmost;
+        _appliedTopmostInsertAfter = insertAfter;
     }
 
     public void SetInteractionLocked(bool enabled)
@@ -1294,6 +1316,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         }
 
         _experimentalPassive = enabled;
+        _zOrderStateInitialized = false;
         WindowNative.SetInputPassthrough(Window, enabled || _interactionLocked);
         if (enabled)
         {
