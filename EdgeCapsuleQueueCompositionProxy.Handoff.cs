@@ -223,6 +223,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 _target.SetRoot(null!).CheckError();
                 _device.Commit().CheckError();
                 _targetRootInstalled = false;
+                // The detached root no longer owns any visible or input pixels. Release the queue
+                // lease now so a hover-to-preview transfer can stage its next generation while
+                // this generation's COM objects remain alive for one deferred dispatcher turn.
+                _host.Detach(this);
             }
             _sourcesReleased = true;
             _cloakedRealSourceHandles.Clear();
@@ -304,12 +308,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             AbortStaged();
             return;
         }
-        if (_sourcesReleased &&
-            !ReferenceEquals(_host.Current, this))
-        {
-            DisposeCore(clearTargetRoot: false);
-            return;
-        }
         if (!_sourcesReleased && !TryReleaseForHandoff())
         {
             return;
@@ -317,6 +315,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         if (_sourcesReleased && !_targetRootInstalled && !_coverLost)
         {
             ScheduleSuccessfulRetire();
+            return;
+        }
+        if (_sourcesReleased &&
+            !ReferenceEquals(_host.Current, this))
+        {
+            DisposeCore(clearTargetRoot: false);
             return;
         }
         if (_sourcesReleased && _coverLost)
@@ -355,10 +359,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _disposed = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
-        // Keep this generation logically attached for one deferred dispatcher turn. SetRoot(null)
-        // has already been committed, but reusing the same target immediately could rewrite it
-        // while the preceding detach is still in flight. Background runs after render/input work
-        // without requiring the dispatcher to become fully idle under continuous pointer input.
+        // The output is hidden, SetRoot(null) is committed and the queue lease is already free.
+        // Defer only generation-owned COM/snapshot disposal; DComp commit ordering allows the next
+        // generation to stage on the warm target without waiting for this cleanup turn.
 
         var dispatcher = _members[0].Window.Dispatcher;
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)

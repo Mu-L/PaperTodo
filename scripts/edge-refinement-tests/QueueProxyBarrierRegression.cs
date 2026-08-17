@@ -14,6 +14,7 @@ internal static class QueueProxyBarrierRegression
     {
         var root = RepositoryRoot();
         var startup = Read(root, "EdgeCapsuleQueueCompositionProxy.Startup.cs");
+        var visuals = Read(root, "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
         var handoff = Between(
             Read(root, "EdgeCapsuleQueueCompositionProxy.Handoff.cs"),
             "public bool TryReleaseForHandoff()",
@@ -53,15 +54,22 @@ internal static class QueueProxyBarrierRegression
             Count(endpointStage, "FlushDesktopComposition") == 1 &&
             render < endpointBarrier && endpointBarrier < verifyLoop,
             "endpoint publish must render and flush once before per-member verification");
+        Assert(
+            Count(visuals, "OuterClipRadiusForBodyCorner(") == 2,
+            "reveal/conceal clips must compensate both axes for transparent chrome");
 
         var reveal = RequiredIndex(handoff, "TrySetWindowCloakedBatch");
         var detach = RequiredIndex(handoff, "_target.SetRoot(null!)");
+        var detachCommit = RequiredIndex(handoff, "_device.Commit().CheckError()");
+        var leaseRelease = RequiredIndex(handoff, "_host.Detach(this)");
         Assert(
             reveal < detach &&
+            detach < detachCommit &&
+            detachCommit < leaseRelease &&
             handoff.Contains("Cloaked: false", StringComparison.Ordinal) &&
             !handoff.Contains("WaitForCommitCompletion", StringComparison.Ordinal) &&
             !handoff.Contains("TrySetWindowCloaked(", StringComparison.Ordinal),
-            "handoff must batch-reveal real HWNDs before a non-blocking proxy detach");
+            "handoff must reveal, detach and release the queue lease before deferred cleanup");
         var cleanupFailure = handoff[RequiredIndex(handoff, "catch (Exception ex)")..];
         Assert(
             !cleanupFailure.Contains("Cloaked: true", StringComparison.Ordinal),

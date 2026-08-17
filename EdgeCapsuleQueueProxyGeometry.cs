@@ -124,6 +124,34 @@ internal static class EdgeCapsuleQueueProxyGeometry
                 sourceBounds.Width,
                 sourceBounds.Height);
 
+    /// <summary>
+    /// The native body starts inside the transparent top/bottom chrome margin, while DComp rounds
+    /// from the outer HWND clip edge. Expand that outer radius so the still-visible part of the arc
+    /// reaches the intended body radius at the opaque edge; cap it for compact endpoint clips.
+    /// </summary>
+    internal static float OuterClipRadiusForBodyCorner(
+        double dpiScale,
+        float smallestClipSpan)
+    {
+        if (smallestClipSpan <= 0)
+        {
+            return 0;
+        }
+
+        var scale = Math.Max(1, dpiScale);
+        var bodyRadius =
+            EdgeCapsuleLayout.CornerRadius * scale;
+        var chromeMargin =
+            EdgeCapsuleLayout.WindowChromeMargin * scale;
+        var compensated =
+            bodyRadius +
+            chromeMargin +
+            Math.Sqrt(2 * bodyRadius * chromeMargin);
+        return (float)Math.Min(
+            compensated,
+            smallestClipSpan / 2.0);
+    }
+
     internal static EdgeCapsuleProxyClipRect Interpolate(
         EdgeCapsuleProxyClipRect start,
         EdgeCapsuleProxyClipRect target,

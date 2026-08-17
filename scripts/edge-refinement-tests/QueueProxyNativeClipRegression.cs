@@ -5,6 +5,8 @@ using AppClip =
     PaperTodoApp::PaperTodo.EdgeCapsuleProxyClipRect;
 using AppGeometry =
     PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyGeometry;
+using AppLayout =
+    PaperTodoApp::PaperTodo.EdgeCapsuleLayout;
 using AppRect =
     PaperTodoApp::PaperTodo.DeviceScreenRect;
 
@@ -31,6 +33,45 @@ internal static class QueueProxyNativeClipRegression
             AppGeometry.FullClip(target) ==
                 new AppClip(0, 0, 375, 238),
             "full target clip changed");
+
+        var compensatedRadiusX =
+            AppGeometry.OuterClipRadiusForBodyCorner(
+                dpiScale: 1,
+                revealStart.Width);
+        var compensatedRadiusY =
+            AppGeometry.OuterClipRadiusForBodyCorner(
+                dpiScale: 1,
+                revealStart.Height);
+        var expectedUnclampedRadius =
+            AppLayout.CornerRadius +
+            AppLayout.WindowChromeMargin +
+            Math.Sqrt(
+                2 *
+                AppLayout.CornerRadius *
+                AppLayout.WindowChromeMargin);
+        Assert(
+            Math.Abs(compensatedRadiusX - expectedUnclampedRadius) < 0.001,
+            "wide reveal clip must compensate the transparent chrome margin");
+        Assert(
+            Math.Abs(
+                compensatedRadiusY -
+                revealStart.Height / 2) < 0.001,
+            "compact reveal clip radius must stay within its height");
+
+        var bodyTop = (float)AppLayout.WindowChromeMargin;
+        var normalizedY =
+            (compensatedRadiusY - bodyTop) /
+            compensatedRadiusY;
+        var visibleBodyInset =
+            compensatedRadiusX *
+            (1 - Math.Sqrt(
+                Math.Max(
+                    0,
+                    1 - normalizedY * normalizedY)));
+        Assert(
+            visibleBodyInset >=
+                AppLayout.CornerRadius * 0.75,
+            "outer clip rounding must remain visible at the opaque body edge");
 
         var intermediate = new AppRect(4920, 185, 5120, 325);
         var concealStart = AppGeometry.ClipForVisibleBounds(

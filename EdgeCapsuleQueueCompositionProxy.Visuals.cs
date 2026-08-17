@@ -219,14 +219,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var smallestHeight = Math.Max(
             1,
             Math.Min(start.Height, target.Height));
-        var radiusX = (float)Math.Min(
-            EdgeCapsuleLayout.CornerRadius *
-                member.Plan.Target.DpiScaleX,
-            smallestWidth / 2);
-        var radiusY = (float)Math.Min(
-            EdgeCapsuleLayout.CornerRadius *
-                member.Plan.Target.DpiScaleY,
-            smallestHeight / 2);
+        var radiusX =
+            EdgeCapsuleQueueProxyGeometry
+                .OuterClipRadiusForBodyCorner(
+                    member.Plan.Target.DpiScaleX,
+                    smallestWidth);
+        var radiusY =
+            EdgeCapsuleQueueProxyGeometry
+                .OuterClipRadiusForBodyCorner(
+                    member.Plan.Target.DpiScaleY,
+                    smallestHeight);
 
         var leftRadiusX =
             member.Plan.Target.Edge == EdgeCapsuleEdge.Right
