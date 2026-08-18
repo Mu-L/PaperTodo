@@ -1,0 +1,85 @@
+name: PR94 final V3 Lite
+
+on:
+  push:
+    branches:
+      - agent/v3-lite-edge-presentation
+    paths:
+      - scripts/pr94-finalize/READY
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+    steps:
+      - name: Check out PR94
+        uses: actions/checkout@v7
+        with:
+          ref: agent/v3-lite-edge-presentation
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Reconstruct reviewed patch
+        run: |
+          @'
+          import base64
+          import lzma
+          from pathlib import Path
+
+          encoded = Path("scripts/pr94-finalize/final.patch.xz.b64").read_text(encoding="utf-8").strip()
+          patch = lzma.decompress(base64.b64decode(encoded))
+          Path("scripts/pr94-finalize/final.patch").write_bytes(patch)
+          '@ | python -
+
+      - name: Apply final V3 Lite patch
+        run: git apply --whitespace=nowarn scripts/pr94-finalize/final.patch
+
+      - name: Verify patch shape
+        run: |
+          git -c core.whitespace=cr-at-eol diff --check
+          git diff --stat
+          if (Select-String -Path EdgeCapsuleDockingCompositionBridge.cs -Pattern "CreateSurfaceFromHwnd" -Quiet) { "docking bridge marker: true" } else { throw "docking bridge marker missing" }
+          if (Select-String -Path EdgeCapsuleDockingCompositionBridge.cs -Pattern "SetClip|SetScale|EffectGroup|Snapshot" -Quiet) { throw "forbidden docking compositor capability returned" }
+
+      - name: Restore
+        run: |
+          dotnet restore .\PaperTodo.csproj
+          dotnet restore .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj
+
+      - name: Debug build
+        run: dotnet build .\PaperTodo.csproj -c Debug --no-restore
+
+      - name: Release build
+        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+
+      - name: Edge refinement checks
+        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Release --no-restore
+
+      - name: Remove temporary hardening infrastructure
+        run: |
+          git rm -r --ignore-unmatch .github/workflows/pr94-source-export.yml scripts/pr94-source-export
+          git rm -r --ignore-unmatch .github/workflows/pr94-successor-hardening.yml scripts/pr94-hardening
+          git rm -r --ignore-unmatch .github/workflows/pr94-finalize.yml scripts/pr94-finalize
+
+      - name: Commit validated final implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git -c core.whitespace=cr-at-eol diff --cached --check
+          git commit -m "feat(edge): complete V3 Lite presentation"
+          git push origin HEAD:agent/v3-lite-edge-presentation
