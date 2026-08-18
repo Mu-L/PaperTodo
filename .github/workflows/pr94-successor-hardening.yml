@@ -1,0 +1,63 @@
+name: PR94 successor hardening
+
+on:
+  push:
+    branches:
+      - agent/v3-lite-edge-presentation
+    paths:
+      - scripts/pr94-hardening/SUCCESSOR_READY
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+    steps:
+      - name: Check out PR94
+        uses: actions/checkout@v7
+        with:
+          ref: agent/v3-lite-edge-presentation
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Publish run id
+        run: |
+          Set-Content -LiteralPath scripts/pr94-hardening/SUCCESSOR_RUN_ID -Value $env:GITHUB_RUN_ID -NoNewline
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/pr94-hardening/SUCCESSOR_RUN_ID
+          git commit -m "chore: record PR94 successor hardening run"
+          git push origin HEAD:agent/v3-lite-edge-presentation
+
+      - name: Apply reviewed patch
+        run: git apply --whitespace=nowarn scripts/pr94-hardening/successor.patch
+
+      - name: Verify patch shape
+        run: |
+          git diff --check
+          git diff --stat
+
+      - name: Restore
+        run: |
+          dotnet restore .\PaperTodo.csproj
+          dotnet restore .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj
+
+      - name: Release build
+        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+
+      - name: Edge refinement checks
+        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Release --no-restore
+
+      - name: Commit validated fix
+        run: |
+          git add AppController.EdgeCapsuleVisualTransaction.cs EdgeCapsuleHost.cs EdgeCapsuleQueueProxyPolicy.cs PaperWindow.EdgeCapsuleQueueProxy.cs scripts/edge-refinement-tests/QueueProxyAdmissionRegression.cs scripts/edge-refinement-tests/QueueProxyBarrierRegression.cs
+          git commit -m "fix(edge): preserve live translation successors"
+          git push origin HEAD:agent/v3-lite-edge-presentation

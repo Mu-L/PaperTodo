@@ -1,0 +1,217 @@
+diff --git a/AppController.EdgeCapsuleVisualTransaction.cs b/AppController.EdgeCapsuleVisualTransaction.cs
+index 2df7885..b2d6023 100644
+--- a/AppController.EdgeCapsuleVisualTransaction.cs
++++ b/AppController.EdgeCapsuleVisualTransaction.cs
+@@ -989,13 +989,23 @@ public sealed partial class AppController
+ #endif
+         try
+         {
+-            foreach (var window in windows)
++            // A rejected rapid successor must not fall back to one synchronous SetWindowPos per
++            // retained source. Keep the old cover authoritative while every latest real endpoint
++            // is submitted through one HDWP transaction, then render and verify the batch.
++            using (windows[0].Dispatcher.DisableProcessing())
+             {
+-                var applied = window
+-                    .TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
+-                        out var endpoint);
+-                endpointsReady &= applied;
+-                endpoints.Add((window, endpoint));
++                using var nativeBoundsBatch =
++                    WindowNative.BeginWindowDeviceBoundsBatch(
++                        windows.Length);
++                foreach (var window in windows)
++                {
++                    var applied = window
++                        .TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
++                            out var endpoint);
++                    endpointsReady &= applied;
++                    endpoints.Add((window, endpoint));
++                }
++                endpointsReady &= nativeBoundsBatch.Commit();
+             }
+ 
+             if (endpointsReady)
+diff --git a/EdgeCapsuleHost.cs b/EdgeCapsuleHost.cs
+index de17584..0fddcd6 100644
+--- a/EdgeCapsuleHost.cs
++++ b/EdgeCapsuleHost.cs
+@@ -596,6 +596,28 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
+             MatchesNativePresentationLayout(frame);
+     }
+ 
++    internal bool MatchesQueueTranslationSurface(
++        EdgeCapsulePresentationFrame expected)
++    {
++        if (_disposed ||
++            !Window.IsVisible ||
++            _appliedNativeMetricsVersion != _nativeMetricsVersion ||
++            !EdgeCapsuleQueueProxyPolicy.HasStableLiveSurfaceIdentity(
++                _appliedFrame,
++                expected) ||
++            !WindowNative.TryGetWindowDeviceBounds(
++                Window,
++                out var actualBounds) ||
++            actualBounds != expected.HostBounds)
++        {
++            return false;
++        }
++
++        var dpi = VisualTreeHelper.GetDpi(Window);
++        return Math.Abs(dpi.DpiScaleX - expected.DpiScaleX) < 0.001 &&
++            Math.Abs(dpi.DpiScaleY - expected.DpiScaleY) < 0.001;
++    }
++
+     internal bool PrepareCompositionSourceForHandoff()
+     {
+         if (_disposed || !Window.IsVisible)
+diff --git a/EdgeCapsuleQueueProxyPolicy.cs b/EdgeCapsuleQueueProxyPolicy.cs
+index f0cba0c..956484f 100644
+--- a/EdgeCapsuleQueueProxyPolicy.cs
++++ b/EdgeCapsuleQueueProxyPolicy.cs
+@@ -90,6 +90,24 @@ internal static class EdgeCapsuleQueueProxyPolicy
+             EdgeCapsuleVisualAuthority.RealDocked or
+             EdgeCapsuleVisualAuthority.QueueTranslation;
+ 
++    /// <summary>
++    /// Translation owns one live HWND surface, not one frozen WPF frame. A retained successor may
++    /// observe a different Rest/Hover/Preview morph sample while the native host capacity, wall,
++    /// DPI and source identity remain unchanged.
++    /// </summary>
++    internal static bool HasStableLiveSurfaceIdentity(
++        EdgeCapsulePresentationFrame current,
++        EdgeCapsulePresentationFrame expected) =>
++        current.Visible &&
++        expected.Visible &&
++        current.IsUsable &&
++        expected.IsUsable &&
++        current.HostBounds == expected.HostBounds &&
++        current.Edge == expected.Edge &&
++        current.WallDeviceX == expected.WallDeviceX &&
++        Math.Abs(current.DpiScaleX - expected.DpiScaleX) < 0.001 &&
++        Math.Abs(current.DpiScaleY - expected.DpiScaleY) < 0.001;
++
+     internal static DeviceScreenRect PresentedHostBounds(
+         EdgeCapsulePresentationFrame frame)
+     {
+diff --git a/PaperWindow.EdgeCapsuleQueueProxy.cs b/PaperWindow.EdgeCapsuleQueueProxy.cs
+index 9e386f1..32b6b88 100644
+--- a/PaperWindow.EdgeCapsuleQueueProxy.cs
++++ b/PaperWindow.EdgeCapsuleQueueProxy.cs
+@@ -38,6 +38,9 @@ public sealed partial class PaperWindow
+             .PlanTargetPresentation(
+                 CaptureEdgeCapsuleLayoutSnapshot())
+             .ToFrame();
++        var sourceReady = retainedByCurrentProxy
++            ? host.MatchesQueueTranslationSurface(source)
++            : host.MatchesPresentation(source);
+         return new EdgeCapsuleQueueProxyCandidate(
+             _paper.Id,
+             queueKey,
+@@ -46,7 +49,7 @@ public sealed partial class PaperWindow
+             target,
+             motion,
+             host.Handle != IntPtr.Zero &&
+-                host.MatchesPresentation(source) &&
++                sourceReady &&
+                 !IsExperimentalPassive &&
+                 !_advancedInteractionLocked &&
+                 !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
+diff --git a/scripts/edge-refinement-tests/QueueProxyAdmissionRegression.cs b/scripts/edge-refinement-tests/QueueProxyAdmissionRegression.cs
+index b2dc6ad..fd437d7 100644
+--- a/scripts/edge-refinement-tests/QueueProxyAdmissionRegression.cs
++++ b/scripts/edge-refinement-tests/QueueProxyAdmissionRegression.cs
+@@ -18,6 +18,7 @@ internal static class QueueProxyAdmissionRegression
+         PureMorphStaysInWpf();
+         DragOwnerCanRemainDirectWhilePeerMoves();
+         FloatingCoverBlocksSecondOwner();
++        StableSurfaceIdentityAllowsWpfMorph();
+         HostCapacityChangeIsRejected();
+     }
+ 
+@@ -102,6 +103,44 @@ internal static class QueueProxyAdmissionRegression
+             "floating/docking cover must block a second owner");
+     }
+ 
++    private static void StableSurfaceIdentityAllowsWpfMorph()
++    {
++        var expected = Frame(220, 220);
++        var current = expected with
++        {
++            Surface = EdgeCapsuleSurfaceKind.DockedPreview,
++            Bounds = new DeviceScreenRect(
++                4820,
++                220,
++                5120,
++                410),
++            InteractiveBounds = new DeviceScreenRect(
++                4820,
++                220,
++                5120,
++                410),
++            ContentOpacity = 0.42
++        };
++        Require(
++            EdgeCapsuleQueueProxyPolicy
++                .HasStableLiveSurfaceIdentity(current, expected),
++            "a retained live surface must survive WPF morph changes");
++
++        Require(
++            !EdgeCapsuleQueueProxyPolicy
++                .HasStableLiveSurfaceIdentity(
++                    current,
++                    expected with
++                    {
++                        HostBounds = new DeviceScreenRect(
++                            4640,
++                            221,
++                            5120,
++                            641)
++                    }),
++            "a retained live surface must reject native capacity changes");
++    }
++
+     private static void HostCapacityChangeIsRejected()
+     {
+         var start = Frame(100, 100);
+diff --git a/scripts/edge-refinement-tests/QueueProxyBarrierRegression.cs b/scripts/edge-refinement-tests/QueueProxyBarrierRegression.cs
+index 0606023..b90d676 100644
+--- a/scripts/edge-refinement-tests/QueueProxyBarrierRegression.cs
++++ b/scripts/edge-refinement-tests/QueueProxyBarrierRegression.cs
+@@ -9,6 +9,8 @@ internal static class QueueProxyBarrierRegression
+         var handoff = Source(
+             "EdgeCapsuleQueueCompositionProxy.Handoff.cs");
+         var native = Source("WindowNative.cs");
++        var controller = Source(
++            "AppController.EdgeCapsuleVisualTransaction.cs");
+ 
+         Require(
+             startup.Contains(
+@@ -25,6 +27,27 @@ internal static class QueueProxyBarrierRegression
+             native.Contains("RollbackFailed") &&
+             native.Contains("RolledBack"),
+             "cloak transaction must distinguish rollback outcomes");
++
++        var endpointApply = controller.IndexOf(
++            "TryApplyLatestEdgeCapsuleQueueProxyEndpoint",
++            StringComparison.Ordinal);
++        var batchBegin = endpointApply < 0
++            ? -1
++            : controller.LastIndexOf(
++                "BeginWindowDeviceBoundsBatch",
++                endpointApply,
++                StringComparison.Ordinal);
++        var handoffRelease = endpointApply < 0
++            ? -1
++            : controller.IndexOf(
++                "TryReleaseForHandoff",
++                endpointApply,
++                StringComparison.Ordinal);
++        Require(
++            batchBegin >= 0 &&
++            batchBegin < endpointApply &&
++            handoffRelease > endpointApply,
++            "handoff endpoints must be submitted as one native batch before cover release");
+     }
+ 
+     private static string Source(string name)
