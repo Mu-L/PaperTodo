@@ -5,7 +5,7 @@ import zlib
 chunk_root = Path(__file__).with_name("finalize_v3_lite_chunks")
 payload = "".join(
     path.read_text(encoding="ascii")
-    for path in sorted(chunk_root.glob("*.b85"))
+    for path in sorted(chunk_root.glob("v2_*.b85"))
 )
 if not payload:
     raise RuntimeError("V3 Lite finalizer payload is missing.")
