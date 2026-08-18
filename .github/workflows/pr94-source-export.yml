@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   export:
@@ -36,3 +38,8 @@ jobs:
           path: pr94-source.zip
           if-no-files-found: error
           retention-days: 1
+
+      - name: Report export run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment 94 --repo snownico0722/PaperTodo --body "PR94 source export run: $env:GITHUB_RUN_ID"
