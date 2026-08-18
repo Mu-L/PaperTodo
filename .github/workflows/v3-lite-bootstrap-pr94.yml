@@ -1,111 +1,94 @@
-name: Bootstrap guarded V3 Lite on PR94
+name: Finalize V3 Lite on PR94
 
 on:
   push:
     branches:
       - agent/v3-lite-edge-presentation
+    paths:
+      - scripts/finalize_v3_lite_chunks/READY
 
 permissions:
   contents: write
-  issues: write
   pull-requests: write
 
 concurrency:
-  group: pr94-v3-lite-bootstrap
+  group: pr94-v3-lite-finalize
   cancel-in-progress: false
 
 jobs:
-  bootstrap:
-    if: github.actor != 'github-actions[bot]' || contains(github.event.head_commit.message, 'chore: bootstrap guarded V3 Lite')
+  finalize:
+    if: github.actor != 'github-actions[bot]'
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
-      - name: Checkout implementation source
-        uses: actions/checkout@v4
-        with:
-          ref: agent/v3-lite-staging
-          path: staging
-          fetch-depth: 1
-
-      - name: Extract implementation
-        shell: pwsh
-        run: |
-          $extractor = @'
-          from pathlib import Path
-          import textwrap
-
-          workflow = Path("staging/.github/workflows/apply-v3-lite.yml").read_text(encoding="utf-8")
-          marker = "          cat > apply_v3_lite.py <<'PY'\n"
-          start = workflow.index(marker) + len(marker)
-          end = workflow.index("\n          PY\n", start)
-          script = textwrap.dedent(workflow[start:end]) + "\n"
-          script = script.replace(
-              "                      gesture,\n                      floatingCoverActive);",
-              "                      Gesture: gesture,\n                      FloatingCoverActive: floatingCoverActive);")
-          Path("staging/apply_v3_lite_extracted.py").write_text(
-              script,
-              encoding="utf-8",
-              newline="\n")
-          '@
-          $extractor | Set-Content -LiteralPath extract.py -Encoding utf8
-          python extract.py
-
-      - name: Checkout PR94
+      - name: Check out PR94
         uses: actions/checkout@v4
         with:
           ref: agent/v3-lite-edge-presentation
-          path: source
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Apply V3 Lite core
+      - name: Apply complete V3 Lite convergence
         id: apply
         continue-on-error: true
         shell: pwsh
         run: |
-          Set-Location source
-          if (Test-Path docs/edge-presentation-v3-lite.md) {
-            "V3 Lite marker already exists; validating current implementation." | Tee-Object -FilePath ../apply.log
-            exit 0
-          }
-          python ../staging/apply_v3_lite_extracted.py *>&1 | Tee-Object -FilePath ../apply.log
+          python scripts/finalize_v3_lite.py *>&1 | Tee-Object -FilePath apply.log
           exit $LASTEXITCODE
 
-      - name: Keep core implementation only for first landing
+      - name: Validate patch shape
+        id: shape
         if: steps.apply.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         run: |
-          Set-Location source
-          git checkout HEAD -- scripts/edge-refinement-tests
-          git diff --check
+          git diff --check *>&1 | Tee-Object -FilePath shape.log
+          exit $LASTEXITCODE
 
       - name: Restore
         id: restore
-        if: steps.apply.outcome == 'success'
+        if: steps.apply.outcome == 'success' && steps.shape.outcome == 'success'
         continue-on-error: true
         shell: pwsh
-        working-directory: source
-        run: dotnet restore PaperTodo.csproj *>&1 | Tee-Object -FilePath ../restore.log
+        run: |
+          dotnet restore PaperTodo.csproj *>&1 | Tee-Object -FilePath restore.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore scripts/edge-refinement-tests/EdgeRefinementChecks.csproj *>&1 | Tee-Object -FilePath restore.log -Append
+          exit $LASTEXITCODE
 
       - name: Release build
         id: build
-        if: steps.apply.outcome == 'success' && steps.restore.outcome == 'success'
+        if: steps.restore.outcome == 'success'
         continue-on-error: true
         shell: pwsh
-        working-directory: source
-        run: dotnet build PaperTodo.csproj -c Release -p:EnableWindowsTargeting=true --no-restore *>&1 | Tee-Object -FilePath ../build.log
-
-      - name: Publish validated core
-        id: publish
-        if: steps.apply.outcome == 'success' && steps.restore.outcome == 'success' && steps.build.outcome == 'success'
-        shell: pwsh
-        working-directory: source
         run: |
-          Remove-Item .github/workflows/v3-lite-bootstrap-pr94.yml
+          dotnet build PaperTodo.csproj -c Release -p:EnableWindowsTargeting=true --no-restore *>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build scripts/edge-refinement-tests/EdgeRefinementChecks.csproj -c Release -p:EnableWindowsTargeting=true --no-restore *>&1 | Tee-Object -FilePath build.log -Append
+          exit $LASTEXITCODE
+
+      - name: Run edge refinement checks
+        id: tests
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          dotnet run --project scripts/edge-refinement-tests/EdgeRefinementChecks.csproj -c Release -p:EnableWindowsTargeting=true --no-build *>&1 | Tee-Object -FilePath tests.log
+          exit $LASTEXITCODE
+
+      - name: Publish only the fully validated implementation
+        id: publish
+        if: steps.apply.outcome == 'success' && steps.shape.outcome == 'success' && steps.restore.outcome == 'success' && steps.build.outcome == 'success' && steps.tests.outcome == 'success'
+        shell: pwsh
+        run: |
+          Remove-Item scripts/finalize_v3_lite.py -Force
+          Remove-Item scripts/finalize_v3_lite_chunks -Recurse -Force
+          Remove-Item .github/workflows/v3-lite-bootstrap-pr94.yml -Force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
@@ -113,38 +96,46 @@ jobs:
             Write-Host "No implementation changes to publish."
             exit 0
           }
-          git commit -m "refactor(edge): establish V3 Lite bounded live hosts"
+          git commit -m "refactor(edge): finish V3 Lite translation architecture"
           git push origin HEAD:agent/v3-lite-edge-presentation
 
-      - name: Report failure without publishing half-applied code
+      - name: Report failure without publishing a partial rewrite
         if: always() && steps.publish.outcome != 'success'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          SHAPE_OUTCOME: ${{ steps.shape.outcome }}
           RESTORE_OUTCOME: ${{ steps.restore.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
         run: |
           $sections = @()
           foreach ($item in @(
             @{ Name = "apply"; Path = "apply.log" },
+            @{ Name = "shape"; Path = "shape.log" },
             @{ Name = "restore"; Path = "restore.log" },
-            @{ Name = "build"; Path = "build.log" })) {
+            @{ Name = "build"; Path = "build.log" },
+            @{ Name = "tests"; Path = "tests.log" })) {
             if (Test-Path $item.Path) {
               $text = Get-Content -LiteralPath $item.Path -Raw
-              if ($text.Length -gt 12000) { $text = $text.Substring($text.Length - 12000) }
+              if ($text.Length -gt 12000) {
+                $text = $text.Substring($text.Length - 12000)
+              }
               $sections += "#### $($item.Name)`n``````text`n$text`n``````"
             }
           }
-          $body = @"
-          ### V3 Lite bootstrap 未发布半成品
-
-          - apply: ``$env:APPLY_OUTCOME``
-          - restore: ``$env:RESTORE_OUTCOME``
-          - Release Build: ``$env:BUILD_OUTCOME``
-          - run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
-
-          $($sections -join "`n`n")
-          "@
+          $body = @(
+            "### V3 Lite finalizer 未发布半成品",
+            "",
+            "- apply: ``$env:APPLY_OUTCOME``",
+            "- patch shape: ``$env:SHAPE_OUTCOME``",
+            "- restore: ``$env:RESTORE_OUTCOME``",
+            "- Release Build: ``$env:BUILD_OUTCOME``",
+            "- edge checks: ``$env:TEST_OUTCOME``",
+            "- run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            "",
+            ($sections -join "`n`n")
+          ) -join "`n"
           gh pr comment 94 --repo snownico0722/PaperTodo --body $body
           exit 1
