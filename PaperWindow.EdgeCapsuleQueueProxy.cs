@@ -164,6 +164,13 @@ public sealed partial class PaperWindow
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
+        // ConcealSource still reads the live preview HWND until the close animation reaches its
+        // endpoint. Freeze that source before Apply is allowed to shrink the same HWND to compact;
+        // otherwise the final DComp clip can point past the resized native surface and go blank.
+        if (!_controller.TryFreezeEdgeCapsuleQueueProxyDeferredEndpointSource(this))
+        {
+            return false;
+        }
         return ApplyEdgeCapsuleQueueProxyEndpoint(endpoint);
     }
 
