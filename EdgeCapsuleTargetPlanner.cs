@@ -65,6 +65,30 @@ internal static class EdgeCapsuleTargetPlanner
             bodyWidth,
             closeWidth,
             visibleHeight));
+        // V3 Lite keeps one stable, local HWND capacity for this paper. It is bounded by the
+        // documented maximum preview size and never spans the queue or work area. WPF owns every
+        // Resting/Hover/Preview morph inside this capacity; DComp may only translate the capacity.
+        var workAreaDip = layout.Monitor.LocalWorkAreaDip;
+        var maximumPreview = new EdgeCapsulePreviewSize(
+            EdgeCapsulePreviewSize.MaximumWidthDip,
+            EdgeCapsulePreviewSize.MaximumHeightDip).Normalize(
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumWidthDip,
+                    workAreaDip.Width - 16),
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumHeightDip,
+                    workAreaDip.Height - 16));
+        var hostBodyWidth = Math.Max(
+            layout.RestingWidthDip,
+            maximumPreview.WidthDip - layout.MaximumCloseWidthDip);
+        var hostGeometry = EdgeCapsuleGeometry.Calculate(
+            new EdgeCapsuleGeometryInput(
+                layout.Monitor,
+                layout.Edge,
+                top,
+                hostBodyWidth,
+                layout.MaximumCloseWidthDip,
+                Math.Max(layout.HeightDip, maximumPreview.HeightDip)));
         var surface = SurfaceFor(
             model,
             preview,
@@ -82,7 +106,7 @@ internal static class EdgeCapsuleTargetPlanner
             true,
             surface,
             geometry.Bounds,
-            geometry.Bounds,
+            hostGeometry.Bounds,
             interactiveBounds,
             layout.Edge,
             geometry.RestingWidthDevice,

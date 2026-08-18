@@ -95,7 +95,7 @@ internal static class EdgeCapsuleTransitionPolicy
             true,
             outgoingPreview ? start.Surface : target.Surface,
             bounds,
-            bounds,
+            target.HostBounds,
             interactiveBounds,
             target.Edge,
             LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress),

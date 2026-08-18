@@ -30,6 +30,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private readonly Action _environmentChanged;
     private readonly Func<EdgeCapsuleQueueCompositionProxy, bool> _coverReady;
     private readonly Action<EdgeCapsuleQueueCompositionProxy, bool> _completed;
+    private readonly Func<long, bool> _endpointCommitRequested;
     private readonly long _sessionOrdinal;
     private long _animationStartedAtTimestamp;
     private long _heldAtTimestamp;
@@ -62,6 +63,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         QueueHost host,
         IDCompositionVisual root,
         DeviceScreenRect outputBounds,
+        Func<long, bool> endpointCommitRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
@@ -77,6 +79,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _target = host.Target;
         _root = root;
         _outputBounds = outputBounds;
+        _endpointCommitRequested = endpointCommitRequested;
         _interactionRequested = interactionRequested;
         _environmentChanged = environmentChanged;
         _coverReady = coverReady;
@@ -188,6 +191,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsuleQueueProxyPlan plan,
         IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> members,
         EdgeCapsuleQueueCompositionProxy? predecessor,
+        Func<long, bool> endpointCommitRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
@@ -261,6 +265,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 host,
                 root,
                 outputBounds,
+                endpointCommitRequested,
                 interactionRequested,
                 environmentChanged,
                 coverReady,

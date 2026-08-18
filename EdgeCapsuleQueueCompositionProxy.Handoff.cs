@@ -247,7 +247,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 PublishAuthoritySwap,
                 RollbackAuthoritySwap))
         {
-            return false;
+            return _coverLost
+                ? ReleaseAfterCoverLoss()
+                : false;
         }
 
         try

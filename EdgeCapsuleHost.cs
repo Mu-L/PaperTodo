@@ -329,7 +329,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 $"showMs={showMilliseconds:F3} verifyMs={verifyMilliseconds:F3} " +
                 $"surface={frame.Surface} visible={frame.Visible} " +
                 $"bounds={frame.Bounds.Width}x{frame.Bounds.Height} " +
-                $"nativeSet={nativeSetRequested} hostMode=compact " +
+                $"nativeSet={nativeSetRequested} hostMode=bounded-live " +
                 $"offsetYDevice={visualOffsetYDevice} " +
                 $"nativeBounds={nativeHostBounds.Left},{nativeHostBounds.Top}," +
                 $"{nativeHostBounds.Width}x{nativeHostBounds.Height}");
@@ -382,11 +382,14 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             frame.Surface != EdgeCapsuleSurfaceKind.FloatingFree,
             "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         Debug.Assert(
-            nativeHostBounds == frame.Bounds &&
+            frame.Bounds.Width <= nativeHostBounds.Width &&
+            frame.Bounds.Height <= nativeHostBounds.Height &&
             (frame.Edge == EdgeCapsuleEdge.Left
-                ? nativeHostBounds.Left == frame.WallDeviceX
-                : nativeHostBounds.Right == frame.WallDeviceX),
-            "The visible capsule must fit inside its native endpoint host.");
+                ? frame.Bounds.Left == frame.WallDeviceX &&
+                  nativeHostBounds.Left == frame.WallDeviceX
+                : frame.Bounds.Right == frame.WallDeviceX &&
+                  nativeHostBounds.Right == frame.WallDeviceX),
+            "The visible capsule must fit inside its bounded, wall-pinned native host.");
         var previousFrame = _appliedFrame;
         var previousNativeHostBounds = previousFrame.HostBounds;
         var nativeMetricsVersion = _nativeMetricsVersion;
@@ -746,12 +749,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var surfaceHeight = (int)Math.Round(
             VisualSurface.ActualHeight * dpi.DpiScaleY,
             MidpointRounding.AwayFromZero);
-        var expectedOffsetY =
-            (frame.Bounds.Top - nativeHostBounds.Top) /
-            Math.Max(1, frame.DpiScaleY);
         return Math.Abs(surfaceWidth - frame.Bounds.Width) <= 1 &&
             Math.Abs(surfaceHeight - frame.Bounds.Height) <= 1 &&
-            Math.Abs(VisualSurfaceOffset.Y - expectedOffsetY) <= 0.5;
+            Math.Abs(VisualSurfaceOffset.Y) <= 0.5;
     }
 
     private void ResetForFreshApply()
@@ -1494,9 +1494,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         surface.Width = frame.Bounds.Width / Math.Max(1, frame.DpiScaleX);
         surface.Height = frame.Bounds.Height / Math.Max(1, frame.DpiScaleY);
         VisualSurfaceOffset.X = 0;
-        VisualSurfaceOffset.Y =
-            (frame.Bounds.Top - frame.HostBounds.Top) /
-            Math.Max(1, frame.DpiScaleY);
+        // Global queue translation belongs exclusively to the DComp visual. The live WPF shape is
+        // always rendered at the local origin of its endpoint host, so translation is never applied
+        // twice while the HWND is cloaked under the compositor cover.
+        VisualSurfaceOffset.Y = 0;
     }
 
     private void ApplyCloseSegmentMode(EdgeCapsulePresentationFrame frame)

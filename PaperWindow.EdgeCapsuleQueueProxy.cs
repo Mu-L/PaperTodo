@@ -44,7 +44,9 @@ public sealed partial class PaperWindow
                 _controller.FullscreenAvoidanceWindowForQueue(
                     _paper.CapsuleMonitorDeviceName) == IntPtr.Zero,
             host.IsTopmost,
-            retainedByCurrentProxy);
+            retainedByCurrentProxy,
+            _edgeCapsule.State.Gesture,
+            _deepCapsuleFloatingDragHost is { IsVisible: true });
     }
 
     internal (

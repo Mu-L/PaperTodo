@@ -193,10 +193,12 @@ internal readonly record struct EdgeCapsulePresentationFrame(
 
     public bool IsUsable => !Visible || (
         !Bounds.IsEmpty &&
-        HostBounds == Bounds &&
+        !HostBounds.IsEmpty &&
+        Bounds.Width <= HostBounds.Width &&
+        Bounds.Height <= HostBounds.Height &&
         (Edge == EdgeCapsuleEdge.Left
-            ? HostBounds.Left == WallDeviceX
-            : HostBounds.Right == WallDeviceX));
+            ? Bounds.Left == WallDeviceX && HostBounds.Left == WallDeviceX
+            : Bounds.Right == WallDeviceX && HostBounds.Right == WallDeviceX));
 }
 
 internal readonly record struct EdgeCapsuleTransition(
