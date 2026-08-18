@@ -117,6 +117,17 @@ public sealed partial class PaperWindow
         EdgeCapsulePresentationFrame source) =>
         _edgeCapsuleHost?.CaptureProxySnapshot(source);
 
+    internal bool TryGetEdgeCapsuleQueueProxySnapshotSource(
+        out EdgeCapsulePresentationFrame source)
+    {
+        source = EdgeCapsulePresentationFrame.Hidden;
+        return _windowLifecycle == PaperWindowLifecycleState.Alive &&
+            !IsClosed &&
+            _edgeCapsuleHost?.TryGetAppliedPresentation(out source) == true &&
+            source.Visible &&
+            source.IsUsable;
+    }
+
     internal bool ApplyEdgeCapsuleQueueProxyEndpoint(
         EdgeCapsulePresentationFrame endpoint)
     {

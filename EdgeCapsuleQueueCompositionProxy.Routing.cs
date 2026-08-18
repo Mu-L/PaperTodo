@@ -216,7 +216,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _sampleTimer.Start();
         _completionTimer.Interval =
             TimeSpan.FromMilliseconds(
-                remainingMilliseconds + 34);
+                remainingMilliseconds +
+                CompletionGuardMilliseconds);
         _completionTimer.Start();
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(

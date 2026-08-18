@@ -7,7 +7,7 @@ public sealed partial class AppController
 {
     // Two 60-Hz frames reject incidental pass-through without adding the visibly sluggish 50-ms
     // floor to every A-to-B switch. The negative-only predictor can still extend or veto motion.
-    private const double EdgeCapsulePreviewTransferStableMilliseconds = 32;
+    private const double EdgeCapsulePreviewTransferResidenceMilliseconds = 32;
     private const double EdgeCapsulePreviewPointerToleranceDip = 2;
     private const double EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds = 24;
     private const double EdgeCapsulePreviewActivationIntentTrackingMilliseconds = 16;
@@ -28,6 +28,10 @@ public sealed partial class AppController
         _edgeCapsulePreviewCorridorExitIntent;
     private DispatcherTimer? _edgeCapsulePreviewCorridorIntentTimer;
     private DispatcherTimer? _edgeCapsulePreviewActivationIntentTimer;
+    private Task _edgeCapsulePreviewSnapshotPreparationTail =
+        Task.CompletedTask;
+    private EdgeCapsulePreviewSnapshotPreparation?
+        _edgeCapsulePreviewSnapshotPreparation;
     private EdgeCapsulePreviewPointerAnchor?
         _edgeCapsulePreviewLayoutSuppressionAnchor;
     private int _edgeCapsulePreviewTransferGeneration;
@@ -44,6 +48,19 @@ public sealed partial class AppController
         DeviceScreenPoint StableAnchor,
         long CandidateSinceTimestamp,
         long StableSinceTimestamp);
+
+    private sealed record EdgeCapsulePreviewPreparedSnapshot(
+        EdgeCapsulePresentationFrame Source,
+        EdgeCapsuleProxySnapshotHost Host);
+
+    private sealed record EdgeCapsulePreviewSnapshotPreparation(
+        PaperWindow Target,
+        string PaperId,
+        string? ExpectedOwnerPaperId)
+    {
+        internal Task Completion { get; set; } = Task.CompletedTask;
+        internal EdgeCapsulePreviewPreparedSnapshot? Prepared { get; set; }
+    }
 
     private readonly record struct EdgeCapsulePreviewPointerAnchor(
         DeviceScreenPoint Point,
@@ -587,7 +604,7 @@ public sealed partial class AppController
                 {
                     // A real target discovered during close revalidation is transfer authority,
                     // not merely a reason to swallow the close. Route it through the same owner
-                    // arbiter so the normal 50 ms stability rule still applies.
+                    // arbiter so the normal 32 ms target-residence rule still applies.
                     ForgetEdgeCapsulePreviewPointerResolution();
                     NotifyEdgeCapsulePreviewPointerSample(owner, pointer);
                     return;
@@ -825,7 +842,8 @@ public sealed partial class AppController
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
         _edgeCapsulePreviewQueuedCloseReason =
             EdgeCapsulePreviewCloseReason.OutsideTransferRectangle;
-        ResetEdgeCapsulePreviewActivationIntent();
+        ResetEdgeCapsulePreviewActivationIntent(
+            preservePreparedSnapshot: true);
         var previous = _edgeCapsulePreviewSession;
         if (previous != null &&
             !string.Equals(
@@ -1236,8 +1254,9 @@ public sealed partial class AppController
             State.ExperimentalEdgeCapsuleHoverIntent;
         if (session == null)
         {
-            // The first real physical hit has no dwell. Keep one sample only as history for a later
-            // transfer; prediction never delays the first card or authorizes opening on its own.
+            // The first real physical hit has no dwell. Publish its one-frame snapshot host outside
+            // the routed-input stack, then queue the still-pointer-validated transfer immediately.
+            // Prediction remains history-only and never delays or authorizes the first card.
             if (predictiveIntentEnabled)
             {
                 _edgeCapsulePreviewIntentPredictor.Observe(
@@ -1246,8 +1265,25 @@ public sealed partial class AppController
                     targetGeometry.DpiScaleX,
                     targetGeometry.DpiScaleY);
             }
-            ResetEdgeCapsulePreviewActivationIntent();
-            QueueEdgeCapsulePreviewTransfer(target);
+            ResetEdgeCapsulePreviewActivationIntent(
+                preservePreparedSnapshot: true);
+            var preparation =
+                _edgeCapsulePreviewSnapshotPreparation;
+            if (preparation == null ||
+                !string.Equals(
+                    preparation.PaperId,
+                    targetPaperId,
+                    StringComparison.Ordinal) ||
+                preparation.ExpectedOwnerPaperId != null)
+            {
+                QueueEdgeCapsulePreviewSnapshotPreparation(
+                    target,
+                    expectedOwnerPaperId: null);
+            }
+            else if (preparation.Completion.IsCompleted)
+            {
+                QueueEdgeCapsulePreviewTransfer(target);
+            }
             return;
         }
 
@@ -1269,12 +1305,15 @@ public sealed partial class AppController
                     pointer,
                     now,
                     now);
+            QueueEdgeCapsulePreviewSnapshotPreparation(
+                target,
+                expectedOwnerPaperId);
             TraceEdgeCapsulePreview(
                 $"intent candidate target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
                 $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} pointer={pointer.X},{pointer.Y}");
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
-                EdgeCapsulePreviewTransferStableMilliseconds);
+                EdgeCapsulePreviewTransferResidenceMilliseconds);
             return;
         }
 
@@ -1299,14 +1338,21 @@ public sealed partial class AppController
         var stableElapsed = Stopwatch.GetElapsedTime(
             currentIntent.StableSinceTimestamp,
             now).TotalMilliseconds;
-        // A short stable dwell inside a 2-DIP radius is the positive transfer authority in every
-        // mode. The predictor is negative-only and may add delay/veto after this baseline; it can
-        // never shorten it.
-        if (stableElapsed < EdgeCapsulePreviewTransferStableMilliseconds)
+        // Continuous residence in one real target is the positive authority. Small physical mouse
+        // motion updates the predictor anchor but no longer restarts the whole gate; the optional
+        // negative-only predictor can still extend or veto a fast pass-through.
+        if (candidateElapsed < EdgeCapsulePreviewTransferResidenceMilliseconds)
         {
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
-                EdgeCapsulePreviewTransferStableMilliseconds - stableElapsed);
+                EdgeCapsulePreviewTransferResidenceMilliseconds - candidateElapsed);
+            return;
+        }
+        if (IsEdgeCapsulePreviewSnapshotPreparationPending(
+                targetPaperId,
+                expectedOwnerPaperId))
+        {
+            // Completion schedules the next check; do not poll the UI dispatcher every millisecond.
             return;
         }
         if (predictiveIntentEnabled)
@@ -1327,7 +1373,8 @@ public sealed partial class AppController
             }
         }
 
-        ResetEdgeCapsulePreviewActivationIntent();
+        ResetEdgeCapsulePreviewActivationIntent(
+            preservePreparedSnapshot: true);
         TraceEdgeCapsulePreview(
             $"intent accepted target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
             $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} " +
@@ -1657,7 +1704,7 @@ public sealed partial class AppController
         }
 
         // Re-enter the one owner arbiter. This is important when the timer itself discovers a real
-        // target: that hit must start the normal 50 ms transfer rather than merely cancel closing.
+        // target: that hit must start the normal 32 ms transfer rather than merely cancel closing.
         ForgetEdgeCapsulePreviewPointerResolution();
         NotifyEdgeCapsulePreviewPointerSample(owner, pointer);
     }
@@ -1763,12 +1810,225 @@ public sealed partial class AppController
             _edgeCapsulePreviewQueuedTransferPaperId = null;
             _edgeCapsulePreviewTransferGeneration++;
         }
+
+        CancelEdgeCapsulePreviewSnapshotPreparation(targetPaperId);
     }
 
-    private void ResetEdgeCapsulePreviewActivationIntent()
+    private void QueueEdgeCapsulePreviewSnapshotPreparation(
+        PaperWindow target,
+        string? expectedOwnerPaperId)
+    {
+        var paperId = target.EdgeCapsulePreviewPaperId;
+        _edgeCapsulePreviewSnapshotPreparation?
+            .Prepared?.Host.Dispose();
+        var preparation =
+            new EdgeCapsulePreviewSnapshotPreparation(
+                target,
+                paperId,
+                expectedOwnerPaperId);
+        _edgeCapsulePreviewSnapshotPreparation = preparation;
+        var preceding = _edgeCapsulePreviewSnapshotPreparationTail;
+        var completion = PrepareEdgeCapsulePreviewSnapshotAsync(
+            preceding,
+            preparation);
+        preparation.Completion = completion;
+        _edgeCapsulePreviewSnapshotPreparationTail = completion;
+    }
+
+    private async Task PrepareEdgeCapsulePreviewSnapshotAsync(
+        Task preceding,
+        EdgeCapsulePreviewSnapshotPreparation preparation)
+    {
+        try
+        {
+            // Candidate changes serialize through one spare lease. The active proxy may own the
+            // other lease, so rapid pointer motion can never manufacture a third snapshot HWND.
+            await preceding;
+
+            if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
+                    preparation))
+            {
+                return;
+            }
+
+            await preparation.Target.Dispatcher.InvokeAsync(
+                static () => { },
+                DispatcherPriority.Input);
+            if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
+                    preparation))
+            {
+                return;
+            }
+
+            var captureStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+            if (!preparation.Target
+                    .TryGetEdgeCapsuleQueueProxySnapshotSource(
+                        out var source) ||
+                preparation.Target
+                    .CaptureEdgeCapsuleQueueProxySnapshot(source) is not
+                    { } bitmap)
+            {
+                TraceEdgeCapsulePreview(
+                    $"snapshot prefetch target={EdgeCapsulePreviewTraceId(preparation.PaperId)} " +
+                    "outcome=source-unavailable");
+                return;
+            }
+            var captureMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    captureStartedAt);
+            var hostStartedAt =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+            var host = await EdgeCapsuleProxySnapshotHost.TryCreateAsync(
+                bitmap,
+                source);
+            var hostMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    hostStartedAt);
+            if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
+                    preparation))
+            {
+                host?.Dispose();
+                return;
+            }
+            if (host == null)
+            {
+                TraceEdgeCapsulePreview(
+                    $"snapshot prefetch target={EdgeCapsulePreviewTraceId(preparation.PaperId)} " +
+                    $"outcome=host-failed captureMs={captureMilliseconds:F3} " +
+                    $"hostMs={hostMilliseconds:F3}");
+                return;
+            }
+
+            preparation.Prepared =
+                new EdgeCapsulePreviewPreparedSnapshot(
+                    source,
+                    host);
+            TraceEdgeCapsulePreview(
+                $"snapshot prefetch target={EdgeCapsulePreviewTraceId(preparation.PaperId)} " +
+                $"outcome=ready captureMs={captureMilliseconds:F3} " +
+                $"hostMs={hostMilliseconds:F3}");
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning(
+                "Edge capsule snapshot prefetch failed. PaperId={0}; Exception={1}",
+                preparation.PaperId,
+                ex);
+        }
+        finally
+        {
+            if (IsEdgeCapsulePreviewSnapshotPreparationCurrent(
+                    preparation))
+            {
+                if (preparation.ExpectedOwnerPaperId == null &&
+                    _edgeCapsulePreviewSession == null)
+                {
+                    QueueEdgeCapsulePreviewTransfer(
+                        preparation.Target);
+                }
+                else if (_edgeCapsulePreviewActivationIntent is { } intent &&
+                    string.Equals(
+                        intent.TargetPaperId,
+                        preparation.PaperId,
+                        StringComparison.Ordinal) &&
+                    string.Equals(
+                        intent.ExpectedOwnerPaperId,
+                        preparation.ExpectedOwnerPaperId,
+                        StringComparison.Ordinal))
+                {
+                    ScheduleEdgeCapsulePreviewActivationIntentCheck(
+                        preparation.Target,
+                        1);
+                }
+            }
+        }
+    }
+
+    private bool IsEdgeCapsulePreviewSnapshotPreparationCurrent(
+        EdgeCapsulePreviewSnapshotPreparation preparation) =>
+        !IsExiting &&
+        ReferenceEquals(
+            _edgeCapsulePreviewSnapshotPreparation,
+            preparation) &&
+        _windows.TryGetValue(
+            preparation.PaperId,
+            out var current) &&
+        ReferenceEquals(current, preparation.Target);
+
+    private bool IsEdgeCapsulePreviewSnapshotPreparationPending(
+        string paperId,
+        string? expectedOwnerPaperId) =>
+        _edgeCapsulePreviewSnapshotPreparation is
+            { Prepared: null } preparation &&
+        !preparation.Completion.IsCompleted &&
+        string.Equals(
+            preparation.PaperId,
+            paperId,
+            StringComparison.Ordinal) &&
+        string.Equals(
+            preparation.ExpectedOwnerPaperId,
+            expectedOwnerPaperId,
+            StringComparison.Ordinal);
+
+    private bool TryTakeEdgeCapsulePreviewPreparedSnapshot(
+        string paperId,
+        EdgeCapsulePresentationFrame source,
+        out EdgeCapsulePreviewPreparedSnapshot prepared)
+    {
+        prepared = null!;
+        var preparation =
+            _edgeCapsulePreviewSnapshotPreparation;
+        var candidate = preparation?.Prepared;
+        if (preparation == null ||
+            candidate == null ||
+            !string.Equals(
+                preparation.PaperId,
+                paperId,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _edgeCapsulePreviewSnapshotPreparation = null;
+        if (candidate.Source != source)
+        {
+            candidate.Host.Dispose();
+            return false;
+        }
+
+        prepared = candidate;
+        return true;
+    }
+
+    private void CancelEdgeCapsulePreviewSnapshotPreparation(
+        string? targetPaperId = null)
+    {
+        var preparation =
+            _edgeCapsulePreviewSnapshotPreparation;
+        if (targetPaperId != null &&
+            preparation != null &&
+            !string.Equals(
+                preparation.PaperId,
+                targetPaperId,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _edgeCapsulePreviewSnapshotPreparation = null;
+        preparation?.Prepared?.Host.Dispose();
+    }
+
+    private void ResetEdgeCapsulePreviewActivationIntent(
+        bool preservePreparedSnapshot = false)
     {
         _edgeCapsulePreviewActivationIntent = null;
         _edgeCapsulePreviewActivationIntentTimer?.Stop();
+        if (!preservePreparedSnapshot)
+        {
+            CancelEdgeCapsulePreviewSnapshotPreparation();
+        }
     }
 
     private void ScheduleEdgeCapsulePreviewActivationIntentCheck(
@@ -1817,8 +2077,8 @@ public sealed partial class AppController
         if (!WindowNative.TryGetCursorScreenPosition(out var pointer))
         {
             // Do not leave a second retry loop alive after the target sample disappears. The shared
-            // pointer-recovery watcher will retry, recognize a real target again with a fresh 50 ms
-            // stability period, or close through the normal blank-region deadline.
+            // pointer-recovery watcher will retry, recognize a real target again with a fresh 32 ms
+            // residence period, or close through the normal blank-region deadline.
             TrackEdgeCapsulePreviewUnavailablePointer(owner, session);
             return;
         }
@@ -1885,7 +2145,7 @@ public sealed partial class AppController
         if (target == null)
         {
             // A physical hit in another monitor/edge queue is still a transfer from the current
-            // session. Let the old owner arbitrate it so the target keeps the same 50 ms stability
+            // session. Let the old owner arbitrate it so the target keeps the same 32 ms residence
             // contract instead of closing and reopening as a new first card.
             foreach (var paper in State.Papers)
             {

@@ -11,6 +11,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
+    private const int CompletionGuardMilliseconds = 1;
     private readonly EdgeCapsuleQueueProxyPlan _plan;
     private readonly IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> _members;
     private readonly EdgeCapsuleQueueCompositionProxy? _predecessor;
@@ -89,8 +90,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             OnSampleTimerTick,
             dispatcher);
         _completionTimer = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(plan.DurationMilliseconds + 34),
-            DispatcherPriority.Render,
+            TimeSpan.FromMilliseconds(
+                plan.DurationMilliseconds + CompletionGuardMilliseconds),
+            DispatcherPriority.Send,
             OnCompletionTimerTick,
             dispatcher)
         {

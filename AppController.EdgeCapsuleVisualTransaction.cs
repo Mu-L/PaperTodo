@@ -709,33 +709,56 @@ public sealed partial class AppController
                 EdgeCapsuleProxySnapshotHost? snapshotHost = null;
                 if (memberPlan.RequiresStartSnapshot)
                 {
+                    var prefetched =
+                        TryTakeEdgeCapsulePreviewPreparedSnapshot(
+                            memberPlan.PaperId,
+                            memberPlan.Source,
+                            out var preparedSnapshot);
 #if DEBUG
-                    var captureStartedAt =
-                        EdgeCapsulePerformanceDiagnostics.Timestamp();
+                    var captureMilliseconds = 0.0;
+                    var hostMilliseconds = 0.0;
 #endif
-                    var snapshot = entry.Window
-                        .CaptureEdgeCapsuleQueueProxySnapshot(
-                            memberPlan.Source);
+                    if (prefetched)
+                    {
+                        snapshotHost = preparedSnapshot.Host;
+                    }
+                    else
+                    {
 #if DEBUG
-                    var captureMilliseconds =
-                        EdgeCapsulePerformanceDiagnostics
-                            .ElapsedMilliseconds(
-                                captureStartedAt);
-                    var hostStartedAt =
-                        EdgeCapsulePerformanceDiagnostics.Timestamp();
+                        var captureStartedAt =
+                            EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-                    snapshotHost = snapshot == null
-                        ? null
-                        : EdgeCapsuleProxySnapshotHost.TryCreate(
-                            snapshot,
-                            memberPlan.Source);
+                        var snapshot = entry.Window
+                            .CaptureEdgeCapsuleQueueProxySnapshot(
+                                memberPlan.Source);
+#if DEBUG
+                        captureMilliseconds =
+                            EdgeCapsulePerformanceDiagnostics
+                                .ElapsedMilliseconds(
+                                    captureStartedAt);
+                        var hostStartedAt =
+                            EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+                        snapshotHost = snapshot == null
+                            ? null
+                            : EdgeCapsuleProxySnapshotHost.TryCreate(
+                                snapshot,
+                                memberPlan.Source);
+#if DEBUG
+                        hostMilliseconds =
+                            EdgeCapsulePerformanceDiagnostics
+                                .ElapsedMilliseconds(
+                                    hostStartedAt);
+#endif
+                    }
 #if DEBUG
                     EdgeCapsulePerformanceDiagnostics.Trace(
                         $"proxy.snapshot session={sessionOrdinal} " +
                         $"cold={sessionOrdinal == 1} queue={plan.QueueKey} " +
                         $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(memberPlan.PaperId)} " +
+                        $"prefetched={prefetched} " +
                         $"captureMs={captureMilliseconds:F3} " +
-                        $"hostCreateMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(hostStartedAt):F3} " +
+                        $"hostCreateMs={hostMilliseconds:F3} " +
                         $"outcome={(snapshotHost == null ? "failed" : "ready")} " +
                         $"pixels={(long)memberPlan.Source.Bounds.Width * memberPlan.Source.Bounds.Height}");
 #endif
@@ -1048,13 +1071,13 @@ public sealed partial class AppController
             if (endpointsReady &&
                 endpoints.Any(item => item.Endpoint.Visible))
             {
-                // Submit every real endpoint in one WPF render turn and cross DWM once for the
-                // queue. Verification stays per HWND, but no member can serialize its own Render +
-                // DwmFlush pair ahead of the next member.
+                // Submit every real endpoint in one WPF render turn, but do not cross DWM here.
+                // TryReleaseForHandoff publishes these queued surface updates together with the
+                // real/proxy authority swap. A separate flush held the final proxy frame for one
+                // more presentation and made close look frozen before its last-frame flash.
                 windows[0].Dispatcher.Invoke(
                     static () => { },
                     DispatcherPriority.Render);
-                WindowNative.FlushDesktopComposition();
             }
 
             if (endpointsReady)

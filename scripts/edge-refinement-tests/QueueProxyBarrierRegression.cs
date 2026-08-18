@@ -14,11 +14,17 @@ internal static class QueueProxyBarrierRegression
     {
         var root = RepositoryRoot();
         var startup = Read(root, "EdgeCapsuleQueueCompositionProxy.Startup.cs");
+        var core = Read(root, "EdgeCapsuleQueueCompositionProxy.Core.cs");
+        var routing = Read(root, "EdgeCapsuleQueueCompositionProxy.Routing.cs");
         var visuals = Read(root, "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
         var transaction = Between(
             Read(root, "AppController.EdgeCapsuleVisualTransaction.cs"),
             "private bool TryStartEdgeCapsuleQueueCompositionProxy(",
             "private bool PublishEdgeCapsuleQueueCompositionProxy(");
+        var completion = Between(
+            Read(root, "AppController.EdgeCapsuleVisualTransaction.cs"),
+            "private bool FinishEdgeCapsuleQueueCompositionProxy(",
+            "internal void CompleteEdgeCapsuleQueueCompositionProxyFor(");
         var handoff = Between(
             Read(root, "EdgeCapsuleQueueCompositionProxy.Handoff.cs"),
             "public bool TryReleaseForHandoff()",
@@ -44,8 +50,9 @@ internal static class QueueProxyBarrierRegression
             Count(startup, "TrySetWindowCloakedBatch") == 1 &&
             Count(startup, "WaitForCommitCompletion") == 0 &&
             Count(startup, "TryFlushDesktopComposition") == 1 &&
+            Count(startup, "WindowNative.FlushDesktopComposition();") == 1 &&
             !startup.Contains("TrySetWindowCloaked(", StringComparison.Ordinal),
-            "startup must publish the root and new source cloaks at one desktop boundary");
+            "startup must use one root/cloak boundary and one animated endpoint boundary");
 
         var rootCommit = RequiredIndex(startup, "_target.SetRoot(_root)");
         var cloakBoundary = RequiredIndex(startup, "TrySetWindowCloakedBatch");
@@ -56,6 +63,9 @@ internal static class QueueProxyBarrierRegression
 
         var endpointStage = startup[RequiredIndex(startup, "var endpointMembers =")..];
         var render = RequiredIndex(endpointStage, "Dispatcher.Invoke(");
+        var animationCommit = RequiredIndex(
+            endpointStage,
+            "ConfigureAnimations(_animationStartedAtTimestamp)");
         var endpointBarrier = RequiredIndex(
             endpointStage,
             "FlushDesktopComposition");
@@ -64,8 +74,22 @@ internal static class QueueProxyBarrierRegression
             "foreach (var member in nativeRevealMembers)");
         Assert(
             Count(endpointStage, "FlushDesktopComposition") == 1 &&
-            render < endpointBarrier && endpointBarrier < verifyLoop,
-            "endpoint publish must render and flush once before per-member verification");
+            render < animationCommit &&
+            animationCommit < endpointBarrier &&
+            endpointBarrier < verifyLoop,
+            "endpoint WPF publication and animation commit must share one barrier before verification");
+        Assert(
+            core.Contains(
+                "private const int CompletionGuardMilliseconds = 1;",
+                StringComparison.Ordinal) &&
+            core.Contains("DispatcherPriority.Send", StringComparison.Ordinal) &&
+            startup.Contains(
+                "elapsedSinceAnimationStart",
+                StringComparison.Ordinal) &&
+            !core.Contains("+ 34", StringComparison.Ordinal) &&
+            !startup.Contains("+ 34", StringComparison.Ordinal) &&
+            !routing.Contains("+ 34", StringComparison.Ordinal),
+            "absolute-QPC animation completion must not add the old 34ms endpoint hold");
         Assert(
             Count(visuals, "RoundedBodyClipRadius(") == 2 &&
             Count(startup, "RoundedBodyClipForVisibleBounds(") == 8,
@@ -150,10 +174,10 @@ internal static class QueueProxyBarrierRegression
             snapshotHost.Contains(
                 "if (!WindowNative.TrySetWindowCloaked(",
                 StringComparison.Ordinal) &&
-            snapshotHost.Contains(
-                "DispatcherPriority.Render",
-                StringComparison.Ordinal),
-            "snapshot hosts must verify their permanent cloak, render while cloaked and reuse startup's desktop boundary");
+            snapshotHost.Contains("TryCreateAsync(", StringComparison.Ordinal) &&
+            snapshotHost.Contains("InvokeAsync(", StringComparison.Ordinal) &&
+            snapshotHost.Contains("DispatcherPriority.Render", StringComparison.Ordinal),
+            "snapshot hosts must stay cloaked and support a non-nested Render publication turn");
 
         var capacity = Between(
             Read(root, "PaperWindow.EdgeCapsuleQueueProxy.cs"),
@@ -171,6 +195,9 @@ internal static class QueueProxyBarrierRegression
         var snapshotCapture = RequiredIndex(
             transaction,
             "CaptureEdgeCapsuleQueueProxySnapshot(");
+        var prefetchedSnapshot = RequiredIndex(
+            transaction,
+            "TryTakeEdgeCapsulePreviewPreparedSnapshot(");
         var latch = RequiredIndex(
             transaction,
             "TryLatchForSuccessor");
@@ -178,24 +205,28 @@ internal static class QueueProxyBarrierRegression
             transaction,
             "var latchedPlan =");
         Assert(
+            prefetchedSnapshot < snapshotCapture &&
             transaction[snapshotCapture..latch].Contains(
                 "memberPlan.Source",
                 StringComparison.Ordinal) &&
             snapshotCapture < latch && latch < latchedPlan,
-            "successor snapshots must use the full source before one late queue-wide latch");
+            "successor snapshots must consume a warm full source before one late queue-wide latch");
 
-        var reveal = RequiredIndex(handoff, "TrySetWindowCloakedBatch");
         var detach = RequiredIndex(handoff, "_target.SetRoot(null!)");
         var detachCommit = RequiredIndex(handoff, "_device.Commit().CheckError()");
+        var reveal = RequiredIndex(handoff, "WindowNative.TrySetWindowCloakedBatch(");
         var leaseRelease = RequiredIndex(handoff, "_host.Detach(this)");
         Assert(
-            reveal < detach &&
             detach < detachCommit &&
-            detachCommit < leaseRelease &&
+            detachCommit < reveal &&
+            reveal < leaseRelease &&
+            Count(handoff, "_target.SetRoot(null!)") == 1 &&
+            handoff.Contains("PublishAuthoritySwap", StringComparison.Ordinal) &&
+            handoff.Contains("RollbackAuthoritySwap", StringComparison.Ordinal) &&
             handoff.Contains("Cloaked: false", StringComparison.Ordinal) &&
             !handoff.Contains("WaitForCommitCompletion", StringComparison.Ordinal) &&
             !handoff.Contains("TrySetWindowCloaked(", StringComparison.Ordinal),
-            "handoff must reveal, detach and release the queue lease before deferred cleanup");
+            "handoff must swap real/proxy authority in one cloak boundary before releasing the lease");
         var cleanupFailure = handoff[RequiredIndex(handoff, "catch (Exception ex)")..];
         Assert(
             !cleanupFailure.Contains("Cloaked: true", StringComparison.Ordinal),
@@ -203,12 +234,43 @@ internal static class QueueProxyBarrierRegression
 
         var successfulBatch = nativeBatch[..RequiredIndex(nativeBatch, "if (!verified)")];
         var set = RequiredIndex(successfulBatch, "TrySetWindowCloakAttribute");
+        var coordinatedPublish = RequiredIndex(
+            successfulBatch,
+            "publishBeforeFlush()");
         var flush = RequiredIndex(successfulBatch, "DwmFlush()");
         var verify = RequiredIndex(successfulBatch, "TryGetWindowAppCloaked");
         Assert(
             Count(successfulBatch, "DwmFlush()") == 1 &&
-            set < flush && flush < verify,
-            "a successful cloak batch must write all states, flush once, then verify");
+            set < coordinatedPublish &&
+            coordinatedPublish < flush &&
+            flush < verify,
+            "a successful cloak batch must write states, publish the coordinated swap, flush once, then verify");
+        var failedBatch = nativeBatch[RequiredIndex(nativeBatch, "if (!verified)")..];
+        Assert(
+            RequiredIndex(failedBatch, "rollbackBeforeFlush?.Invoke()") <
+                RequiredIndex(failedBatch, "DwmFlush()"),
+            "cloak rollback must restore the proxy authority before its rollback boundary");
+        Assert(
+            Count(completion, "FlushDesktopComposition") == 0 &&
+            RequiredIndex(completion, "Dispatcher.Invoke(") <
+                RequiredIndex(completion, "TryReleaseForHandoff()"),
+            "final endpoint publication must share the authority-swap boundary instead of adding a static frame");
+
+        var previewController = Read(root, "AppController.EdgeCapsulePreview.cs");
+        Assert(
+            previewController.Contains(
+                "candidateElapsed < EdgeCapsulePreviewTransferResidenceMilliseconds",
+                StringComparison.Ordinal) &&
+            !previewController.Contains(
+                "stableElapsed < EdgeCapsulePreviewTransferResidenceMilliseconds",
+                StringComparison.Ordinal) &&
+            previewController.Contains(
+                "QueueEdgeCapsulePreviewSnapshotPreparation(",
+                StringComparison.Ordinal) &&
+            previewController.Contains(
+                "PrepareEdgeCapsulePreviewSnapshotAsync(",
+                StringComparison.Ordinal),
+            "A-to-B authority must use target residence while preparing its snapshot off the commit stack");
 
         Assert(
             closeForDrag.Contains(

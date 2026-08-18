@@ -207,25 +207,59 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 Cloaked: false,
                 RollbackCloaked: true))
             .ToArray();
-        if (!WindowNative.TrySetWindowCloakedBatch(revealChanges))
+        var swapAttempted = false;
+        bool PublishAuthoritySwap()
+        {
+            if (!ReferenceEquals(_host.Current, this))
+            {
+                return false;
+            }
+
+            swapAttempted = true;
+            _target.SetRoot(null!).CheckError();
+            _device.Commit().CheckError();
+            _targetRootInstalled = false;
+            return true;
+        }
+
+        void RollbackAuthoritySwap()
+        {
+            if (!swapAttempted)
+            {
+                return;
+            }
+
+            try
+            {
+                _target.SetRoot(_root).CheckError();
+                _device.Commit().CheckError();
+                _targetRootInstalled = true;
+            }
+            catch
+            {
+                _coverLost = true;
+                throw;
+            }
+        }
+
+        if (!WindowNative.TrySetWindowCloakedBatch(
+                revealChanges,
+                PublishAuthoritySwap,
+                RollbackAuthoritySwap))
         {
             return false;
         }
 
         try
         {
-            // The batch above already crossed one desktop boundary and verified every real HWND.
-            // Hide the now-redundant output first. From this point the verified real endpoints are
-            // authoritative; DComp graph retirement is cleanup and must never re-cloak them.
+            // Uncloak every real endpoint and detach the proxy root in the same DWM boundary. The
+            // old two-boundary reveal-then-hide order intentionally overlapped both antialiased
+            // silhouettes for one frame, which appeared as a final-frame flash at high refresh.
+            // The output HWND remains shown but pixel-empty during the boundary, so rollback only
+            // has to restore the root. Hide that transparent, input-passthrough HWND afterwards.
             if (ReferenceEquals(_host.Current, this))
             {
                 _window.Hide();
-                _target.SetRoot(null!).CheckError();
-                _device.Commit().CheckError();
-                _targetRootInstalled = false;
-                // The detached root no longer owns any visible or input pixels. Release the queue
-                // lease now so a hover-to-preview transfer can stage its next generation while
-                // this generation's COM objects remain alive for one deferred dispatcher turn.
                 _host.Detach(this);
             }
             _sourcesReleased = true;

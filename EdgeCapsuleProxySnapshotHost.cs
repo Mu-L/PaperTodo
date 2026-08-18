@@ -84,6 +84,71 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
         BitmapSource bitmap,
         EdgeCapsulePresentationFrame source)
     {
+        var host = TryAcquire(bitmap, source);
+        if (host == null ||
+            !host.TryPrepareLayout(bitmap, source))
+        {
+            host?.ClosePermanently();
+            return null;
+        }
+
+        host._leased = true;
+        try
+        {
+            host._dispatcher.Invoke(
+                static () => { },
+                DispatcherPriority.Render);
+            return host;
+        }
+        catch
+        {
+            host.ClosePermanently();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Prepares a candidate snapshot without nesting a Render-priority dispatcher frame. The
+    /// caller can overlap this publication turn with the hover-residence gate, then hand the warm
+    /// lease to the visual transaction without blocking its Send-priority commit.
+    /// </summary>
+    public static async Task<EdgeCapsuleProxySnapshotHost?> TryCreateAsync(
+        BitmapSource bitmap,
+        EdgeCapsulePresentationFrame source)
+    {
+        var host = TryAcquire(bitmap, source);
+        if (host == null ||
+            !host.TryPrepareLayout(bitmap, source))
+        {
+            host?.ClosePermanently();
+            return null;
+        }
+
+        host._leased = true;
+        try
+        {
+            await host._dispatcher.InvokeAsync(
+                static () => { },
+                DispatcherPriority.Render);
+            if (host._closed ||
+                host._dispatcher.HasShutdownStarted)
+            {
+                host.ClosePermanently();
+                return null;
+            }
+            return host;
+        }
+        catch
+        {
+            host.ClosePermanently();
+            return null;
+        }
+    }
+
+    private static EdgeCapsuleProxySnapshotHost? TryAcquire(
+        BitmapSource bitmap,
+        EdgeCapsulePresentationFrame source)
+    {
         if (source.Bounds.IsEmpty ||
             bitmap.PixelWidth <= 0 ||
             bitmap.PixelHeight <= 0)
@@ -114,16 +179,7 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
             }
         }
 
-        host ??= TryCreateHost(dispatcher);
-        if (host == null ||
-            !host.TryPrepare(bitmap, source))
-        {
-            host?.ClosePermanently();
-            return null;
-        }
-
-        host._leased = true;
-        return host;
+        return host ?? TryCreateHost(dispatcher);
     }
 
     private static EdgeCapsuleProxySnapshotHost? TryCreateHost(
@@ -193,7 +249,7 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
         }
     }
 
-    private bool TryPrepare(
+    private bool TryPrepareLayout(
         BitmapSource bitmap,
         EdgeCapsulePresentationFrame source)
     {
@@ -228,13 +284,6 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
 
             _window.UpdateLayout();
             WindowNative.ApplyBottomZOrder(_window);
-            // Submit the new frozen Image into the layered HWND. Do not uncloak and DwmFlush here:
-            // startup's one verified root/cloak boundary publishes both this source update and the
-            // queue root. The old path spent one full desktop frame exposing then re-cloaking an
-            // otherwise invisible source before every A-to-B handoff.
-            _dispatcher.Invoke(
-                static () => { },
-                DispatcherPriority.Render);
             return true;
         }
         catch

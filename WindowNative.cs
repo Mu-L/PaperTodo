@@ -1305,14 +1305,16 @@ internal static class WindowNative
 
     /// <summary>
     /// Applies a set of DWMWA_CLOAK changes as one desktop-composition boundary. DWM has no native
-    /// multi-HWND cloak API, so the important ordering is: set every handle, flush once, then verify
-    /// every handle. If any set, flush or verification fails, every handle whose set was attempted
-    /// is restored to the caller-supplied state and that rollback is flushed before returning.
+    /// multi-HWND cloak API, so the important ordering is: set every handle, optionally publish the
+    /// caller's coordinated visual change, flush once, then verify every handle. If any step fails,
+    /// every attempted handle and coordinated visual change are restored before one rollback flush.
     /// </summary>
     internal static bool TrySetWindowCloakedBatch(
-        IReadOnlyCollection<WindowCloakChange> requestedChanges)
+        IReadOnlyCollection<WindowCloakChange> requestedChanges,
+        Func<bool>? publishBeforeFlush = null,
+        Action? rollbackBeforeFlush = null)
     {
-        if (requestedChanges.Count == 0)
+        if (requestedChanges.Count == 0 && publishBeforeFlush == null)
         {
             return true;
         }
@@ -1354,13 +1356,25 @@ internal static class WindowNative
                 break;
             }
         }
+        var publishSucceeded = setSucceeded;
+        if (publishSucceeded && publishBeforeFlush != null)
+        {
+            try
+            {
+                publishSucceeded = publishBeforeFlush();
+            }
+            catch
+            {
+                publishSucceeded = false;
+            }
+        }
 #if DEBUG
         var setMilliseconds =
             EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
                 setStartedAt);
         var flushStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-        var flushed = setSucceeded && DwmFlush() == 0;
+        var flushed = publishSucceeded && DwmFlush() == 0;
 #if DEBUG
         var flushMilliseconds =
             EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
@@ -1396,13 +1410,23 @@ internal static class WindowNative
                     change.Handle,
                     change.RollbackCloaked);
             }
+            try
+            {
+                rollbackBeforeFlush?.Invoke();
+            }
+            catch
+            {
+                // The caller's original authority may already be damaged. Flush the cloak
+                // rollback anyway; its higher-level failure path will recover or recreate it.
+            }
             _ = DwmFlush();
         }
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"native.cloak phase=batch outcome={(verified ? "success" : "rollback")} " +
             $"count={changes.Length} attempted={attempted.Count} " +
-            $"target={(changes.All(change => change.Cloaked) ? "cloaked" : changes.All(change => !change.Cloaked) ? "visible" : "mixed")} " +
+            $"target={(changes.Length == 0 ? "none" : changes.All(change => change.Cloaked) ? "cloaked" : changes.All(change => !change.Cloaked) ? "visible" : "mixed")} " +
+            $"coordinated={publishBeforeFlush != null} " +
             $"setMs={setMilliseconds:F3} flushMs={flushMilliseconds:F3} " +
             $"verifyMs={verifyMilliseconds:F3} " +
             $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(batchStartedAt):F3}");

@@ -215,13 +215,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 {
                     return false;
                 }
-                WindowNative.FlushDesktopComposition();
             }
 
             var rootPublished = cloakChanges.Count > 0
                 ? WindowNative.TrySetWindowCloakedBatch(cloakChanges)
-                : _predecessor == null ||
-                  WindowNative.TryFlushDesktopComposition();
+                : WindowNative.TryFlushDesktopComposition();
             if (!rootPublished || _coverLost)
             {
                 return false;
@@ -268,32 +266,18 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 try
                 {
                     // Every endpoint tree has already completed Measure/Arrange. Submit them in one
-                    // Render turn, cross the desktop boundary once, then verify the whole set.
+                    // Render turn, then let the animation commit and this WPF publication share the
+                    // same desktop boundary below. Flushing before ConfigureAnimations held the
+                    // exact start frame for another 1-2 high-refresh frames.
                     _members[0].Window.Dispatcher.Invoke(
                         static () => { },
                         DispatcherPriority.Render);
-                    WindowNative.FlushDesktopComposition();
-                    foreach (var member in nativeRevealMembers)
-                    {
-                        endpointReady &= member.Window
-                            .VerifyEdgeCapsuleQueueProxyEndpoint(
-                                member.Plan.Target);
-                    }
                 }
                 catch
                 {
                     endpointReady = false;
                 }
             }
-#if DEBUG
-            EdgeCapsulePerformanceDiagnostics.Trace(
-                $"proxy.endpoint phase=prepare session={_sessionOrdinal} " +
-                $"cold={IsColdSession} queue={_plan.QueueKey} " +
-                $"members={endpointMembers.Length} " +
-                $"nativeReveal={endpointMembers.Count(member => member.Plan.UsesTargetSurface)} " +
-                $"ready={endpointReady} " +
-                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(endpointStartedAt):F3}");
-#endif
             if (!endpointReady)
             {
                 return false;
@@ -354,10 +338,48 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             _animationStartedAtTimestamp = Stopwatch.GetTimestamp();
             ConfigureAnimations(_animationStartedAtTimestamp);
             _device.Commit().CheckError();
+            if (nativeRevealMembers.Length > 0)
+            {
+                try
+                {
+                    WindowNative.FlushDesktopComposition();
+                    foreach (var member in nativeRevealMembers)
+                    {
+                        endpointReady &= member.Window
+                            .VerifyEdgeCapsuleQueueProxyEndpoint(
+                                member.Plan.Target);
+                    }
+                }
+                catch
+                {
+                    endpointReady = false;
+                }
+            }
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.endpoint phase=prepare session={_sessionOrdinal} " +
+                $"cold={IsColdSession} queue={_plan.QueueKey} " +
+                $"members={endpointMembers.Length} " +
+                $"nativeReveal={nativeRevealMembers.Length} " +
+                $"ready={endpointReady} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(endpointStartedAt):F3}");
+#endif
+            if (!endpointReady)
+            {
+                return false;
+            }
             _sampleTimer.Start();
+            var elapsedSinceAnimationStart =
+                Stopwatch.GetElapsedTime(
+                    _animationStartedAtTimestamp,
+                    Stopwatch.GetTimestamp()).TotalMilliseconds;
             _completionTimer.Interval =
                 TimeSpan.FromMilliseconds(
-                    _plan.DurationMilliseconds + 34);
+                    Math.Max(
+                        1,
+                        _plan.DurationMilliseconds +
+                        CompletionGuardMilliseconds -
+                        elapsedSinceAnimationStart));
             _completionTimer.Start();
 #if DEBUG
             var outputPixels =
