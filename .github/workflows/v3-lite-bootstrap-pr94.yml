@@ -1,0 +1,150 @@
+name: Bootstrap guarded V3 Lite on PR94
+
+on:
+  push:
+    branches:
+      - agent/v3-lite-edge-presentation
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr94-v3-lite-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.actor != 'github-actions[bot]' || contains(github.event.head_commit.message, 'chore: bootstrap guarded V3 Lite')
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout implementation source
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v3-lite-staging
+          path: staging
+          fetch-depth: 1
+
+      - name: Extract implementation
+        shell: pwsh
+        run: |
+          $extractor = @'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path("staging/.github/workflows/apply-v3-lite.yml").read_text(encoding="utf-8")
+          marker = "          cat > apply_v3_lite.py <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          script = textwrap.dedent(workflow[start:end]) + "\n"
+          script = script.replace(
+              "                      gesture,\n                      floatingCoverActive);",
+              "                      Gesture: gesture,\n                      FloatingCoverActive: floatingCoverActive);")
+          Path("staging/apply_v3_lite_extracted.py").write_text(
+              script,
+              encoding="utf-8",
+              newline="\n")
+          '@
+          $extractor | Set-Content -LiteralPath extract.py -Encoding utf8
+          python extract.py
+
+      - name: Checkout PR94
+        uses: actions/checkout@v4
+        with:
+          ref: agent/v3-lite-edge-presentation
+          path: source
+          fetch-depth: 0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Apply V3 Lite core
+        id: apply
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Set-Location source
+          if (Test-Path docs/edge-presentation-v3-lite.md) {
+            "V3 Lite marker already exists; validating current implementation." | Tee-Object -FilePath ../apply.log
+            exit 0
+          }
+          python ../staging/apply_v3_lite_extracted.py *>&1 | Tee-Object -FilePath ../apply.log
+          exit $LASTEXITCODE
+
+      - name: Keep core implementation only for first landing
+        if: steps.apply.outcome == 'success'
+        shell: pwsh
+        run: |
+          Set-Location source
+          git checkout HEAD -- scripts/edge-refinement-tests
+          git diff --check
+
+      - name: Restore
+        id: restore
+        if: steps.apply.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        working-directory: source
+        run: dotnet restore PaperTodo.csproj *>&1 | Tee-Object -FilePath ../restore.log
+
+      - name: Release build
+        id: build
+        if: steps.apply.outcome == 'success' && steps.restore.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        working-directory: source
+        run: dotnet build PaperTodo.csproj -c Release -p:EnableWindowsTargeting=true --no-restore *>&1 | Tee-Object -FilePath ../build.log
+
+      - name: Publish validated core
+        id: publish
+        if: steps.apply.outcome == 'success' && steps.restore.outcome == 'success' && steps.build.outcome == 'success'
+        shell: pwsh
+        working-directory: source
+        run: |
+          Remove-Item .github/workflows/v3-lite-bootstrap-pr94.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if (git diff --cached --quiet) {
+            Write-Host "No implementation changes to publish."
+            exit 0
+          }
+          git commit -m "refactor(edge): establish V3 Lite bounded live hosts"
+          git push origin HEAD:agent/v3-lite-edge-presentation
+
+      - name: Report failure without publishing half-applied code
+        if: always() && steps.publish.outcome != 'success'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          RESTORE_OUTCOME: ${{ steps.restore.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          $sections = @()
+          foreach ($item in @(
+            @{ Name = "apply"; Path = "apply.log" },
+            @{ Name = "restore"; Path = "restore.log" },
+            @{ Name = "build"; Path = "build.log" })) {
+            if (Test-Path $item.Path) {
+              $text = Get-Content -LiteralPath $item.Path -Raw
+              if ($text.Length -gt 12000) { $text = $text.Substring($text.Length - 12000) }
+              $sections += "#### $($item.Name)`n``````text`n$text`n``````"
+            }
+          }
+          $body = @"
+          ### V3 Lite bootstrap 未发布半成品
+
+          - apply: ``$env:APPLY_OUTCOME``
+          - restore: ``$env:RESTORE_OUTCOME``
+          - Release Build: ``$env:BUILD_OUTCOME``
+          - run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+
+          $($sections -join "`n`n")
+          "@
+          gh pr comment 94 --repo snownico0722/PaperTodo --body $body
+          exit 1
