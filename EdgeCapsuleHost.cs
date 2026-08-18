@@ -596,6 +596,28 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             MatchesNativePresentationLayout(frame);
     }
 
+    internal bool MatchesQueueTranslationSurface(
+        EdgeCapsulePresentationFrame expected)
+    {
+        if (_disposed ||
+            !Window.IsVisible ||
+            _appliedNativeMetricsVersion != _nativeMetricsVersion ||
+            !EdgeCapsuleQueueProxyPolicy.HasStableLiveSurfaceIdentity(
+                _appliedFrame,
+                expected) ||
+            !WindowNative.TryGetWindowDeviceBounds(
+                Window,
+                out var actualBounds) ||
+            actualBounds != expected.HostBounds)
+        {
+            return false;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(Window);
+        return Math.Abs(dpi.DpiScaleX - expected.DpiScaleX) < 0.001 &&
+            Math.Abs(dpi.DpiScaleY - expected.DpiScaleY) < 0.001;
+    }
+
     internal bool PrepareCompositionSourceForHandoff()
     {
         if (_disposed || !Window.IsVisible)

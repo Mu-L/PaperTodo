@@ -18,6 +18,7 @@ internal static class QueueProxyAdmissionRegression
         PureMorphStaysInWpf();
         DragOwnerCanRemainDirectWhilePeerMoves();
         FloatingCoverBlocksSecondOwner();
+        StableSurfaceIdentityAllowsWpfMorph();
         HostCapacityChangeIsRejected();
     }
 
@@ -100,6 +101,44 @@ internal static class QueueProxyAdmissionRegression
                 .AllowsQueueProxyOwnership(
                     EdgeCapsuleVisualAuthority.DockingOverlap),
             "floating/docking cover must block a second owner");
+    }
+
+    private static void StableSurfaceIdentityAllowsWpfMorph()
+    {
+        var expected = Frame(220, 220);
+        var current = expected with
+        {
+            Surface = EdgeCapsuleSurfaceKind.DockedPreview,
+            Bounds = new DeviceScreenRect(
+                4820,
+                220,
+                5120,
+                410),
+            InteractiveBounds = new DeviceScreenRect(
+                4820,
+                220,
+                5120,
+                410),
+            ContentOpacity = 0.42
+        };
+        Require(
+            EdgeCapsuleQueueProxyPolicy
+                .HasStableLiveSurfaceIdentity(current, expected),
+            "a retained live surface must survive WPF morph changes");
+
+        Require(
+            !EdgeCapsuleQueueProxyPolicy
+                .HasStableLiveSurfaceIdentity(
+                    current,
+                    expected with
+                    {
+                        HostBounds = new DeviceScreenRect(
+                            4640,
+                            221,
+                            5120,
+                            641)
+                    }),
+            "a retained live surface must reject native capacity changes");
     }
 
     private static void HostCapacityChangeIsRejected()

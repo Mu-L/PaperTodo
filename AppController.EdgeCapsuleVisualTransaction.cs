@@ -989,13 +989,23 @@ public sealed partial class AppController
 #endif
         try
         {
-            foreach (var window in windows)
+            // A rejected rapid successor must not fall back to one synchronous SetWindowPos per
+            // retained source. Keep the old cover authoritative while every latest real endpoint
+            // is submitted through one HDWP transaction, then render and verify the batch.
+            using (windows[0].Dispatcher.DisableProcessing())
             {
-                var applied = window
-                    .TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
-                        out var endpoint);
-                endpointsReady &= applied;
-                endpoints.Add((window, endpoint));
+                using var nativeBoundsBatch =
+                    WindowNative.BeginWindowDeviceBoundsBatch(
+                        windows.Length);
+                foreach (var window in windows)
+                {
+                    var applied = window
+                        .TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
+                            out var endpoint);
+                    endpointsReady &= applied;
+                    endpoints.Add((window, endpoint));
+                }
+                endpointsReady &= nativeBoundsBatch.Commit();
             }
 
             if (endpointsReady)

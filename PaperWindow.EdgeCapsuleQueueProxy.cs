@@ -38,6 +38,9 @@ public sealed partial class PaperWindow
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
+        var sourceReady = retainedByCurrentProxy
+            ? host.MatchesQueueTranslationSurface(source)
+            : host.MatchesPresentation(source);
         return new EdgeCapsuleQueueProxyCandidate(
             _paper.Id,
             queueKey,
@@ -46,7 +49,7 @@ public sealed partial class PaperWindow
             target,
             motion,
             host.Handle != IntPtr.Zero &&
-                host.MatchesPresentation(source) &&
+                sourceReady &&
                 !IsExperimentalPassive &&
                 !_advancedInteractionLocked &&
                 !_controller.State.ExperimentalDockedCapsulesNonTopmost &&

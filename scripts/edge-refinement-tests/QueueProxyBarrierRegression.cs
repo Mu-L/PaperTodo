@@ -9,6 +9,8 @@ internal static class QueueProxyBarrierRegression
         var handoff = Source(
             "EdgeCapsuleQueueCompositionProxy.Handoff.cs");
         var native = Source("WindowNative.cs");
+        var controller = Source(
+            "AppController.EdgeCapsuleVisualTransaction.cs");
 
         Require(
             startup.Contains(
@@ -25,6 +27,27 @@ internal static class QueueProxyBarrierRegression
             native.Contains("RollbackFailed") &&
             native.Contains("RolledBack"),
             "cloak transaction must distinguish rollback outcomes");
+
+        var endpointApply = controller.IndexOf(
+            "TryApplyLatestEdgeCapsuleQueueProxyEndpoint",
+            StringComparison.Ordinal);
+        var batchBegin = endpointApply < 0
+            ? -1
+            : controller.LastIndexOf(
+                "BeginWindowDeviceBoundsBatch",
+                endpointApply,
+                StringComparison.Ordinal);
+        var handoffRelease = endpointApply < 0
+            ? -1
+            : controller.IndexOf(
+                "TryReleaseForHandoff",
+                endpointApply,
+                StringComparison.Ordinal);
+        Require(
+            batchBegin >= 0 &&
+            batchBegin < endpointApply &&
+            handoffRelease > endpointApply,
+            "handoff endpoints must be submitted as one native batch before cover release");
     }
 
     private static string Source(string name)

@@ -90,6 +90,24 @@ internal static class EdgeCapsuleQueueProxyPolicy
             EdgeCapsuleVisualAuthority.RealDocked or
             EdgeCapsuleVisualAuthority.QueueTranslation;
 
+    /// <summary>
+    /// Translation owns one live HWND surface, not one frozen WPF frame. A retained successor may
+    /// observe a different Rest/Hover/Preview morph sample while the native host capacity, wall,
+    /// DPI and source identity remain unchanged.
+    /// </summary>
+    internal static bool HasStableLiveSurfaceIdentity(
+        EdgeCapsulePresentationFrame current,
+        EdgeCapsulePresentationFrame expected) =>
+        current.Visible &&
+        expected.Visible &&
+        current.IsUsable &&
+        expected.IsUsable &&
+        current.HostBounds == expected.HostBounds &&
+        current.Edge == expected.Edge &&
+        current.WallDeviceX == expected.WallDeviceX &&
+        Math.Abs(current.DpiScaleX - expected.DpiScaleX) < 0.001 &&
+        Math.Abs(current.DpiScaleY - expected.DpiScaleY) < 0.001;
+
     internal static DeviceScreenRect PresentedHostBounds(
         EdgeCapsulePresentationFrame frame)
     {
