@@ -12,6 +12,12 @@ public sealed partial class PaperWindow
     private bool _edgeCapsulePendingPointerOver;
     private DeviceScreenPoint? _edgeCapsulePendingPointerSample;
     private bool _edgeCapsuleVisualTransactionNotificationDeferred;
+    private string? _edgeCapsuleHostCapacityMonitor;
+    private EdgeCapsuleEdge _edgeCapsuleHostCapacityEdge;
+    private double _edgeCapsuleHostCapacityDpiX;
+    private double _edgeCapsuleHostCapacityDpiY;
+    private double _edgeCapsuleHostCapacityWidthDip;
+    private double _edgeCapsuleHostCapacityHeightDip;
 
     private EdgeCapsuleHost EnsureDeepCapsuleSlotHost()
     {
@@ -236,48 +242,168 @@ public sealed partial class PaperWindow
             EdgeCapsuleDirty.DisplayMetrics);
     }
 
-    private EdgeCapsuleLayoutSnapshot CaptureEdgeCapsuleLayoutSnapshot()
+    private bool GrowEdgeCapsuleHostCapacity(
+        MonitorGeometry monitor,
+        EdgeCapsuleEdge edge,
+        double requiredWidthDip,
+        double requiredHeightDip)
+    {
+        requiredWidthDip = Math.Max(1, requiredWidthDip);
+        requiredHeightDip = Math.Max(1, requiredHeightDip);
+        var generationChanged =
+            !string.Equals(
+                _edgeCapsuleHostCapacityMonitor,
+                monitor.DeviceName,
+                StringComparison.Ordinal) ||
+            _edgeCapsuleHostCapacityEdge != edge ||
+            Math.Abs(
+                _edgeCapsuleHostCapacityDpiX -
+                monitor.DpiScaleX) > 0.001 ||
+            Math.Abs(
+                _edgeCapsuleHostCapacityDpiY -
+                monitor.DpiScaleY) > 0.001;
+        if (generationChanged)
+        {
+            _edgeCapsuleHostCapacityMonitor = monitor.DeviceName;
+            _edgeCapsuleHostCapacityEdge = edge;
+            _edgeCapsuleHostCapacityDpiX = monitor.DpiScaleX;
+            _edgeCapsuleHostCapacityDpiY = monitor.DpiScaleY;
+            _edgeCapsuleHostCapacityWidthDip = requiredWidthDip;
+            _edgeCapsuleHostCapacityHeightDip = requiredHeightDip;
+            return true;
+        }
+
+        var width = Math.Max(
+            _edgeCapsuleHostCapacityWidthDip,
+            requiredWidthDip);
+        var height = Math.Max(
+            _edgeCapsuleHostCapacityHeightDip,
+            requiredHeightDip);
+        if (Math.Abs(
+                width -
+                _edgeCapsuleHostCapacityWidthDip) < 0.001 &&
+            Math.Abs(
+                height -
+                _edgeCapsuleHostCapacityHeightDip) < 0.001)
+        {
+            return false;
+        }
+
+        _edgeCapsuleHostCapacityWidthDip = width;
+        _edgeCapsuleHostCapacityHeightDip = height;
+        return true;
+    }
+
+    private void PrepareEdgeCapsuleHostCapacity(
+        EdgeCapsulePreviewSize size)
+    {
+        if (!HasDeepCapsuleSlotPlacement)
+        {
+            return;
+        }
+
+        var monitor = DeepCapsuleMonitorGeometry();
+        var restingWidth =
+            DeepCapsuleVisibleWidth(monitor.DpiScaleY);
+        var changed = GrowEdgeCapsuleHostCapacity(
+            monitor,
+            MyDeepCapsuleEdge,
+            Math.Max(
+                restingWidth + CapsuleCloseWidth,
+                size.WidthDip),
+            Math.Max(
+                PaperLayoutDefaults.CapsuleHeight,
+                size.HeightDip));
+        if (!changed)
+        {
+            return;
+        }
+
+        // Capacity growth is a transparent native change made before the
+        // Preview state transition. It never becomes a bitmap resize proxy.
+        _edgeCapsule.ForceApplyCurrentPresentation();
+        var previouslyDeferred =
+            _edgeCapsuleVisualTransactionNotificationDeferred;
+        _edgeCapsuleVisualTransactionNotificationDeferred = true;
+        try
+        {
+            FlushEdgeCapsulePresentation(
+                EdgeCapsuleTransitionReason.Measure,
+                EdgeCapsuleDirty.Presentation |
+                EdgeCapsuleDirty.Measure);
+        }
+        finally
+        {
+            _edgeCapsuleVisualTransactionNotificationDeferred =
+                previouslyDeferred;
+        }
+    }
+
+    private EdgeCapsuleLayoutSnapshot
+        CaptureEdgeCapsuleLayoutSnapshot()
     {
         var monitor = DeepCapsuleMonitorGeometry();
-        var restingWidth = DeepCapsuleVisibleWidth(monitor.DpiScaleY);
+        var edge = MyDeepCapsuleEdge;
+        var restingWidth =
+            DeepCapsuleVisibleWidth(monitor.DpiScaleY);
         var previewSize = CurrentEdgeCapsulePreviewSize;
         var previewWidth = previewSize?.WidthDip ??
             restingWidth + CapsuleCloseWidth;
         var previewHeight = previewSize?.HeightDip ??
             PaperLayoutDefaults.CapsuleHeight;
-        var restingOpacity = _controller.State.ExperimentalRestingCapsuleOpacity
-            ? ExperimentalOpacityLevels.Normalize(
-                _controller.State.ExperimentalRestingCapsuleOpacityLevel,
-                ExperimentalOpacityLevels.DefaultRestingCapsule)
-            : 1.0;
-        double? forcedOpacity = _controller.IsAdvancedCapsuleTransparent(_paper)
-            ? _controller.AdvancedShortcutOpacity
-            : _controller.State.ExperimentalRestingCapsuleOpacity &&
-              _controller.State.ExperimentalRestingCapsuleOpacityAlways
-                ? restingOpacity
-                : null;
-        return EdgeCapsuleLayoutService.Calculate(new EdgeCapsuleLayoutFacts(
+
+        _ = GrowEdgeCapsuleHostCapacity(
             monitor,
-            MyDeepCapsuleEdge,
-            _edgeCapsule.Placement,
-            _controller.DeepCapsuleStartTopMarginFor(_paper),
-            DeepCapsuleGap,
-            restingWidth,
-            CapsuleCloseWidth,
-            PaperLayoutDefaults.CapsuleHeight,
-            previewWidth,
-            previewHeight,
-            _controller.State.HideEdgeCapsuleCloseButtonOnHover,
-            restingOpacity,
-            forcedOpacity));
+            edge,
+            Math.Max(
+                restingWidth + CapsuleCloseWidth,
+                previewWidth),
+            Math.Max(
+                PaperLayoutDefaults.CapsuleHeight,
+                previewHeight));
+
+        var restingOpacity =
+            _controller.State.ExperimentalRestingCapsuleOpacity
+                ? ExperimentalOpacityLevels.Normalize(
+                    _controller.State
+                        .ExperimentalRestingCapsuleOpacityLevel,
+                    ExperimentalOpacityLevels
+                        .DefaultRestingCapsule)
+                : 1.0;
+        double? forcedOpacity =
+            _controller.IsAdvancedCapsuleTransparent(_paper)
+                ? _controller.AdvancedShortcutOpacity
+                : _controller.State
+                    .ExperimentalRestingCapsuleOpacity &&
+                  _controller.State
+                    .ExperimentalRestingCapsuleOpacityAlways
+                    ? restingOpacity
+                    : null;
+        return EdgeCapsuleLayoutService.Calculate(
+            new EdgeCapsuleLayoutFacts(
+                monitor,
+                edge,
+                _edgeCapsule.Placement,
+                _controller.DeepCapsuleStartTopMarginFor(_paper),
+                DeepCapsuleGap,
+                restingWidth,
+                CapsuleCloseWidth,
+                PaperLayoutDefaults.CapsuleHeight,
+                previewWidth,
+                previewHeight,
+                _controller.State
+                    .HideEdgeCapsuleCloseButtonOnHover,
+                restingOpacity,
+                forcedOpacity,
+                _edgeCapsuleHostCapacityWidthDip,
+                _edgeCapsuleHostCapacityHeightDip));
     }
 
-    private bool ApplyEdgeCapsulePresentationFrame(EdgeCapsulePresentationFrame frame)
+    private bool ApplyEdgeCapsulePresentationFrame(
+        EdgeCapsulePresentationFrame frame)
     {
-        if (_controller.TryRouteEdgeCapsuleQueueProxyApply(this, frame, out var routed))
-        {
-            return routed;
-        }
+        // A queue proxy owns only the global screen offset. The real bounded
+        // host remains live and receives every WPF morph frame while cloaked.
         if (!frame.Visible)
         {
             return _edgeCapsuleHost?.Apply(frame) ?? true;
@@ -418,6 +544,9 @@ public sealed partial class PaperWindow
         _edgeCapsule.Reset();
         _edgeCapsuleHost?.Dispose();
         _edgeCapsuleHost = null;
+        _edgeCapsuleHostCapacityMonitor = null;
+        _edgeCapsuleHostCapacityWidthDip = 0;
+        _edgeCapsuleHostCapacityHeightDip = 0;
     }
 
     // ── This window's OWN queue identity. A queue is (monitor, edge); each docked capsule

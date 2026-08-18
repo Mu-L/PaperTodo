@@ -66,7 +66,9 @@ internal readonly record struct EdgeCapsuleLayoutSnapshot(
     double PreviewHeightDip,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
-    double? ForcedContentOpacity)
+    double? ForcedContentOpacity,
+    double HostCapacityWidthDip = 0,
+    double HostCapacityHeightDip = 0)
 {
     public bool IsUsable =>
         !Monitor.WorkArea.IsEmpty &&
@@ -97,7 +99,7 @@ internal readonly record struct EdgeCapsuleFloatingShape(
 
 /// <summary>
 /// One immutable docked target. Bounds is the visible capsule rectangle and HostBounds is the
-/// real per-paper HWND endpoint; compact hosts make them equal. Body width is distinct from visible
+/// stable per-paper bounded HWND capacity. Body width is distinct from visible
 /// width; the only permitted close segment is visible width minus BodyWindowWidthDevice.
 /// </summary>
 internal readonly record struct EdgeCapsuleTargetPresentation(
@@ -166,8 +168,8 @@ internal readonly record struct EdgeCapsulePresentationPlan(
 
 /// <summary>
 /// Complete Host.Apply contract. HostBounds is the real native endpoint while Bounds is the visual
-/// capsule. They are equal at production settle; an active queue proxy samples intermediate Bounds
-/// separately while the Presenter and real HWND already own the endpoint. Interactive bounds,
+/// capsule. Bounds remains inside HostBounds at settle and during WPF morphs; an active queue
+/// proxy overrides only the global screen translation. Interactive bounds,
 /// body/close segmentation, opacity and input state remain one immutable frame contract.
 /// </summary>
 internal readonly record struct EdgeCapsulePresentationFrame(

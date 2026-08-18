@@ -37,6 +37,9 @@ public sealed partial class PaperWindow
         !IsDeepCapsuleReordering &&
         !_edgeCapsule.PeerReorderActive &&
         !IsDeepCapsuleDockingHandoff &&
+        CurrentEdgeCapsuleVisualAuthority is (
+            EdgeCapsuleVisualAuthority.RealDocked or
+            EdgeCapsuleVisualAuthority.QueueTranslation) &&
         (!_edgeCapsule.ContextMenuOpen || IsEdgeCapsulePreviewOpen) &&
         (EdgeCapsuleGesture == EdgeCapsuleGestureState.Idle ||
          (IsEdgeCapsulePreviewOpen &&
@@ -188,7 +191,9 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewRequest request,
         bool animate)
     {
-        // Keep an in-flight compact pointer cover alive. The visual transaction below promotes
+        PrepareEdgeCapsuleHostCapacity(request.Size);
+
+        // Keep an in-flight queue translation alive. The visual transaction below promotes
         // the preview generation as its successor, avoiding an exposed real-HWND frame between
         // hover and expansion.
         var openStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
@@ -563,11 +568,6 @@ public sealed partial class PaperWindow
     {
         if (!TryReleaseEdgeCapsulePreviewRequest())
         {
-            return;
-        }
-        if (_controller.IsEdgeCapsuleQueueProxyRetainingSource(this))
-        {
-            MarkEdgeCapsuleQueueProxyPreviewContentReleasePending();
             return;
         }
         _edgeCapsuleHost?.ClearPreviewContent();

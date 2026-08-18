@@ -616,159 +616,205 @@ public sealed partial class AppController
         };
     }
 
-    private static bool CommitEdgeCapsuleQueueProxyLogicalEndpoints(
-    EdgeCapsuleVisualTransactionEntry[] entries,
-    EdgeCapsuleQueueProxyPlan plan,
-    long transactionTimestamp)
-{
-    var proxiedPlans = plan.Members.ToDictionary(
-        member => member.PaperId,
-        StringComparer.Ordinal);
-    var committed = true;
-    using (entries[0].Window.Dispatcher.DisableProcessing())
+    private static bool
+        CommitEdgeCapsuleQueueProxyLogicalEndpoints(
+            EdgeCapsuleVisualTransactionEntry[] entries,
+            EdgeCapsuleQueueProxyPlan plan,
+            long transactionTimestamp)
     {
-        using var nativeBoundsBatch = WindowNative.BeginWindowDeviceBoundsBatch(entries.Length);
+        var proxiedPlans = plan.Members.ToDictionary(
+            member => member.PaperId,
+            StringComparer.Ordinal);
+        var committed = true;
+        using (entries[0].Window.Dispatcher.DisableProcessing())
+        {
+            using var nativeBoundsBatch =
+                WindowNative.BeginWindowDeviceBoundsBatch(
+                    entries.Length);
+            foreach (var entry in entries)
+            {
+                if (entry.Window.IsClosed)
+                {
+                    continue;
+                }
+
+                var candidate = entry.Window
+                    .CaptureEdgeCapsuleQueueProxyCandidate(
+                        entry.QueueKey,
+                        entry.Motion);
+                var paperId =
+                    entry.Window.EdgeCapsulePreviewPaperId;
+                var proxied = proxiedPlans.TryGetValue(
+                    paperId,
+                    out var memberPlan);
+                if (proxied &&
+                    (!candidate.HasValue ||
+                     candidate.Value.Target != memberPlan.Target))
+                {
+                    committed = false;
+                    continue;
+                }
+
+                var motion = entry.Motion;
+                if (motion.Kind == EdgeCapsuleMotionKind.Animate)
+                {
+                    motion = EdgeCapsuleMotion.Animate(
+                        motion.Reason,
+                        plan.DurationMilliseconds);
+                }
+
+                var requiresTranslation =
+                    candidate.HasValue &&
+                    EdgeCapsuleQueueProxyPolicy.RequiresTranslation(
+                        candidate.Value.Start,
+                        candidate.Value.Target);
+                if (requiresTranslation && !proxied)
+                {
+                    // A floating/direct member settles once. It never
+                    // re-enters per-frame SetWindowPos while peers move.
+                    motion = EdgeCapsuleMotion.Snap(motion.Reason);
+                }
+
+                var status = entry.Window
+                    .CommitEdgeCapsuleVisualTransaction(
+                        motion,
+                        entry.RefreshLayout,
+                        transactionTimestamp,
+                        rebaseActiveTransition: true);
+                committed &=
+                    status ==
+                    EdgeCapsuleNativeBatchApplyStatus.Ready;
+            }
+
+            committed &= nativeBoundsBatch.Commit();
+            foreach (var entry in entries)
+            {
+                entry.Window
+                    .CompleteEdgeCapsuleVisualTransactionApply(
+                        success: committed,
+                        deferred: false,
+                        transactionTimestamp);
+            }
+        }
+
+        if (!committed)
+        {
+            return false;
+        }
         foreach (var entry in entries)
         {
-  if (entry.Window.IsClosed)
-  {
-      continue;
-  }
-
-  var candidate = entry.Window.CaptureEdgeCapsuleQueueProxyCandidate(
-      entry.QueueKey,
-      entry.Motion);
-  var paperId = entry.Window.EdgeCapsulePreviewPaperId;
-  var proxied = proxiedPlans.TryGetValue(paperId, out var memberPlan);
-  if (proxied &&
-      (!candidate.HasValue || candidate.Value.Target != memberPlan.Target))
-  {
-      committed = false;
-      continue;
-  }
-
-  var motion = entry.Motion;
-  var requiresTranslation = candidate.HasValue &&
-      EdgeCapsuleQueueProxyPolicy.RequiresTranslation(
-          candidate.Value.Start,
-          candidate.Value.Target);
-  if (requiresTranslation && !proxied)
-  {
-      // Drag/floating owners remain real authority. They settle once; they never
-      // fall back to per-frame SetWindowPos while peers use the compositor.
-      motion = EdgeCapsuleMotion.Snap(motion.Reason);
-  }
-
-  var status = entry.Window.CommitEdgeCapsuleVisualTransaction(
-      motion,
-      entry.RefreshLayout,
-      transactionTimestamp,
-      rebaseActiveTransition: true);
-  committed &= status == EdgeCapsuleNativeBatchApplyStatus.Ready;
+            if (!entry.Window.IsClosed)
+            {
+                entry.Window
+                    .PublishEdgeCapsuleVisualTransactionNotifications();
+            }
         }
-
-        committed &= nativeBoundsBatch.Commit();
-        foreach (var entry in entries)
-        {
-  entry.Window.CompleteEdgeCapsuleVisualTransactionApply(
-      success: committed,
-      deferred: false,
-      transactionTimestamp);
-        }
+        return true;
     }
-
-    if (!committed)
-    {
-        return false;
-    }
-    foreach (var entry in entries)
-    {
-        if (!entry.Window.IsClosed)
-        {
-  entry.Window.PublishEdgeCapsuleVisualTransactionNotifications();
-        }
-    }
-    return true;
-}
     private bool TryStartEdgeCapsuleQueueCompositionProxy(
-    EdgeCapsuleQueueProxyPlan plan,
-    EdgeCapsuleVisualTransactionEntry[] entries,
-    EdgeCapsuleQueueCompositionProxy? predecessor,
-    out bool realHostMayHaveChanged)
-{
-    realHostMayHaveChanged = false;
-    var sessionOrdinal = EdgeCapsuleQueueCompositionProxy.ReserveSessionOrdinal();
-    var byPaperId = entries
-        .GroupBy(entry => entry.Window.EdgeCapsulePreviewPaperId, StringComparer.Ordinal)
-        .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
-    var members = new List<EdgeCapsuleQueueCompositionProxyMember>(plan.Members.Count);
-    foreach (var memberPlan in plan.Members)
+        EdgeCapsuleQueueProxyPlan plan,
+        EdgeCapsuleVisualTransactionEntry[] entries,
+        EdgeCapsuleQueueCompositionProxy? predecessor,
+        out bool realHostMayHaveChanged)
     {
-        if (!byPaperId.TryGetValue(memberPlan.PaperId, out var entry))
+        realHostMayHaveChanged = false;
+        var sessionOrdinal =
+            EdgeCapsuleQueueCompositionProxy.ReserveSessionOrdinal();
+        var byPaperId = entries
+            .GroupBy(
+                entry => entry.Window.EdgeCapsulePreviewPaperId,
+                StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Last(),
+                StringComparer.Ordinal);
+        var members =
+            new List<EdgeCapsuleQueueCompositionProxyMember>(
+                plan.Members.Count);
+        foreach (var memberPlan in plan.Members)
         {
-  return false;
+            if (!byPaperId.TryGetValue(
+                    memberPlan.PaperId,
+                    out var entry))
+            {
+                return false;
+            }
+            members.Add(
+                new EdgeCapsuleQueueCompositionProxyMember(
+                    entry.Window,
+                    memberPlan,
+                    entry.Window.EdgeCapsuleQueueProxySourceHandle));
         }
-        members.Add(new EdgeCapsuleQueueCompositionProxyMember(
-  entry.Window,
-  memberPlan,
-  entry.Window.EdgeCapsuleQueueProxySourceHandle,
-  SnapshotHost: null));
-    }
 
-    var proxy = EdgeCapsuleQueueCompositionProxy.TryCreate(
-        sessionOrdinal,
-        plan,
-        members,
-        predecessor,
-        endpointCommitRequested: timestamp =>
-  CommitEdgeCapsuleQueueProxyLogicalEndpoints(entries, plan, timestamp),
-        interactionRequested: (point, message) =>
-  CompleteAndRouteEdgeCapsuleQueueProxyInput(plan.QueueKey, point, message),
-        environmentChanged: () =>
-  CompleteEdgeCapsuleQueueCompositionProxy(plan.QueueKey, success: false),
-        coverReady: successor =>
-  PublishEdgeCapsuleQueueCompositionProxy(
-      plan.QueueKey,
-      successor,
-      predecessor),
-        completed: (completedProxy, success) =>
-  FinishEdgeCapsuleQueueCompositionProxy(
-      plan.QueueKey,
-      completedProxy,
-      success));
-    if (proxy == null)
-    {
+        var proxy = EdgeCapsuleQueueCompositionProxy.TryCreate(
+            sessionOrdinal,
+            plan,
+            members,
+            predecessor,
+            endpointCommitRequested: timestamp =>
+                CommitEdgeCapsuleQueueProxyLogicalEndpoints(
+                    entries,
+                    plan,
+                    timestamp),
+            interactionRequested: (point, message) =>
+                CompleteAndRouteEdgeCapsuleQueueProxyInput(
+                    plan.QueueKey,
+                    point,
+                    message),
+            environmentChanged: () =>
+                CompleteEdgeCapsuleQueueCompositionProxy(
+                    plan.QueueKey,
+                    success: false),
+            coverReady: successor =>
+                PublishEdgeCapsuleQueueCompositionProxy(
+                    plan.QueueKey,
+                    successor,
+                    predecessor),
+            coverRollback: successor =>
+                RollbackEdgeCapsuleQueueCompositionProxyPublication(
+                    plan.QueueKey,
+                    successor,
+                    predecessor),
+            completed: (completedProxy, success) =>
+                FinishEdgeCapsuleQueueCompositionProxy(
+                    plan.QueueKey,
+                    completedProxy,
+                    success));
+        if (proxy == null)
+        {
 #if DEBUG
-        EdgeCapsulePerformanceDiagnostics.Trace(
-  $"proxy.session phase=fallback mode=live-translation session={sessionOrdinal} " +
-  $"queue={plan.QueueKey} reason=create-failed");
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.session phase=fallback mode=live-translation " +
+                $"session={sessionOrdinal} queue={plan.QueueKey} " +
+                $"reason=create-failed");
 #endif
-        return false;
-    }
+            return false;
+        }
 
-    if (!proxy.TryStart(out realHostMayHaveChanged))
-    {
+        if (!proxy.TryStart(out realHostMayHaveChanged))
+        {
 #if DEBUG
-        EdgeCapsulePerformanceDiagnostics.Trace(
-  $"proxy.session phase=fallback mode=live-translation session={sessionOrdinal} " +
-  $"queue={plan.QueueKey} reason=startup-failed published={proxy.CoverPublished}");
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.session phase=fallback mode=live-translation " +
+                $"session={sessionOrdinal} queue={plan.QueueKey} " +
+                $"reason=startup-failed published={proxy.CoverPublished}");
 #endif
-        if (proxy.CoverPublished)
-        {
-  _ = FinishEdgeCapsuleQueueCompositionProxy(
-      plan.QueueKey,
-      proxy,
-      success: false);
-  realHostMayHaveChanged = true;
+            if (proxy.CoverPublished)
+            {
+                _ = FinishEdgeCapsuleQueueCompositionProxy(
+                    plan.QueueKey,
+                    proxy,
+                    success: false);
+                realHostMayHaveChanged = true;
+            }
+            else
+            {
+                proxy.AbortStaged();
+            }
+            return false;
         }
-        else
-        {
-  proxy.AbortStaged();
-        }
-        return false;
+        return true;
     }
-    return true;
-}
     private bool PublishEdgeCapsuleQueueCompositionProxy(
         string queueKey,
         EdgeCapsuleQueueCompositionProxy successor,
@@ -782,17 +828,12 @@ public sealed partial class AppController
                 return false;
             }
         }
-        else
+        else if (!_edgeCapsuleQueueCompositionProxies.TryGetValue(
+                     queueKey,
+                     out var current) ||
+                 !ReferenceEquals(current, predecessor))
         {
-            if (!_edgeCapsuleQueueCompositionProxies.TryGetValue(
-                    queueKey,
-                    out var current) ||
-                !ReferenceEquals(current, predecessor) ||
-                !predecessor.TryTransferCloakedSourcesTo(
-                    successor))
-            {
-                return false;
-            }
+            return false;
         }
 
         if (predecessor != null)
@@ -810,25 +851,61 @@ public sealed partial class AppController
             }
         }
 
-        _edgeCapsuleQueueCompositionProxies[queueKey] =
-            successor;
+        _edgeCapsuleQueueCompositionProxies[queueKey] = successor;
         foreach (var member in successor.Members)
         {
             _edgeCapsuleQueueCompositionProxyByWindow[
                 member.Window] = successor;
         }
 
+#if DEBUG
         if (predecessor != null)
         {
-            predecessor.DisposeAfterSuccessorTransfer();
-#if DEBUG
             EdgeCapsulePerformanceDiagnostics.Trace(
-                $"proxy.successor phase=promote from={predecessor.SessionOrdinal} " +
+                $"proxy.successor phase=publish " +
+                $"from={predecessor.SessionOrdinal} " +
                 $"to={successor.SessionOrdinal} queue={queueKey} " +
                 $"members={successor.Members.Count}");
-#endif
         }
+#endif
         return true;
+    }
+
+    private void RollbackEdgeCapsuleQueueCompositionProxyPublication(
+        string queueKey,
+        EdgeCapsuleQueueCompositionProxy successor,
+        EdgeCapsuleQueueCompositionProxy? predecessor)
+    {
+        if (!_edgeCapsuleQueueCompositionProxies.TryGetValue(
+                queueKey,
+                out var current) ||
+            !ReferenceEquals(current, successor))
+        {
+            return;
+        }
+
+        _edgeCapsuleQueueCompositionProxies.Remove(queueKey);
+        foreach (var pair in
+                 _edgeCapsuleQueueCompositionProxyByWindow
+                     .Where(pair =>
+                         ReferenceEquals(pair.Value, successor))
+                     .ToArray())
+        {
+            _edgeCapsuleQueueCompositionProxyByWindow
+                .Remove(pair.Key);
+        }
+
+        if (predecessor == null)
+        {
+            return;
+        }
+
+        _edgeCapsuleQueueCompositionProxies[queueKey] = predecessor;
+        foreach (var member in predecessor.Members)
+        {
+            _edgeCapsuleQueueCompositionProxyByWindow[
+                member.Window] = predecessor;
+        }
     }
 
     private bool FinishEdgeCapsuleQueueCompositionProxy(
@@ -892,12 +969,6 @@ public sealed partial class AppController
                     }
                     catch { }
                 }
-                try
-                {
-                    window
-                        .ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent();
-                }
-                catch { }
             }
 #if DEBUG
             EdgeCapsulePerformanceDiagnostics.Trace(
@@ -1013,12 +1084,6 @@ public sealed partial class AppController
 
         foreach (var window in windows)
         {
-            try
-            {
-                window
-                    .ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent();
-            }
-            catch { }
             if (!window.IsClosed)
             {
                 try
@@ -1084,22 +1149,6 @@ public sealed partial class AppController
         }
     }
 
-    internal bool TryRouteEdgeCapsuleQueueProxyApply(
-        PaperWindow window,
-        EdgeCapsulePresentationFrame frame,
-        out bool applied)
-    {
-        if (_edgeCapsuleQueueCompositionProxyByWindow
-                .TryGetValue(window, out var proxy) &&
-            proxy.Routes(window) &&
-            proxy.TryRouteApply(window, frame))
-        {
-            applied = true;
-            return true;
-        }
-        applied = false;
-        return false;
-    }
 
     internal bool TryGetEdgeCapsuleQueueProxyPresentation(
         PaperWindow window,

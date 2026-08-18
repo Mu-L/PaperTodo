@@ -44,7 +44,6 @@ public sealed partial class AppController
             // During continuous browsing, the candidate spends the transfer-intent interval in its
             // compact hover shape. Prime that resize before the caller's Send reconcile so the real
             // HWND never exposes intermediate width frames.
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
 
             // Physical host input is only the wake-up authority. Once a preview session exists,
             // the owner remains the single queue-wide arbiter for owner/target/corridor/outside
@@ -60,7 +59,6 @@ public sealed partial class AppController
         ResetEdgeCapsulePreviewCorridorExitIntent();
         if (!pointer.HasValue)
         {
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             return;
         }
 
@@ -72,7 +70,6 @@ public sealed partial class AppController
         {
             // With no preview transaction available, compact hover is the visible interaction and
             // therefore needs compositor ownership itself.
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             CancelEdgeCapsulePreviewActivationIntent(
                 inputWindow.EdgeCapsulePreviewPaperId);
             return;

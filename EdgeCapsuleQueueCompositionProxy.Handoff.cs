@@ -1,123 +1,51 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Windows.Threading;
 using Vortice.DirectComposition;
 
 namespace PaperTodo;
 
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
-    private bool ContainsVisual(DeviceScreenPoint point)
+    internal HashSet<IntPtr> SnapshotCloakedSourceHandles() =>
+        _cloakedRealSourceHandles
+            .Where(WindowNative.IsWindowHandleAlive)
+            .ToHashSet();
+
+    internal void CompleteSourceTransferAfterSuccessfulBoundary()
     {
-        if (_disposed || _coverLost)
-        {
-            return false;
-        }
-
-        var now = PresentationTimestamp;
-        return _members.Any(member =>
-        {
-            if (!member.Window.CanRouteEdgeCapsuleQueueProxyInput)
-            {
-                return false;
-            }
-            var frame = EdgeCapsuleQueueProxyPolicy.SampleLogicalFrame(
-                member.Plan,
-                AnimationStartedAtTimestamp,
-                _plan.DurationMilliseconds,
-                now);
-            return frame.Visible &&
-                frame.IsHitTestVisible &&
-                !frame.InteractiveBounds.IsEmpty &&
-                EdgeCapsuleGeometry.Contains(
-                    frame.InteractiveBounds,
-                    point);
-        });
-    }
-
-    private long AnimationStartedAtTimestamp =>
-        Volatile.Read(ref _animationStartedAtTimestamp) is var started &&
-        started > 0
-            ? started
-            : Stopwatch.GetTimestamp();
-
-    private long PresentationTimestamp =>
-        _successorHeld && _heldAtTimestamp > 0
-            ? _heldAtTimestamp
-            : Stopwatch.GetTimestamp();
-
-    private void OnSampleTimerTick(object? sender, EventArgs e)
-    {
-        if (_disposed || _finishing || _successorHeld)
+        if (_disposed || _sourcesReleased)
         {
             return;
         }
-        foreach (var member in _members)
-        {
-            member.Window.InvalidateEdgeCapsuleQueueProxyPointer();
-        }
-    }
 
-    private void OnCompletionTimerTick(object? sender, EventArgs e)
-    {
-        _completionTimer.Stop();
-        CompleteNow(_completionRetrySuccess);
-    }
-
-    internal void AdoptCloakedSource(IntPtr handle)
-    {
-        if (handle != IntPtr.Zero)
-        {
-            _cloakedRealSourceHandles.Add(handle);
-        }
-    }
-
-    public bool TryTransferCloakedSourcesTo(
-        EdgeCapsuleQueueCompositionProxy successor)
-    {
-        if (_disposed ||
-            _sourcesReleased ||
-            successor._disposed ||
-            !ReferenceEquals(_host, successor._host) ||
-            !ReferenceEquals(_host.Current, successor))
-        {
-            return false;
-        }
-
-        foreach (var handle in _cloakedRealSourceHandles)
-        {
-            successor.AdoptCloakedSource(handle);
-        }
-        _cloakedRealSourceHandles.Clear();
+        // The DWM batch verified that retained handles stay cloaked and
+        // excluded handles are visible. The predecessor now relinquishes
+        // its complete source set.
         _sourcesReleased = true;
+        _cloakedRealSourceHandles.Clear();
         _sampleTimer.Stop();
         _completionTimer.Stop();
-#if DEBUG
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"proxy.successor phase=source-transfer from={_sessionOrdinal} " +
-            $"to={successor._sessionOrdinal} queue={_plan.QueueKey}");
-#endif
-        return true;
-    }
-
-    public void DisposeAfterSuccessorTransfer()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-        _sourcesReleased = true;
-        _cloakedRealSourceHandles.Clear();
         DisposeCore(clearTargetRoot: false);
     }
 
     private bool TryRollbackInstalledRoot()
     {
+        if (_controllerPublished)
+        {
+            try
+            {
+                _coverRollback(this);
+            }
+            catch
+            {
+                _coverLost = true;
+            }
+            _controllerPublished = false;
+        }
+
         if (!_targetRootInstalled)
         {
-            return _host.RollbackPromotion(
-                this,
-                _predecessor);
+            return _host.RollbackPromotion(this, _predecessor);
         }
 
         try
@@ -132,12 +60,11 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             }
             _device.Commit().CheckError();
             _device.WaitForCommitCompletion().CheckError();
-            if (!_host.RollbackPromotion(
-                    this,
-                    _predecessor))
+            if (!_host.RollbackPromotion(this, _predecessor))
             {
                 throw new InvalidOperationException(
-                    "The queue compositor host could not restore its predecessor owner.");
+                    "The queue compositor host could not restore " +
+                    "its predecessor owner.");
             }
 
             _targetRootInstalled = false;
@@ -158,7 +85,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             _coverLost = true;
             Trace.TraceError(
-                "Edge capsule queue root rollback failed. Queue={0}; Session={1}; Exception={2}",
+                "Edge capsule queue root rollback failed. " +
+                "Queue={0}; Session={1}; Exception={2}",
                 _plan.QueueKey,
                 _sessionOrdinal,
                 ex);
@@ -198,16 +126,14 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
-        var liveHandles = _cloakedRealSourceHandles
-            .Where(WindowNative.IsWindowHandleAlive)
-            .ToArray();
-        var revealChanges = liveHandles
-            .Select(handle => new WindowNative.WindowCloakChange(
+        var liveHandles = SnapshotCloakedSourceHandles().ToArray();
+        var revealChanges = liveHandles.Select(handle =>
+            new WindowNative.WindowCloakChange(
                 handle,
                 Cloaked: false,
-                RollbackCloaked: true))
-            .ToArray();
+                RollbackCloaked: true)).ToArray();
         var swapAttempted = false;
+
         bool PublishAuthoritySwap()
         {
             if (!ReferenceEquals(_host.Current, this))
@@ -242,50 +168,43 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             }
         }
 
-        if (!WindowNative.TrySetWindowCloakedBatch(
-                revealChanges,
-                PublishAuthoritySwap,
-                RollbackAuthoritySwap))
+        var result = WindowNative.TrySetWindowCloakedBatchDetailed(
+            revealChanges,
+            PublishAuthoritySwap,
+            RollbackAuthoritySwap);
+        if (result != WindowNative.WindowCloakBatchResult.Success)
         {
-            return _coverLost
-                ? ReleaseAfterCoverLoss()
-                : false;
+            if (result ==
+                WindowNative.WindowCloakBatchResult.RollbackFailed)
+            {
+                _coverLost = true;
+                return ReleaseAfterCoverLoss();
+            }
+            return false;
         }
 
         try
         {
-            // Uncloak every real endpoint and detach the proxy root in the same DWM boundary. The
-            // old two-boundary reveal-then-hide order intentionally overlapped both antialiased
-            // silhouettes for one frame, which appeared as a final-frame flash at high refresh.
-            // The output HWND remains shown but pixel-empty during the boundary, so rollback only
-            // has to restore the root. Hide that transparent, input-passthrough HWND afterwards.
             if (ReferenceEquals(_host.Current, this))
             {
                 _window.Hide();
                 _host.Detach(this);
             }
-            _sourcesReleased = true;
-            _cloakedRealSourceHandles.Clear();
-            return true;
         }
         catch (Exception ex)
         {
+            _coverLost = true;
             Trace.TraceError(
-                "Edge capsule queue proxy release failed. Queue={0}; Session={1}; Exception={2}",
+                "Edge capsule queue proxy release cleanup failed. " +
+                "Queue={0}; Session={1}; Exception={2}",
                 _plan.QueueKey,
                 _sessionOrdinal,
                 ex);
-
-            // Real HWNDs were already batch-revealed and verified before cleanup began. Restoring
-            // their cloak after a detach/Commit failure could leave both authorities invisible.
-            // Keep them visible, retire this broken target, and let the next session recreate the
-            // shared runtime instead of turning cleanup failure into a visible handoff failure.
-            _sourcesReleased = true;
-            _cloakedRealSourceHandles.Clear();
-            _targetRootInstalled = false;
-            _coverLost = true;
-            return true;
         }
+
+        _sourcesReleased = true;
+        _cloakedRealSourceHandles.Clear();
+        return true;
     }
 
     public bool ReleaseAfterCoverLoss()
@@ -307,6 +226,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             try { _device.Commit().CheckError(); } catch { }
             _targetRootInstalled = false;
             _window.Hide();
+            _host.Detach(this);
         }
         WindowNative.FlushDesktopComposition();
         return true;
@@ -314,23 +234,22 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 
     private bool TryRestoreSourcesAfterCoverLoss()
     {
-        var liveHandles = _cloakedRealSourceHandles
-            .Where(WindowNative.IsWindowHandleAlive)
-            .ToArray();
-        var changes = liveHandles
-            .Select(handle => new WindowNative.WindowCloakChange(
-                handle,
-                Cloaked: false,
-                RollbackCloaked: true))
-            .ToArray();
+        var liveHandles = SnapshotCloakedSourceHandles().ToArray();
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            if (WindowNative.TrySetWindowCloakedBatch(changes))
+            var restored = true;
+            foreach (var handle in liveHandles)
+            {
+                restored &= WindowNative.TrySetWindowCloaked(
+                    handle,
+                    cloaked: false);
+            }
+            if (restored && WindowNative.TryFlushDesktopComposition())
             {
                 return true;
             }
         }
-        return false;
+        return liveHandles.Length == 0;
     }
 
     public void Dispose()
@@ -395,25 +314,23 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _disposed = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
-        // The output is hidden, SetRoot(null) is committed and the queue lease is already free.
-        // Defer only generation-owned COM/snapshot disposal; DComp commit ordering allows the next
-        // generation to stage on the warm target without waiting for this cleanup turn.
 
         var dispatcher = _members[0].Window.Dispatcher;
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        if (dispatcher.HasShutdownStarted ||
+            dispatcher.HasShutdownFinished)
         {
             RetireVisualResources();
             return;
         }
 
         _ = dispatcher.BeginInvoke(
-            DispatcherPriority.Background,
+            System.Windows.Threading.DispatcherPriority.Background,
             (Action)RetireVisualResources);
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
-            $"proxy.handoff phase=retire-scheduled session={_sessionOrdinal} " +
-            $"cold={IsColdSession} queue={_plan.QueueKey} " +
-            $"visuals={_visuals.Count}");
+            $"proxy.handoff phase=retire-scheduled " +
+            $"session={_sessionOrdinal} cold={IsColdSession} " +
+            $"queue={_plan.QueueKey} visuals={_visuals.Count}");
 #endif
     }
 
@@ -431,10 +348,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
         _visuals.Clear();
         try { _root.Dispose(); } catch { }
-        foreach (var member in _members)
-        {
-            try { member.SnapshotHost?.Dispose(); } catch { }
-        }
         ReleaseRuntimeOnce(broken: _coverLost);
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
@@ -450,10 +363,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return;
         }
         _runtimeReleased = true;
-        _runtime.Release(
-            _host,
-            this,
-            broken);
+        _runtime.Release(_host, this, broken);
     }
 
     private void DisposeCore(bool clearTargetRoot)
@@ -486,8 +396,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.handoff phase=dispose session={_sessionOrdinal} " +
             $"cold={IsColdSession} queue={_plan.QueueKey} " +
-            $"released={_sourcesReleased} successor={_predecessor != null} " +
-            $"reusedHost=true");
+            $"released={_sourcesReleased} " +
+            $"successor={_predecessor != null} reusedHost=true");
 #endif
     }
 

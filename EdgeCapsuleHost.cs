@@ -4,7 +4,6 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
-using System.Windows.Media.Imaging;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Windows.Interop;
@@ -165,75 +164,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             adapter.TryMoveWindowToDesktop(handle, desktopId);
     }
 
-    internal BitmapSource? CaptureProxySnapshot(
-        EdgeCapsulePresentationFrame frame)
-    {
-        if (_disposed ||
-            !frame.Visible ||
-            frame.Bounds.IsEmpty ||
-            !Window.IsVisible)
-        {
-            return null;
-        }
-
-        try
-        {
-            // Opening a preview changes this same host into the endpoint tree. Capture the complete
-            // current native source before that mutation; a successor can then clip an exact late
-            // presentation frame without scaling pixels or snapshotting the incoming WebView2 (or
-            // another preview control).
-            VisualSurface.UpdateLayout();
-            var renderedFrame = _appliedFrame.Visible
-                ? _appliedFrame
-                : frame;
-            var requestedWidth = Math.Max(1, frame.Bounds.Width);
-            var requestedHeight = Math.Max(1, frame.Bounds.Height);
-            var width = Math.Max(
-                requestedWidth,
-                renderedFrame.Bounds.Width);
-            var height = Math.Max(
-                requestedHeight,
-                renderedFrame.Bounds.Height);
-            var bitmap = new RenderTargetBitmap(
-                width,
-                height,
-                Math.Max(1, frame.DpiScaleX) * 96,
-                Math.Max(1, frame.DpiScaleY) * 96,
-                PixelFormats.Pbgra32);
-            bitmap.Render(VisualSurface);
-
-            BitmapSource snapshot = bitmap;
-            if (requestedWidth != width ||
-                requestedHeight != height)
-            {
-                var cropX = Math.Clamp(
-                    frame.Bounds.Left - renderedFrame.Bounds.Left,
-                    0,
-                    width - requestedWidth);
-                var cropY = Math.Clamp(
-                    frame.Bounds.Top - renderedFrame.Bounds.Top,
-                    0,
-                    height - requestedHeight);
-                snapshot = new CroppedBitmap(
-                    bitmap,
-                    new Int32Rect(
-                        cropX,
-                        cropY,
-                        requestedWidth,
-                        requestedHeight));
-            }
-            snapshot.Freeze();
-            return snapshot;
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceWarning(
-                "Edge capsule proxy compact snapshot failed. Paper={0}; Exception={1}",
-                _options.DiagnosticId,
-                ex);
-            return null;
-        }
-    }
 
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
     {
@@ -288,7 +218,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     /// <summary>
     /// The only per-paper docked-surface effect entry. HostBounds is the real endpoint HWND and
-    /// Bounds is its wall-aligned visual surface; production frames make them equal.
+    /// Bounds is its wall-aligned visual surface; HostBounds may be larger than Bounds and remains the stable capacity.
     /// </summary>
     public bool Apply(EdgeCapsulePresentationFrame frame)
     {

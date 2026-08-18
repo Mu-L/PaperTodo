@@ -1,10 +1,20 @@
-using System.Windows.Media.Imaging;
-
 namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private int? _edgeCapsuleProxyPreviewContentReleaseGeneration;
+    internal EdgeCapsuleVisualAuthority CurrentEdgeCapsuleVisualAuthority
+    {
+        get
+        {
+            var floatingCoverActive =
+                _deepCapsuleFloatingDragHost is { IsVisible: true };
+            return EdgeCapsuleQueueProxyPolicy.ResolveVisualAuthority(
+                _edgeCapsule.State.Gesture,
+                floatingCoverActive,
+                _controller.IsEdgeCapsuleQueueProxyRetainingSource(
+                    this));
+        }
+    }
 
     internal EdgeCapsuleQueueProxyCandidate?
         CaptureEdgeCapsuleQueueProxyCandidate(
@@ -39,14 +49,12 @@ public sealed partial class PaperWindow
                 host.MatchesPresentation(source) &&
                 !IsExperimentalPassive &&
                 !_advancedInteractionLocked &&
-                !_controller.State
-                    .ExperimentalDockedCapsulesNonTopmost &&
+                !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
                 _controller.FullscreenAvoidanceWindowForQueue(
                     _paper.CapsuleMonitorDeviceName) == IntPtr.Zero,
             host.IsTopmost,
             retainedByCurrentProxy,
-            _edgeCapsule.State.Gesture,
-            _deepCapsuleFloatingDragHost is { IsVisible: true });
+            CurrentEdgeCapsuleVisualAuthority);
     }
 
     internal (
@@ -67,13 +75,14 @@ public sealed partial class PaperWindow
             return default;
         }
 
-        // Pointer morphs begin before the target provider is asked for its final card size. Reserve
-        // the documented preview ceiling here, not the previous/default request, so the same queue
-        // HWND can accept a wider or taller A-to-B successor without moving its visible root.
+        // This is output-HWND capacity, not a WPF backing surface.
+        // Reserve the legal queue envelope so different plugin card sizes
+        // can replace one another without moving an active DComp target.
         var workAreaDip = layout.Monitor.LocalWorkAreaDip;
         var maximumPreview = new EdgeCapsulePreviewSize(
             EdgeCapsulePreviewSize.MaximumWidthDip,
-            EdgeCapsulePreviewSize.MaximumHeightDip).Normalize(
+            EdgeCapsulePreviewSize.MaximumHeightDip)
+            .Normalize(
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumWidthDip,
                     workAreaDip.Width - 16),
@@ -115,21 +124,6 @@ public sealed partial class PaperWindow
     internal bool CanRouteEdgeCapsuleQueueProxyInput =>
         CanEnterEdgeCapsulePreview;
 
-    internal BitmapSource? CaptureEdgeCapsuleQueueProxySnapshot(
-        EdgeCapsulePresentationFrame source) =>
-        _edgeCapsuleHost?.CaptureProxySnapshot(source);
-
-    internal bool TryGetEdgeCapsuleQueueProxySnapshotSource(
-        out EdgeCapsulePresentationFrame source)
-    {
-        source = EdgeCapsulePresentationFrame.Hidden;
-        return _windowLifecycle == PaperWindowLifecycleState.Alive &&
-            !IsClosed &&
-            _edgeCapsuleHost?.TryGetAppliedPresentation(out source) == true &&
-            source.Visible &&
-            source.IsUsable;
-    }
-
     internal bool ApplyEdgeCapsuleQueueProxyEndpoint(
         EdgeCapsulePresentationFrame endpoint)
     {
@@ -145,11 +139,13 @@ public sealed partial class PaperWindow
         return EnsureDeepCapsuleSlotHost().Apply(endpoint);
     }
 
-    internal bool PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff() =>
+    internal bool
+        PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff() =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         !IsClosed &&
         (_edgeCapsuleHost?
-            .PrepareCompositionSourceLayoutForBatchHandoff() ?? false);
+            .PrepareCompositionSourceLayoutForBatchHandoff() ??
+         false);
 
     internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
         out EdgeCapsulePresentationFrame endpoint)
@@ -166,13 +162,6 @@ public sealed partial class PaperWindow
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        // ConcealSource still reads the live preview HWND until the close animation reaches its
-        // endpoint. Freeze that source before Apply is allowed to shrink the same HWND to compact;
-        // otherwise the final DComp clip can point past the resized native surface and go blank.
-        if (!_controller.TryFreezeEdgeCapsuleQueueProxyDeferredEndpointSource(this))
-        {
-            return false;
-        }
         return ApplyEdgeCapsuleQueueProxyEndpoint(endpoint);
     }
 
@@ -191,27 +180,6 @@ public sealed partial class PaperWindow
               _edgeCapsuleHost.MatchesPresentation(endpoint);
     }
 
-    internal void ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent()
-    {
-        if (_edgeCapsuleProxyPreviewContentReleaseGeneration is not
-            { } generation)
-        {
-            return;
-        }
-        _edgeCapsuleProxyPreviewContentReleaseGeneration = null;
-        if (generation != _edgeCapsulePreviewContentGeneration ||
-            _edgeCapsulePreviewRequest != null ||
-            IsEdgeCapsulePreviewOpen)
-        {
-            return;
-        }
-        _edgeCapsuleHost?.ClearPreviewContent();
-    }
-
-    internal void MarkEdgeCapsuleQueueProxyPreviewContentReleasePending() =>
-        _edgeCapsuleProxyPreviewContentReleaseGeneration =
-            _edgeCapsulePreviewContentGeneration;
-
     internal void InvalidateEdgeCapsuleQueueProxyPointer()
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
@@ -221,7 +189,6 @@ public sealed partial class PaperWindow
         }
 
         var pointer = CaptureEdgeCapsulePointerPosition();
-        // While real source HWNDs are cloaked, this timer is the physical-pointer wake-up path.
         _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
             this,
             pointer);

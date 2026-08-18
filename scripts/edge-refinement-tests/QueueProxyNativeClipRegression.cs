@@ -4,35 +4,55 @@ internal static class QueueProxyNativeClipRegression
 {
     public static void Run()
     {
-        var startup = Source("EdgeCapsuleQueueCompositionProxy.Startup.cs");
-        var visuals = Source("EdgeCapsuleQueueCompositionProxy.Visuals.cs");
-        Require(startup.Contains("FullClip(sourceHost)"),
-            "translation proxy must expose the full stable live host");
-        Require(visuals.Contains("layer == EdgeCapsuleQueueProxyVisualLayer.MovingSource"),
-            "moving source must preserve the WPF-owned silhouette");
-        Require(!startup.Contains("RoundedBodyClipForVisibleBounds"),
-            "translation startup must not animate a resize clip");
+        var visuals = Source(
+            "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
+        foreach (var forbidden in new[]
+        {
+            "CreateRectangleClip",
+            "CreateEffectGroup",
+            "SetClip(",
+            "SetOpacity(",
+            "ClipLeftAnimation",
+            "OpacityAnimation"
+        })
+        {
+            Require(
+                !visuals.Contains(forbidden),
+                $"translation backend regrew {forbidden}");
+        }
+        Require(
+            visuals.Contains("SetOffsetX") &&
+            visuals.Contains("SetOffsetY"),
+            "translation backend must own offsets");
     }
 
     private static string Source(string name)
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "PaperTodo.csproj")))
+        var directory =
+            new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null &&
+               !File.Exists(Path.Combine(
+                   directory.FullName,
+                   "PaperTodo.csproj")))
         {
-  directory = directory.Parent;
+            directory = directory.Parent;
         }
         if (directory == null)
         {
-  throw new InvalidOperationException("repository root not found");
+            throw new InvalidOperationException(
+                "repository root not found");
         }
-        return File.ReadAllText(Path.Combine(directory.FullName, name));
+        return File.ReadAllText(
+            Path.Combine(directory.FullName, name));
     }
 
-    private static void Require(bool condition, string message)
+    private static void Require(
+        bool condition,
+        string message)
     {
         if (!condition)
         {
-  throw new InvalidOperationException(message);
+            throw new InvalidOperationException(message);
         }
     }
 }

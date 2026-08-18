@@ -11,7 +11,7 @@ public sealed partial class PaperWindow
 
     internal bool AllowsDeepCapsuleQueueProxyOwnership =>
         EdgeCapsuleQueueProxyPolicy.AllowsQueueProxyOwnership(
-            EdgeCapsuleGesture);
+            CurrentEdgeCapsuleVisualAuthority);
 
     private void OnEdgeCapsulePointerPressed(DeviceScreenPoint screenPosition)
     {
@@ -1099,6 +1099,8 @@ public sealed partial class PaperWindow
                 $"drag.transfer phase=exception paper={diagnosticId} " +
                 $"type={ex.GetType().Name} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(transferStartedAt):F3}");
+#else
+            _ = ex;
 #endif
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
         }

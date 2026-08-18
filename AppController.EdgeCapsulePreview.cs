@@ -28,8 +28,6 @@ public sealed partial class AppController
         _edgeCapsulePreviewCorridorExitIntent;
     private DispatcherTimer? _edgeCapsulePreviewCorridorIntentTimer;
     private DispatcherTimer? _edgeCapsulePreviewActivationIntentTimer;
-    private EdgeCapsulePreviewSnapshotPreparation?
-        _edgeCapsulePreviewSnapshotPreparation;
     private EdgeCapsulePreviewPointerAnchor?
         _edgeCapsulePreviewLayoutSuppressionAnchor;
     private int _edgeCapsulePreviewTransferGeneration;
@@ -47,17 +45,6 @@ public sealed partial class AppController
         long CandidateSinceTimestamp,
         long StableSinceTimestamp);
 
-    private sealed record EdgeCapsulePreviewSnapshotPreparation(
-        PaperWindow Target,
-        string PaperId,
-        string? ExpectedOwnerPaperId)
-    {
-        internal DispatcherOperation? Operation { get; set; }
-        internal EdgeCapsulePresentationFrame Source { get; set; } =
-            EdgeCapsulePresentationFrame.Hidden;
-        internal EdgeCapsuleProxySnapshotHost? Host { get; set; }
-        internal bool Ready { get; set; }
-    }
 
     private readonly record struct EdgeCapsulePreviewPointerAnchor(
         DeviceScreenPoint Point,
@@ -839,8 +826,7 @@ public sealed partial class AppController
         _edgeCapsulePreviewQueuedCloseOwnerPaperId = null;
         _edgeCapsulePreviewQueuedCloseReason =
             EdgeCapsulePreviewCloseReason.OutsideTransferRectangle;
-        ResetEdgeCapsulePreviewActivationIntent(
-            preservePreparedSnapshot: true);
+        ResetEdgeCapsulePreviewActivationIntent();
         var previous = _edgeCapsulePreviewSession;
         if (previous != null &&
             !string.Equals(
@@ -1251,9 +1237,6 @@ public sealed partial class AppController
             State.ExperimentalEdgeCapsuleHoverIntent;
         if (session == null)
         {
-            // The first real physical hit has no dwell. Publish its one-frame snapshot host outside
-            // the routed-input stack, then queue the still-pointer-validated transfer immediately.
-            // Prediction remains history-only and never delays or authorizes the first card.
             if (predictiveIntentEnabled)
             {
                 _edgeCapsulePreviewIntentPredictor.Observe(
@@ -1262,25 +1245,8 @@ public sealed partial class AppController
                     targetGeometry.DpiScaleX,
                     targetGeometry.DpiScaleY);
             }
-            ResetEdgeCapsulePreviewActivationIntent(
-                preservePreparedSnapshot: true);
-            var preparation =
-                _edgeCapsulePreviewSnapshotPreparation;
-            if (preparation == null ||
-                !string.Equals(
-                    preparation.PaperId,
-                    targetPaperId,
-                    StringComparison.Ordinal) ||
-                preparation.ExpectedOwnerPaperId != null)
-            {
-                QueueEdgeCapsulePreviewSnapshotPreparation(
-                    target,
-                    expectedOwnerPaperId: null);
-            }
-            else if (preparation.Ready)
-            {
-                QueueEdgeCapsulePreviewTransfer(target);
-            }
+            ResetEdgeCapsulePreviewActivationIntent();
+            QueueEdgeCapsulePreviewTransfer(target);
             return;
         }
 
@@ -1302,12 +1268,11 @@ public sealed partial class AppController
                     pointer,
                     now,
                     now);
-            QueueEdgeCapsulePreviewSnapshotPreparation(
-                target,
-                expectedOwnerPaperId);
             TraceEdgeCapsulePreview(
-                $"intent candidate target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
-                $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} pointer={pointer.X},{pointer.Y}");
+                $"intent candidate target=" +
+                $"{EdgeCapsulePreviewTraceId(targetPaperId)} " +
+                $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} " +
+                $"pointer={pointer.X},{pointer.Y}");
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
                 EdgeCapsulePreviewTransferResidenceMilliseconds);
@@ -1335,33 +1300,28 @@ public sealed partial class AppController
         var stableElapsed = Stopwatch.GetElapsedTime(
             currentIntent.StableSinceTimestamp,
             now).TotalMilliseconds;
-        // Continuous residence in one real target is the positive authority. Small physical mouse
-        // motion updates the predictor anchor but no longer restarts the whole gate; the optional
-        // negative-only predictor can still extend or veto a fast pass-through.
-        if (candidateElapsed < EdgeCapsulePreviewTransferResidenceMilliseconds)
+        if (candidateElapsed <
+            EdgeCapsulePreviewTransferResidenceMilliseconds)
         {
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
-                EdgeCapsulePreviewTransferResidenceMilliseconds - candidateElapsed);
+                EdgeCapsulePreviewTransferResidenceMilliseconds -
+                candidateElapsed);
             return;
         }
-        if (IsEdgeCapsulePreviewSnapshotPreparationPending(
-                targetPaperId,
-                expectedOwnerPaperId))
-        {
-            // Completion schedules the next check; do not poll the UI dispatcher every millisecond.
-            return;
-        }
+
         if (predictiveIntentEnabled)
         {
-            var decision = _edgeCapsulePreviewIntentPredictor.Evaluate(
-                EdgeCapsuleHoverIntentMode.Transfer,
-                State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
-                targetGeometry.Bounds,
-                pointer,
-                candidateElapsed,
-                stableElapsed);
-            if (decision != EdgeCapsuleHoverIntentDecision.NoExtraDelay)
+            var decision =
+                _edgeCapsulePreviewIntentPredictor.Evaluate(
+                    EdgeCapsuleHoverIntentMode.Transfer,
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
+                    targetGeometry.Bounds,
+                    pointer,
+                    candidateElapsed,
+                    stableElapsed);
+            if (decision !=
+                EdgeCapsuleHoverIntentDecision.NoExtraDelay)
             {
                 ScheduleEdgeCapsulePreviewActivationIntentCheck(
                     target,
@@ -1370,12 +1330,13 @@ public sealed partial class AppController
             }
         }
 
-        ResetEdgeCapsulePreviewActivationIntent(
-            preservePreparedSnapshot: true);
+        ResetEdgeCapsulePreviewActivationIntent();
         TraceEdgeCapsulePreview(
-            $"intent accepted target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
+            $"intent accepted target=" +
+            $"{EdgeCapsulePreviewTraceId(targetPaperId)} " +
             $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} " +
-            $"candidateMs={candidateElapsed:F1} stableMs={stableElapsed:F1}");
+            $"candidateMs={candidateElapsed:F1} " +
+            $"stableMs={stableElapsed:F1}");
         QueueEdgeCapsulePreviewTransfer(
             target,
             expectedOwnerPaperId,
@@ -1807,262 +1768,19 @@ public sealed partial class AppController
             _edgeCapsulePreviewQueuedTransferPaperId = null;
             _edgeCapsulePreviewTransferGeneration++;
         }
-
-        CancelEdgeCapsulePreviewSnapshotPreparation(targetPaperId);
     }
 
-    private void QueueEdgeCapsulePreviewSnapshotPreparation(
-        PaperWindow target,
-        string? expectedOwnerPaperId)
-    {
-        CancelEdgeCapsulePreviewSnapshotPreparation();
-        var paperId = target.EdgeCapsulePreviewPaperId;
-        var preparation =
-            new EdgeCapsulePreviewSnapshotPreparation(
-                target,
-                paperId,
-                expectedOwnerPaperId);
-        _edgeCapsulePreviewSnapshotPreparation = preparation;
-        preparation.Operation = target.Dispatcher.BeginInvoke(
-            (Action)(() =>
-                PrepareEdgeCapsulePreviewSnapshot(preparation)),
-            DispatcherPriority.Input);
-    }
 
-    private void PrepareEdgeCapsulePreviewSnapshot(
-        EdgeCapsulePreviewSnapshotPreparation preparation)
-    {
-        if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
-                preparation))
-        {
-            return;
-        }
 
-        double captureMilliseconds = 0;
-        double hostMilliseconds = 0;
-        try
-        {
-            var captureStartedAt =
-                EdgeCapsulePerformanceDiagnostics.Timestamp();
-            if (!preparation.Target
-                    .TryGetEdgeCapsuleQueueProxySnapshotSource(
-                        out var source) ||
-                preparation.Target
-                    .CaptureEdgeCapsuleQueueProxySnapshot(source) is not
-                    { } bitmap)
-            {
-                captureMilliseconds =
-                    EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                        captureStartedAt);
-                CompleteEdgeCapsulePreviewSnapshotPreparation(
-                    preparation,
-                    "source-unavailable",
-                    captureMilliseconds,
-                    hostMilliseconds);
-                return;
-            }
-            captureMilliseconds =
-                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                    captureStartedAt);
-            var hostStartedAt =
-                EdgeCapsulePerformanceDiagnostics.Timestamp();
-            var host = EdgeCapsuleProxySnapshotHost
-                .TryPrepareForDeferredRender(
-                    bitmap,
-                    source);
-            hostMilliseconds =
-                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                    hostStartedAt);
-            if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
-                    preparation))
-            {
-                host?.Dispose();
-                return;
-            }
-            if (host == null)
-            {
-                CompleteEdgeCapsulePreviewSnapshotPreparation(
-                    preparation,
-                    "host-failed",
-                    captureMilliseconds,
-                    hostMilliseconds);
-                return;
-            }
 
-            preparation.Source = source;
-            preparation.Host = host;
-            // Image invalidation and layout were queued by the Input phase. Yielding through one
-            // ordinary Render operation publishes the host without a nested dispatcher frame;
-            // candidate replacement can abort either pending phase and immediately return its
-            // bounded lease.
-            preparation.Operation = preparation.Target.Dispatcher.BeginInvoke(
-                (Action)(() =>
-                    CompleteEdgeCapsulePreviewSnapshotPreparation(
-                        preparation,
-                        "ready",
-                        captureMilliseconds,
-                        hostMilliseconds)),
-                DispatcherPriority.Render);
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceWarning(
-                "Edge capsule snapshot prefetch failed. PaperId={0}; Exception={1}",
-                preparation.PaperId,
-                ex);
-            preparation.Host?.Dispose();
-            preparation.Host = null;
-            CompleteEdgeCapsulePreviewSnapshotPreparation(
-                preparation,
-                "exception",
-                captureMilliseconds,
-                hostMilliseconds);
-        }
-    }
 
-    private void CompleteEdgeCapsulePreviewSnapshotPreparation(
-        EdgeCapsulePreviewSnapshotPreparation preparation,
-        string outcome,
-        double captureMilliseconds,
-        double hostMilliseconds)
-    {
-        if (!IsEdgeCapsulePreviewSnapshotPreparationCurrent(
-                preparation))
-        {
-            preparation.Host?.Dispose();
-            preparation.Host = null;
-            return;
-        }
 
-        preparation.Operation = null;
-        preparation.Ready = true;
-        TraceEdgeCapsulePreview(
-            $"snapshot prefetch target={EdgeCapsulePreviewTraceId(preparation.PaperId)} " +
-            $"outcome={outcome} captureMs={captureMilliseconds:F3} " +
-            $"hostMs={hostMilliseconds:F3}");
 
-        if (preparation.ExpectedOwnerPaperId == null &&
-            _edgeCapsulePreviewSession == null)
-        {
-            QueueEdgeCapsulePreviewTransfer(preparation.Target);
-        }
-        else if (_edgeCapsulePreviewActivationIntent is { } intent &&
-            string.Equals(
-                intent.TargetPaperId,
-                preparation.PaperId,
-                StringComparison.Ordinal) &&
-            string.Equals(
-                intent.ExpectedOwnerPaperId,
-                preparation.ExpectedOwnerPaperId,
-                StringComparison.Ordinal))
-        {
-            ScheduleEdgeCapsulePreviewActivationIntentCheck(
-                preparation.Target,
-                1);
-        }
-    }
 
-    private bool IsEdgeCapsulePreviewSnapshotPreparationCurrent(
-        EdgeCapsulePreviewSnapshotPreparation preparation) =>
-        !IsExiting &&
-        ReferenceEquals(
-            _edgeCapsulePreviewSnapshotPreparation,
-            preparation) &&
-        _windows.TryGetValue(
-            preparation.PaperId,
-            out var current) &&
-        ReferenceEquals(current, preparation.Target);
-
-    private bool IsEdgeCapsulePreviewSnapshotPreparationPending(
-        string paperId,
-        string? expectedOwnerPaperId) =>
-        _edgeCapsulePreviewSnapshotPreparation is
-            { Ready: false } preparation &&
-        string.Equals(
-            preparation.PaperId,
-            paperId,
-            StringComparison.Ordinal) &&
-        string.Equals(
-            preparation.ExpectedOwnerPaperId,
-            expectedOwnerPaperId,
-            StringComparison.Ordinal);
-
-    private bool TryTakeEdgeCapsulePreviewPreparedSnapshot(
-        string paperId,
-        EdgeCapsulePresentationFrame source,
-        out EdgeCapsuleProxySnapshotHost host)
-    {
-        host = null!;
-        var preparation =
-            _edgeCapsulePreviewSnapshotPreparation;
-        if (preparation == null ||
-            !preparation.Ready ||
-            !string.Equals(
-                preparation.PaperId,
-                paperId,
-                StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        _edgeCapsulePreviewSnapshotPreparation = null;
-        preparation.Operation = null;
-        var candidate = preparation.Host;
-        preparation.Host = null;
-        if (candidate == null ||
-            preparation.Source != source)
-        {
-            candidate?.Dispose();
-            return false;
-        }
-
-        host = candidate;
-        return true;
-    }
-
-    private void CancelEdgeCapsulePreviewSnapshotPreparation(
-        string? targetPaperId = null)
-    {
-        var preparation =
-            _edgeCapsulePreviewSnapshotPreparation;
-        if (targetPaperId != null &&
-            preparation != null &&
-            !string.Equals(
-                preparation.PaperId,
-                targetPaperId,
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _edgeCapsulePreviewSnapshotPreparation = null;
-        if (preparation == null)
-        {
-            return;
-        }
-
-        try
-        {
-            _ = preparation.Operation?.Abort();
-        }
-        catch (InvalidOperationException)
-        {
-            // The operation already completed on this dispatcher turn.
-        }
-        preparation.Host?.Dispose();
-        preparation.Host = null;
-        preparation.Operation = null;
-    }
-
-    private void ResetEdgeCapsulePreviewActivationIntent(
-        bool preservePreparedSnapshot = false)
+    private void ResetEdgeCapsulePreviewActivationIntent()
     {
         _edgeCapsulePreviewActivationIntent = null;
         _edgeCapsulePreviewActivationIntentTimer?.Stop();
-        if (!preservePreparedSnapshot)
-        {
-            CancelEdgeCapsulePreviewSnapshotPreparation();
-        }
     }
 
     private void ScheduleEdgeCapsulePreviewActivationIntentCheck(

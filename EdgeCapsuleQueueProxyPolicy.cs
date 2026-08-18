@@ -2,12 +2,19 @@ using System.Diagnostics;
 
 namespace PaperTodo;
 
+internal enum EdgeCapsuleVisualAuthority
+{
+    RealDocked = 0,
+    QueueTranslation = 1,
+    FloatingDrag = 2,
+    DockingOverlap = 3,
+    AuthoritySwap = 4,
+    Lost = 5
+}
+
 internal enum EdgeCapsuleQueueProxyMemberRole
 {
-    MovingSource = 0,
-    RevealTarget = 1,
-    RevealTargetWithSnapshot = 2,
-    ConcealSource = 3
+    MovingSource = 0
 }
 
 internal readonly record struct EdgeCapsuleQueueProxyCandidate(
@@ -20,20 +27,15 @@ internal readonly record struct EdgeCapsuleQueueProxyCandidate(
     bool HostReady,
     bool Topmost,
     bool RetainedByCurrentProxy,
-    EdgeCapsuleGestureState Gesture = EdgeCapsuleGestureState.Idle,
-    bool FloatingCoverActive = false);
+    EdgeCapsuleVisualAuthority Authority =
+        EdgeCapsuleVisualAuthority.RealDocked);
 
 internal readonly record struct EdgeCapsuleQueueProxyMemberPlan(
     string PaperId,
     EdgeCapsulePresentationFrame Start,
     EdgeCapsulePresentationFrame Source,
     EdgeCapsulePresentationFrame Target,
-    EdgeCapsuleQueueProxyMemberRole Role)
-{
-    public bool DefersRealEndpoint => false;
-    public bool RequiresStartSnapshot => false;
-    public bool UsesTargetSurface => false;
-}
+    EdgeCapsuleQueueProxyMemberRole Role);
 
 internal sealed record EdgeCapsuleQueueProxyPlan(
     string QueueKey,
@@ -47,44 +49,66 @@ internal sealed record EdgeCapsuleQueueProxyPlan(
     IReadOnlyList<EdgeCapsuleQueueProxyMemberPlan> Members);
 
 /// <summary>
-/// V3 Lite compositor admission. The proxy owns only global translation of a stable live
-/// HWND surface. Width, height, layout, preview identity, clip shape and content opacity stay
-/// in WPF. A dragged/floating owner may remain direct while eligible peers are composited.
+/// V3 Lite compositor admission. The compositor may translate a stable live
+/// HWND surface, and nothing else. Width, height, layout, clip, opacity and
+/// preview identity stay in the bounded WPF host. A direct drag owner may be
+/// omitted while eligible peers continue through the queue compositor.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyPolicy
 {
     public static bool IsEnabled => true;
 
-    internal static bool AllowsQueueProxyOwnership(
-        EdgeCapsuleGestureState gesture) =>
-        AllowsQueueProxyOwnership(gesture, floatingCoverActive: false);
+    internal static EdgeCapsuleVisualAuthority ResolveVisualAuthority(
+        EdgeCapsuleGestureState gesture,
+        bool floatingCoverActive,
+        bool queueTranslationActive)
+    {
+        if (floatingCoverActive)
+        {
+            return gesture is
+                EdgeCapsuleGestureState.DockingHandoff or
+                EdgeCapsuleGestureState.DockingReveal
+                    ? EdgeCapsuleVisualAuthority.DockingOverlap
+                    : EdgeCapsuleVisualAuthority.FloatingDrag;
+        }
+        if (queueTranslationActive)
+        {
+            return EdgeCapsuleVisualAuthority.QueueTranslation;
+        }
+        if (gesture is
+            EdgeCapsuleGestureState.DockingHandoff or
+            EdgeCapsuleGestureState.DockingReveal)
+        {
+            return EdgeCapsuleVisualAuthority.AuthoritySwap;
+        }
+        return EdgeCapsuleVisualAuthority.RealDocked;
+    }
 
     internal static bool AllowsQueueProxyOwnership(
-        EdgeCapsuleGestureState gesture,
-        bool floatingCoverActive) =>
-        !floatingCoverActive &&
-        gesture is
-  EdgeCapsuleGestureState.Idle or
-  EdgeCapsuleGestureState.PendingClick;
+        EdgeCapsuleVisualAuthority authority) =>
+        authority is
+            EdgeCapsuleVisualAuthority.RealDocked or
+            EdgeCapsuleVisualAuthority.QueueTranslation;
 
     internal static DeviceScreenRect PresentedHostBounds(
         EdgeCapsulePresentationFrame frame)
     {
-        if (!frame.Visible || frame.HostBounds.IsEmpty || frame.Bounds.IsEmpty)
+        if (!frame.Visible || frame.HostBounds.IsEmpty ||
+            frame.Bounds.IsEmpty)
         {
-  return default;
+            return default;
         }
 
         var width = frame.HostBounds.Width;
         var height = frame.HostBounds.Height;
         var left = frame.Edge == EdgeCapsuleEdge.Left
-  ? frame.WallDeviceX
-  : frame.WallDeviceX - width;
+            ? frame.WallDeviceX
+            : frame.WallDeviceX - width;
         return new DeviceScreenRect(
-  left,
-  frame.Bounds.Top,
-  left + width,
-  frame.Bounds.Top + height);
+            left,
+            frame.Bounds.Top,
+            left + width,
+            frame.Bounds.Top + height);
     }
 
     internal static bool RequiresTranslation(
@@ -100,117 +124,135 @@ internal static class EdgeCapsuleQueueProxyPolicy
     {
         if (candidates.Count == 0)
         {
-  return Reject(queueKey, "no-candidates", candidates);
+            return Reject(queueKey, "no-candidates", candidates);
         }
 
-        var members = new List<EdgeCapsuleQueueProxyMemberPlan>(candidates.Count);
+        var members = new List<EdgeCapsuleQueueProxyMemberPlan>(
+            candidates.Count);
         foreach (var candidate in candidates)
         {
-  var translated = RequiresTranslation(candidate.Start, candidate.Target);
-  if (!translated && !candidate.RetainedByCurrentProxy)
-  {
-      // Pure Rest/Hover/Preview morph stays visible in the bounded WPF host.
-      continue;
-  }
+            var translated =
+                RequiresTranslation(candidate.Start, candidate.Target);
+            if (!AllowsQueueProxyOwnership(candidate.Authority))
+            {
+                // The real/floating owner remains direct. If a predecessor
+                // currently owns it, startup reveals only that source while
+                // transferring the remaining peers to the successor.
+                continue;
+            }
+            if (!translated && !candidate.RetainedByCurrentProxy)
+            {
+                // Pure Rest/Hover/Preview morph stays in WPF.
+                continue;
+            }
 
-  var ownershipAllowed = AllowsQueueProxyOwnership(
-      candidate.Gesture,
-      candidate.FloatingCoverActive);
-  if (!ownershipAllowed)
-  {
-      // A predecessor cannot silently drop a still-cloaked member. Let it finish
-      // before changing authority. A fresh dragged owner, however, remains direct
-      // while other eligible peers may still enter this plan.
-      if (candidate.RetainedByCurrentProxy)
-      {
-          return Reject(
-              queueKey,
-              "retained-member-direct-owner",
-              candidates,
-              candidate);
-      }
-      continue;
-  }
+            var rejection =
+                TranslationCandidateRejection(candidate, queueKey);
+            if (rejection != null)
+            {
+                // A fresh member can safely remain direct. A retained source
+                // with an incompatible live surface must let its predecessor
+                // finish rather than silently changing pixel identity.
+                if (!candidate.RetainedByCurrentProxy)
+                {
+                    continue;
+                }
+                return Reject(queueKey, rejection, candidates, candidate);
+            }
 
-  var rejection = TranslationCandidateRejection(candidate, queueKey);
-  if (rejection != null)
-  {
-      return Reject(queueKey, rejection, candidates, candidate);
-  }
-
-  members.Add(new EdgeCapsuleQueueProxyMemberPlan(
-      candidate.PaperId,
-      candidate.Start,
-      candidate.Source,
-      candidate.Target,
-      EdgeCapsuleQueueProxyMemberRole.MovingSource));
+            members.Add(new EdgeCapsuleQueueProxyMemberPlan(
+                candidate.PaperId,
+                candidate.Start,
+                candidate.Source,
+                candidate.Target,
+                EdgeCapsuleQueueProxyMemberRole.MovingSource));
         }
 
         if (members.Count == 0)
         {
-  return Reject(queueKey, "no-eligible-translation", candidates);
+            return Reject(
+                queueKey,
+                "no-eligible-translation",
+                candidates);
         }
 
         var first = members[0];
         var mismatch = members.FirstOrDefault(member =>
-  member.Start.Edge != first.Start.Edge ||
-  member.Source.Edge != first.Start.Edge ||
-  member.Target.Edge != first.Start.Edge ||
-  member.Start.WallDeviceX != first.Start.WallDeviceX ||
-  member.Source.WallDeviceX != first.Start.WallDeviceX ||
-  member.Target.WallDeviceX != first.Start.WallDeviceX ||
-  Math.Abs(member.Start.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
-  Math.Abs(member.Start.DpiScaleY - first.Start.DpiScaleY) > 0.001 ||
-  Math.Abs(member.Source.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
-  Math.Abs(member.Source.DpiScaleY - first.Start.DpiScaleY) > 0.001 ||
-  Math.Abs(member.Target.DpiScaleX - first.Start.DpiScaleX) > 0.001 ||
-  Math.Abs(member.Target.DpiScaleY - first.Start.DpiScaleY) > 0.001);
+            member.Start.Edge != first.Start.Edge ||
+            member.Source.Edge != first.Start.Edge ||
+            member.Target.Edge != first.Start.Edge ||
+            member.Start.WallDeviceX != first.Start.WallDeviceX ||
+            member.Source.WallDeviceX != first.Start.WallDeviceX ||
+            member.Target.WallDeviceX != first.Start.WallDeviceX ||
+            Math.Abs(member.Start.DpiScaleX -
+                     first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(member.Start.DpiScaleY -
+                     first.Start.DpiScaleY) > 0.001 ||
+            Math.Abs(member.Source.DpiScaleX -
+                     first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(member.Source.DpiScaleY -
+                     first.Start.DpiScaleY) > 0.001 ||
+            Math.Abs(member.Target.DpiScaleX -
+                     first.Start.DpiScaleX) > 0.001 ||
+            Math.Abs(member.Target.DpiScaleY -
+                     first.Start.DpiScaleY) > 0.001);
         if (!string.IsNullOrEmpty(mismatch.PaperId))
         {
-  return Reject(queueKey, "queue-geometry-mismatch", candidates);
+            return Reject(
+                queueKey,
+                "queue-geometry-mismatch",
+                candidates);
         }
 
         var envelope = default(DeviceScreenRect);
         foreach (var member in members)
         {
-  envelope = EdgeCapsuleQueueProxyGeometry.Union(
-      envelope,
-      PresentedHostBounds(member.Start));
-  envelope = EdgeCapsuleQueueProxyGeometry.Union(
-      envelope,
-      member.Target.HostBounds);
+            envelope = EdgeCapsuleQueueProxyGeometry.Union(
+                envelope,
+                PresentedHostBounds(member.Start));
+            envelope = EdgeCapsuleQueueProxyGeometry.Union(
+                envelope,
+                member.Target.HostBounds);
         }
         if (envelope.IsEmpty)
         {
-  return Reject(queueKey, "empty-translation-envelope", candidates);
+            return Reject(
+                queueKey,
+                "empty-translation-envelope",
+                candidates);
         }
 
+        var durationByPaper = candidates.ToDictionary(
+            candidate => candidate.PaperId,
+            candidate => candidate.Motion.DurationMilliseconds,
+            StringComparer.Ordinal);
         var duration = Math.Max(
-  1,
-  members.Select(member =>
-      candidates.First(candidate => string.Equals(
-          candidate.PaperId,
-          member.PaperId,
-          StringComparison.Ordinal)).Motion.DurationMilliseconds)
-      .DefaultIfEmpty(EdgeCapsuleLayout.SlotMoveMilliseconds)
-      .Max());
+            1,
+            members.Select(member =>
+                    durationByPaper.GetValueOrDefault(
+                        member.PaperId,
+                        EdgeCapsuleLayout.SlotMoveMilliseconds))
+                .DefaultIfEmpty(
+                    EdgeCapsuleLayout.SlotMoveMilliseconds)
+                .Max());
 
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
-  $"proxy.admission mode=translation-only outcome=accepted queue={queueKey} " +
-  $"candidates={candidates.Count} members={members.Count} durationMs={duration} " +
-  $"papers={string.Join(',', members.Select(member => EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)))}");
+            $"proxy.admission mode=translation-only outcome=accepted " +
+            $"queue={queueKey} candidates={candidates.Count} " +
+            $"members={members.Count} durationMs={duration} " +
+            $"papers={string.Join(',', members.Select(member => EdgeCapsulePerformanceDiagnostics.ShortId(member.PaperId)))}");
 #endif
         return new EdgeCapsuleQueueProxyPlan(
-  queueKey,
-  envelope,
-  first.Start.Edge,
-  first.Start.WallDeviceX,
-  first.Start.DpiScaleX,
-  first.Start.DpiScaleY,
-  duration,
-  Topmost: true,
-  members);
+            queueKey,
+            envelope,
+            first.Start.Edge,
+            first.Start.WallDeviceX,
+            first.Start.DpiScaleX,
+            first.Start.DpiScaleY,
+            duration,
+            Topmost: true,
+            members);
     }
 
     private static string? TranslationCandidateRejection(
@@ -219,38 +261,45 @@ internal static class EdgeCapsuleQueueProxyPolicy
     {
         if (!candidate.Topmost)
         {
-  return "translation-member-not-topmost";
+            return "translation-member-not-topmost";
         }
         if (!candidate.HostReady)
         {
-  return "translation-member-host-not-ready";
+            return "translation-member-host-not-ready";
         }
         if (!candidate.Start.IsUsable ||
-  !candidate.Source.IsUsable ||
-  !candidate.Target.IsUsable)
+            !candidate.Source.IsUsable ||
+            !candidate.Target.IsUsable)
         {
-  return "translation-member-frame-unusable";
+            return "translation-member-frame-unusable";
         }
         if (!candidate.Start.Visible ||
-  !candidate.Source.Visible ||
-  !candidate.Target.Visible)
+            !candidate.Source.Visible ||
+            !candidate.Target.Visible)
         {
-  return "translation-member-hidden";
+            return "translation-member-hidden";
         }
         if (candidate.Motion.Kind != EdgeCapsuleMotionKind.Animate &&
-  !candidate.RetainedByCurrentProxy)
+            !candidate.RetainedByCurrentProxy)
         {
-  return $"translation-member-motion-{candidate.Motion.Kind}";
+            return $"translation-member-motion-{candidate.Motion.Kind}";
         }
-        if (!string.Equals(candidate.QueueKey, queueKey, StringComparison.Ordinal))
+        if (!string.Equals(
+                candidate.QueueKey,
+                queueKey,
+                StringComparison.Ordinal))
         {
-  return "translation-member-queue-change";
+            return "translation-member-queue-change";
         }
-        if (!CanWrapMovingMemberLive(candidate.Source, candidate.Target) ||
-  candidate.Start.HostBounds.Width != candidate.Source.HostBounds.Width ||
-  candidate.Start.HostBounds.Height != candidate.Source.HostBounds.Height)
+        if (!CanWrapMovingMemberLive(
+                candidate.Source,
+                candidate.Target) ||
+            candidate.Start.HostBounds.Width !=
+                candidate.Source.HostBounds.Width ||
+            candidate.Start.HostBounds.Height !=
+                candidate.Source.HostBounds.Height)
         {
-  return "translation-member-unstable-host-capacity";
+            return "translation-member-unstable-host-capacity";
         }
         return null;
     }
@@ -276,33 +325,57 @@ internal static class EdgeCapsuleQueueProxyPolicy
         long nowTimestamp)
     {
         var durationTicks = Math.Max(
-  1,
-  (long)Math.Round(
-      Stopwatch.Frequency * Math.Max(1, durationMilliseconds) / 1000.0));
+            1,
+            (long)Math.Round(
+                Stopwatch.Frequency *
+                Math.Max(1, durationMilliseconds) /
+                1000.0));
         var target = member.Target;
         var transition = new EdgeCapsuleTransition(
-  member.Start,
-  new EdgeCapsuleTargetPresentation(
-      target.Visible,
-      target.Surface,
-      target.Bounds,
-      target.HostBounds,
-      target.InteractiveBounds,
-      target.Edge,
-      target.BodyWindowWidthDevice,
-      target.WallDeviceX,
-      target.DpiScaleX,
-      target.DpiScaleY,
-      target.MaximumCloseWidthDip,
-      target.Opacity,
-      target.ContentOpacity,
-      target.OutlineVisible,
-      target.IsHitTestVisible,
-      target.CloseSegmentActsAsContent),
-  startedAtTimestamp,
-  durationTicks,
-  EdgeCapsuleTransitionReason.Placement);
-        return EdgeCapsuleTransitionPolicy.Sample(transition, nowTimestamp).Frame;
+            member.Start,
+            new EdgeCapsuleTargetPresentation(
+                target.Visible,
+                target.Surface,
+                target.Bounds,
+                target.HostBounds,
+                target.InteractiveBounds,
+                target.Edge,
+                target.BodyWindowWidthDevice,
+                target.WallDeviceX,
+                target.DpiScaleX,
+                target.DpiScaleY,
+                target.MaximumCloseWidthDip,
+                target.Opacity,
+                target.ContentOpacity,
+                target.OutlineVisible,
+                target.IsHitTestVisible,
+                target.CloseSegmentActsAsContent),
+            startedAtTimestamp,
+            durationTicks,
+            EdgeCapsuleTransitionReason.Placement);
+        return EdgeCapsuleTransitionPolicy
+            .Sample(transition, nowTimestamp)
+            .Frame;
+    }
+
+    internal static DeviceScreenPoint TranslationOffset(
+        EdgeCapsuleQueueProxyMemberPlan member,
+        long startedAtTimestamp,
+        int durationMilliseconds,
+        long nowTimestamp)
+    {
+        var frame = SampleLogicalFrame(
+            member,
+            startedAtTimestamp,
+            durationMilliseconds,
+            nowTimestamp);
+        var currentHost = PresentedHostBounds(frame);
+        var targetHost = member.Target.HostBounds;
+        return currentHost.IsEmpty || targetHost.IsEmpty
+            ? default
+            : new DeviceScreenPoint(
+                currentHost.Left - targetHost.Left,
+                currentHost.Top - targetHost.Top);
     }
 
     internal static double SampleProgress(
@@ -312,17 +385,19 @@ internal static class EdgeCapsuleQueueProxyPolicy
     {
         if (startedAtTimestamp <= 0)
         {
-  return 0;
+            return 0;
         }
         var durationTicks = Math.Max(
-  1,
-  (long)Math.Round(
-      Stopwatch.Frequency * Math.Max(1, durationMilliseconds) / 1000.0));
+            1,
+            (long)Math.Round(
+                Stopwatch.Frequency *
+                Math.Max(1, durationMilliseconds) /
+                1000.0));
         var raw = Math.Clamp(
-  Math.Max(0, nowTimestamp - startedAtTimestamp) /
-      (double)durationTicks,
-  0,
-  1);
+            Math.Max(0, nowTimestamp - startedAtTimestamp) /
+                (double)durationTicks,
+            0,
+            1);
         return 1.0 - Math.Pow(1.0 - raw, 3.0);
     }
 
@@ -334,13 +409,15 @@ internal static class EdgeCapsuleQueueProxyPolicy
     {
 #if DEBUG
         var detail = offending is { } candidate
-  ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
-    $"gesture={candidate.Gesture} floating={candidate.FloatingCoverActive} " +
-    $"hostReady={candidate.HostReady} retained={candidate.RetainedByCurrentProxy}"
-  : string.Empty;
+            ? $" paper={EdgeCapsulePerformanceDiagnostics.ShortId(candidate.PaperId)} " +
+              $"authority={candidate.Authority} " +
+              $"hostReady={candidate.HostReady} " +
+              $"retained={candidate.RetainedByCurrentProxy}"
+            : string.Empty;
         EdgeCapsulePerformanceDiagnostics.Trace(
-  $"proxy.admission mode=translation-only outcome=rejected queue={queueKey} " +
-  $"reason={reason} candidates={candidates.Count}{detail}");
+            $"proxy.admission mode=translation-only outcome=rejected " +
+            $"queue={queueKey} reason={reason} " +
+            $"candidates={candidates.Count}{detail}");
 #endif
         return null;
     }

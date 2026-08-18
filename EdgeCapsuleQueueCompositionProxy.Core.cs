@@ -29,14 +29,13 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private readonly Action<DeviceScreenPoint, int> _interactionRequested;
     private readonly Action _environmentChanged;
     private readonly Func<EdgeCapsuleQueueCompositionProxy, bool> _coverReady;
+    private readonly Action<EdgeCapsuleQueueCompositionProxy> _coverRollback;
     private readonly Action<EdgeCapsuleQueueCompositionProxy, bool> _completed;
     private readonly Func<long, bool> _endpointCommitRequested;
     private readonly long _sessionOrdinal;
     private long _animationStartedAtTimestamp;
-    private long _heldAtTimestamp;
     private bool _sourcesReleased;
     private bool _realEndpointMutationStarted;
-    private bool _abortQueued;
     private bool _completionRetrySuccess = true;
     private int _completionRetryCount;
     private bool _finishing;
@@ -49,6 +48,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private bool _completionPendingDuringSuccessorHold;
     private bool _pendingSuccessorCompletionSuccess = true;
     private bool _coverPublished;
+    private bool _controllerPublished;
     private bool _targetRootInstalled;
     private bool _runtimeReleased;
     private bool _visualResourcesRetired;
@@ -67,6 +67,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
+        Action<EdgeCapsuleQueueCompositionProxy> coverRollback,
         Action<EdgeCapsuleQueueCompositionProxy, bool> completed)
     {
         _plan = plan;
@@ -83,6 +84,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _interactionRequested = interactionRequested;
         _environmentChanged = environmentChanged;
         _coverReady = coverReady;
+        _coverRollback = coverRollback;
         _completed = completed;
         _sessionOrdinal = sessionOrdinal;
 
@@ -195,6 +197,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
+        Action<EdgeCapsuleQueueCompositionProxy> coverRollback,
         Action<EdgeCapsuleQueueCompositionProxy, bool> completed)
     {
         if (members.Count == 0 ||
@@ -269,6 +272,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 interactionRequested,
                 environmentChanged,
                 coverReady,
+                coverRollback,
                 completed);
             if (!host.TryStage(proxy, predecessor))
             {

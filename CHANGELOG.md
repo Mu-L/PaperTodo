@@ -691,3 +691,5 @@
 - 修复同一软件同时存在全屏与普通窗口时，切到普通窗口后纸片或胶囊可能反复闪烁的问题；切到桌面、任务栏或其他窗口会及时解除避让，同时保留浏览器视频和演示进入全屏时的自动识别。
 
 - 修复从笔记右键菜单选择图片后，编辑器偶尔提前切回浏览态，导致图片没有插入且无错误提示的问题。
+
+- 边缘胶囊 V3 Lite：形变回归 bounded WPF host，DirectComposition 仅处理同尺寸 live surface 位移；移除 Snapshot/Clip/DeferredHandoff，并补齐显式视觉所有权、成员级 successor 交接与 never-all-hidden 回滚。

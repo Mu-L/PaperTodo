@@ -13,7 +13,6 @@ public partial class App
             (Action)(() =>
             {
                 EdgeCapsuleQueueCompositionProxy.Prewarm(Dispatcher);
-                EdgeCapsuleProxySnapshotHost.Prewarm(Dispatcher);
             }));
     }
 }

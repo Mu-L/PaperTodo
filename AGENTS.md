@@ -135,3 +135,5 @@ dotnet build PaperTodo.csproj -c Release
 ## 更新本文
 
 只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程发生变化时才更新本文。普通 UI 微调、文案、颜色、间距、动画参数不需要同步。
+
+- DComp translation backend 的类型层不得暴露 clip、scale、effect、snapshot、Reveal/Conceal 或 deferred resize；这些能力不是“暂时不用”，而是 V3 Lite 中禁止存在。

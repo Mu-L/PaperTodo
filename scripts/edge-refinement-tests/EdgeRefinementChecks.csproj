@@ -18,6 +18,7 @@
     <Compile Include="PreviewTransferLayoutRegression.cs" />
     <Compile Include="NativeBatchReentrancyRegression.cs" />
     <Compile Include="QueueProxyNativeClipRegression.cs" />
+    <Compile Include="QueueProxyWallAnchorRegression.cs" />
     <Compile Include="QueueProxyAdmissionRegression.cs" />
     <Compile Include="QueueProxyBarrierRegression.cs" />
     <Compile Include="QueueProxyConcealHandoffRegression.cs" />

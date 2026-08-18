@@ -10,62 +10,35 @@ namespace PaperTodo;
 internal sealed record EdgeCapsuleQueueCompositionProxyMember(
     PaperWindow Window,
     EdgeCapsuleQueueProxyMemberPlan Plan,
-    IntPtr SourceHandle,
-    EdgeCapsuleProxySnapshotHost? SnapshotHost);
-
-internal enum EdgeCapsuleQueueProxyVisualLayer
-{
-    MovingSource = 0,
-    RevealTarget = 1,
-    ConcealSource = 2,
-    StartSnapshot = 3
-}
+    IntPtr SourceHandle);
 
 /// <summary>
-/// Dispatcher-shared DirectComposition device, queue-scoped output hosts and generation-owned
-/// visual resources. A queue host may have one current generation and one staged successor.
+/// Dispatcher-shared DirectComposition device, queue-scoped output hosts and
+/// generation-owned translation visuals. A queue host may have one current
+/// generation and one staged successor.
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
 {
     private sealed class VisualState : IDisposable
     {
-        public required EdgeCapsuleQueueCompositionProxyMember Member { get; init; }
-        public required EdgeCapsuleQueueProxyVisualLayer Layer { get; init; }
+        public required EdgeCapsuleQueueCompositionProxyMember Member
+            { get; init; }
         public required IntPtr PresentedSourceHandle { get; init; }
         public required DeviceScreenRect SourceBounds { get; init; }
         public required IUnknown Surface { get; init; }
         public required IDCompositionVisual Visual { get; init; }
-        public required IDCompositionEffectGroup Effect { get; init; }
-        public required IDCompositionRectangleClip Clip { get; init; }
-        public required float StartOffsetX { get; init; }
-        public required float StartOffsetY { get; init; }
+        public required float StartOffsetX { get; set; }
+        public required float StartOffsetY { get; set; }
         public required float TargetOffsetX { get; init; }
         public required float TargetOffsetY { get; init; }
-        public required EdgeCapsuleProxyClipRect StartClip { get; init; }
-        public required EdgeCapsuleProxyClipRect TargetClip { get; init; }
-        public required float StartOpacity { get; init; }
-        public required float TargetOpacity { get; init; }
-        public required int OpacityDurationMilliseconds { get; init; }
 
         public IDCompositionAnimation? OffsetXAnimation { get; set; }
         public IDCompositionAnimation? OffsetYAnimation { get; set; }
-        public IDCompositionAnimation? ClipLeftAnimation { get; set; }
-        public IDCompositionAnimation? ClipTopAnimation { get; set; }
-        public IDCompositionAnimation? ClipRightAnimation { get; set; }
-        public IDCompositionAnimation? ClipBottomAnimation { get; set; }
-        public IDCompositionAnimation? OpacityAnimation { get; set; }
 
         public void Dispose()
         {
-            OpacityAnimation?.Dispose();
-            ClipBottomAnimation?.Dispose();
-            ClipRightAnimation?.Dispose();
-            ClipTopAnimation?.Dispose();
-            ClipLeftAnimation?.Dispose();
             OffsetYAnimation?.Dispose();
             OffsetXAnimation?.Dispose();
-            Clip.Dispose();
-            Effect.Dispose();
             Visual.Dispose();
             Surface.Dispose();
         }

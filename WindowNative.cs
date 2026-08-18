@@ -19,6 +19,13 @@ internal static class WindowNative
         bool Cloaked,
         bool RollbackCloaked);
 
+    internal enum WindowCloakBatchResult
+    {
+        Success = 0,
+        RolledBack = 1,
+        RollbackFailed = 2
+    }
+
     [ThreadStatic]
     private static WindowDeviceBoundsBatch? _currentDeviceBoundsBatch;
 #if DEBUG
@@ -1312,26 +1319,43 @@ internal static class WindowNative
     internal static bool TrySetWindowCloakedBatch(
         IReadOnlyCollection<WindowCloakChange> requestedChanges,
         Func<bool>? publishBeforeFlush = null,
-        Action? rollbackBeforeFlush = null)
+        Action? rollbackBeforeFlush = null) =>
+        TrySetWindowCloakedBatchDetailed(
+            requestedChanges,
+            publishBeforeFlush,
+            rollbackBeforeFlush) ==
+        WindowCloakBatchResult.Success;
+
+    internal static WindowCloakBatchResult
+        TrySetWindowCloakedBatchDetailed(
+            IReadOnlyCollection<WindowCloakChange> requestedChanges,
+            Func<bool>? publishBeforeFlush = null,
+            Action? rollbackBeforeFlush = null)
     {
-        if (requestedChanges.Count == 0 && publishBeforeFlush == null)
+        if (requestedChanges.Count == 0 &&
+            publishBeforeFlush == null)
         {
-            return true;
+            return WindowCloakBatchResult.Success;
         }
 
-        var changesByHandle = new Dictionary<IntPtr, WindowCloakChange>();
+        var changesByHandle =
+            new Dictionary<IntPtr, WindowCloakChange>();
         foreach (var change in requestedChanges)
         {
-            if (change.Handle == IntPtr.Zero || !IsWindow(change.Handle))
+            if (change.Handle == IntPtr.Zero ||
+                !IsWindow(change.Handle))
             {
-                return false;
+                return WindowCloakBatchResult.RolledBack;
             }
-            if (changesByHandle.TryGetValue(change.Handle, out var existing))
+            if (changesByHandle.TryGetValue(
+                    change.Handle,
+                    out var existing))
             {
                 if (existing.Cloaked != change.Cloaked ||
-                    existing.RollbackCloaked != change.RollbackCloaked)
+                    existing.RollbackCloaked !=
+                        change.RollbackCloaked)
                 {
-                    return false;
+                    return WindowCloakBatchResult.RolledBack;
                 }
                 continue;
             }
@@ -1339,9 +1363,11 @@ internal static class WindowNative
         }
 
         var changes = changesByHandle.Values.ToArray();
-        var attempted = new List<WindowCloakChange>(changes.Length);
+        var attempted =
+            new List<WindowCloakChange>(changes.Length);
 #if DEBUG
-        var batchStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var batchStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
         var setStartedAt = batchStartedAt;
 #endif
         var setSucceeded = true;
@@ -1356,8 +1382,10 @@ internal static class WindowNative
                 break;
             }
         }
+
         var publishSucceeded = setSucceeded;
-        if (publishSucceeded && publishBeforeFlush != null)
+        if (publishSucceeded &&
+            publishBeforeFlush != null)
         {
             try
             {
@@ -1370,16 +1398,19 @@ internal static class WindowNative
         }
 #if DEBUG
         var setMilliseconds =
-            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                setStartedAt);
-        var flushStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            EdgeCapsulePerformanceDiagnostics
+                .ElapsedMilliseconds(setStartedAt);
+        var flushStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-        var flushed = publishSucceeded && DwmFlush() == 0;
+        var flushed =
+            publishSucceeded && DwmFlush() == 0;
 #if DEBUG
         var flushMilliseconds =
-            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                flushStartedAt);
-        var verifyStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+            EdgeCapsulePerformanceDiagnostics
+                .ElapsedMilliseconds(flushStartedAt);
+        var verifyStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
         var verified = flushed;
         if (verified)
@@ -1398,40 +1429,75 @@ internal static class WindowNative
         }
 #if DEBUG
         var verifyMilliseconds =
-            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                verifyStartedAt);
+            EdgeCapsulePerformanceDiagnostics
+                .ElapsedMilliseconds(verifyStartedAt);
 #endif
-        if (!verified)
+        if (verified)
         {
-            for (var index = attempted.Count - 1; index >= 0; index--)
-            {
-                var change = attempted[index];
-                _ = TrySetWindowCloakAttribute(
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"native.cloak phase=batch outcome=success " +
+                $"count={changes.Length} attempted={attempted.Count} " +
+                $"coordinated={publishBeforeFlush != null} " +
+                $"setMs={setMilliseconds:F3} " +
+                $"flushMs={flushMilliseconds:F3} " +
+                $"verifyMs={verifyMilliseconds:F3} " +
+                $"totalMs=" +
+                $"{EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(batchStartedAt):F3}");
+#endif
+            return WindowCloakBatchResult.Success;
+        }
+
+        var rollbackSucceeded = true;
+        for (var index = attempted.Count - 1;
+             index >= 0;
+             index--)
+        {
+            var change = attempted[index];
+            rollbackSucceeded &=
+                TrySetWindowCloakAttribute(
                     change.Handle,
                     change.RollbackCloaked);
-            }
-            try
-            {
-                rollbackBeforeFlush?.Invoke();
-            }
-            catch
-            {
-                // The caller's original authority may already be damaged. Flush the cloak
-                // rollback anyway; its higher-level failure path will recover or recreate it.
-            }
-            _ = DwmFlush();
         }
+        try
+        {
+            rollbackBeforeFlush?.Invoke();
+        }
+        catch
+        {
+            rollbackSucceeded = false;
+        }
+        rollbackSucceeded &= DwmFlush() == 0;
+        if (rollbackSucceeded)
+        {
+            foreach (var change in attempted)
+            {
+                if (!TryGetWindowAppCloaked(
+                        change.Handle,
+                        out var actual) ||
+                    actual != change.RollbackCloaked)
+                {
+                    rollbackSucceeded = false;
+                    break;
+                }
+            }
+        }
+
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
-            $"native.cloak phase=batch outcome={(verified ? "success" : "rollback")} " +
+            $"native.cloak phase=batch outcome=" +
+            $"{(rollbackSucceeded ? "rollback" : "rollback-failed")} " +
             $"count={changes.Length} attempted={attempted.Count} " +
-            $"target={(changes.Length == 0 ? "none" : changes.All(change => change.Cloaked) ? "cloaked" : changes.All(change => !change.Cloaked) ? "visible" : "mixed")} " +
             $"coordinated={publishBeforeFlush != null} " +
-            $"setMs={setMilliseconds:F3} flushMs={flushMilliseconds:F3} " +
+            $"setMs={setMilliseconds:F3} " +
+            $"flushMs={flushMilliseconds:F3} " +
             $"verifyMs={verifyMilliseconds:F3} " +
-            $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(batchStartedAt):F3}");
+            $"totalMs=" +
+            $"{EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(batchStartedAt):F3}");
 #endif
-        return verified;
+        return rollbackSucceeded
+            ? WindowCloakBatchResult.RolledBack
+            : WindowCloakBatchResult.RollbackFailed;
     }
 
     private static bool TrySetWindowCloakAttribute(

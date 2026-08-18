@@ -1,4 +1,14 @@
-using PaperTodo;
+extern alias PaperTodoApp;
+
+using EdgeCapsuleEdge = PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
+using EdgeCapsuleMotion = PaperTodoApp::PaperTodo.EdgeCapsuleMotion;
+using EdgeCapsulePresentationFrame = PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
+using EdgeCapsuleQueueProxyCandidate = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyCandidate;
+using EdgeCapsuleQueueProxyPolicy = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyPolicy;
+using EdgeCapsuleSurfaceKind = PaperTodoApp::PaperTodo.EdgeCapsuleSurfaceKind;
+using EdgeCapsuleTransitionReason = PaperTodoApp::PaperTodo.EdgeCapsuleTransitionReason;
+using EdgeCapsuleVisualAuthority = PaperTodoApp::PaperTodo.EdgeCapsuleVisualAuthority;
+using DeviceScreenRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
 
 internal static class QueueProxyAdmissionRegression
 {
@@ -13,137 +23,165 @@ internal static class QueueProxyAdmissionRegression
 
     private static void StableTranslationIsAdmitted()
     {
-        var start = Frame("a", 100, 86, 58, 100);
-        var target = Frame("a", 220, 86, 58, 220);
+        var start = Frame(100, 100);
+        var target = Frame(220, 220);
         var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
-  "queue",
-  new[] { Candidate("a", start, target) });
-        Require(plan is { Members.Count: 1 }, "stable translation must enter DComp");
-        Require(plan!.Members[0].Role == EdgeCapsuleQueueProxyMemberRole.MovingSource,
-  "V3 Lite only permits MovingSource");
+            "queue",
+            new[] { Candidate("a", start, target) });
+        Require(
+            plan is { Members.Count: 1 },
+            "stable translation must enter DComp");
     }
 
     private static void PureMorphStaysInWpf()
     {
-        var start = Frame("a", 100, 86, 58, 100);
-        var target = Frame(
-  "a",
-  100,
-  260,
-  180,
-  100,
-  EdgeCapsuleSurfaceKind.DockedPreview);
-        var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
-  "queue",
-  new[] { Candidate("a", start, target) });
-        Require(plan == null, "pure size/shape morph must stay in bounded WPF host");
+        var start = Frame(100, 100);
+        var target = start with
+        {
+            Surface = EdgeCapsuleSurfaceKind.DockedPreview,
+            Bounds = new DeviceScreenRect(
+                4860,
+                100,
+                5120,
+                280),
+            InteractiveBounds = new DeviceScreenRect(
+                4860,
+                100,
+                5120,
+                280)
+        };
+        Require(
+            EdgeCapsuleQueueProxyPolicy.TryCreate(
+                "queue",
+                new[] { Candidate("a", start, target) }) ==
+            null,
+            "pure morph must stay in WPF");
     }
 
-    private static void DragOwnerCanRemainDirectWhilePeerMoves()
+    private static void
+        DragOwnerCanRemainDirectWhilePeerMoves()
     {
-        var ownerStart = Frame("owner", 100, 86, 58, 100);
-        var ownerTarget = Frame("owner", 180, 86, 58, 180);
-        var peerStart = Frame("peer", 300, 86, 58, 300);
-        var peerTarget = Frame("peer", 420, 86, 58, 420);
-        var owner = Candidate(
-  "owner",
-  ownerStart,
-  ownerTarget,
-  EdgeCapsuleGestureState.DockedReordering,
-  floatingCoverActive: true);
-        var peer = Candidate("peer", peerStart, peerTarget);
-        var plan = EdgeCapsuleQueueProxyPolicy.TryCreate("queue", new[] { owner, peer });
-        Require(plan is { Members.Count: 1 }, "peer translation must not be queue-wide rejected");
-        Require(plan!.Members[0].PaperId == "peer", "drag owner must remain direct");
+        var ownerStart = Frame(100, 100);
+        var ownerTarget = Frame(180, 180);
+        var peerStart = Frame(300, 300);
+        var peerTarget = Frame(420, 420);
+        var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
+            "queue",
+            new[]
+            {
+                Candidate(
+                    "owner",
+                    ownerStart,
+                    ownerTarget,
+                    retained: true,
+                    authority:
+                        EdgeCapsuleVisualAuthority.FloatingDrag),
+                Candidate(
+                    "peer",
+                    peerStart,
+                    peerTarget,
+                    retained: true,
+                    authority:
+                        EdgeCapsuleVisualAuthority.QueueTranslation)
+            });
+        Require(
+            plan is { Members.Count: 1 } &&
+            plan.Members[0].PaperId == "peer",
+            "direct owner must not reject peer translation");
     }
 
     private static void FloatingCoverBlocksSecondOwner()
     {
-        var start = Frame("a", 100, 86, 58, 100);
-        var target = Frame("a", 220, 86, 58, 220);
-        var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
-  "queue",
-  new[]
-  {
-      Candidate(
-          "a",
-          start,
-          target,
-          EdgeCapsuleGestureState.Idle,
-          floatingCoverActive: true)
-  });
-        Require(plan == null, "Gesture=Idle cannot override an active floating authority");
+        Require(
+            !EdgeCapsuleQueueProxyPolicy
+                .AllowsQueueProxyOwnership(
+                    EdgeCapsuleVisualAuthority.FloatingDrag) &&
+            !EdgeCapsuleQueueProxyPolicy
+                .AllowsQueueProxyOwnership(
+                    EdgeCapsuleVisualAuthority.DockingOverlap),
+            "floating/docking cover must block a second owner");
     }
 
     private static void HostCapacityChangeIsRejected()
     {
-        var start = Frame("a", 100, 86, 58, 100, hostWidth: 480);
-        var target = Frame("a", 220, 86, 58, 220, hostWidth: 500);
-        var plan = EdgeCapsuleQueueProxyPolicy.TryCreate(
-  "queue",
-  new[] { Candidate("a", start, target) });
-        Require(plan == null, "translation proxy must never resize its live surface");
+        var start = Frame(100, 100);
+        var target = Frame(220, 220) with
+        {
+            HostBounds = new DeviceScreenRect(
+                4600,
+                220,
+                5120,
+                640)
+        };
+        Require(
+            EdgeCapsuleQueueProxyPolicy.TryCreate(
+                "queue",
+                new[] { Candidate("a", start, target) }) ==
+            null,
+            "proxy must never resize live surface capacity");
     }
 
     private static EdgeCapsuleQueueProxyCandidate Candidate(
         string id,
         EdgeCapsulePresentationFrame start,
         EdgeCapsulePresentationFrame target,
-        EdgeCapsuleGestureState gesture = EdgeCapsuleGestureState.Idle,
-        bool floatingCoverActive = false) => new(
-  id,
-  "queue",
-  start,
-  start,
-  target,
-  EdgeCapsuleMotion.Animate(EdgeCapsuleTransitionReason.Placement, 200),
-  HostReady: true,
-  Topmost: true,
-  RetainedByCurrentProxy: false,
-  gesture,
-  floatingCoverActive);
+        bool retained = false,
+        EdgeCapsuleVisualAuthority authority =
+            EdgeCapsuleVisualAuthority.RealDocked) => new(
+        id,
+        "queue",
+        start,
+        start,
+        target,
+        EdgeCapsuleMotion.Animate(
+            EdgeCapsuleTransitionReason.Placement,
+            200),
+        HostReady: true,
+        Topmost: true,
+        retained,
+        authority);
 
     private static EdgeCapsulePresentationFrame Frame(
-        string id,
         int top,
-        int width,
-        int height,
-        int hostTop,
-        EdgeCapsuleSurfaceKind surface = EdgeCapsuleSurfaceKind.DockedResting,
-        int hostWidth = 480,
-        int hostHeight = 420)
+        int hostTop)
     {
         const int wall = 5120;
-        var bounds = new DeviceScreenRect(wall - width, top, wall, top + height);
+        var bounds = new DeviceScreenRect(
+            wall - 86,
+            top,
+            wall,
+            top + 58);
         var host = new DeviceScreenRect(
-  wall - hostWidth,
-  hostTop,
-  wall,
-  hostTop + hostHeight);
+            wall - 480,
+            hostTop,
+            wall,
+            hostTop + 420);
         return new EdgeCapsulePresentationFrame(
-  true,
-  surface,
-  bounds,
-  host,
-  bounds,
-  EdgeCapsuleEdge.Right,
-  Math.Max(1, width - 18),
-  wall,
-  1,
-  1,
-  18,
-  1,
-  1,
-  false,
-  true,
-  false);
+            true,
+            EdgeCapsuleSurfaceKind.DockedResting,
+            bounds,
+            host,
+            bounds,
+            EdgeCapsuleEdge.Right,
+            68,
+            wall,
+            1,
+            1,
+            18,
+            1,
+            1,
+            false,
+            true,
+            false);
     }
 
-    private static void Require(bool condition, string message)
+    private static void Require(
+        bool condition,
+        string message)
     {
         if (!condition)
         {
-  throw new InvalidOperationException(message);
+            throw new InvalidOperationException(message);
         }
     }
 }

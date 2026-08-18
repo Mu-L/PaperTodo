@@ -1,32 +1,21 @@
 namespace PaperTodo;
 
-internal readonly record struct EdgeCapsuleProxyClipRect(
-    float Left,
-    float Top,
-    float Right,
-    float Bottom)
-{
-    public float Width => Math.Max(0, Right - Left);
-    public float Height => Math.Max(0, Bottom - Top);
-    public bool IsEmpty => Width <= 0 || Height <= 0;
-}
-
 /// <summary>
-/// Pure physical-pixel geometry for the queue compositor. A morph reveals or conceals a
-/// native-resolution HWND surface with a rectangle clip; no bitmap or live HWND surface is scaled
-/// to simulate another window size.
+/// Physical-pixel geometry for the translation-only queue compositor. The
+/// output HWND has no redirection bitmap, so it may reserve a bounded queue
+/// envelope without allocating another full RGBA WPF surface.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyGeometry
 {
     internal const int OutputOverscanPixels = 4;
 
-    internal static DeviceScreenRect OutputBounds(DeviceScreenRect envelope)
+    internal static DeviceScreenRect OutputBounds(
+        DeviceScreenRect envelope)
     {
         if (envelope.IsEmpty)
         {
             return default;
         }
-
         return new DeviceScreenRect(
             envelope.Left - OutputOverscanPixels,
             envelope.Top - OutputOverscanPixels,
@@ -44,41 +33,6 @@ internal static class EdgeCapsuleQueueProxyGeometry
         inner.Right <= outer.Right &&
         inner.Bottom <= outer.Bottom;
 
-    internal static bool CanClipVisibleBounds(
-        DeviceScreenRect surfaceBounds,
-        DeviceScreenRect visibleBounds) =>
-        !surfaceBounds.IsEmpty &&
-        !visibleBounds.IsEmpty &&
-        visibleBounds.Width <= surfaceBounds.Width &&
-        visibleBounds.Height <= surfaceBounds.Height;
-
-    /// <summary>
-    /// Positions a fixed-size native surface so a smaller visible viewport can move with the queue
-    /// without scaling its pixels. The surface follows the viewport top and stays anchored to the
-    /// monitor wall; a local rectangle clip owns the actual visible bounds.
-    /// </summary>
-    internal static DeviceScreenRect PositionSurfaceForVisibleBounds(
-        DeviceScreenRect surfaceBounds,
-        DeviceScreenRect visibleBounds,
-        EdgeCapsuleEdge edge)
-    {
-        if (!CanClipVisibleBounds(
-                surfaceBounds,
-                visibleBounds))
-        {
-            return default;
-        }
-
-        var left = edge == EdgeCapsuleEdge.Right
-            ? visibleBounds.Right - surfaceBounds.Width
-            : visibleBounds.Left;
-        return new DeviceScreenRect(
-            left,
-            visibleBounds.Top,
-            left + surfaceBounds.Width,
-            visibleBounds.Top + surfaceBounds.Height);
-    }
-
     internal static DeviceScreenRect Union(
         DeviceScreenRect first,
         DeviceScreenRect second)
@@ -91,7 +45,6 @@ internal static class EdgeCapsuleQueueProxyGeometry
         {
             return first;
         }
-
         return new DeviceScreenRect(
             Math.Min(first.Left, second.Left),
             Math.Min(first.Top, second.Top),
@@ -120,111 +73,4 @@ internal static class EdgeCapsuleQueueProxyGeometry
                 requestedBottom,
                 workAreaBottomDevice));
     }
-
-    internal static EdgeCapsuleProxyClipRect ClipForVisibleBounds(
-        DeviceScreenRect sourceBounds,
-        DeviceScreenRect visibleBounds)
-    {
-        if (sourceBounds.IsEmpty || visibleBounds.IsEmpty)
-        {
-            return default;
-        }
-
-        var left = Math.Clamp(
-            visibleBounds.Left - sourceBounds.Left,
-            0,
-            sourceBounds.Width);
-        var top = Math.Clamp(
-            visibleBounds.Top - sourceBounds.Top,
-            0,
-            sourceBounds.Height);
-        var right = Math.Clamp(
-            visibleBounds.Right - sourceBounds.Left,
-            0,
-            sourceBounds.Width);
-        var bottom = Math.Clamp(
-            visibleBounds.Bottom - sourceBounds.Top,
-            0,
-            sourceBounds.Height);
-        return new EdgeCapsuleProxyClipRect(left, top, right, bottom);
-    }
-
-    internal static EdgeCapsuleProxyClipRect FullClip(
-        DeviceScreenRect sourceBounds) =>
-        sourceBounds.IsEmpty
-            ? default
-            : new EdgeCapsuleProxyClipRect(
-                0,
-                0,
-                sourceBounds.Width,
-                sourceBounds.Height);
-
-    /// <summary>
-    /// Returns the clip that owns a newly-created moving capsule edge. A WPF edge HWND includes a
-    /// transparent shadow margin above, below and on the screen-internal side. Keep every animation
-    /// endpoint on the focus-outline silhouette: transitioning the clip to the outer HWND while
-    /// holding a fixed radius intersects two offset arcs and makes the visible corner shrink.
-    /// </summary>
-    internal static EdgeCapsuleProxyClipRect RoundedBodyClipForVisibleBounds(
-        DeviceScreenRect sourceBounds,
-        DeviceScreenRect visibleBounds,
-        EdgeCapsuleEdge edge,
-        double dpiScaleX,
-        double dpiScaleY)
-    {
-        var clip = ClipForVisibleBounds(
-            sourceBounds,
-            visibleBounds);
-        if (clip.IsEmpty)
-        {
-            return clip;
-        }
-
-        var marginX = (float)(
-            EdgeCapsuleLayout.OutlineSilhouetteInset *
-            Math.Max(1, dpiScaleX));
-        var marginY = (float)(
-            EdgeCapsuleLayout.OutlineSilhouetteInset *
-            Math.Max(1, dpiScaleY));
-        var left = clip.Left;
-        var right = clip.Right;
-        if (edge == EdgeCapsuleEdge.Right)
-        {
-            left = Math.Min(right, left + marginX);
-        }
-        else
-        {
-            right = Math.Max(left, right - marginX);
-        }
-
-        var top = Math.Min(clip.Bottom, clip.Top + marginY);
-        var bottom = Math.Max(top, clip.Bottom - marginY);
-        return new EdgeCapsuleProxyClipRect(
-            left,
-            top,
-            right,
-            bottom);
-    }
-
-    internal static float RoundedBodyClipRadius(
-        double dpiScale,
-        float clipSpan) =>
-        clipSpan <= 0
-            ? 0
-            : (float)Math.Min(
-                EdgeCapsuleLayout.OutlineSilhouetteRadius *
-                    Math.Max(1, dpiScale),
-                clipSpan / 2.0);
-
-    internal static EdgeCapsuleProxyClipRect Interpolate(
-        EdgeCapsuleProxyClipRect start,
-        EdgeCapsuleProxyClipRect target,
-        double progress) => new(
-        Lerp(start.Left, target.Left, progress),
-        Lerp(start.Top, target.Top, progress),
-        Lerp(start.Right, target.Right, progress),
-        Lerp(start.Bottom, target.Bottom, progress));
-
-    private static float Lerp(float from, float to, double progress) =>
-        (float)(from + (to - from) * progress);
 }
