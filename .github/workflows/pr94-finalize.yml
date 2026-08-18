@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   finalize:
@@ -27,6 +29,11 @@ jobs:
           ref: agent/v3-lite-edge-presentation
           fetch-depth: 0
           submodules: recursive
+
+      - name: Report finalizer run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment 94 --repo snownico0722/PaperTodo --body "PR94 final V3 Lite run: $env:GITHUB_RUN_ID"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
