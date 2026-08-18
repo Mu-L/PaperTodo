@@ -174,8 +174,9 @@ internal static class QueueProxyBarrierRegression
             snapshotHost.Contains(
                 "if (!WindowNative.TrySetWindowCloaked(",
                 StringComparison.Ordinal) &&
-            snapshotHost.Contains("TryCreateAsync(", StringComparison.Ordinal) &&
-            snapshotHost.Contains("InvokeAsync(", StringComparison.Ordinal) &&
+            snapshotHost.Contains(
+                "TryPrepareForDeferredRender(",
+                StringComparison.Ordinal) &&
             snapshotHost.Contains("DispatcherPriority.Render", StringComparison.Ordinal),
             "snapshot hosts must stay cloaked and support a non-nested Render publication turn");
 
@@ -257,6 +258,10 @@ internal static class QueueProxyBarrierRegression
             "final endpoint publication must share the authority-swap boundary instead of adding a static frame");
 
         var previewController = Read(root, "AppController.EdgeCapsulePreview.cs");
+        var snapshotPreparation = Between(
+            previewController,
+            "private void QueueEdgeCapsulePreviewSnapshotPreparation(",
+            "private void ResetEdgeCapsulePreviewActivationIntent(");
         Assert(
             previewController.Contains(
                 "candidateElapsed < EdgeCapsulePreviewTransferResidenceMilliseconds",
@@ -267,10 +272,25 @@ internal static class QueueProxyBarrierRegression
             previewController.Contains(
                 "QueueEdgeCapsulePreviewSnapshotPreparation(",
                 StringComparison.Ordinal) &&
-            previewController.Contains(
-                "PrepareEdgeCapsulePreviewSnapshotAsync(",
+            snapshotPreparation.Contains(
+                "PrepareEdgeCapsulePreviewSnapshot(",
+                StringComparison.Ordinal) &&
+            snapshotPreparation.Contains(
+                "DispatcherPriority.Input",
+                StringComparison.Ordinal) &&
+            snapshotPreparation.Contains(
+                "DispatcherPriority.Render",
+                StringComparison.Ordinal) &&
+            snapshotPreparation.Contains(
+                "Operation?.Abort()",
+                StringComparison.Ordinal) &&
+            !snapshotPreparation.Contains(
+                "Task",
+                StringComparison.Ordinal) &&
+            !snapshotPreparation.Contains(
+                "InvokeAsync(",
                 StringComparison.Ordinal),
-            "A-to-B authority must use target residence while preparing its snapshot off the commit stack");
+            "A-to-B authority must use target residence and a cancelable Input-to-Render snapshot preparation");
 
         Assert(
             closeForDrag.Contains(

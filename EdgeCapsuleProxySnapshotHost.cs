@@ -84,15 +84,13 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
         BitmapSource bitmap,
         EdgeCapsulePresentationFrame source)
     {
-        var host = TryAcquire(bitmap, source);
-        if (host == null ||
-            !host.TryPrepareLayout(bitmap, source))
+        var host = TryPrepareForDeferredRender(
+            bitmap,
+            source);
+        if (host == null)
         {
-            host?.ClosePermanently();
             return null;
         }
-
-        host._leased = true;
         try
         {
             host._dispatcher.Invoke(
@@ -108,11 +106,10 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
     }
 
     /// <summary>
-    /// Prepares a candidate snapshot without nesting a Render-priority dispatcher frame. The
-    /// caller can overlap this publication turn with the hover-residence gate, then hand the warm
-    /// lease to the visual transaction without blocking its Send-priority commit.
+    /// Prepares and leases a candidate host without entering a nested Render dispatcher frame. The
+    /// caller must yield through Render before handing the host to a visual transaction.
     /// </summary>
-    public static async Task<EdgeCapsuleProxySnapshotHost?> TryCreateAsync(
+    internal static EdgeCapsuleProxySnapshotHost? TryPrepareForDeferredRender(
         BitmapSource bitmap,
         EdgeCapsulePresentationFrame source)
     {
@@ -125,24 +122,7 @@ internal sealed class EdgeCapsuleProxySnapshotHost : IDisposable
         }
 
         host._leased = true;
-        try
-        {
-            await host._dispatcher.InvokeAsync(
-                static () => { },
-                DispatcherPriority.Render);
-            if (host._closed ||
-                host._dispatcher.HasShutdownStarted)
-            {
-                host.ClosePermanently();
-                return null;
-            }
-            return host;
-        }
-        catch
-        {
-            host.ClosePermanently();
-            return null;
-        }
+        return host;
     }
 
     private static EdgeCapsuleProxySnapshotHost? TryAcquire(

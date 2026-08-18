@@ -713,14 +713,14 @@ public sealed partial class AppController
                         TryTakeEdgeCapsulePreviewPreparedSnapshot(
                             memberPlan.PaperId,
                             memberPlan.Source,
-                            out var preparedSnapshot);
+                            out var preparedSnapshotHost);
 #if DEBUG
                     var captureMilliseconds = 0.0;
                     var hostMilliseconds = 0.0;
 #endif
                     if (prefetched)
                     {
-                        snapshotHost = preparedSnapshot.Host;
+                        snapshotHost = preparedSnapshotHost;
                     }
                     else
                     {
