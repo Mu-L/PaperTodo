@@ -220,7 +220,7 @@ internal static class QueueProxyBarrierRegression
         var advanceGroupStart = buildGroupsStart < 0
             ? -1
             : frameScheduler.IndexOf(
-                "private void AdvanceNativeBatchGroup",
+                "private bool AdvanceNativeBatchGroup",
                 buildGroupsStart,
                 StringComparison.Ordinal);
         var buildGroupsBody =
@@ -248,6 +248,20 @@ internal static class QueueProxyBarrierRegression
             !buildGroupsBody.Contains(
                 "new List<List<EdgeCapsulePresenter>>()"),
             "passive reconcile must run at Render priority without self-starving the shared frame, while frame grouping reuses scratch collections");
+
+        Require(
+            frameScheduler.Contains("NoVisualApplyWatchdogMilliseconds = 12") &&
+            frameScheduler.Contains("private readonly DispatcherTimer _noVisualApplyWatchdog") &&
+            frameScheduler.Contains("_noVisualApplyWatchdog.Tick += OnNoVisualApplyWatchdog") &&
+            frameScheduler.Contains(
+                "AdvanceSharedFrame(renderingTime: null, source: \"watchdog\")") &&
+            frameScheduler.Contains("committedApply=") &&
+            frameScheduler.Contains("!anyCommittedApply &&") &&
+            frameScheduler.Contains("HasActiveTransitionPresenter()") &&
+            frameScheduler.Contains("NativeBatchCommitVersion") &&
+            Count(frameScheduler, "_noVisualApplyWatchdog.Start();") == 1 &&
+            frameScheduler.Contains("_noVisualApplyWatchdog.Stop();"),
+            "a live quantized no-op transition must get one bounded render-priority watchdog wake without creating a second continuous frame clock");
 
         Require(
             handoff.Contains(

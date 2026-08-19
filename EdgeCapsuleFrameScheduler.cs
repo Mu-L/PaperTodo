@@ -12,6 +12,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsuleFrameScheduler
 {
+    private const int NoVisualApplyWatchdogMilliseconds = 12;
     private static readonly ConditionalWeakTable<Dispatcher, EdgeCapsuleFrameScheduler> Schedulers = new();
 
     private readonly Dispatcher _dispatcher;
@@ -19,6 +20,7 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly List<Action> _postCommitCallbacks = new();
     private readonly List<List<EdgeCapsulePresenter>> _frameGroups = new();
     private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices = new();
+    private readonly DispatcherTimer _noVisualApplyWatchdog;
     private bool _renderingSubscribed;
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
@@ -37,6 +39,14 @@ internal sealed class EdgeCapsuleFrameScheduler
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
         _dispatcher = dispatcher;
+        _noVisualApplyWatchdog = new DispatcherTimer(
+            DispatcherPriority.Render,
+            dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(
+                NoVisualApplyWatchdogMilliseconds)
+        };
+        _noVisualApplyWatchdog.Tick += OnNoVisualApplyWatchdog;
     }
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
@@ -155,6 +165,48 @@ internal sealed class EdgeCapsuleFrameScheduler
         }
         _lastRenderingTime = renderingTime;
 
+        // A genuine composition callback arrived before the one-shot rescue. Cancel it first;
+        // this keeps the watchdog demand-driven rather than turning it into a second frame clock.
+        _noVisualApplyWatchdog.Stop();
+        AdvanceSharedFrame(renderingTime, source: "render");
+    }
+
+    private void OnNoVisualApplyWatchdog(object? sender, EventArgs e)
+    {
+        _noVisualApplyWatchdog.Stop();
+        if (!_dispatcher.CheckAccess() ||
+            _dispatcher.HasShutdownStarted ||
+            _presenters.Count == 0)
+        {
+            return;
+        }
+
+        var blockedByPendingReconcile = _pendingRenderReconciles > 0;
+        var blockedByExternalNativeBatch =
+            !blockedByPendingReconcile && HasExternallyOwnedNativeBatchApply();
+        if (_isTicking ||
+            blockedByPendingReconcile ||
+            blockedByExternalNativeBatch)
+        {
+#if DEBUG
+            var reason = _isTicking
+                ? "reentrant"
+                : blockedByPendingReconcile
+                    ? "pending-reconcile"
+                    : "external-native-batch";
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.watchdog phase=deferred reason={reason} " +
+                $"presenters={_presenters.Count} renderPending={_pendingRenderReconciles}");
+#endif
+            ArmNoVisualApplyWatchdog();
+            return;
+        }
+
+        AdvanceSharedFrame(renderingTime: null, source: "watchdog");
+    }
+
+    private void AdvanceSharedFrame(TimeSpan? renderingTime, string source)
+    {
 #if DEBUG
         var callbackStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
         var frameSequence = ++_debugFrameSequence;
@@ -182,6 +234,7 @@ internal sealed class EdgeCapsuleFrameScheduler
         _suppressedRenderingStartedAtTimestamp = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
 #endif
+        var anyCommittedApply = false;
         _isTicking = true;
         try
         {
@@ -205,7 +258,7 @@ internal sealed class EdgeCapsuleFrameScheduler
 #endif
             for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
             {
-                AdvanceNativeBatchGroup(
+                anyCommittedApply |= AdvanceNativeBatchGroup(
                     _frameGroups[groupIndex],
                     pointer,
                     frameTimestamp);
@@ -223,9 +276,10 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
 #if DEBUG
             EdgeCapsulePerformanceDiagnostics.Trace(
-                $"scheduler.frame sequence={frameSequence} " +
+                $"scheduler.frame sequence={frameSequence} source={source} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
                 $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
+                $"committedApply={anyCommittedApply} " +
                 $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
                 $"groups={debugGroupCount} renderPending={_pendingRenderReconciles} " +
                 $"skippedPending={suppressedPendingCallbacks} " +
@@ -238,7 +292,37 @@ internal sealed class EdgeCapsuleFrameScheduler
             ClearFrameGroups();
             _isTicking = false;
             StopWhenEmpty();
+            if (_presenters.Count > 0 &&
+                !anyCommittedApply &&
+                HasActiveTransitionPresenter())
+            {
+                ArmNoVisualApplyWatchdog();
+            }
         }
+    }
+
+    private bool HasActiveTransitionPresenter()
+    {
+        for (var index = 0; index < _presenters.Count; index++)
+        {
+            if (_presenters[index].HasActiveTransition)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void ArmNoVisualApplyWatchdog()
+    {
+        if (_presenters.Count == 0 || _dispatcher.HasShutdownStarted)
+        {
+            _noVisualApplyWatchdog.Stop();
+            return;
+        }
+
+        _noVisualApplyWatchdog.Stop();
+        _noVisualApplyWatchdog.Start();
     }
 
     private int BuildFrameGroups(int initialCount)
@@ -287,14 +371,20 @@ internal sealed class EdgeCapsuleFrameScheduler
     }
 #endif
 
-    private void AdvanceNativeBatchGroup(
+    private bool AdvanceNativeBatchGroup(
         IReadOnlyList<EdgeCapsulePresenter> presenters,
         DeviceScreenPoint? pointer,
         long frameTimestamp)
     {
         if (presenters.Count == 0)
         {
-            return;
+            return false;
+        }
+
+        long nativeCommitVersionBefore = 0;
+        for (var index = 0; index < presenters.Count; index++)
+        {
+            nativeCommitVersionBefore += presenters[index].NativeBatchCommitVersion;
         }
 
         _postCommitCallbacks.Clear();
@@ -523,6 +613,13 @@ internal sealed class EdgeCapsuleFrameScheduler
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
         }
+
+        long nativeCommitVersionAfter = 0;
+        for (var index = 0; index < presenters.Count; index++)
+        {
+            nativeCommitVersionAfter += presenters[index].NativeBatchCommitVersion;
+        }
+        return nativeCommitVersionAfter != nativeCommitVersionBefore;
     }
 
     private static void CompleteNativeBatchTransactionGroup(
@@ -567,6 +664,7 @@ internal sealed class EdgeCapsuleFrameScheduler
     {
         if (_presenters.Count == 0 && _renderingSubscribed)
         {
+            _noVisualApplyWatchdog.Stop();
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
             _lastRenderingTime = null;
