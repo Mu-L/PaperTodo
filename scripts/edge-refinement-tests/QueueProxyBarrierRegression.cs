@@ -250,18 +250,20 @@ internal static class QueueProxyBarrierRegression
             "passive reconcile must run at Render priority without self-starving the shared frame, while frame grouping reuses scratch collections");
 
         Require(
-            frameScheduler.Contains("NoVisualApplyWatchdogMilliseconds = 12") &&
-            frameScheduler.Contains("private readonly DispatcherTimer _noVisualApplyWatchdog") &&
-            frameScheduler.Contains("_noVisualApplyWatchdog.Tick += OnNoVisualApplyWatchdog") &&
+            frameScheduler.Contains("TransitionLivenessWatchdogMilliseconds = 12") &&
+            frameScheduler.Contains("private readonly DispatcherTimer _transitionLivenessWatchdog") &&
+            frameScheduler.Contains("_transitionLivenessWatchdog.Tick += OnTransitionLivenessWatchdog") &&
             frameScheduler.Contains(
                 "AdvanceSharedFrame(renderingTime: null, source: \"watchdog\")") &&
             frameScheduler.Contains("committedApply=") &&
-            frameScheduler.Contains("!anyCommittedApply &&") &&
+            frameScheduler.Contains("activeTransition=") &&
+            !frameScheduler.Contains("!anyCommittedApply &&") &&
+            frameScheduler.Contains("_presenters.Count > 0 &&") &&
             frameScheduler.Contains("HasActiveTransitionPresenter()") &&
             frameScheduler.Contains("NativeBatchCommitVersion") &&
-            Count(frameScheduler, "_noVisualApplyWatchdog.Start();") == 1 &&
-            frameScheduler.Contains("_noVisualApplyWatchdog.Stop();"),
-            "a live quantized no-op transition must get one bounded render-priority watchdog wake without creating a second continuous frame clock");
+            Count(frameScheduler, "_transitionLivenessWatchdog.Start();") == 1 &&
+            frameScheduler.Contains("_transitionLivenessWatchdog.Stop();"),
+            "every live transition must retain one bounded render-priority liveness watchdog, independent of whether the previous frame committed pixels, without creating a second continuous frame clock");
 
         Require(
             handoff.Contains(

@@ -12,7 +12,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed class EdgeCapsuleFrameScheduler
 {
-    private const int NoVisualApplyWatchdogMilliseconds = 12;
+    private const int TransitionLivenessWatchdogMilliseconds = 12;
     private static readonly ConditionalWeakTable<Dispatcher, EdgeCapsuleFrameScheduler> Schedulers = new();
 
     private readonly Dispatcher _dispatcher;
@@ -20,7 +20,7 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly List<Action> _postCommitCallbacks = new();
     private readonly List<List<EdgeCapsulePresenter>> _frameGroups = new();
     private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices = new();
-    private readonly DispatcherTimer _noVisualApplyWatchdog;
+    private readonly DispatcherTimer _transitionLivenessWatchdog;
     private bool _renderingSubscribed;
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
@@ -39,14 +39,14 @@ internal sealed class EdgeCapsuleFrameScheduler
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
         _dispatcher = dispatcher;
-        _noVisualApplyWatchdog = new DispatcherTimer(
+        _transitionLivenessWatchdog = new DispatcherTimer(
             DispatcherPriority.Render,
             dispatcher)
         {
             Interval = TimeSpan.FromMilliseconds(
-                NoVisualApplyWatchdogMilliseconds)
+                TransitionLivenessWatchdogMilliseconds)
         };
-        _noVisualApplyWatchdog.Tick += OnNoVisualApplyWatchdog;
+        _transitionLivenessWatchdog.Tick += OnTransitionLivenessWatchdog;
     }
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
@@ -167,13 +167,13 @@ internal sealed class EdgeCapsuleFrameScheduler
 
         // A genuine composition callback arrived before the one-shot rescue. Cancel it first;
         // this keeps the watchdog demand-driven rather than turning it into a second frame clock.
-        _noVisualApplyWatchdog.Stop();
+        _transitionLivenessWatchdog.Stop();
         AdvanceSharedFrame(renderingTime, source: "render");
     }
 
-    private void OnNoVisualApplyWatchdog(object? sender, EventArgs e)
+    private void OnTransitionLivenessWatchdog(object? sender, EventArgs e)
     {
-        _noVisualApplyWatchdog.Stop();
+        _transitionLivenessWatchdog.Stop();
         if (!_dispatcher.CheckAccess() ||
             _dispatcher.HasShutdownStarted ||
             _presenters.Count == 0)
@@ -198,7 +198,7 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"scheduler.watchdog phase=deferred reason={reason} " +
                 $"presenters={_presenters.Count} renderPending={_pendingRenderReconciles}");
 #endif
-            ArmNoVisualApplyWatchdog();
+            ArmTransitionLivenessWatchdog();
             return;
         }
 
@@ -279,7 +279,7 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"scheduler.frame sequence={frameSequence} source={source} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
                 $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
-                $"committedApply={anyCommittedApply} " +
+                $"committedApply={anyCommittedApply} activeTransition={HasActiveTransitionPresenter()} " +
                 $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
                 $"groups={debugGroupCount} renderPending={_pendingRenderReconciles} " +
                 $"skippedPending={suppressedPendingCallbacks} " +
@@ -293,10 +293,9 @@ internal sealed class EdgeCapsuleFrameScheduler
             _isTicking = false;
             StopWhenEmpty();
             if (_presenters.Count > 0 &&
-                !anyCommittedApply &&
                 HasActiveTransitionPresenter())
             {
-                ArmNoVisualApplyWatchdog();
+                ArmTransitionLivenessWatchdog();
             }
         }
     }
@@ -313,16 +312,16 @@ internal sealed class EdgeCapsuleFrameScheduler
         return false;
     }
 
-    private void ArmNoVisualApplyWatchdog()
+    private void ArmTransitionLivenessWatchdog()
     {
         if (_presenters.Count == 0 || _dispatcher.HasShutdownStarted)
         {
-            _noVisualApplyWatchdog.Stop();
+            _transitionLivenessWatchdog.Stop();
             return;
         }
 
-        _noVisualApplyWatchdog.Stop();
-        _noVisualApplyWatchdog.Start();
+        _transitionLivenessWatchdog.Stop();
+        _transitionLivenessWatchdog.Start();
     }
 
     private int BuildFrameGroups(int initialCount)
@@ -664,7 +663,7 @@ internal sealed class EdgeCapsuleFrameScheduler
     {
         if (_presenters.Count == 0 && _renderingSubscribed)
         {
-            _noVisualApplyWatchdog.Stop();
+            _transitionLivenessWatchdog.Stop();
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
             _lastRenderingTime = null;
