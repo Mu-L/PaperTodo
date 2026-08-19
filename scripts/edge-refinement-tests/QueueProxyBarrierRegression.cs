@@ -16,6 +16,7 @@ internal static class QueueProxyBarrierRegression
         var preview = Source("PaperWindow.EdgeCapsulePreview.cs");
         var placement = Source("PaperWindow.EdgeCapsulePlacement.cs");
         var interaction = Source("PaperWindow.EdgeCapsuleInteraction.cs");
+        var dragWindow = Source("EdgeCapsuleDragWindow.cs");
         var visuals = Source(
             "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
 
@@ -150,13 +151,35 @@ internal static class QueueProxyBarrierRegression
             hostPolicy.Contains("visible-growth-rejected"),
             "preview capacity must be reserved before first show and rejected before content creation if a visible generation cannot grow");
 
+        var deferredCapacity = preview.IndexOf(
+            "TryGetDeferredPluginPreviewCapacity",
+            StringComparison.Ordinal);
+        var providerResolve = deferredCapacity < 0
+            ? -1
+            : preview.IndexOf(
+                "provider = ResolveEdgeCapsulePreviewProvider()",
+                deferredCapacity,
+                StringComparison.Ordinal);
+        Require(
+            deferredCapacity >= 0 &&
+            providerResolve > deferredCapacity &&
+            preview.Contains("DeferredNativePluginEnvelope") &&
+            preview.Contains("DeferredWebPluginManifest") &&
+            preview.Contains("PaperBodyPlugins.TryGet") &&
+            preview.Contains("EdgeCapsulePreviewSize.MaximumWidthDip"),
+            "deferred plugin papers must reserve bounded plugin capacity before the temporary Default provider can publish the first Host");
+
         Require(
             Count(
                 placement,
-                "requireActiveInteraction: false") >= 2 &&
-            interaction.Contains("idleEligible") &&
-            interaction.Contains("EdgeCapsuleDragWindow.TryPrewarm"),
-            "floating drag HWND prewarm must be queued from idle placement, not only pointer-down");
+                "requireActiveInteraction: false") == 0 &&
+            hostPolicy.Contains("if (pointerOverChanged)") &&
+            hostPolicy.Contains("DispatcherPriority.Background") &&
+            hostPolicy.Contains("requireActiveInteraction: false") &&
+            interaction.Contains("EdgeCapsuleDragWindow.TryPrewarm") &&
+            dragWindow.Contains("phase=prewarm-hit") &&
+            dragWindow.Contains("Equals(host._configuredOptions, options)"),
+            "floating drag HWND prewarm must target the hovered paper and exact warm configs must be a no-op, not rerun for every placement");
 
         Require(
             handoff.Contains(

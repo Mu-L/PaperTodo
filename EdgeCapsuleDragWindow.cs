@@ -157,6 +157,19 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var host = s_pooledHost;
         try
         {
+            if (host != null &&
+                host._hasBeenShown &&
+                !host.IsVisible &&
+                Equals(host._configuredOptions, options))
+            {
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"drag.host phase=prewarm-hit paper={host._diagnosticId} " +
+                    $"dragHost={host._diagnosticHostId}");
+#endif
+                return true;
+            }
+
             host ??= CreatePooledHost(options);
             var reconfigured = host.ConfigureForReuse(options);
             var warmedShow = host.PrewarmAndPark(reconfigured);

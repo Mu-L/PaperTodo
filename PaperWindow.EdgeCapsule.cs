@@ -589,6 +589,15 @@ public sealed partial class PaperWindow
         if (pointerOverChanged)
         {
             _controller.NotifyEdgeCapsulePointerOverChanged(this, pointerOver);
+            if (pointerOver)
+            {
+                // Warm the one shared floating HWND for the paper the user is actually hovering.
+                // Placement can run for every peer on every queue arrangement; prewarming there
+                // repeatedly rebuilt the same pooled host and consumed UI-thread time.
+                QueueDeepCapsuleFloatingDragHostPrewarm(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    requireActiveInteraction: false);
+            }
         }
         _controller.NotifyEdgeCapsulePreviewPhysicalPointer(this, pointer);
     }

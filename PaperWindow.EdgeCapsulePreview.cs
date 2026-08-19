@@ -167,9 +167,71 @@ public sealed partial class PaperWindow
             OpenExternalFromEdgeCapsulePreview,
             _edgeCapsulePreviewInvalidationSource);
 
+    private bool TryGetDeferredPluginPreviewCapacity(
+        out EdgeCapsulePreviewSize size,
+        out string source)
+    {
+        size = default;
+        source = "";
+        if (_paper.Type != PaperTypes.Note ||
+            IsCurrentBodyProviderMarkdown ||
+            _isShellBuilt)
+        {
+            return false;
+        }
+
+        var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
+        if (!_controller.PaperBodyPlugins.TryGet(
+                providerId,
+                out var descriptor))
+        {
+            return false;
+        }
+
+        if (descriptor.Kind == PaperBodyPluginKind.Web &&
+            descriptor.Manifest is { } manifest)
+        {
+            if (!string.IsNullOrWhiteSpace(manifest.MiniEntry))
+            {
+                var declared = manifest.MiniSize;
+                size = new EdgeCapsulePreviewSize(
+                    declared?.Width ?? 320,
+                    declared?.Height ?? 220);
+                source = "DeferredWebPluginManifest";
+                return true;
+            }
+
+            // A deferred Web body without a protocol-1.8 mini can later expose the enlarged
+            // plugin-capsule fallback. Reserve its bounded compatibility envelope before the
+            // docked HWND is visible instead of treating the temporary Default provider as final.
+            size = new EdgeCapsulePreviewSize(
+                PluginFallbackMiniMaximumWidth,
+                Math.Max(PluginFallbackMiniHeight, 220));
+            source = "DeferredWebPluginFallback";
+            return true;
+        }
+
+        if (descriptor.Kind == PaperBodyPluginKind.Native)
+        {
+            // A collapsed deep capsule deliberately defers Shell/body construction. Native
+            // PreferredMiniViewSize lives on the body session, so it cannot be read yet without
+            // activating arbitrary plugin code. Reserve only this plugin paper's protocol envelope;
+            // normal built-in and already-loaded providers still use their exact descriptor size.
+            size = new EdgeCapsulePreviewSize(
+                EdgeCapsulePreviewSize.MaximumWidthDip,
+                EdgeCapsulePreviewSize.MaximumHeightDip);
+            source = "DeferredNativePluginEnvelope";
+            return true;
+        }
+
+        return false;
+    }
+
     // Descriptor sizing is presentation capacity, not preview content. Resolve it while
     // the capsule is being attached so the very first docked HWND already owns the
-    // exact bounded capacity required by its Preview. No WPF tree is created here.
+    // exact bounded capacity required by its Preview. Deferred plugin bodies use a finite
+    // protocol envelope because their runtime descriptor does not exist until Shell activation.
+    // No WPF tree or plugin session is created here.
     private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
     {
         if (!_controller.State.ExperimentalEdgeCapsuleHoverPreview ||
@@ -186,6 +248,30 @@ public sealed partial class PaperWindow
         IEdgeCapsulePreviewProvider? provider = null;
         try
         {
+            if (TryGetDeferredPluginPreviewCapacity(
+                    out var deferredSize,
+                    out var deferredSource))
+            {
+                var deferredWorkArea =
+                    DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
+                deferredSize = deferredSize.Normalize(
+                    Math.Max(
+                        EdgeCapsulePreviewSize.MinimumWidthDip,
+                        deferredWorkArea.Width - 16),
+                    Math.Max(
+                        EdgeCapsulePreviewSize.MinimumHeightDip,
+                        deferredWorkArea.Height - 16));
+                var deferredReserved = TryReserveEdgeCapsuleHostCapacity(
+                    deferredSize,
+                    out var deferredChanged);
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.capacity.reserve paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"provider={deferredSource} size={deferredSize.WidthDip:F1}x{deferredSize.HeightDip:F1} " +
+                    $"reserved={deferredReserved} changed={deferredChanged} " +
+                    $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
+                return;
+            }
+
             provider = ResolveEdgeCapsulePreviewProvider();
             var descriptor = provider.Describe(
                 CreateEdgeCapsulePreviewContext());
