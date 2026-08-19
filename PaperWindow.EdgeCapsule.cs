@@ -316,35 +316,88 @@ public sealed partial class PaperWindow
                 size.HeightDip));
     }
 
-    private void PrepareEdgeCapsuleHostCapacity(
+    private bool CurrentEdgeCapsuleHostCapacityContains(
         EdgeCapsulePreviewSize size)
     {
-        var changed = ReserveEdgeCapsuleHostCapacity(size);
-        if (!changed || _edgeCapsuleHost?.IsVisible != true)
+        if (!HasDeepCapsuleSlotPlacement)
         {
-            return;
+            return false;
         }
 
-        // This is a fallback only. The normal path reserves descriptor capacity
-        // before the docked HWND is first shown, so Preview never resizes a visible
-        // host. If a provider changes its declared size later, synchronously settle
-        // the real host before exposing the Preview state.
-        _edgeCapsule.ForceApplyCurrentPresentation();
-        var previouslyDeferred =
-            _edgeCapsuleVisualTransactionNotificationDeferred;
-        _edgeCapsuleVisualTransactionNotificationDeferred = true;
-        try
+        var monitor = DeepCapsuleMonitorGeometry();
+        var generationMatches =
+            string.Equals(
+                _edgeCapsuleHostCapacityMonitor,
+                monitor.DeviceName,
+                StringComparison.Ordinal) &&
+            _edgeCapsuleHostCapacityEdge == MyDeepCapsuleEdge &&
+            Math.Abs(
+                _edgeCapsuleHostCapacityDpiX -
+                monitor.DpiScaleX) < 0.001 &&
+            Math.Abs(
+                _edgeCapsuleHostCapacityDpiY -
+                monitor.DpiScaleY) < 0.001;
+        if (!generationMatches)
         {
-            FlushEdgeCapsulePresentation(
-                EdgeCapsuleTransitionReason.Measure,
-                EdgeCapsuleDirty.Presentation |
-                EdgeCapsuleDirty.Measure);
+            return false;
         }
-        finally
+
+        var restingWidth =
+            DeepCapsuleVisibleWidth(monitor.DpiScaleY);
+        var requiredWidth = Math.Max(
+            restingWidth + CapsuleCloseWidth,
+            size.WidthDip);
+        var requiredHeight = Math.Max(
+            PaperLayoutDefaults.CapsuleHeight,
+            size.HeightDip);
+        return _edgeCapsuleHostCapacityWidthDip + 0.001 >=
+                requiredWidth &&
+            _edgeCapsuleHostCapacityHeightDip + 0.001 >=
+                requiredHeight;
+    }
+
+    private bool TryReserveEdgeCapsuleHostCapacity(
+        EdgeCapsulePreviewSize size,
+        out bool changed)
+    {
+        changed = false;
+        if (!HasDeepCapsuleSlotPlacement)
         {
-            _edgeCapsuleVisualTransactionNotificationDeferred =
-                previouslyDeferred;
+            return false;
         }
+
+        // Host capacity is immutable for the lifetime of a visible monitor/edge/DPI
+        // generation. A larger late descriptor waits for a future hidden/generation
+        // rebuild instead of resizing the live HWND under the user's pointer.
+        if (_edgeCapsuleHost?.IsVisible == true &&
+            !CurrentEdgeCapsuleHostCapacityContains(size))
+        {
+            return false;
+        }
+
+        changed = ReserveEdgeCapsuleHostCapacity(size);
+        return true;
+    }
+
+    private bool PrepareEdgeCapsuleHostCapacity(
+        EdgeCapsulePreviewSize size)
+    {
+        if (TryReserveEdgeCapsuleHostCapacity(
+                size,
+                out _))
+        {
+            return true;
+        }
+
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"preview.capacity phase=visible-growth-rejected " +
+            $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+            $"requested={size.WidthDip:F1}x{size.HeightDip:F1} " +
+            $"reserved={_edgeCapsuleHostCapacityWidthDip:F1}x" +
+            $"{_edgeCapsuleHostCapacityHeightDip:F1}");
+#endif
+        return false;
     }
 
     private EdgeCapsuleLayoutSnapshot

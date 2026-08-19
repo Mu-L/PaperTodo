@@ -61,6 +61,19 @@ public sealed partial class PaperWindow
         return _edgeCapsule.NativeBatchApplyStatus;
     }
 
+    internal void RebaseEdgeCapsuleQueueProxyAnimationClock(
+        long transactionTimestamp)
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
+        {
+            return;
+        }
+
+        _edgeCapsule.RebaseActiveTransitionStart(
+            transactionTimestamp);
+    }
+
     internal void CompleteEdgeCapsuleVisualTransactionApply(
         bool success,
         bool deferred,

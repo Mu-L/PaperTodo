@@ -32,6 +32,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private readonly Action<EdgeCapsuleQueueCompositionProxy> _coverRollback;
     private readonly Action<EdgeCapsuleQueueCompositionProxy, bool> _completed;
     private readonly Func<long, bool> _endpointCommitRequested;
+    private readonly Func<long, bool> _animationStartRequested;
     private readonly long _sessionOrdinal;
     private long _animationStartedAtTimestamp;
     private bool _sourcesReleased;
@@ -53,6 +54,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private bool _runtimeReleased;
     private bool _visualResourcesRetired;
     private bool _successfulRetireScheduled;
+    private StaticCoverResources? _successorAdmissionCover;
 
     private EdgeCapsuleQueueCompositionProxy(
         long sessionOrdinal,
@@ -64,6 +66,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         IDCompositionVisual root,
         DeviceScreenRect outputBounds,
         Func<long, bool> endpointCommitRequested,
+        Func<long, bool> animationStartRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
@@ -81,6 +84,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _root = root;
         _outputBounds = outputBounds;
         _endpointCommitRequested = endpointCommitRequested;
+        _animationStartRequested = animationStartRequested;
         _interactionRequested = interactionRequested;
         _environmentChanged = environmentChanged;
         _coverReady = coverReady;
@@ -194,6 +198,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> members,
         EdgeCapsuleQueueCompositionProxy? predecessor,
         Func<long, bool> endpointCommitRequested,
+        Func<long, bool> animationStartRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
@@ -269,6 +274,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 root,
                 outputBounds,
                 endpointCommitRequested,
+                animationStartRequested,
                 interactionRequested,
                 environmentChanged,
                 coverReady,

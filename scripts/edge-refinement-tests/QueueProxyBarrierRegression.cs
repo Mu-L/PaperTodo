@@ -11,49 +11,129 @@ internal static class QueueProxyBarrierRegression
         var native = Source("WindowNative.cs");
         var controller = Source(
             "AppController.EdgeCapsuleVisualTransaction.cs");
-        var host = Source("EdgeCapsuleHost.cs");
+        var presenter = Source("EdgeCapsulePresenter.cs");
+        var hostPolicy = Source("PaperWindow.EdgeCapsule.cs");
         var preview = Source("PaperWindow.EdgeCapsulePreview.cs");
         var placement = Source("PaperWindow.EdgeCapsulePlacement.cs");
+        var interaction = Source("PaperWindow.EdgeCapsuleInteraction.cs");
+        var visuals = Source(
+            "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
 
-        var staticRoot = startup.IndexOf(
-            "_target.SetRoot(_root)",
+        var coldGuard = startup.IndexOf(
+            "if (_predecessor == null)",
             StringComparison.Ordinal);
+        var staticRoot = coldGuard < 0
+            ? -1
+            : startup.IndexOf(
+                "_target.SetRoot(_root)",
+                coldGuard,
+                StringComparison.Ordinal);
         var outputShow = startup.IndexOf(
             "_window.Show(_outputBounds, _plan.Topmost)",
             StringComparison.Ordinal);
         var coverFlush = startup.IndexOf(
             "WindowNative.TryFlushDesktopComposition()",
             StringComparison.Ordinal);
+        var publishCallback = startup.IndexOf(
+            "bool PublishBeforeFlush()",
+            StringComparison.Ordinal);
+        var endpointCommit = publishCallback < 0
+            ? -1
+            : startup.IndexOf(
+                "_endpointCommitRequested(endpointTimestamp)",
+                publishCallback,
+                StringComparison.Ordinal);
+        var animationClock = endpointCommit < 0
+            ? -1
+            : startup.IndexOf(
+                "animationTimestamp = Stopwatch.GetTimestamp()",
+                endpointCommit,
+                StringComparison.Ordinal);
+        var wpfClockRebase = animationClock < 0
+            ? -1
+            : startup.IndexOf(
+                "_animationStartRequested(animationTimestamp)",
+                animationClock,
+                StringComparison.Ordinal);
+        var animationAttach = wpfClockRebase < 0
+            ? -1
+            : startup.IndexOf(
+                "ConfigureAnimations(animationTimestamp)",
+                wpfClockRebase,
+                StringComparison.Ordinal);
+        var successorRoot = staticRoot < 0
+            ? -1
+            : startup.IndexOf(
+                "_target.SetRoot(_root)",
+                staticRoot + 1,
+                StringComparison.Ordinal);
+        var successorUnion = startup.IndexOf(
+            "else if (newHandles.Length > 0)",
+            StringComparison.Ordinal);
+        var successorUnionRoot = successorUnion < 0
+            ? -1
+            : startup.IndexOf(
+                "_successorAdmissionCover.Root",
+                successorUnion,
+                StringComparison.Ordinal);
+        var successorUnionFlush = successorUnionRoot < 0
+            ? -1
+            : startup.IndexOf(
+                "WindowNative.TryFlushDesktopComposition()",
+                successorUnionRoot,
+                StringComparison.Ordinal);
         var cloakBoundary = startup.IndexOf(
             "EdgeCapsuleColdStartDiagnostics.Boundary(\"before-cloak-batch\")",
             StringComparison.Ordinal);
         var cloakBatch = startup.IndexOf(
             "TrySetWindowCloakedBatchDetailed",
             StringComparison.Ordinal);
+
         Require(
-            staticRoot >= 0 &&
+            coldGuard >= 0 &&
+            staticRoot > coldGuard &&
             outputShow > staticRoot &&
             coverFlush > outputShow &&
             cloakBoundary > coverFlush &&
             cloakBatch > cloakBoundary,
-            "a static DComp root must be committed, shown and flushed before any real HWND cloak boundary");
+            "cold startup must publish and flush a static DComp cover before real HWND cloak");
         Require(
-            startup.Contains("cover-static-visible") &&
-            startup.Contains("_endpointCommitRequested") &&
-            startup.Contains("ConfigureAnimations(animationTimestamp)"),
-            "startup must preserve an explicit static-cover authority before endpoint-once animation publication");
-
-        var endpointCommit = startup.IndexOf(
-            "_endpointCommitRequested(animationTimestamp)",
-            StringComparison.Ordinal);
-        var animationAttach = startup.IndexOf(
-            "ConfigureAnimations(animationTimestamp)",
-            StringComparison.Ordinal);
+            startup.Contains("predecessor-cover-retained") &&
+            startup.Contains("successor-union-cover-visible") &&
+            startup.Contains("successor-root-staged") &&
+            startup.Contains("CreateSuccessorAdmissionCover") &&
+            successorUnion >= 0 &&
+            successorUnionRoot > successorUnion &&
+            successorUnionFlush > successorUnionRoot &&
+            successorUnionFlush < cloakBoundary &&
+            visuals.Contains("SnapshotStaticCoverSources") &&
+            visuals.Contains("_predecessor.SnapshotStaticCoverSources(timestamp)") &&
+            visuals.Contains("newHandles.Contains(member.SourceHandle)") &&
+            successorRoot > animationAttach &&
+            successorRoot < cloakBoundary &&
+            handoff.Contains("ReleaseSuccessorAdmissionCover"),
+            "successor startup must retain predecessor authority and pre-cover newly cloaked sources until the coordinated root boundary");
         Require(
+            startup.Contains("outgoingHandles") &&
+            startup.Contains("newHandles") &&
             endpointCommit >= 0 &&
-            animationAttach > endpointCommit,
-            "the fresh shared QPC must settle real endpoints before DComp animations are committed");
+            animationClock > endpointCommit &&
+            wpfClockRebase > animationClock &&
+            animationAttach > wpfClockRebase,
+            "endpoint settlement must precede one shared post-endpoint WPF/DComp animation clock");
+        Require(
+            presenter.Contains("RebaseActiveTransitionStart") &&
+            presenter.Contains("StartedAtTimestamp = startedAtTimestamp") &&
+            controller.Contains("animationStartRequested: timestamp =>") &&
+            controller.Contains("RebaseEdgeCapsuleQueueProxyAnimationClock"),
+            "queue WPF transitions must be rebased to the compositor's post-endpoint QPC");
 
+        var prepareCapacity = preview.IndexOf(
+            "if (!PrepareEdgeCapsuleHostCapacity(size))",
+            StringComparison.Ordinal);
+        var contentCreate = preview.IndexOf(
+            "descriptor.CreateContent(size)",
+            StringComparison.Ordinal);
         Require(
             Count(
                 placement,
@@ -61,10 +141,22 @@ internal static class QueueProxyBarrierRegression
             preview.Contains(
                 "ReserveEdgeCapsulePreviewCapacityBeforeFirstShow") &&
             preview.Contains("provider.Describe(") &&
-            preview.Contains("ReserveEdgeCapsuleHostCapacity(size)") &&
-            host.Contains("nativeHostSizeChanged") &&
-            host.Contains("refreshNativeLayout"),
-            "preview descriptor capacity must be reserved before first docked show and native-size fallback must force WPF layout");
+            prepareCapacity >= 0 &&
+            contentCreate > prepareCapacity &&
+            preview.Contains(
+                "if (!PrepareEdgeCapsuleHostCapacity(request.Size))") &&
+            preview.Contains("reason=visible-host-capacity-growth") &&
+            hostPolicy.Contains("CurrentEdgeCapsuleHostCapacityContains") &&
+            hostPolicy.Contains("visible-growth-rejected"),
+            "preview capacity must be reserved before first show and rejected before content creation if a visible generation cannot grow");
+
+        Require(
+            Count(
+                placement,
+                "requireActiveInteraction: false") >= 2 &&
+            interaction.Contains("idleEligible") &&
+            interaction.Contains("EdgeCapsuleDragWindow.TryPrewarm"),
+            "floating drag HWND prewarm must be queued from idle placement, not only pointer-down");
 
         Require(
             handoff.Contains(

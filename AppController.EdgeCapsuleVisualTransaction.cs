@@ -711,6 +711,21 @@ public sealed partial class AppController
         }
         return true;
     }
+    private static bool RebaseEdgeCapsuleQueueProxyAnimationClock(
+        EdgeCapsuleVisualTransactionEntry[] entries,
+        long transactionTimestamp)
+    {
+        foreach (var entry in entries)
+        {
+            if (!entry.Window.IsClosed)
+            {
+                entry.Window.RebaseEdgeCapsuleQueueProxyAnimationClock(
+                    transactionTimestamp);
+            }
+        }
+        return true;
+    }
+
     private bool TryStartEdgeCapsuleQueueCompositionProxy(
         EdgeCapsuleQueueProxyPlan plan,
         EdgeCapsuleVisualTransactionEntry[] entries,
@@ -755,6 +770,10 @@ public sealed partial class AppController
                 CommitEdgeCapsuleQueueProxyLogicalEndpoints(
                     entries,
                     plan,
+                    timestamp),
+            animationStartRequested: timestamp =>
+                RebaseEdgeCapsuleQueueProxyAnimationClock(
+                    entries,
                     timestamp),
             interactionRequested: (point, message) =>
                 CompleteAndRouteEdgeCapsuleQueueProxyInput(

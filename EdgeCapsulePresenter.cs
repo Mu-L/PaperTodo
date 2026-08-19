@@ -141,6 +141,23 @@ internal sealed class EdgeCapsulePresenter
         }
     }
 
+    internal void RebaseActiveTransitionStart(long startedAtTimestamp)
+    {
+        if (Transition is not { } active)
+        {
+            return;
+        }
+
+        // Queue endpoint settlement happens while compositor authority still covers the real
+        // HWND. No animation frame has been published yet, so the full WPF transition begins at
+        // the same post-endpoint QPC used by DirectComposition.
+        Transition = active with
+        {
+            Start = AppliedPresentation,
+            StartedAtTimestamp = startedAtTimestamp
+        };
+    }
+
     public void ForceApplyCurrentPresentation()
     {
         ResetApplyRetryWindow();

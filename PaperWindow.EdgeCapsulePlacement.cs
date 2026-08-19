@@ -97,6 +97,9 @@ public sealed partial class PaperWindow
         }
         RefreshCapsuleLabel();
         ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
+        QueueDeepCapsuleFloatingDragHostPrewarm(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            requireActiveInteraction: false);
         if (!TryStageEdgeCapsuleVisualTransaction(
                 animate,
                 EdgeCapsuleTransitionReason.Placement,
@@ -173,6 +176,9 @@ public sealed partial class PaperWindow
         MarkEdgeCapsuleOpenedFromEdge();
         RefreshCapsuleLabel();
         ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
+        QueueDeepCapsuleFloatingDragHostPrewarm(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            requireActiveInteraction: false);
         UpdateDeepCapsuleSlotHostTheme();
 
         RefreshDeepCapsuleSlotLabel();

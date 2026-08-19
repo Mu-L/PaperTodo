@@ -173,13 +173,24 @@ public sealed partial class PaperWindow
 
     private void QueueDeepCapsuleFloatingDragHostPrewarm(
         System.Windows.Threading.DispatcherPriority priority =
-            System.Windows.Threading.DispatcherPriority.Background)
+            System.Windows.Threading.DispatcherPriority.Background,
+        bool requireActiveInteraction = true)
     {
         _ = Dispatcher.BeginInvoke(
             (Action)(() =>
             {
+                var interactionActive =
+                    IsDeepCapsuleSlotPendingClick ||
+                    IsDeepCapsuleReordering;
+                var idleEligible =
+                    HasDeepCapsuleSlotPlacement &&
+                    _paper.IsVisible &&
+                    !IsDeepCapsuleRetractedIntoMaster &&
+                    !IsDeepCapsuleSlotRetracting;
                 if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
-                    (!IsDeepCapsuleSlotPendingClick && !IsDeepCapsuleReordering))
+                    (requireActiveInteraction
+                        ? !interactionActive
+                        : !idleEligible))
                 {
                     return;
                 }

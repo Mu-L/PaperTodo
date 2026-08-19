@@ -342,6 +342,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
 
         _visualResourcesRetired = true;
+        ReleaseSuccessorAdmissionCover();
         foreach (var visual in _visuals)
         {
             try { visual.Dispose(); } catch { }

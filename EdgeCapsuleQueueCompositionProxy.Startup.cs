@@ -115,34 +115,62 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             var hostPromoted = false;
             long animationTimestamp = 0;
 
-            // Build and publish a static exact-start cover before touching real HWND
-            // visibility. A cold output HWND with no DComp root is not visual
-            // authority: showing it first creates a deterministic all-hidden gap when
-            // the real sources are cloaked. Successors use the same rule by replacing
-            // the predecessor root at its sampled presentation before source transfer.
-            // Keep host ownership staged until the real publication callback so input
-            // routing cannot observe a successor that the controller has not published.
+            // Cold startup has no compositor authority yet, so publish its exact-start root
+            // before any real HWND is cloaked. A successor normally keeps the predecessor root
+            // installed until the coordinated cloak/root flush. If it introduces a new source,
+            // however, the predecessor cannot cover that source during the potentially multi-ms
+            // endpoint callback after DWMWA_CLOAK has already been requested. Publish a temporary
+            // union of predecessor live surfaces + new live sources first; duplicate pixels are
+            // preferable to an authority hole and no snapshot/clip/scale/effect is involved.
             var coverTimestamp = Stopwatch.GetTimestamp();
-            RebaseVisualStarts(coverTimestamp);
-            _target.SetRoot(_root).CheckError();
-            _device.Commit().CheckError();
-            _targetRootInstalled = true;
+            if (_predecessor == null)
+            {
+                RebaseVisualStarts(coverTimestamp);
+                _target.SetRoot(_root).CheckError();
+                _device.Commit().CheckError();
+                _targetRootInstalled = true;
 #if DEBUG
-            EdgeCapsuleColdStartDiagnostics.Boundary("root-committed-static");
+                EdgeCapsuleColdStartDiagnostics.Boundary("root-committed-static");
 #endif
 
-            if (_predecessor == null &&
-                !_window.Show(_outputBounds, _plan.Topmost))
-            {
-                return false;
+                if (!_window.Show(_outputBounds, _plan.Topmost))
+                {
+                    return false;
+                }
+                if (!WindowNative.TryFlushDesktopComposition())
+                {
+                    return false;
+                }
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("output-ready");
+                EdgeCapsuleColdStartDiagnostics.Boundary("cover-static-visible");
+#endif
             }
-            if (!WindowNative.TryFlushDesktopComposition())
+            else if (newHandles.Length > 0)
             {
-                return false;
+                _successorAdmissionCover =
+                    CreateSuccessorAdmissionCover(
+                        coverTimestamp,
+                        newHandles.ToHashSet());
+                _target.SetRoot(
+                    _successorAdmissionCover.Root).CheckError();
+                _device.Commit().CheckError();
+                _targetRootInstalled = true;
+                if (!WindowNative.TryFlushDesktopComposition())
+                {
+                    return false;
+                }
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary(
+                    "successor-union-cover-visible");
+#endif
             }
 #if DEBUG
-            EdgeCapsuleColdStartDiagnostics.Boundary("output-ready");
-            EdgeCapsuleColdStartDiagnostics.Boundary("cover-static-visible");
+            else
+            {
+                EdgeCapsuleColdStartDiagnostics.Boundary(
+                    "predecessor-cover-retained");
+            }
 #endif
 
             bool PublishBeforeFlush()
@@ -156,29 +184,44 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 EdgeCapsuleColdStartDiagnostics.Boundary("host-promoted");
 #endif
 
-                // The static cover is already on screen. Real HWNDs can now settle
-                // once at their endpoints under that authority. Take the animation
-                // clock only after the cover barrier so startup work never consumes
-                // visible animation time. WPF and DComp consume the same QPC.
-                animationTimestamp = Stopwatch.GetTimestamp();
-                // A successor may have waited behind startup work after its static
-                // cover was sampled. Rebase again without committing so the animation
-                // begins from the predecessor's fresh logical position, while the
-                // already-visible cover remains unchanged until this publication commit.
-                RebaseVisualStarts(animationTimestamp);
+                // DWM has queued the cloak changes but has not crossed the batch flush yet. The
+                // cold static root, retained predecessor root, or successor union cover remains
+                // visible while every real HWND settles once at its logical endpoint.
+                var endpointTimestamp = Stopwatch.GetTimestamp();
                 _realEndpointMutationStarted = true;
-                if (!_endpointCommitRequested(animationTimestamp))
+                if (!_endpointCommitRequested(endpointTimestamp))
                 {
                     return false;
                 }
 #if DEBUG
-                EdgeCapsuleColdStartDiagnostics.Boundary("endpoint-committed");
+                EdgeCapsuleColdStartDiagnostics.Boundary("endpoint-ready");
 #endif
 
+                // Endpoint work is deliberately excluded from animation time. Rebase both WPF
+                // transitions and DComp live-surface offsets from one fresh post-endpoint QPC.
+                animationTimestamp = Stopwatch.GetTimestamp();
+                RebaseVisualStarts(animationTimestamp);
+                if (!_animationStartRequested(animationTimestamp))
+                {
+                    return false;
+                }
                 ConfigureAnimations(animationTimestamp);
+
+                if (_predecessor != null)
+                {
+                    // Outgoing real HWNDs are being un-cloaked in this same DWM batch. Keep the
+                    // predecessor root installed until this callback, then replace the root so
+                    // outgoing reveal, incoming cloak and successor publication cross one flush.
+                    _target.SetRoot(_root).CheckError();
+                    _targetRootInstalled = true;
+#if DEBUG
+                    EdgeCapsuleColdStartDiagnostics.Boundary("successor-root-staged");
+#endif
+                }
+
                 _device.Commit().CheckError();
 #if DEBUG
-                EdgeCapsuleColdStartDiagnostics.Boundary("animations-configured");
+                EdgeCapsuleColdStartDiagnostics.Boundary("animation-clock-published");
 #endif
 
                 if (!_coverReady(this))
@@ -265,12 +308,19 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     }
                     _ = ReleaseAfterCoverLoss();
                 }
+                else
+                {
+                    // Rollback crossed its own DwmFlush and restored the predecessor root.
+                    ReleaseSuccessorAdmissionCover();
+                }
                 return false;
             }
 #if DEBUG
             EdgeCapsuleColdStartDiagnostics.Boundary("publication-verified");
 #endif
 
+            // The batch DwmFlush has now made the final successor root authoritative.
+            ReleaseSuccessorAdmissionCover();
             _animationStartedAtTimestamp = animationTimestamp;
             foreach (var handle in successorHandles)
             {

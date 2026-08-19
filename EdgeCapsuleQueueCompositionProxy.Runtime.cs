@@ -44,6 +44,28 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         }
     }
 
+    private sealed class StaticCoverResources : IDisposable
+    {
+        public required IDCompositionVisual Root { get; init; }
+        public List<IUnknown> Surfaces { get; } = new();
+        public List<IDCompositionVisual> Visuals { get; } = new();
+
+        public void Dispose()
+        {
+            for (var index = Visuals.Count - 1; index >= 0; index--)
+            {
+                try { Visuals[index].Dispose(); } catch { }
+            }
+            Visuals.Clear();
+            for (var index = Surfaces.Count - 1; index >= 0; index--)
+            {
+                try { Surfaces[index].Dispose(); } catch { }
+            }
+            Surfaces.Clear();
+            try { Root.Dispose(); } catch { }
+        }
+    }
+
     private sealed class QueueHost : IDisposable
     {
         private readonly SharedRuntime _runtime;

@@ -85,6 +85,13 @@ public sealed partial class PaperWindow
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumHeightDip,
                     monitor.Height - 16));
+            if (!PrepareEdgeCapsuleHostCapacity(size))
+            {
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.prepare.cancel paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    "phase=capacity-unavailable");
+                return null;
+            }
             // Native/Web/migration providers may execute arbitrary plugin code or construct a
             // WebView. Paint the host-owned 1.6/1.7 fallback first, then replace it only after the
             // visual transaction has produced a committed compositor frame. Creation failure keeps
@@ -196,16 +203,19 @@ public sealed partial class PaperWindow
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumHeightDip,
                     workArea.Height - 16));
-            var changed = ReserveEdgeCapsuleHostCapacity(size);
+            var reserved = TryReserveEdgeCapsuleHostCapacity(
+                size,
+                out var changed);
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"preview.capacity.reserve paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
                 $"provider={provider.GetType().Name} size={size.WidthDip:F1}x{size.HeightDip:F1} " +
-                $"changed={changed} hostVisible={_edgeCapsuleHost?.IsVisible == true}");
+                $"reserved={reserved} changed={changed} " +
+                $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
         }
         catch (Exception ex)
         {
             // Capacity warmup is opportunistic. Opening still performs a fresh descriptor
-            // read and has a synchronous fallback if a plugin was not ready during attach.
+            // read, but a larger late descriptor is rejected while this Host generation is visible.
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"preview.capacity.reserve-fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
                 $"provider={provider?.GetType().Name ?? "<unresolved>"} " +
@@ -244,7 +254,13 @@ public sealed partial class PaperWindow
         EdgeCapsulePreviewRequest request,
         bool animate)
     {
-        PrepareEdgeCapsuleHostCapacity(request.Size);
+        if (!PrepareEdgeCapsuleHostCapacity(request.Size))
+        {
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.open.reject paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                "reason=visible-host-capacity-growth");
+            return false;
+        }
 
         // Keep an in-flight queue translation alive. The visual transaction below promotes
         // the preview generation as its successor, avoiding an exposed real-HWND frame between
