@@ -1,0 +1,179 @@
+diff --git a/EdgeCapsuleQueueCompositionProxy.Startup.cs b/EdgeCapsuleQueueCompositionProxy.Startup.cs
+index 6eb9414..0000000 100644
+--- a/EdgeCapsuleQueueCompositionProxy.Startup.cs
++++ b/EdgeCapsuleQueueCompositionProxy.Startup.cs
+@@ -23,6 +23,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+         var startedAt =
+             EdgeCapsulePerformanceDiagnostics.Timestamp();
++        using var coldStartScope =
++            EdgeCapsuleColdStartDiagnostics.Enter(
++                IsColdSession,
++                _plan.QueueKey,
++                _sessionOrdinal);
++        EdgeCapsuleColdStartDiagnostics.Boundary("prepare-enter");
+ #endif
+         try
+         {
+@@ -70,6 +76,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                     reference);
+             }
+ 
++#if DEBUG
++            EdgeCapsuleColdStartDiagnostics.Boundary("resources-ready");
++#endif
+             var successorHandles = _members
+                 .Select(member => member.SourceHandle)
+                 .Where(handle => handle != IntPtr.Zero)
+@@ -112,6 +121,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+             {
+                 return false;
+             }
++#if DEBUG
++            EdgeCapsuleColdStartDiagnostics.Boundary("output-ready");
++#endif
+ 
+             var hostPromoted = false;
+             long animationTimestamp = 0;
+@@ -124,6 +136,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                     return false;
+                 }
+                 hostPromoted = true;
++#if DEBUG
++                EdgeCapsuleColdStartDiagnostics.Boundary("host-promoted");
++#endif
+ 
+                 // Re-sample predecessor position immediately before root
+                 // replacement. Resource construction never freezes the visible
+@@ -132,11 +147,17 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                 animationTimestamp = Stopwatch.GetTimestamp();
+                 RebaseVisualStarts(animationTimestamp);
+                 ConfigureAnimations(animationTimestamp);
++#if DEBUG
++                EdgeCapsuleColdStartDiagnostics.Boundary("animations-configured");
++#endif
+ 
+                 _target.SetRoot(_root).CheckError();
+                 _device.Commit().CheckError();
+                 _targetRootInstalled = true;
++#if DEBUG
++                EdgeCapsuleColdStartDiagnostics.Boundary("root-committed");
++#endif
+ 
+                 // Endpoint-once ownership: real HWNDs settle under the same
+                 // not-yet-flushed cloak transaction. WPF and DComp consume
+@@ -147,6 +168,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                 {
+                     return false;
+                 }
++#if DEBUG
++                EdgeCapsuleColdStartDiagnostics.Boundary("endpoint-committed");
++#endif
+ 
+                 if (!_coverReady(this))
+                 {
+@@ -154,6 +178,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                 }
+                 _controllerPublished = true;
++#if DEBUG
++                EdgeCapsuleColdStartDiagnostics.Boundary("controller-published");
++#endif
+                 return true;
+             }
+@@ -210,6 +237,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                 }
+             }
+ 
++#if DEBUG
++            EdgeCapsuleColdStartDiagnostics.Boundary("before-cloak-batch");
++#endif
+             var publication =
+                 WindowNative.TrySetWindowCloakedBatchDetailed(
+                     cloakChanges,
+@@ -233,6 +263,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
+                 }
+                 return false;
+             }
++#if DEBUG
++            EdgeCapsuleColdStartDiagnostics.Boundary("publication-verified");
++#endif
+ 
+             _animationStartedAtTimestamp = animationTimestamp;
+             foreach (var handle in successorHandles)
+diff --git a/WindowNative.cs b/WindowNative.cs
+index 23654cf..0000000 100644
+--- a/WindowNative.cs
++++ b/WindowNative.cs
+@@ -1385,18 +1385,39 @@ internal static WindowCloakBatchResult
+ #endif
+         var setSucceeded = true;
++        var changeIndex = 0;
++#if DEBUG
++        EdgeCapsuleColdStartDiagnostics.Boundary(
++            "before-cloak-attributes");
++#endif
+         foreach (var change in changes)
+         {
++            changeIndex++;
+             attempted.Add(change);
+-            if (!TrySetWindowCloakAttribute(
+-                    change.Handle,
+-                    change.Cloaked))
++#if DEBUG
++            var memberStartedAt =
++                EdgeCapsulePerformanceDiagnostics.Timestamp();
++#endif
++            var memberSucceeded = TrySetWindowCloakAttribute(
++                change.Handle,
++                change.Cloaked);
++#if DEBUG
++            EdgeCapsuleColdStartDiagnostics.CloakMember(
++                changeIndex,
++                changes.Length,
++                change.Handle,
++                change.Cloaked,
++                memberSucceeded,
++                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
++                    memberStartedAt));
++#endif
++            if (!memberSucceeded)
+             {
+                 setSucceeded = false;
+                 break;
+             }
+         }
++#if DEBUG
++        if (setSucceeded)
++        {
++            EdgeCapsuleColdStartDiagnostics.Boundary(
++                "after-cloak-attributes");
++        }
++#endif
+ 
+         var publishSucceeded = setSucceeded;
+         if (publishSucceeded &&
+@@ -1413,6 +1434,12 @@ internal static WindowCloakBatchResult
+                 publishSucceeded = false;
+             }
+         }
++#if DEBUG
++        if (publishSucceeded)
++        {
++            EdgeCapsuleColdStartDiagnostics.Boundary(
++                "after-publish-callback");
++        }
++#endif
+ #if DEBUG
+         var setMilliseconds =
+             EdgeCapsulePerformanceDiagnostics
+@@ -1425,6 +1452,12 @@ internal static WindowCloakBatchResult
+         var flushed =
+             publishSucceeded && DwmFlush() == 0;
+ #if DEBUG
++        if (flushed)
++        {
++            EdgeCapsuleColdStartDiagnostics.Boundary(
++                "after-dwm-flush");
++        }
+         var flushMilliseconds =
+             EdgeCapsulePerformanceDiagnostics
+                 .ElapsedMilliseconds(flushStartedAt);
