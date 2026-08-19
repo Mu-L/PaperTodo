@@ -30,6 +30,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 #if DEBUG
         var startedAt =
             EdgeCapsulePerformanceDiagnostics.Timestamp();
+        using var coldStartScope =
+            EdgeCapsuleColdStartDiagnostics.Enter(
+                IsColdSession,
+                _plan.QueueKey,
+                _sessionOrdinal);
+        EdgeCapsuleColdStartDiagnostics.Boundary("prepare-enter");
 #endif
         try
         {
@@ -70,6 +76,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     reference);
             }
 
+#if DEBUG
+            EdgeCapsuleColdStartDiagnostics.Boundary("resources-ready");
+#endif
             var successorHandles = _members
                 .Select(member => member.SourceHandle)
                 .Where(handle => handle != IntPtr.Zero)
@@ -108,6 +117,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             {
                 return false;
             }
+#if DEBUG
+            EdgeCapsuleColdStartDiagnostics.Boundary("output-ready");
+#endif
 
             var hostPromoted = false;
             long animationTimestamp = 0;
@@ -119,6 +131,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     return false;
                 }
                 hostPromoted = true;
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("host-promoted");
+#endif
 
                 // Re-sample predecessor position immediately before root
                 // replacement. Resource construction never freezes the visible
@@ -126,10 +141,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 animationTimestamp = Stopwatch.GetTimestamp();
                 RebaseVisualStarts(animationTimestamp);
                 ConfigureAnimations(animationTimestamp);
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("animations-configured");
+#endif
 
                 _target.SetRoot(_root).CheckError();
                 _device.Commit().CheckError();
                 _targetRootInstalled = true;
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("root-committed");
+#endif
 
                 // Endpoint-once ownership: real HWNDs settle under the same
                 // not-yet-flushed cloak transaction. WPF and DComp consume
@@ -139,12 +160,18 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 {
                     return false;
                 }
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("endpoint-committed");
+#endif
 
                 if (!_coverReady(this))
                 {
                     return false;
                 }
                 _controllerPublished = true;
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("controller-published");
+#endif
                 return true;
             }
 
@@ -198,6 +225,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 }
             }
 
+#if DEBUG
+            EdgeCapsuleColdStartDiagnostics.Boundary("before-cloak-batch");
+#endif
             var publication =
                 WindowNative.TrySetWindowCloakedBatchDetailed(
                     cloakChanges,
@@ -220,6 +250,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 }
                 return false;
             }
+#if DEBUG
+            EdgeCapsuleColdStartDiagnostics.Boundary("publication-verified");
+#endif
 
             _animationStartedAtTimestamp = animationTimestamp;
             foreach (var handle in successorHandles)
