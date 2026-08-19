@@ -20,7 +20,7 @@ public sealed partial class PaperWindow
             $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
             $"pointer={screenPosition.X:F0},{screenPosition.Y:F0}");
         BeginEdgeCapsulePointerInteraction(screenPosition);
-        QueueDeepCapsuleFloatingDragHostPrewarm();
+        QueueDeepCapsuleFloatingDragInfrastructurePrewarm();
     }
 
     private bool OnEdgeCapsulePointerMoved(
@@ -171,14 +171,27 @@ public sealed partial class PaperWindow
         };
     }
 
-    private void QueueDeepCapsuleFloatingDragHostPrewarm(
+    private void QueueDeepCapsuleFloatingDragInfrastructurePrewarm(
         System.Windows.Threading.DispatcherPriority priority =
             System.Windows.Threading.DispatcherPriority.Background,
         bool requireActiveInteraction = true)
     {
+        // This is a one-time process infrastructure warm-up, not a prediction that the current
+        // paper will be dragged. Once the shared HWND/tree has been shown and parked, every later
+        // paper binds its properties synchronously at Rent without another Show/Hide warm cycle.
+        if (!EdgeCapsuleDragWindow.NeedsInfrastructurePrewarm)
+        {
+            return;
+        }
+
         _ = Dispatcher.BeginInvoke(
             (Action)(() =>
             {
+                if (!EdgeCapsuleDragWindow.NeedsInfrastructurePrewarm)
+                {
+                    return;
+                }
+
                 var interactionActive =
                     IsDeepCapsuleSlotPendingClick ||
                     IsDeepCapsuleReordering;
@@ -212,7 +225,7 @@ public sealed partial class PaperWindow
                 {
                     return;
                 }
-                _ = EdgeCapsuleDragWindow.TryPrewarm(
+                _ = EdgeCapsuleDragWindow.TryPrewarmInfrastructure(
                     CreateDeepCapsuleFloatingDragHostOptions(shape));
             }),
             priority);
@@ -891,12 +904,8 @@ public sealed partial class PaperWindow
 
         _controller.BeginDeepCapsuleReorderDrag(_paper);
         CloseDeepCapsuleFloatingDragHost();
-        // The docked phase normally gives this deferred work tens of milliseconds before the
-        // cross-queue unlock. Render priority makes the first-ever warm-up run ahead of the next
-        // input sample; later drags reuse the same host and this is effectively a cheap validity
-        // check. Rent still has a synchronous fallback if deferred work cannot run.
-        QueueDeepCapsuleFloatingDragHostPrewarm(
-            System.Windows.Threading.DispatcherPriority.Render);
+        // The shared Drag HWND/tree was prewarmed once at idle, with pointer-down as the only
+        // fallback. Reorder no longer queues paper-specific work on the interaction path.
         _edgeCapsuleHost.BringToFrontNoActivate();
 
         Mouse.OverrideCursor = Cursors.SizeAll;

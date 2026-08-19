@@ -169,17 +169,36 @@ internal static class QueueProxyBarrierRegression
             preview.Contains("EdgeCapsulePreviewSize.MaximumWidthDip"),
             "deferred plugin papers must reserve bounded plugin capacity before the temporary Default provider can publish the first Host");
 
+        var configureStart = dragWindow.IndexOf(
+            "private bool ConfigureForReuse",
+            StringComparison.Ordinal);
+        var resetStart = configureStart < 0
+            ? -1
+            : dragWindow.IndexOf(
+                "private void ResetTransientPresentation",
+                configureStart,
+                StringComparison.Ordinal);
+        var configureBody = configureStart >= 0 && resetStart > configureStart
+            ? dragWindow[configureStart..resetStart]
+            : "";
         Require(
             Count(
                 placement,
-                "requireActiveInteraction: false") == 0 &&
-            hostPolicy.Contains("if (pointerOverChanged)") &&
-            hostPolicy.Contains("DispatcherPriority.Background") &&
-            hostPolicy.Contains("requireActiveInteraction: false") &&
-            interaction.Contains("EdgeCapsuleDragWindow.TryPrewarm") &&
-            dragWindow.Contains("phase=prewarm-hit") &&
-            dragWindow.Contains("Equals(host._configuredOptions, options)"),
-            "floating drag HWND prewarm must target the hovered paper and exact warm configs must be a no-op, not rerun for every placement");
+                "QueueDeepCapsuleFloatingDragInfrastructurePrewarm(") >= 2 &&
+            Count(
+                placement,
+                "DispatcherPriority.ApplicationIdle") >= 2 &&
+            !hostPolicy.Contains(
+                "QueueDeepCapsuleFloatingDragInfrastructurePrewarm") &&
+            interaction.Contains("NeedsInfrastructurePrewarm") &&
+            interaction.Contains("TryPrewarmInfrastructure") &&
+            dragWindow.Contains("private void BuildContent()") &&
+            Count(dragWindow, "BuildContent();") == 1 &&
+            dragWindow.Contains("private void BindOptions(") &&
+            dragWindow.Contains("treeRebuilt=false") &&
+            !configureBody.Contains("Content = null") &&
+            !configureBody.Contains("BuildContent("),
+            "floating drag must prewarm one process infrastructure host at idle and bind papers onto one persistent visual tree without hover prediction or Content replacement");
 
         Require(
             handoff.Contains(

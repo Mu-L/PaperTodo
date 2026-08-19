@@ -56,9 +56,9 @@ internal sealed class EdgeCapsuleDragWindow : Window
     private const double PooledParkCoordinate = -32000;
 
     // A detached drag surface is process-global: the controller serializes capsule reorders, so
-    // keeping more than one HWND alive only brings the cold Create/Show/Close path back under a
-    // different name. The cached Window stays hidden between leases and is destroyed only when
-    // it becomes unusable or the application dispatcher shuts down.
+    // one cached HWND is sufficient. Its HWND and WPF visual tree stay alive for the application
+    // lifetime; leases only bind paper-specific text, brushes and geometry onto the existing tree.
+    // The host is destroyed only when it becomes unusable or the dispatcher shuts down.
     private static EdgeCapsuleDragWindow? s_pooledHost;
     private static bool s_pooledHostLeased;
 
@@ -99,6 +99,12 @@ internal sealed class EdgeCapsuleDragWindow : Window
     private double _heightDip;
     private Grid _root = null!;
     private Grid _surface = null!;
+    private Border _paperBackground = null!;
+    private Grid _shell = null!;
+    private Grid _content = null!;
+    private TextBlock _icon = null!;
+    private TextBlock _label = null!;
+    private Border _contentArea = null!;
     private Border _outline = null!;
     private EdgeCapsuleDragWindowOptions? _configuredOptions;
     private DockingHandoffAnimation? _dockingHandoffAnimation;
@@ -129,12 +135,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
         ResizeMode = ResizeMode.NoResize;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
-        FontFamily = options.UiFontFamily;
-        Language = options.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
         AppTypography.ApplyTextRendering(this);
         Opacity = 0;
+        BuildContent();
         ConfigureForReuse(options);
 
         SourceInitialized += (_, _) => WindowNative.ApplyNoActivateStyle(this);
@@ -143,7 +148,17 @@ internal sealed class EdgeCapsuleDragWindow : Window
 
     public event EventHandler? UnexpectedlyClosed;
 
-    public static bool TryPrewarm(EdgeCapsuleDragWindowOptions options)
+    public static bool NeedsInfrastructurePrewarm
+    {
+        get
+        {
+            VerifyPoolThreadAccess();
+            return s_pooledHost == null || !s_pooledHost._hasBeenShown;
+        }
+    }
+
+    public static bool TryPrewarmInfrastructure(
+        EdgeCapsuleDragWindowOptions seedOptions)
     {
         VerifyPoolThreadAccess();
         if (s_pooledHostLeased)
@@ -157,27 +172,22 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var host = s_pooledHost;
         try
         {
-            if (host != null &&
-                host._hasBeenShown &&
-                !host.IsVisible &&
-                Equals(host._configuredOptions, options))
+            host ??= CreatePooledHost(seedOptions);
+            if (host._hasBeenShown && !host.IsVisible)
             {
 #if DEBUG
                 EdgeCapsulePerformanceDiagnostics.Trace(
-                    $"drag.host phase=prewarm-hit paper={host._diagnosticId} " +
+                    $"drag.host phase=infrastructure-hit " +
                     $"dragHost={host._diagnosticHostId}");
 #endif
                 return true;
             }
 
-            host ??= CreatePooledHost(options);
-            var reconfigured = host.ConfigureForReuse(options);
-            var warmedShow = host.PrewarmAndPark(reconfigured);
+            var warmedShow = host.PrewarmInfrastructureAndPark();
 #if DEBUG
             EdgeCapsulePerformanceDiagnostics.Trace(
-                $"drag.host phase=prewarmed paper={host._diagnosticId} " +
-                $"dragHost={host._diagnosticHostId} reconfigured={reconfigured} " +
-                $"warmedShow={warmedShow} " +
+                $"drag.host phase=infrastructure-prewarmed " +
+                $"dragHost={host._diagnosticHostId} warmedShow={warmedShow} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(startedAt):F3}");
 #endif
             return true;
@@ -209,7 +219,17 @@ internal sealed class EdgeCapsuleDragWindow : Window
         s_pooledHostLeased = true;
         try
         {
-            host.ConfigureForReuse(options);
+#if DEBUG
+            var bindStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+            var rebound = host.ConfigureForReuse(options);
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.host phase=bound paper={host._diagnosticId} " +
+                $"dragHost={host._diagnosticHostId} rebound={rebound} " +
+                "treeRebuilt=false " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(bindStartedAt):F3}");
+#endif
             return host;
         }
         catch
@@ -1078,17 +1098,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
             throw new InvalidOperationException(
                 "A closed detached edge-capsule drag window cannot be reused.");
         }
-        if (!options.Shape.Visible ||
-            options.Shape.Kind != EdgeCapsuleSurfaceKind.FloatingFree ||
-            !double.IsFinite(options.Shape.WindowWidthDip) ||
-            !double.IsFinite(options.Shape.WindowHeightDip) ||
-            options.Shape.WindowWidthDip <= 0 ||
-            options.Shape.WindowHeightDip <= 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(options),
-                "The detached drag host requires a finite FloatingFree shape.");
-        }
+        ValidateOptions(options);
 
 #if DEBUG
         _diagnosticId = options.DiagnosticId;
@@ -1099,28 +1109,83 @@ internal sealed class EdgeCapsuleDragWindow : Window
             CancelDockingHandoffAnimation();
             _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
             _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-
-            // Build the replacement tree before releasing the previous one. If a caller supplies
-            // an unusable brush/font/shape, Rent can discard this host with its last valid content
-            // and rebuild exactly once without exposing a partially configured lease.
-            var (root, surface, outline) = BuildContent(options);
-            Content = null;
-            _root = root;
-            _surface = surface;
-            _outline = outline;
-            _widthDip = options.Shape.WindowWidthDip;
-            _heightDip = options.Shape.WindowHeightDip;
-            Width = _widthDip;
-            Height = _heightDip;
-            FontFamily = options.UiFontFamily;
-            Language = options.Language;
-            Topmost = options.Topmost;
-            Content = _root;
-            _configuredOptions = options;
+            BindOptions(options);
         }
 
         ResetTransientPresentation();
         return reconfigured;
+    }
+
+    private static void ValidateOptions(EdgeCapsuleDragWindowOptions options)
+    {
+        if (!options.Shape.Visible ||
+            options.Shape.Kind != EdgeCapsuleSurfaceKind.FloatingFree ||
+            !double.IsFinite(options.Shape.WindowWidthDip) ||
+            !double.IsFinite(options.Shape.WindowHeightDip) ||
+            !double.IsFinite(options.Shape.BodyHeightDip) ||
+            !double.IsFinite(options.Shape.CornerRadiusDip) ||
+            options.Shape.WindowWidthDip <= 0 ||
+            options.Shape.WindowHeightDip <= 0 ||
+            options.Shape.BodyHeightDip <= 0 ||
+            options.Shape.CornerRadiusDip < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The detached drag host requires a finite FloatingFree shape.");
+        }
+    }
+
+    private void BindOptions(EdgeCapsuleDragWindowOptions options)
+    {
+        // The expensive Window, HWND, DropShadowEffect and WPF tree are permanent. Switching papers
+        // is intentionally a property bind; never clear Content or rebuild controls on the input path.
+        _widthDip = options.Shape.WindowWidthDip;
+        _heightDip = options.Shape.WindowHeightDip;
+        Width = _widthDip;
+        Height = _heightDip;
+        FontFamily = options.UiFontFamily;
+        Language = options.Language;
+        Topmost = options.Topmost;
+
+        _paperBackground.Margin = new Thickness(options.WindowChromeMargin);
+        _paperBackground.Background = options.PaperBrush;
+        _paperBackground.BorderBrush = options.PaperBorderBrush;
+        _paperBackground.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip);
+
+        _shell.Margin = new Thickness(options.WindowChromeMargin);
+        _shell.Height = options.Shape.BodyHeightDip;
+        _content.Margin = new Thickness(
+            options.LeftPadding,
+            0,
+            options.RightPadding,
+            0);
+
+        _icon.Text = options.Icon;
+        _icon.Foreground = options.IconBrush;
+        _icon.FontFamily = options.SymbolFontFamily;
+        _icon.FontSize = options.IconFontSize;
+
+        _label.Text = options.Label;
+        _label.Foreground = options.LabelBrush;
+        _label.FontFamily = options.UiFontFamily;
+        _label.FontSize = options.LabelFontSize;
+        _label.FontWeight = options.LabelFontWeight;
+        _label.Margin = new Thickness(options.IconGap, 0, 0, 0);
+
+        _contentArea.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip);
+        _outline.Margin = new Thickness(options.OutlineMargin);
+        _outline.BorderBrush = options.OutlineBrush;
+        _outline.BorderThickness = new Thickness(options.OutlineThickness);
+        _outline.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip +
+            options.OutlineThickness -
+            options.OutlineOverlap);
+        _outline.Visibility = options.Shape.OutlineVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _configuredOptions = options;
     }
 
     private void ResetTransientPresentation()
@@ -1171,14 +1236,14 @@ internal sealed class EdgeCapsuleDragWindow : Window
         return false;
     }
 
-    private bool PrewarmAndPark(bool reconfigured)
+    private bool PrewarmInfrastructureAndPark()
     {
         Opacity = 0;
         Left = PooledParkCoordinate;
         Top = PooledParkCoordinate;
         EnsureSystemAwareHandle();
 
-        var warmShow = reconfigured || !_hasBeenShown;
+        var warmShow = !_hasBeenShown;
         if (warmShow)
         {
             if (!IsVisible)
@@ -1264,15 +1329,14 @@ internal sealed class EdgeCapsuleDragWindow : Window
         CancelDockingHandoffAnimation();
     }
 
-    private (Grid Root, Grid Surface, Border Outline) BuildContent(
-        EdgeCapsuleDragWindowOptions options)
+    private void BuildContent()
     {
-        var root = new Grid
+        _root = new Grid
         {
             Background = null,
             IsHitTestVisible = false
         };
-        var surface = new Grid
+        _surface = new Grid
         {
             Background = null,
             IsHitTestVisible = false,
@@ -1283,15 +1347,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
             SnapsToDevicePixels = true,
             UseLayoutRounding = true
         };
-        root.Children.Add(surface);
+        _root.Children.Add(_surface);
 
-        surface.Children.Add(new Border
+        _paperBackground = new Border
         {
-            Margin = new Thickness(options.WindowChromeMargin),
-            Background = options.PaperBrush,
-            BorderBrush = options.PaperBorderBrush,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
             SnapsToDevicePixels = true,
             Effect = new DropShadowEffect
             {
@@ -1299,76 +1359,63 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 ShadowDepth = 1,
                 Opacity = 0.12
             }
-        });
+        };
+        _surface.Children.Add(_paperBackground);
 
-        var shell = new Grid
+        _shell = new Grid
         {
-            Margin = new Thickness(options.WindowChromeMargin),
-            Height = options.Shape.BodyHeightDip,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center,
             Background = Brushes.Transparent
         };
-        var content = new Grid
+        _content = new Grid
         {
-            Margin = new Thickness(options.LeftPadding, 0, options.RightPadding, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _content.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = GridLength.Auto });
+        _content.ColumnDefinitions.Add(
+            new ColumnDefinition
+            {
+                Width = new GridLength(1, GridUnitType.Star)
+            });
 
-        var icon = new TextBlock
+        _icon = new TextBlock
         {
-            Text = options.Icon,
-            Foreground = options.IconBrush,
-            FontFamily = options.SymbolFontFamily,
-            FontSize = options.IconFontSize,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(icon, 0);
-        content.Children.Add(icon);
+        Grid.SetColumn(_icon, 0);
+        _content.Children.Add(_icon);
 
-        var label = new TextBlock
+        _label = new TextBlock
         {
-            Text = options.Label,
-            Foreground = options.LabelBrush,
-            FontFamily = options.UiFontFamily,
-            FontSize = options.LabelFontSize,
-            FontWeight = options.LabelFontWeight,
-            Margin = new Thickness(options.IconGap, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
-        AppTypography.ApplyTextRendering(label);
-        Grid.SetColumn(label, 1);
-        content.Children.Add(label);
+        AppTypography.ApplyTextRendering(_label);
+        Grid.SetColumn(_label, 1);
+        _content.Children.Add(_label);
 
-        var contentArea = new Border
+        _contentArea = new Border
         {
             Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
-            Child = content
+            Child = _content
         };
-        shell.Children.Add(contentArea);
-        Panel.SetZIndex(shell, 10);
-        surface.Children.Add(shell);
+        _shell.Children.Add(_contentArea);
+        Panel.SetZIndex(_shell, 10);
+        _surface.Children.Add(_shell);
 
-        var outline = new Border
+        _outline = new Border
         {
-            Margin = new Thickness(options.OutlineMargin),
-            BorderBrush = options.OutlineBrush,
-            BorderThickness = new Thickness(options.OutlineThickness),
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip + options.OutlineThickness - options.OutlineOverlap),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
-            Visibility = options.Shape.OutlineVisible ? Visibility.Visible : Visibility.Collapsed,
             SnapsToDevicePixels = true
         };
-        Panel.SetZIndex(outline, 20);
-        surface.Children.Add(outline);
-        return (root, surface, outline);
+        Panel.SetZIndex(_outline, 20);
+        _surface.Children.Add(_outline);
+        Content = _root;
     }
 }
