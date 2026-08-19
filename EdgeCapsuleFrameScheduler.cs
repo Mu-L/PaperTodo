@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -20,8 +21,10 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly List<Action> _postCommitCallbacks = new();
     private readonly List<List<EdgeCapsulePresenter>> _frameGroups = new();
     private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices = new();
-    private readonly DispatcherTimer _transitionLivenessWatchdog;
+    private readonly Timer _transitionLivenessWatchdog;
     private DispatcherOperation? _transitionLivenessRescueOperation;
+    private int _transitionLivenessThreadPoolWakeQueued;
+    private long _transitionLivenessThreadPoolWakeTimestamp;
     private bool _renderingSubscribed;
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
@@ -43,14 +46,13 @@ internal sealed class EdgeCapsuleFrameScheduler
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
     {
         _dispatcher = dispatcher;
-        _transitionLivenessWatchdog = new DispatcherTimer(
-            DispatcherPriority.Render,
-            dispatcher)
-        {
-            Interval = TimeSpan.FromMilliseconds(
-                TransitionLivenessWatchdogMilliseconds)
-        };
-        _transitionLivenessWatchdog.Tick += OnTransitionLivenessWatchdog;
+        _transitionLivenessWatchdog = new Timer(
+            static state =>
+                ((EdgeCapsuleFrameScheduler)state!)
+                    .OnTransitionLivenessWatchdogThreadPool(),
+            this,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
     }
 
     public static EdgeCapsuleFrameScheduler For(Dispatcher dispatcher) =>
@@ -213,9 +215,41 @@ internal sealed class EdgeCapsuleFrameScheduler
         AdvanceSharedFrame(renderingTime, source: "render");
     }
 
-    private void OnTransitionLivenessWatchdog(object? sender, EventArgs e)
+    private void OnTransitionLivenessWatchdogThreadPool()
     {
-        _transitionLivenessWatchdog.Stop();
+        var firedAtTimestamp = Stopwatch.GetTimestamp();
+        if (Interlocked.Exchange(
+                ref _transitionLivenessThreadPoolWakeQueued,
+                1) != 0)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(
+            ref _transitionLivenessThreadPoolWakeTimestamp,
+            firedAtTimestamp);
+        var operation = _dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            (Action)OnTransitionLivenessWatchdogDispatcherWake);
+        if (operation.Status == DispatcherOperationStatus.Aborted)
+        {
+            Interlocked.Exchange(
+                ref _transitionLivenessThreadPoolWakeQueued,
+                0);
+            Interlocked.Exchange(
+                ref _transitionLivenessThreadPoolWakeTimestamp,
+                0);
+        }
+    }
+
+    private void OnTransitionLivenessWatchdogDispatcherWake()
+    {
+        Interlocked.Exchange(
+            ref _transitionLivenessThreadPoolWakeQueued,
+            0);
+        var firedAtTimestamp = Interlocked.Exchange(
+            ref _transitionLivenessThreadPoolWakeTimestamp,
+            0);
         if (!_dispatcher.CheckAccess() ||
             _dispatcher.HasShutdownStarted ||
             _presenters.Count == 0 ||
@@ -227,6 +261,24 @@ internal sealed class EdgeCapsuleFrameScheduler
 
         var generation = _transitionLivenessWatchdogGeneration;
         var nowTimestamp = Stopwatch.GetTimestamp();
+#if DEBUG
+        var dispatchMilliseconds = firedAtTimestamp == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                firedAtTimestamp,
+                nowTimestamp);
+        var deadlineOverdueMilliseconds =
+            _transitionLivenessWatchdogDeadlineTimestamp > 0 &&
+            nowTimestamp >= _transitionLivenessWatchdogDeadlineTimestamp
+                ? EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    _transitionLivenessWatchdogDeadlineTimestamp,
+                    nowTimestamp)
+                : 0;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"scheduler.watchdog phase=wake source=threadpool generation={generation} " +
+            $"dispatchMs={dispatchMilliseconds:F3} " +
+            $"deadlineOverdueMs={deadlineOverdueMilliseconds:F3}");
+#endif
         if (_transitionLivenessWatchdogDeadlineTimestamp <= 0)
         {
             return;
@@ -399,10 +451,9 @@ internal sealed class EdgeCapsuleFrameScheduler
             1.0,
             TimestampTicksToMilliseconds(
                 Math.Max(1, remainingTimestampTicks)));
-        _transitionLivenessWatchdog.Stop();
-        _transitionLivenessWatchdog.Interval =
-            TimeSpan.FromMilliseconds(delayMilliseconds);
-        _transitionLivenessWatchdog.Start();
+        _transitionLivenessWatchdog.Change(
+            TimeSpan.FromMilliseconds(delayMilliseconds),
+            Timeout.InfiniteTimeSpan);
     }
 
     private void QueueExpiredTransitionLivenessRescue(string trigger)
@@ -508,7 +559,9 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void CancelTransitionLivenessWatchdogSchedule()
     {
-        _transitionLivenessWatchdog.Stop();
+        _transitionLivenessWatchdog.Change(
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
         var rescueOperation = _transitionLivenessRescueOperation;
         _transitionLivenessRescueOperation = null;
         if (rescueOperation != null &&

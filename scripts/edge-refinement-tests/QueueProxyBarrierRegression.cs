@@ -249,17 +249,43 @@ internal static class QueueProxyBarrierRegression
                 "new List<List<EdgeCapsulePresenter>>()"),
             "passive reconcile must run at Render priority without self-starving the shared frame, while frame grouping reuses scratch collections");
 
+        var threadPoolWakeStart = frameScheduler.IndexOf(
+            "private void OnTransitionLivenessWatchdogThreadPool",
+            StringComparison.Ordinal);
+        var dispatcherWakeStart = threadPoolWakeStart < 0
+            ? -1
+            : frameScheduler.IndexOf(
+                "private void OnTransitionLivenessWatchdogDispatcherWake",
+                threadPoolWakeStart,
+                StringComparison.Ordinal);
+        var threadPoolWakeBody =
+            threadPoolWakeStart >= 0 && dispatcherWakeStart > threadPoolWakeStart
+                ? frameScheduler[threadPoolWakeStart..dispatcherWakeStart]
+                : "";
         Require(
             frameScheduler.Contains("TransitionLivenessWatchdogMilliseconds = 12") &&
-            frameScheduler.Contains("private readonly DispatcherTimer _transitionLivenessWatchdog") &&
+            frameScheduler.Contains("using System.Threading;") &&
+            frameScheduler.Contains("private readonly Timer _transitionLivenessWatchdog") &&
+            !frameScheduler.Contains("DispatcherTimer") &&
+            Count(frameScheduler, "new Timer(") == 1 &&
             frameScheduler.Contains("private DispatcherOperation? _transitionLivenessRescueOperation") &&
+            frameScheduler.Contains("_transitionLivenessThreadPoolWakeQueued") &&
             frameScheduler.Contains("_transitionLivenessWatchdogGeneration") &&
             frameScheduler.Contains("_transitionLivenessWatchdogDeadlineTimestamp") &&
-            frameScheduler.Contains("_transitionLivenessWatchdog.Tick += OnTransitionLivenessWatchdog") &&
             frameScheduler.Contains("nowTimestamp < _transitionLivenessWatchdogDeadlineTimestamp") &&
             frameScheduler.Contains("ScheduleTransitionLivenessWatchdog") &&
+            Count(frameScheduler, "_transitionLivenessWatchdog.Change(") == 2 &&
+            !frameScheduler.Contains("_transitionLivenessWatchdog.Start();") &&
+            !frameScheduler.Contains("_transitionLivenessWatchdog.Stop();") &&
             frameScheduler.Contains("QueueExpiredTransitionLivenessRescue(\"pending-release\")") &&
-            frameScheduler.Contains("DispatcherPriority.Render") &&
+            threadPoolWakeBody.Contains("_dispatcher.BeginInvoke(") &&
+            threadPoolWakeBody.Contains("DispatcherPriority.Render") &&
+            threadPoolWakeBody.Contains("Interlocked.Exchange") &&
+            !threadPoolWakeBody.Contains("_presenters") &&
+            !threadPoolWakeBody.Contains("_pendingRenderReconciles") &&
+            !threadPoolWakeBody.Contains("HasActiveTransitionPresenter") &&
+            !threadPoolWakeBody.Contains("AdvanceSharedFrame") &&
+            frameScheduler.Contains("scheduler.watchdog phase=wake source=threadpool") &&
             frameScheduler.Contains("scheduler.pending phase=drained") &&
             frameScheduler.Contains("scheduler.watchdog phase=early") &&
             frameScheduler.Contains("scheduler.watchdog phase=queued") &&
@@ -270,10 +296,9 @@ internal static class QueueProxyBarrierRegression
             frameScheduler.Contains("activeTransition=") &&
             !frameScheduler.Contains("!anyCommittedApply &&") &&
             Count(frameScheduler, "ArmTransitionLivenessWatchdog();") == 1 &&
-            Count(frameScheduler, "_transitionLivenessWatchdog.Start();") == 1 &&
             frameScheduler.Contains("HasActiveTransitionPresenter()") &&
             frameScheduler.Contains("NativeBatchCommitVersion"),
-            "transition liveness must use a Stopwatch-backed deadline, reject early timer ticks, and rescue immediately after an expired pending-reconcile barrier drains without creating a second frame clock");
+            "transition liveness must use one persistent ThreadPool one-shot timer only as an off-Dispatcher wake source; QPC deadlines and UI-thread gates remain authoritative, and the timer thread may only enqueue a Render-priority dispatcher wake");
 
         Require(
             handoff.Contains(
