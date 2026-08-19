@@ -17,15 +17,21 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly Dispatcher _dispatcher;
     private readonly List<EdgeCapsulePresenter> _presenters = new();
     private readonly List<Action> _postCommitCallbacks = new();
+    private readonly List<List<EdgeCapsulePresenter>> _frameGroups = new();
+    private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices = new();
     private bool _renderingSubscribed;
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
-    private int _pendingLoadedReconciles;
+    private int _pendingRenderReconciles;
     private TimeSpan? _lastRenderingTime;
 #if DEBUG
     private long _lastRenderingTimestamp;
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
+    private int _suppressedPendingReconcileRenderingCallbacks;
+    private int _suppressedExternalNativeBatchRenderingCallbacks;
+    private int _suppressedReentrantRenderingCallbacks;
+    private long _suppressedRenderingStartedAtTimestamp;
 #endif
 
     private EdgeCapsuleFrameScheduler(Dispatcher dispatcher)
@@ -38,18 +44,18 @@ internal sealed class EdgeCapsuleFrameScheduler
             dispatcher,
             static key => new EdgeCapsuleFrameScheduler(key));
 
-    public void RegisterLoadedReconcile()
+    public void RegisterRenderReconcile()
     {
         _dispatcher.VerifyAccess();
-        _pendingLoadedReconciles++;
+        _pendingRenderReconciles++;
     }
 
-    public void CompleteLoadedReconcile()
+    public void CompleteRenderReconcile()
     {
         _dispatcher.VerifyAccess();
-        if (_pendingLoadedReconciles > 0)
+        if (_pendingRenderReconciles > 0)
         {
-            _pendingLoadedReconciles--;
+            _pendingRenderReconciles--;
         }
     }
 
@@ -109,11 +115,29 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void OnRendering(object? sender, EventArgs e)
     {
-        if (!_dispatcher.CheckAccess() ||
-            _isTicking ||
-            _pendingLoadedReconciles > 0 ||
-            HasExternallyOwnedNativeBatchApply())
+        if (!_dispatcher.CheckAccess())
         {
+            return;
+        }
+        if (_isTicking)
+        {
+#if DEBUG
+            RecordSuppressedRenderingCallback(ref _suppressedReentrantRenderingCallbacks);
+#endif
+            return;
+        }
+        if (_pendingRenderReconciles > 0)
+        {
+#if DEBUG
+            RecordSuppressedRenderingCallback(ref _suppressedPendingReconcileRenderingCallbacks);
+#endif
+            return;
+        }
+        if (HasExternallyOwnedNativeBatchApply())
+        {
+#if DEBUG
+            RecordSuppressedRenderingCallback(ref _suppressedExternalNativeBatchRenderingCallbacks);
+#endif
             return;
         }
 
@@ -144,6 +168,18 @@ internal sealed class EdgeCapsuleFrameScheduler
         var debugGroupCount = 0;
         var duplicateRenderingCallbacks = _suppressedDuplicateRenderingCallbacks;
         _suppressedDuplicateRenderingCallbacks = 0;
+        var suppressedPendingCallbacks = _suppressedPendingReconcileRenderingCallbacks;
+        var suppressedExternalCallbacks = _suppressedExternalNativeBatchRenderingCallbacks;
+        var suppressedReentrantCallbacks = _suppressedReentrantRenderingCallbacks;
+        var suppressedSpanMilliseconds = _suppressedRenderingStartedAtTimestamp == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _suppressedRenderingStartedAtTimestamp,
+                callbackStartedAt);
+        _suppressedPendingReconcileRenderingCallbacks = 0;
+        _suppressedExternalNativeBatchRenderingCallbacks = 0;
+        _suppressedReentrantRenderingCallbacks = 0;
+        _suppressedRenderingStartedAtTimestamp = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
 #endif
         _isTicking = true;
@@ -163,14 +199,14 @@ internal sealed class EdgeCapsuleFrameScheduler
                 out var currentPointer)
                     ? currentPointer
                     : (DeviceScreenPoint?)null;
-            var groups = BuildFrameGroups(initialCount);
+            var groupCount = BuildFrameGroups(initialCount);
 #if DEBUG
-            debugGroupCount = groups.Count;
+            debugGroupCount = groupCount;
 #endif
-            foreach (var group in groups)
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
             {
                 AdvanceNativeBatchGroup(
-                    group,
+                    _frameGroups[groupIndex],
                     pointer,
                     frameTimestamp);
             }
@@ -191,35 +227,65 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
                 $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
                 $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
-                $"groups={debugGroupCount} loadedPending={_pendingLoadedReconciles}");
+                $"groups={debugGroupCount} renderPending={_pendingRenderReconciles} " +
+                $"skippedPending={suppressedPendingCallbacks} " +
+                $"skippedExternal={suppressedExternalCallbacks} " +
+                $"skippedReentrant={suppressedReentrantCallbacks} " +
+                $"skipSpanMs={suppressedSpanMilliseconds:F3}");
 #endif
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
+            ClearFrameGroups();
             _isTicking = false;
             StopWhenEmpty();
         }
     }
 
-    private IReadOnlyList<List<EdgeCapsulePresenter>> BuildFrameGroups(
-        int initialCount)
+    private int BuildFrameGroups(int initialCount)
     {
-        var groups = new List<List<EdgeCapsulePresenter>>();
-        var groupIndices =
-            new Dictionary<EdgeCapsuleNativeBatchGroup, int>();
+        _frameGroupIndices.Clear();
+        var groupCount = 0;
         for (var index = 0; index < initialCount; index++)
         {
             var presenter = _presenters[index];
             var key = presenter.NativeBatchGroup;
-            if (!groupIndices.TryGetValue(key, out var groupIndex))
+            if (!_frameGroupIndices.TryGetValue(key, out var groupIndex))
             {
-                groupIndex = groups.Count;
-                groupIndices[key] = groupIndex;
-                groups.Add(new List<EdgeCapsulePresenter>());
+                groupIndex = groupCount++;
+                _frameGroupIndices[key] = groupIndex;
+                if (groupIndex == _frameGroups.Count)
+                {
+                    _frameGroups.Add(new List<EdgeCapsulePresenter>());
+                }
             }
-            groups[groupIndex].Add(presenter);
+            _frameGroups[groupIndex].Add(presenter);
         }
-        return groups;
+        return groupCount;
     }
+
+    private void ClearFrameGroups()
+    {
+        _frameGroupIndices.Clear();
+        for (var index = 0; index < _frameGroups.Count; index++)
+        {
+            _frameGroups[index].Clear();
+        }
+    }
+
+#if DEBUG
+    private void RecordSuppressedRenderingCallback(ref int counter)
+    {
+        if (_suppressedRenderingStartedAtTimestamp == 0)
+        {
+            _suppressedRenderingStartedAtTimestamp =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+        }
+        if (counter < int.MaxValue)
+        {
+            counter++;
+        }
+    }
+#endif
 
     private void AdvanceNativeBatchGroup(
         IReadOnlyList<EdgeCapsulePresenter> presenters,
@@ -507,7 +573,12 @@ internal sealed class EdgeCapsuleFrameScheduler
 #if DEBUG
             _lastRenderingTimestamp = 0;
             _suppressedDuplicateRenderingCallbacks = 0;
+            _suppressedPendingReconcileRenderingCallbacks = 0;
+            _suppressedExternalNativeBatchRenderingCallbacks = 0;
+            _suppressedReentrantRenderingCallbacks = 0;
+            _suppressedRenderingStartedAtTimestamp = 0;
 #endif
+            ClearFrameGroups();
         }
     }
 }

@@ -17,6 +17,7 @@ internal static class QueueProxyBarrierRegression
         var placement = Source("PaperWindow.EdgeCapsulePlacement.cs");
         var interaction = Source("PaperWindow.EdgeCapsuleInteraction.cs");
         var dragWindow = Source("EdgeCapsuleDragWindow.cs");
+        var frameScheduler = Source("EdgeCapsuleFrameScheduler.cs");
         var visuals = Source(
             "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
 
@@ -199,6 +200,54 @@ internal static class QueueProxyBarrierRegression
             !configureBody.Contains("Content = null") &&
             !configureBody.Contains("BuildContent("),
             "floating drag must prewarm one process infrastructure host at idle and bind papers onto one persistent visual tree without hover prediction or Content replacement");
+
+        var queueReconcileStart = presenter.IndexOf(
+            "private void QueueReconcile",
+            StringComparison.Ordinal);
+        var runReconcileStart = queueReconcileStart < 0
+            ? -1
+            : presenter.IndexOf(
+                "private void RunReconcile",
+                queueReconcileStart,
+                StringComparison.Ordinal);
+        var queueReconcileBody =
+            queueReconcileStart >= 0 && runReconcileStart > queueReconcileStart
+                ? presenter[queueReconcileStart..runReconcileStart]
+                : "";
+        var buildGroupsStart = frameScheduler.IndexOf(
+            "private int BuildFrameGroups",
+            StringComparison.Ordinal);
+        var advanceGroupStart = buildGroupsStart < 0
+            ? -1
+            : frameScheduler.IndexOf(
+                "private void AdvanceNativeBatchGroup",
+                buildGroupsStart,
+                StringComparison.Ordinal);
+        var buildGroupsBody =
+            buildGroupsStart >= 0 && advanceGroupStart > buildGroupsStart
+                ? frameScheduler[buildGroupsStart..advanceGroupStart]
+                : "";
+        Require(
+            queueReconcileBody.Contains("DispatcherPriority.Send") &&
+            queueReconcileBody.Contains("DispatcherPriority.Render") &&
+            !queueReconcileBody.Contains("DispatcherPriority.Loaded") &&
+            queueReconcileBody.Contains("RegisterRenderReconcile") &&
+            queueReconcileBody.Contains("CompleteRenderReconcile") &&
+            frameScheduler.Contains("_pendingRenderReconciles") &&
+            frameScheduler.Contains("skippedPending=") &&
+            frameScheduler.Contains("skippedExternal=") &&
+            frameScheduler.Contains("skippedReentrant=") &&
+            frameScheduler.Contains("skipSpanMs=") &&
+            frameScheduler.Contains(
+                "private readonly List<List<EdgeCapsulePresenter>> _frameGroups") &&
+            frameScheduler.Contains(
+                "private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices") &&
+            buildGroupsBody.Contains("_frameGroupIndices.Clear()") &&
+            !buildGroupsBody.Contains(
+                "new Dictionary<EdgeCapsuleNativeBatchGroup, int>()") &&
+            !buildGroupsBody.Contains(
+                "new List<List<EdgeCapsulePresenter>>()"),
+            "passive reconcile must run at Render priority without self-starving the shared frame, while frame grouping reuses scratch collections");
 
         Require(
             handoff.Contains(
