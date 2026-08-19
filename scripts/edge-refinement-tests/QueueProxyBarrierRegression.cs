@@ -252,18 +252,28 @@ internal static class QueueProxyBarrierRegression
         Require(
             frameScheduler.Contains("TransitionLivenessWatchdogMilliseconds = 12") &&
             frameScheduler.Contains("private readonly DispatcherTimer _transitionLivenessWatchdog") &&
+            frameScheduler.Contains("private DispatcherOperation? _transitionLivenessRescueOperation") &&
+            frameScheduler.Contains("_transitionLivenessWatchdogGeneration") &&
+            frameScheduler.Contains("_transitionLivenessWatchdogDeadlineTimestamp") &&
             frameScheduler.Contains("_transitionLivenessWatchdog.Tick += OnTransitionLivenessWatchdog") &&
+            frameScheduler.Contains("nowTimestamp < _transitionLivenessWatchdogDeadlineTimestamp") &&
+            frameScheduler.Contains("ScheduleTransitionLivenessWatchdog") &&
+            frameScheduler.Contains("QueueExpiredTransitionLivenessRescue(\"pending-release\")") &&
+            frameScheduler.Contains("DispatcherPriority.Render") &&
+            frameScheduler.Contains("scheduler.pending phase=drained") &&
+            frameScheduler.Contains("scheduler.watchdog phase=early") &&
+            frameScheduler.Contains("scheduler.watchdog phase=queued") &&
+            frameScheduler.Contains("scheduler.watchdog phase=run") &&
             frameScheduler.Contains(
                 "AdvanceSharedFrame(renderingTime: null, source: \"watchdog\")") &&
             frameScheduler.Contains("committedApply=") &&
             frameScheduler.Contains("activeTransition=") &&
             !frameScheduler.Contains("!anyCommittedApply &&") &&
-            frameScheduler.Contains("_presenters.Count > 0 &&") &&
-            frameScheduler.Contains("HasActiveTransitionPresenter()") &&
-            frameScheduler.Contains("NativeBatchCommitVersion") &&
+            Count(frameScheduler, "ArmTransitionLivenessWatchdog();") == 1 &&
             Count(frameScheduler, "_transitionLivenessWatchdog.Start();") == 1 &&
-            frameScheduler.Contains("_transitionLivenessWatchdog.Stop();"),
-            "every live transition must retain one bounded render-priority liveness watchdog, independent of whether the previous frame committed pixels, without creating a second continuous frame clock");
+            frameScheduler.Contains("HasActiveTransitionPresenter()") &&
+            frameScheduler.Contains("NativeBatchCommitVersion"),
+            "transition liveness must use a Stopwatch-backed deadline, reject early timer ticks, and rescue immediately after an expired pending-reconcile barrier drains without creating a second frame clock");
 
         Require(
             handoff.Contains(

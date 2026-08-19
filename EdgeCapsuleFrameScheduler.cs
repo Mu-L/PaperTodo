@@ -21,12 +21,16 @@ internal sealed class EdgeCapsuleFrameScheduler
     private readonly List<List<EdgeCapsulePresenter>> _frameGroups = new();
     private readonly Dictionary<EdgeCapsuleNativeBatchGroup, int> _frameGroupIndices = new();
     private readonly DispatcherTimer _transitionLivenessWatchdog;
+    private DispatcherOperation? _transitionLivenessRescueOperation;
     private bool _renderingSubscribed;
     private bool _isTicking;
     private bool _acceptingPostCommitCallbacks;
     private int _pendingRenderReconciles;
+    private long _transitionLivenessWatchdogGeneration;
+    private long _transitionLivenessWatchdogDeadlineTimestamp;
     private TimeSpan? _lastRenderingTime;
 #if DEBUG
+    private long _pendingRenderReconcileStartedAtTimestamp;
     private long _lastRenderingTimestamp;
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
@@ -57,16 +61,54 @@ internal sealed class EdgeCapsuleFrameScheduler
     public void RegisterRenderReconcile()
     {
         _dispatcher.VerifyAccess();
+#if DEBUG
+        if (_pendingRenderReconciles == 0)
+        {
+            _pendingRenderReconcileStartedAtTimestamp =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.pending phase=begin generation={_transitionLivenessWatchdogGeneration} " +
+                $"watchdogArmed={_transitionLivenessWatchdogDeadlineTimestamp > 0}");
+        }
+#endif
         _pendingRenderReconciles++;
     }
 
     public void CompleteRenderReconcile()
     {
         _dispatcher.VerifyAccess();
-        if (_pendingRenderReconciles > 0)
+        if (_pendingRenderReconciles <= 0)
         {
-            _pendingRenderReconciles--;
+            return;
         }
+
+        _pendingRenderReconciles--;
+        if (_pendingRenderReconciles != 0)
+        {
+            return;
+        }
+
+#if DEBUG
+        var completedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var pendingSpanMilliseconds = _pendingRenderReconcileStartedAtTimestamp == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _pendingRenderReconcileStartedAtTimestamp,
+                completedAt);
+        var watchdogOverdueMilliseconds =
+            _transitionLivenessWatchdogDeadlineTimestamp > 0 &&
+            completedAt >= _transitionLivenessWatchdogDeadlineTimestamp
+                ? EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    _transitionLivenessWatchdogDeadlineTimestamp,
+                    completedAt)
+                : 0;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"scheduler.pending phase=drained spanMs={pendingSpanMilliseconds:F3} " +
+            $"watchdogOverdueMs={watchdogOverdueMilliseconds:F3} " +
+            $"generation={_transitionLivenessWatchdogGeneration}");
+        _pendingRenderReconcileStartedAtTimestamp = 0;
+#endif
+        QueueExpiredTransitionLivenessRescue("pending-release");
     }
 
     public void Activate(EdgeCapsulePresenter presenter)
@@ -167,7 +209,7 @@ internal sealed class EdgeCapsuleFrameScheduler
 
         // A genuine composition callback arrived before the one-shot rescue. Cancel it first;
         // this keeps the watchdog demand-driven rather than turning it into a second frame clock.
-        _transitionLivenessWatchdog.Stop();
+        CancelTransitionLivenessWatchdogSchedule();
         AdvanceSharedFrame(renderingTime, source: "render");
     }
 
@@ -176,33 +218,37 @@ internal sealed class EdgeCapsuleFrameScheduler
         _transitionLivenessWatchdog.Stop();
         if (!_dispatcher.CheckAccess() ||
             _dispatcher.HasShutdownStarted ||
-            _presenters.Count == 0)
+            _presenters.Count == 0 ||
+            !HasActiveTransitionPresenter())
         {
+            DisarmTransitionLivenessWatchdog();
             return;
         }
 
-        var blockedByPendingReconcile = _pendingRenderReconciles > 0;
-        var blockedByExternalNativeBatch =
-            !blockedByPendingReconcile && HasExternallyOwnedNativeBatchApply();
-        if (_isTicking ||
-            blockedByPendingReconcile ||
-            blockedByExternalNativeBatch)
+        var generation = _transitionLivenessWatchdogGeneration;
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (_transitionLivenessWatchdogDeadlineTimestamp <= 0)
         {
+            return;
+        }
+        if (nowTimestamp < _transitionLivenessWatchdogDeadlineTimestamp)
+        {
+            var remainingTimestampTicks =
+                _transitionLivenessWatchdogDeadlineTimestamp - nowTimestamp;
 #if DEBUG
-            var reason = _isTicking
-                ? "reentrant"
-                : blockedByPendingReconcile
-                    ? "pending-reconcile"
-                    : "external-native-batch";
             EdgeCapsulePerformanceDiagnostics.Trace(
-                $"scheduler.watchdog phase=deferred reason={reason} " +
-                $"presenters={_presenters.Count} renderPending={_pendingRenderReconciles}");
+                $"scheduler.watchdog phase=early generation={generation} " +
+                $"remainingMs={TimestampTicksToMilliseconds(remainingTimestampTicks):F3}");
 #endif
-            ArmTransitionLivenessWatchdog();
+            ScheduleTransitionLivenessWatchdog(
+                generation,
+                remainingTimestampTicks);
             return;
         }
 
-        AdvanceSharedFrame(renderingTime: null, source: "watchdog");
+        TryRunTransitionLivenessRescue(
+            trigger: "timer",
+            expectedGeneration: generation);
     }
 
     private void AdvanceSharedFrame(TimeSpan? renderingTime, string source)
@@ -297,6 +343,10 @@ internal sealed class EdgeCapsuleFrameScheduler
             {
                 ArmTransitionLivenessWatchdog();
             }
+            else
+            {
+                DisarmTransitionLivenessWatchdog();
+            }
         }
     }
 
@@ -314,15 +364,175 @@ internal sealed class EdgeCapsuleFrameScheduler
 
     private void ArmTransitionLivenessWatchdog()
     {
-        if (_presenters.Count == 0 || _dispatcher.HasShutdownStarted)
+        if (_presenters.Count == 0 ||
+            _dispatcher.HasShutdownStarted ||
+            !HasActiveTransitionPresenter())
         {
-            _transitionLivenessWatchdog.Stop();
+            DisarmTransitionLivenessWatchdog();
             return;
         }
 
+        CancelTransitionLivenessWatchdogSchedule();
+        var generation = ++_transitionLivenessWatchdogGeneration;
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        var deadlineTimestamp = nowTimestamp +
+            MillisecondsToTimestampTicks(TransitionLivenessWatchdogMilliseconds);
+        _transitionLivenessWatchdogDeadlineTimestamp = deadlineTimestamp;
+        ScheduleTransitionLivenessWatchdog(
+            generation,
+            deadlineTimestamp - nowTimestamp);
+    }
+
+    private void ScheduleTransitionLivenessWatchdog(
+        long expectedGeneration,
+        long remainingTimestampTicks)
+    {
+        if (expectedGeneration != _transitionLivenessWatchdogGeneration ||
+            _transitionLivenessWatchdogDeadlineTimestamp <= 0 ||
+            _presenters.Count == 0 ||
+            _dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        var delayMilliseconds = Math.Max(
+            1.0,
+            TimestampTicksToMilliseconds(
+                Math.Max(1, remainingTimestampTicks)));
         _transitionLivenessWatchdog.Stop();
+        _transitionLivenessWatchdog.Interval =
+            TimeSpan.FromMilliseconds(delayMilliseconds);
         _transitionLivenessWatchdog.Start();
     }
+
+    private void QueueExpiredTransitionLivenessRescue(string trigger)
+    {
+        if (_transitionLivenessWatchdogDeadlineTimestamp <= 0 ||
+            _presenters.Count == 0 ||
+            _dispatcher.HasShutdownStarted ||
+            !HasActiveTransitionPresenter())
+        {
+            return;
+        }
+
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (nowTimestamp < _transitionLivenessWatchdogDeadlineTimestamp)
+        {
+            return;
+        }
+        if (_transitionLivenessRescueOperation != null &&
+            _transitionLivenessRescueOperation.Status ==
+                DispatcherOperationStatus.Pending)
+        {
+            return;
+        }
+
+        var generation = _transitionLivenessWatchdogGeneration;
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"scheduler.watchdog phase=queued trigger={trigger} generation={generation} " +
+            $"overdueMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_transitionLivenessWatchdogDeadlineTimestamp, nowTimestamp):F3}");
+#endif
+        _transitionLivenessRescueOperation = _dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            (Action)(() =>
+            {
+                _transitionLivenessRescueOperation = null;
+                TryRunTransitionLivenessRescue(trigger, generation);
+            }));
+    }
+
+    private void TryRunTransitionLivenessRescue(
+        string trigger,
+        long expectedGeneration)
+    {
+        if (expectedGeneration != _transitionLivenessWatchdogGeneration ||
+            _transitionLivenessWatchdogDeadlineTimestamp <= 0 ||
+            _presenters.Count == 0 ||
+            _dispatcher.HasShutdownStarted ||
+            !HasActiveTransitionPresenter())
+        {
+            return;
+        }
+
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (nowTimestamp < _transitionLivenessWatchdogDeadlineTimestamp)
+        {
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.watchdog phase=early trigger={trigger} generation={expectedGeneration} " +
+                $"remainingMs={TimestampTicksToMilliseconds(_transitionLivenessWatchdogDeadlineTimestamp - nowTimestamp):F3}");
+#endif
+            ScheduleTransitionLivenessWatchdog(
+                expectedGeneration,
+                _transitionLivenessWatchdogDeadlineTimestamp - nowTimestamp);
+            return;
+        }
+
+        var blockedByPendingReconcile = _pendingRenderReconciles > 0;
+        var blockedByExternalNativeBatch =
+            !blockedByPendingReconcile && HasExternallyOwnedNativeBatchApply();
+        if (_isTicking ||
+            blockedByPendingReconcile ||
+            blockedByExternalNativeBatch)
+        {
+#if DEBUG
+            var reason = _isTicking
+                ? "reentrant"
+                : blockedByPendingReconcile
+                    ? "pending-reconcile"
+                    : "external-native-batch";
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"scheduler.watchdog phase=deferred trigger={trigger} reason={reason} " +
+                $"generation={expectedGeneration} presenters={_presenters.Count} " +
+                $"renderPending={_pendingRenderReconciles} " +
+                $"overdueMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_transitionLivenessWatchdogDeadlineTimestamp, nowTimestamp):F3}");
+#endif
+            if (!blockedByPendingReconcile)
+            {
+                ScheduleTransitionLivenessWatchdog(
+                    expectedGeneration,
+                    MillisecondsToTimestampTicks(1));
+            }
+            return;
+        }
+
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"scheduler.watchdog phase=run trigger={trigger} generation={expectedGeneration} " +
+            $"overdueMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_transitionLivenessWatchdogDeadlineTimestamp, nowTimestamp):F3}");
+#endif
+        CancelTransitionLivenessWatchdogSchedule();
+        AdvanceSharedFrame(renderingTime: null, source: "watchdog");
+    }
+
+    private void CancelTransitionLivenessWatchdogSchedule()
+    {
+        _transitionLivenessWatchdog.Stop();
+        var rescueOperation = _transitionLivenessRescueOperation;
+        _transitionLivenessRescueOperation = null;
+        if (rescueOperation != null &&
+            rescueOperation.Status == DispatcherOperationStatus.Pending)
+        {
+            rescueOperation.Abort();
+        }
+    }
+
+    private void DisarmTransitionLivenessWatchdog()
+    {
+        CancelTransitionLivenessWatchdogSchedule();
+        _transitionLivenessWatchdogDeadlineTimestamp = 0;
+        _transitionLivenessWatchdogGeneration++;
+    }
+
+    private static long MillisecondsToTimestampTicks(double milliseconds) =>
+        Math.Max(
+            1,
+            (long)Math.Ceiling(
+                milliseconds * Stopwatch.Frequency / 1000.0));
+
+    private static double TimestampTicksToMilliseconds(long timestampTicks) =>
+        timestampTicks * 1000.0 / Stopwatch.Frequency;
 
     private int BuildFrameGroups(int initialCount)
     {
@@ -663,7 +873,7 @@ internal sealed class EdgeCapsuleFrameScheduler
     {
         if (_presenters.Count == 0 && _renderingSubscribed)
         {
-            _transitionLivenessWatchdog.Stop();
+            DisarmTransitionLivenessWatchdog();
             CompositionTarget.Rendering -= OnRendering;
             _renderingSubscribed = false;
             _lastRenderingTime = null;
