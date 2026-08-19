@@ -10,7 +10,6 @@ using AppModel = PaperTodoApp::PaperTodo.EdgeCapsuleModel;
 using AppPlacement = PaperTodoApp::PaperTodo.EdgeCapsulePlacement;
 using AppProxyCandidate = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyCandidate;
 using AppProxyPolicy = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyPolicy;
-using AppProxyRole = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyMemberRole;
 using AppMotion = PaperTodoApp::PaperTodo.EdgeCapsuleMotion;
 using AppRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
 using AppSlotState = PaperTodoApp::PaperTodo.EdgeCapsuleSlotState;
@@ -327,9 +326,7 @@ internal static class Program
                         200))
             });
         Assert(
-            movePlan is { Members.Count: 1 } &&
-            movePlan.Members[0].Role ==
-                AppProxyRole.MovingSource,
+            movePlan is { Members.Count: 1 },
             "stable host translation must enter DComp");
 
         var movingAndMorphing = moved with

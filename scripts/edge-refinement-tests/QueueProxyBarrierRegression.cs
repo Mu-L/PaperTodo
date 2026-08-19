@@ -9,17 +9,28 @@ internal static class QueueProxyBarrierRegression
         var handoff = Source(
             "EdgeCapsuleQueueCompositionProxy.Handoff.cs");
         var native = Source("WindowNative.cs");
+        var nativeCloak = Source("WindowNative.CloakBatch.cs");
         var controller = Source(
             "AppController.EdgeCapsuleVisualTransaction.cs");
+        var queueProxyController = Source(
+            "AppController.EdgeCapsuleQueueProxy.cs");
         var presenter = Source("EdgeCapsulePresenter.cs");
         var hostPolicy = Source("PaperWindow.EdgeCapsule.cs");
         var preview = Source("PaperWindow.EdgeCapsulePreview.cs");
         var placement = Source("PaperWindow.EdgeCapsulePlacement.cs");
         var interaction = Source("PaperWindow.EdgeCapsuleInteraction.cs");
+        var dockingInteraction = Source(
+            "PaperWindow.EdgeCapsuleDockingHandoff.cs");
         var dragWindow = Source("EdgeCapsuleDragWindow.cs");
+        var dragHandoff = Source(
+            "EdgeCapsuleDragWindow.DockingHandoff.cs");
         var frameScheduler = Source("EdgeCapsuleFrameScheduler.cs");
         var visuals = Source(
             "EdgeCapsuleQueueCompositionProxy.Visuals.cs");
+        var queueProxyPolicy = Source("EdgeCapsuleQueueProxyPolicy.cs");
+        var proxyCore = Source("EdgeCapsuleQueueCompositionProxy.Core.cs");
+        var proxyRuntime = Source("EdgeCapsuleQueueCompositionProxy.Runtime.cs");
+        var program = Source("scripts/edge-refinement-tests/Program.cs");
 
         var coldGuard = startup.IndexOf(
             "if (_predecessor == null)",
@@ -126,8 +137,8 @@ internal static class QueueProxyBarrierRegression
         Require(
             presenter.Contains("RebaseActiveTransitionStart") &&
             presenter.Contains("StartedAtTimestamp = startedAtTimestamp") &&
-            controller.Contains("animationStartRequested: timestamp =>") &&
-            controller.Contains("RebaseEdgeCapsuleQueueProxyAnimationClock"),
+            queueProxyController.Contains("animationStartRequested: timestamp =>") &&
+            queueProxyController.Contains("RebaseEdgeCapsuleQueueProxyAnimationClock"),
             "queue WPF transitions must be rebased to the compositor's post-endpoint QPC");
 
         var prepareCapacity = preview.IndexOf(
@@ -142,6 +153,8 @@ internal static class QueueProxyBarrierRegression
                 "ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();") >= 2 &&
             preview.Contains(
                 "ReserveEdgeCapsulePreviewCapacityBeforeFirstShow") &&
+            preview.Contains(
+                "if (_edgeCapsuleHost?.IsVisible == true)") &&
             preview.Contains("provider.Describe(") &&
             prepareCapacity >= 0 &&
             contentCreate > prepareCapacity &&
@@ -231,8 +244,13 @@ internal static class QueueProxyBarrierRegression
             queueReconcileBody.Contains("DispatcherPriority.Send") &&
             queueReconcileBody.Contains("DispatcherPriority.Render") &&
             !queueReconcileBody.Contains("DispatcherPriority.Loaded") &&
-            queueReconcileBody.Contains("RegisterRenderReconcile") &&
-            queueReconcileBody.Contains("CompleteRenderReconcile") &&
+            queueReconcileBody.Contains("RenderReconcileRegistration") &&
+            queueReconcileBody.Contains("reconcileRegistration?.Complete()") &&
+            presenter.Contains("private sealed class RenderReconcileRegistration") &&
+            presenter.Contains("private void CancelQueuedReconcile()") &&
+            Count(presenter, "CancelQueuedReconcile();") >= 3 &&
+            !queueReconcileBody.Contains(
+                "renderBatchScheduler?.CompleteRenderReconcile()") &&
             frameScheduler.Contains("_pendingRenderReconciles") &&
             frameScheduler.Contains("skippedPending=") &&
             frameScheduler.Contains("skippedExternal=") &&
@@ -301,27 +319,60 @@ internal static class QueueProxyBarrierRegression
             "transition liveness must use one persistent ThreadPool one-shot timer only as an off-Dispatcher wake source; QPC deadlines and UI-thread gates remain authoritative, and the timer thread may only enqueue a Render-priority dispatcher wake");
 
         Require(
+            !dragWindow.Contains("public void AnimateDockingHandoff(") &&
+            dragHandoff.Contains("public void AnimateDockingHandoff(") &&
+            dragHandoff.Contains("RefreshNativeMetricsLayout();") &&
+            dragHandoff.Contains(
+                "CompleteDockingHandoffEndpointSettle(animation);") &&
+            !dragHandoff.Contains("DispatcherPriority.ContextIdle") &&
+            !interaction.Contains("private void AwaitDeepCapsuleDockedPresentation(") &&
+            dockingInteraction.Contains("private void AwaitDeepCapsuleDockedPresentation(") &&
+            !controller.Contains("private EdgeCapsuleQueueProxyPlan?\n        TryCreateEdgeCapsuleQueueProxyPlan(") &&
+            queueProxyController.Contains(
+                "private EdgeCapsuleQueueProxyPlan?\n        TryCreateEdgeCapsuleQueueProxyPlan("),
+            "V3 Lite closeout must keep docking/proxy state machines in focused partials and complete the floating endpoint synchronously without a starvation-prone ContextIdle tail");
+
+        Require(
+            !queueProxyPolicy.Contains("EdgeCapsuleQueueProxyMemberRole") &&
+            !startup.Contains("EdgeCapsuleQueueProxyMemberRole") &&
+            !program.Contains("AppProxyRole") &&
+            !queueProxyPolicy.Contains("public static bool IsEnabled") &&
+            !proxyCore.Contains("PrewarmQueue(") &&
+            !proxyRuntime.Contains("PrewarmQueue(") &&
+            !controller.Contains(
+                "private readonly Dictionary<\n        string,\n        EdgeCapsuleQueueCompositionProxy>") &&
+            queueProxyController.Contains(
+                "private readonly Dictionary<\n        string,\n        EdgeCapsuleQueueCompositionProxy>") &&
+            !interaction.Contains("MaximumDeepCapsuleDockingHandoffRestarts =") &&
+            dockingInteraction.Contains("MaximumDeepCapsuleDockingHandoffRestarts =") &&
+            !dragWindow.Contains("private enum DockingHandoffAnimationPhase") &&
+            dragHandoff.Contains("private enum DockingHandoffAnimationPhase") &&
+            !dragWindow.Contains("_dockingHandoffAnimation") &&
+            dragHandoff.Contains("_dockingHandoffAnimation"),
+            "V3 Lite must delete collapsed V2 proxy modes/prewarm seams and keep proxy/docking state with the partial that owns its lifecycle");
+
+        Require(
             handoff.Contains(
                 "WindowCloakBatchResult.RollbackFailed") &&
             handoff.Contains("ReleaseAfterCoverLoss"),
             "rollback loss must reveal real authority immediately");
         Require(
-            native.Contains("RollbackFailed") &&
-            native.Contains("RolledBack"),
+            nativeCloak.Contains("RollbackFailed") &&
+            nativeCloak.Contains("RolledBack"),
             "cloak transaction must distinguish rollback outcomes");
 
-        var endpointApply = controller.IndexOf(
+        var endpointApply = queueProxyController.IndexOf(
             "TryApplyLatestEdgeCapsuleQueueProxyEndpoint",
             StringComparison.Ordinal);
         var batchBegin = endpointApply < 0
             ? -1
-            : controller.LastIndexOf(
+            : queueProxyController.LastIndexOf(
                 "BeginWindowDeviceBoundsBatch",
                 endpointApply,
                 StringComparison.Ordinal);
         var handoffRelease = endpointApply < 0
             ? -1
-            : controller.IndexOf(
+            : queueProxyController.IndexOf(
                 "TryReleaseForHandoff",
                 endpointApply,
                 StringComparison.Ordinal);
@@ -364,7 +415,8 @@ internal static class QueueProxyBarrierRegression
                 "repository root not found");
         }
         return File.ReadAllText(
-            Path.Combine(directory.FullName, name));
+                Path.Combine(directory.FullName, name))
+            .Replace("\r\n", "\n");
     }
 
     private static void Require(

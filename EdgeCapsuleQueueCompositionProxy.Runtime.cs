@@ -341,26 +341,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 initialBounds);
         }
 
-        internal void PrewarmQueue(
-            string queueKey,
-            bool topmost,
-            DeviceScreenRect initialBounds)
-        {
-            _dispatcher.VerifyAccess();
-            if (!IsUsable || _hosts.ContainsKey(queueKey))
-            {
-                return;
-            }
-            var host = TakeOrCreateHost(
-                queueKey,
-                topmost,
-                initialBounds);
-            if (host != null)
-            {
-                _hosts[queueKey] = host;
-            }
-        }
-
         internal QueueHost? TryAcquire(
             string queueKey,
             bool topmost,

@@ -136,38 +136,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
     }
 
-    internal static void PrewarmQueue(
-        Dispatcher dispatcher,
-        string queueKey,
-        bool topmost,
-        DeviceScreenRect initialBounds)
-    {
-        if (dispatcher.HasShutdownStarted ||
-            string.IsNullOrWhiteSpace(queueKey) ||
-            initialBounds.IsEmpty)
-        {
-            return;
-        }
-        if (!dispatcher.CheckAccess())
-        {
-            _ = dispatcher.BeginInvoke(
-                DispatcherPriority.ApplicationIdle,
-                (Action)(() => PrewarmQueue(
-                    dispatcher,
-                    queueKey,
-                    topmost,
-                    initialBounds)));
-            return;
-        }
-        if (TryGetRuntime(dispatcher, out var runtime))
-        {
-            runtime.PrewarmQueue(
-                queueKey,
-                topmost,
-                initialBounds);
-        }
-    }
-
     private static bool TryGetRuntime(
         Dispatcher dispatcher,
         out SharedRuntime runtime)

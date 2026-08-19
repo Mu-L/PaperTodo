@@ -41,9 +41,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         {
             foreach (var member in _members)
             {
-                if (member.Plan.Role !=
-                        EdgeCapsuleQueueProxyMemberRole.MovingSource ||
-                    !EdgeCapsuleQueueProxyPolicy.CanWrapMovingMemberLive(
+                if (!EdgeCapsuleQueueProxyPolicy.CanWrapMovingMemberLive(
                         member.Plan.Source,
                         member.Plan.Target))
                 {

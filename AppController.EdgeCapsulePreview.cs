@@ -45,7 +45,6 @@ public sealed partial class AppController
         long CandidateSinceTimestamp,
         long StableSinceTimestamp);
 
-
     private readonly record struct EdgeCapsulePreviewPointerAnchor(
         DeviceScreenPoint Point,
         double DpiScaleX,
@@ -638,7 +637,7 @@ public sealed partial class AppController
         if (!AllowsEdgeCapsuleQueueProxyOwnership(
                 QueueKey(window.EdgeCapsulePreviewPaper)))
         {
-            CancelPreviewActivationBehindDrag();
+            CancelEdgeCapsulePreviewActivationIntent();
             TraceEdgeCapsulePreview(
                 $"transfer blocked target={EdgeCapsulePreviewTraceId(paperId)} " +
                 "reason=drag-authority");
@@ -698,7 +697,7 @@ public sealed partial class AppController
                 if (!AllowsEdgeCapsuleQueueProxyOwnership(
                         QueueKey(current.EdgeCapsulePreviewPaper)))
                 {
-                    CancelPreviewActivationBehindDrag();
+                    CancelEdgeCapsulePreviewActivationIntent();
                     TraceEdgeCapsulePreview(
                         $"transfer dropped target={EdgeCapsulePreviewTraceId(paperId)} " +
                         "reason=drag-authority");
@@ -1769,13 +1768,6 @@ public sealed partial class AppController
             _edgeCapsulePreviewTransferGeneration++;
         }
     }
-
-
-
-
-
-
-
 
     private void ResetEdgeCapsulePreviewActivationIntent()
     {

@@ -234,6 +234,15 @@ public sealed partial class PaperWindow
     // No WPF tree or plugin session is created here.
     private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
     {
+        // This method owns only the immutable first-show capacity generation. Hot queue
+        // placement must not repeatedly Describe every visible paper just to rediscover that
+        // its already-bounded Host cannot grow. Preview open still validates the requested
+        // descriptor through PrepareEdgeCapsuleHostCapacity.
+        if (_edgeCapsuleHost?.IsVisible == true)
+        {
+            return;
+        }
+
         if (!_controller.State.ExperimentalEdgeCapsuleHoverPreview ||
             _windowLifecycle != PaperWindowLifecycleState.Alive ||
             !_paper.IsVisible ||

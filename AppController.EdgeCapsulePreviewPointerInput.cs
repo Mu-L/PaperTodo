@@ -11,14 +11,11 @@ public sealed partial class AppController
                 queueKey,
                 StringComparison.Ordinal));
 
-    private void CancelPreviewActivationBehindDrag() =>
-        CancelEdgeCapsulePreviewActivationIntent();
-
     /// <summary>
     /// Physical pointer authority for edge-preview input. Host/native input may prove that the
     /// pointer is inside a real applied rectangle even while the Presenter's cosmetic hover bit is
     /// stale. The first card may therefore open from a verified physical hit; an existing session
-    /// still uses the normal 50 ms / 2-DIP transfer contract.
+    /// still uses the normal 32 ms target-residence / 2-DIP stability contract.
     /// </summary>
     internal void NotifyEdgeCapsulePreviewPhysicalPointer(
         PaperWindow inputWindow,
@@ -34,17 +31,13 @@ public sealed partial class AppController
         if (!AllowsEdgeCapsuleQueueProxyOwnership(
                 QueueKey(inputWindow.EdgeCapsulePreviewPaper)))
         {
-            CancelPreviewActivationBehindDrag();
+            CancelEdgeCapsulePreviewActivationIntent();
             return;
         }
 
         var session = _edgeCapsulePreviewSession;
         if (session != null)
         {
-            // During continuous browsing, the candidate spends the transfer-intent interval in its
-            // compact hover shape. Prime that resize before the caller's Send reconcile so the real
-            // HWND never exposes intermediate width frames.
-
             // Physical host input is only the wake-up authority. Once a preview session exists,
             // the owner remains the single queue-wide arbiter for owner/target/corridor/outside
             // resolution, transfer timing and close timing. Do not recreate that state machine in

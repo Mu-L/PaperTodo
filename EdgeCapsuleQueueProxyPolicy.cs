@@ -12,11 +12,6 @@ internal enum EdgeCapsuleVisualAuthority
     Lost = 5
 }
 
-internal enum EdgeCapsuleQueueProxyMemberRole
-{
-    MovingSource = 0
-}
-
 internal readonly record struct EdgeCapsuleQueueProxyCandidate(
     string PaperId,
     string QueueKey,
@@ -34,8 +29,7 @@ internal readonly record struct EdgeCapsuleQueueProxyMemberPlan(
     string PaperId,
     EdgeCapsulePresentationFrame Start,
     EdgeCapsulePresentationFrame Source,
-    EdgeCapsulePresentationFrame Target,
-    EdgeCapsuleQueueProxyMemberRole Role);
+    EdgeCapsulePresentationFrame Target);
 
 internal sealed record EdgeCapsuleQueueProxyPlan(
     string QueueKey,
@@ -56,8 +50,6 @@ internal sealed record EdgeCapsuleQueueProxyPlan(
 /// </summary>
 internal static class EdgeCapsuleQueueProxyPolicy
 {
-    public static bool IsEnabled => true;
-
     internal static EdgeCapsuleVisualAuthority ResolveVisualAuthority(
         EdgeCapsuleGestureState gesture,
         bool floatingCoverActive,
@@ -182,8 +174,7 @@ internal static class EdgeCapsuleQueueProxyPolicy
                 candidate.PaperId,
                 candidate.Start,
                 candidate.Source,
-                candidate.Target,
-                EdgeCapsuleQueueProxyMemberRole.MovingSource));
+                candidate.Target));
         }
 
         if (members.Count == 0)

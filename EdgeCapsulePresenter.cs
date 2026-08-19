@@ -47,9 +47,28 @@ internal sealed class EdgeCapsulePresenter
         bool Applied,
         bool NeedsNextFrame);
 
+    private sealed class RenderReconcileRegistration
+    {
+        private EdgeCapsuleFrameScheduler? _scheduler;
+
+        internal RenderReconcileRegistration(EdgeCapsuleFrameScheduler scheduler)
+        {
+            _scheduler = scheduler;
+            scheduler.RegisterRenderReconcile();
+        }
+
+        internal void Complete()
+        {
+            var scheduler = _scheduler;
+            _scheduler = null;
+            scheduler?.CompleteRenderReconcile();
+        }
+    }
+
     private EdgeCapsuleDirty _dirty;
     private bool _reconcileScheduled;
     private DispatcherOperation? _reconcileOperation;
+    private RenderReconcileRegistration? _reconcileRegistration;
     private int _reconcileGeneration;
     private EdgeCapsuleFrameScheduler? _frameScheduler;
     private bool _frameSchedulerActive;
@@ -424,8 +443,7 @@ internal sealed class EdgeCapsulePresenter
     {
         _dirty |= dirty;
         Configure(dispatcher, reconcile);
-        _reconcileGeneration++;
-        _reconcileScheduled = false;
+        CancelQueuedReconcile();
         RunReconcile(nowTimestamp);
     }
 
@@ -440,8 +458,7 @@ internal sealed class EdgeCapsulePresenter
         _nativeBatchDeferredRecoveryGeneration++;
         _nativeBatchRetryPending = false;
         _nativeBatchTransactionGroupId = 0;
-        _reconcileScheduled = false;
-        _reconcileGeneration++;
+        CancelQueuedReconcile();
         _presentationSettleCallback = null;
         ResetApplyRetryWindow();
         StopFrameScheduler();
@@ -577,12 +594,40 @@ internal sealed class EdgeCapsulePresenter
             wallDeviceX);
     }
 
+    private void CancelQueuedReconcile()
+    {
+        unchecked
+        {
+            _reconcileGeneration++;
+        }
+        _reconcileScheduled = false;
+
+        var operation = _reconcileOperation;
+        _reconcileOperation = null;
+        var registration = _reconcileRegistration;
+        _reconcileRegistration = null;
+
+        if (operation is { Status: DispatcherOperationStatus.Pending })
+        {
+            _ = operation.Abort();
+        }
+
+        // If a callback is already executing, its captured registration remains the
+        // exactly-once owner until its finally block. Pending/aborted/stale work is
+        // superseded now so it cannot keep the shared Render barrier alive.
+        if (operation is not { Status: DispatcherOperationStatus.Executing })
+        {
+            registration?.Complete();
+        }
+    }
+
     private void Configure(
         Dispatcher dispatcher,
         Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
     {
         if (_dispatcher != null && !ReferenceEquals(_dispatcher, dispatcher))
         {
+            CancelQueuedReconcile();
             StopFrameScheduler();
             _frameScheduler = null;
             _layoutSnapshot = null;
@@ -627,13 +672,14 @@ internal sealed class EdgeCapsulePresenter
             : DispatcherPriority.Render;
         _reconcileScheduled = true;
         var generation = ++_reconcileGeneration;
-        EdgeCapsuleFrameScheduler? renderBatchScheduler = null;
+        RenderReconcileRegistration? reconcileRegistration = null;
         if (!beforeNextRender)
         {
             _frameScheduler ??= EdgeCapsuleFrameScheduler.For(_dispatcher);
-            renderBatchScheduler = _frameScheduler;
-            renderBatchScheduler.RegisterRenderReconcile();
+            reconcileRegistration =
+                new RenderReconcileRegistration(_frameScheduler);
         }
+        _reconcileRegistration = reconcileRegistration;
 
         DispatcherOperation? queuedOperation = null;
         queuedOperation = _dispatcher.BeginInvoke(
@@ -650,7 +696,13 @@ internal sealed class EdgeCapsulePresenter
                 }
                 finally
                 {
-                    renderBatchScheduler?.CompleteRenderReconcile();
+                    reconcileRegistration?.Complete();
+                    if (ReferenceEquals(
+                            _reconcileRegistration,
+                            reconcileRegistration))
+                    {
+                        _reconcileRegistration = null;
+                    }
                     if (ReferenceEquals(_reconcileOperation, queuedOperation))
                     {
                         _reconcileOperation = null;
