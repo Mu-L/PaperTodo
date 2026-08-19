@@ -294,18 +294,18 @@ public sealed partial class PaperWindow
         return true;
     }
 
-    private void PrepareEdgeCapsuleHostCapacity(
+    private bool ReserveEdgeCapsuleHostCapacity(
         EdgeCapsulePreviewSize size)
     {
         if (!HasDeepCapsuleSlotPlacement)
         {
-            return;
+            return false;
         }
 
         var monitor = DeepCapsuleMonitorGeometry();
         var restingWidth =
             DeepCapsuleVisibleWidth(monitor.DpiScaleY);
-        var changed = GrowEdgeCapsuleHostCapacity(
+        return GrowEdgeCapsuleHostCapacity(
             monitor,
             MyDeepCapsuleEdge,
             Math.Max(
@@ -314,13 +314,21 @@ public sealed partial class PaperWindow
             Math.Max(
                 PaperLayoutDefaults.CapsuleHeight,
                 size.HeightDip));
-        if (!changed)
+    }
+
+    private void PrepareEdgeCapsuleHostCapacity(
+        EdgeCapsulePreviewSize size)
+    {
+        var changed = ReserveEdgeCapsuleHostCapacity(size);
+        if (!changed || _edgeCapsuleHost?.IsVisible != true)
         {
             return;
         }
 
-        // Capacity growth is a transparent native change made before the
-        // Preview state transition. It never becomes a bitmap resize proxy.
+        // This is a fallback only. The normal path reserves descriptor capacity
+        // before the docked HWND is first shown, so Preview never resizes a visible
+        // host. If a provider changes its declared size later, synchronously settle
+        // the real host before exposing the Preview state.
         _edgeCapsule.ForceApplyCurrentPresentation();
         var previouslyDeferred =
             _edgeCapsuleVisualTransactionNotificationDeferred;

@@ -160,6 +160,59 @@ public sealed partial class PaperWindow
             OpenExternalFromEdgeCapsulePreview,
             _edgeCapsulePreviewInvalidationSource);
 
+    // Descriptor sizing is presentation capacity, not preview content. Resolve it while
+    // the capsule is being attached so the very first docked HWND already owns the
+    // exact bounded capacity required by its Preview. No WPF tree is created here.
+    private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
+    {
+        if (!_controller.State.ExperimentalEdgeCapsuleHoverPreview ||
+            _windowLifecycle != PaperWindowLifecycleState.Alive ||
+            !_paper.IsVisible ||
+            !HasDeepCapsuleSlotPlacement ||
+            IsDeepCapsuleRetractedIntoMaster ||
+            IsDeepCapsuleSlotRetracting)
+        {
+            return;
+        }
+
+        var generation = _bodySessionGeneration;
+        IEdgeCapsulePreviewProvider? provider = null;
+        try
+        {
+            provider = ResolveEdgeCapsulePreviewProvider();
+            var descriptor = provider.Describe(
+                CreateEdgeCapsulePreviewContext());
+            if (generation != _bodySessionGeneration ||
+                !HasDeepCapsuleSlotPlacement)
+            {
+                return;
+            }
+
+            var workArea = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
+            var size = descriptor.Size.Normalize(
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumWidthDip,
+                    workArea.Width - 16),
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumHeightDip,
+                    workArea.Height - 16));
+            var changed = ReserveEdgeCapsuleHostCapacity(size);
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.capacity.reserve paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"provider={provider.GetType().Name} size={size.WidthDip:F1}x{size.HeightDip:F1} " +
+                $"changed={changed} hostVisible={_edgeCapsuleHost?.IsVisible == true}");
+        }
+        catch (Exception ex)
+        {
+            // Capacity warmup is opportunistic. Opening still performs a fresh descriptor
+            // read and has a synchronous fallback if a plugin was not ready during attach.
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.capacity.reserve-fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"provider={provider?.GetType().Name ?? "<unresolved>"} " +
+                $"exception={ex.GetType().Name}");
+        }
+    }
+
     private bool IsValidEdgeCapsulePreviewContent(FrameworkElement content) =>
         content is not Window &&
         (content.Parent == null ||

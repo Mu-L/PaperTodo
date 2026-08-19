@@ -11,13 +11,61 @@ internal static class QueueProxyBarrierRegression
         var native = Source("WindowNative.cs");
         var controller = Source(
             "AppController.EdgeCapsuleVisualTransaction.cs");
+        var host = Source("EdgeCapsuleHost.cs");
+        var preview = Source("PaperWindow.EdgeCapsulePreview.cs");
+        var placement = Source("PaperWindow.EdgeCapsulePlacement.cs");
+
+        var staticRoot = startup.IndexOf(
+            "_target.SetRoot(_root)",
+            StringComparison.Ordinal);
+        var outputShow = startup.IndexOf(
+            "_window.Show(_outputBounds, _plan.Topmost)",
+            StringComparison.Ordinal);
+        var coverFlush = startup.IndexOf(
+            "WindowNative.TryFlushDesktopComposition()",
+            StringComparison.Ordinal);
+        var cloakBoundary = startup.IndexOf(
+            "EdgeCapsuleColdStartDiagnostics.Boundary(\"before-cloak-batch\")",
+            StringComparison.Ordinal);
+        var cloakBatch = startup.IndexOf(
+            "TrySetWindowCloakedBatchDetailed",
+            StringComparison.Ordinal);
+        Require(
+            staticRoot >= 0 &&
+            outputShow > staticRoot &&
+            coverFlush > outputShow &&
+            cloakBoundary > coverFlush &&
+            cloakBatch > cloakBoundary,
+            "a static DComp root must be committed, shown and flushed before any real HWND cloak boundary");
+        Require(
+            startup.Contains("cover-static-visible") &&
+            startup.Contains("_endpointCommitRequested") &&
+            startup.Contains("ConfigureAnimations(animationTimestamp)"),
+            "startup must preserve an explicit static-cover authority before endpoint-once animation publication");
+
+        var endpointCommit = startup.IndexOf(
+            "_endpointCommitRequested(animationTimestamp)",
+            StringComparison.Ordinal);
+        var animationAttach = startup.IndexOf(
+            "ConfigureAnimations(animationTimestamp)",
+            StringComparison.Ordinal);
+        Require(
+            endpointCommit >= 0 &&
+            animationAttach > endpointCommit,
+            "the fresh shared QPC must settle real endpoints before DComp animations are committed");
 
         Require(
-            startup.Contains(
-                "TrySetWindowCloakedBatchDetailed") &&
-            startup.Contains("PublishBeforeFlush") &&
-            startup.Contains("_endpointCommitRequested"),
-            "startup root, cloak and endpoint must share one boundary");
+            Count(
+                placement,
+                "ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();") >= 2 &&
+            preview.Contains(
+                "ReserveEdgeCapsulePreviewCapacityBeforeFirstShow") &&
+            preview.Contains("provider.Describe(") &&
+            preview.Contains("ReserveEdgeCapsuleHostCapacity(size)") &&
+            host.Contains("nativeHostSizeChanged") &&
+            host.Contains("refreshNativeLayout"),
+            "preview descriptor capacity must be reserved before first docked show and native-size fallback must force WPF layout");
+
         Require(
             handoff.Contains(
                 "WindowCloakBatchResult.RollbackFailed") &&
@@ -48,6 +96,21 @@ internal static class QueueProxyBarrierRegression
             batchBegin < endpointApply &&
             handoffRelease > endpointApply,
             "handoff endpoints must be submitted as one native batch before cover release");
+    }
+
+    private static int Count(string source, string value)
+    {
+        var count = 0;
+        var offset = 0;
+        while ((offset = source.IndexOf(
+                   value,
+                   offset,
+                   StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+        return count;
     }
 
     private static string Source(string name)

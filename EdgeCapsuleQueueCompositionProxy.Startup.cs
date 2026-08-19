@@ -112,17 +112,38 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     Cloaked: false,
                     RollbackCloaked: true)));
 
+            var hostPromoted = false;
+            long animationTimestamp = 0;
+
+            // Build and publish a static exact-start cover before touching real HWND
+            // visibility. A cold output HWND with no DComp root is not visual
+            // authority: showing it first creates a deterministic all-hidden gap when
+            // the real sources are cloaked. Successors use the same rule by replacing
+            // the predecessor root at its sampled presentation before source transfer.
+            // Keep host ownership staged until the real publication callback so input
+            // routing cannot observe a successor that the controller has not published.
+            var coverTimestamp = Stopwatch.GetTimestamp();
+            RebaseVisualStarts(coverTimestamp);
+            _target.SetRoot(_root).CheckError();
+            _device.Commit().CheckError();
+            _targetRootInstalled = true;
+#if DEBUG
+            EdgeCapsuleColdStartDiagnostics.Boundary("root-committed-static");
+#endif
+
             if (_predecessor == null &&
                 !_window.Show(_outputBounds, _plan.Topmost))
             {
                 return false;
             }
+            if (!WindowNative.TryFlushDesktopComposition())
+            {
+                return false;
+            }
 #if DEBUG
             EdgeCapsuleColdStartDiagnostics.Boundary("output-ready");
+            EdgeCapsuleColdStartDiagnostics.Boundary("cover-static-visible");
 #endif
-
-            var hostPromoted = false;
-            long animationTimestamp = 0;
 
             bool PublishBeforeFlush()
             {
@@ -135,26 +156,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 EdgeCapsuleColdStartDiagnostics.Boundary("host-promoted");
 #endif
 
-                // Re-sample predecessor position immediately before root
-                // replacement. Resource construction never freezes the visible
-                // predecessor clock.
+                // The static cover is already on screen. Real HWNDs can now settle
+                // once at their endpoints under that authority. Take the animation
+                // clock only after the cover barrier so startup work never consumes
+                // visible animation time. WPF and DComp consume the same QPC.
                 animationTimestamp = Stopwatch.GetTimestamp();
+                // A successor may have waited behind startup work after its static
+                // cover was sampled. Rebase again without committing so the animation
+                // begins from the predecessor's fresh logical position, while the
+                // already-visible cover remains unchanged until this publication commit.
                 RebaseVisualStarts(animationTimestamp);
-                ConfigureAnimations(animationTimestamp);
-#if DEBUG
-                EdgeCapsuleColdStartDiagnostics.Boundary("animations-configured");
-#endif
-
-                _target.SetRoot(_root).CheckError();
-                _device.Commit().CheckError();
-                _targetRootInstalled = true;
-#if DEBUG
-                EdgeCapsuleColdStartDiagnostics.Boundary("root-committed");
-#endif
-
-                // Endpoint-once ownership: real HWNDs settle under the same
-                // not-yet-flushed cloak transaction. WPF and DComp consume
-                // one queue clock.
                 _realEndpointMutationStarted = true;
                 if (!_endpointCommitRequested(animationTimestamp))
                 {
@@ -162,6 +173,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 }
 #if DEBUG
                 EdgeCapsuleColdStartDiagnostics.Boundary("endpoint-committed");
+#endif
+
+                ConfigureAnimations(animationTimestamp);
+                _device.Commit().CheckError();
+#if DEBUG
+                EdgeCapsuleColdStartDiagnostics.Boundary("animations-configured");
 #endif
 
                 if (!_coverReady(this))

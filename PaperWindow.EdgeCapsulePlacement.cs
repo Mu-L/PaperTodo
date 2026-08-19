@@ -96,6 +96,7 @@ public sealed partial class PaperWindow
             return;
         }
         RefreshCapsuleLabel();
+        ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
         if (!TryStageEdgeCapsuleVisualTransaction(
                 animate,
                 EdgeCapsuleTransitionReason.Placement,
@@ -171,6 +172,7 @@ public sealed partial class PaperWindow
         }
         MarkEdgeCapsuleOpenedFromEdge();
         RefreshCapsuleLabel();
+        ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
         UpdateDeepCapsuleSlotHostTheme();
 
         RefreshDeepCapsuleSlotLabel();

@@ -325,7 +325,14 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var nativeMetricsVersion = _nativeMetricsVersion;
         var nativeMetricsChanged = _appliedNativeMetricsVersion != nativeMetricsVersion;
         var firstShow = !window.IsVisible;
-        var refreshNativeLayout = firstShow || nativeMetricsChanged || !previousFrame.Visible;
+        var nativeHostSizeChanged = firstShow ||
+            !previousFrame.Visible ||
+            previousNativeHostBounds.Width != nativeHostBounds.Width ||
+            previousNativeHostBounds.Height != nativeHostBounds.Height;
+        var refreshNativeLayout = firstShow ||
+            nativeMetricsChanged ||
+            !previousFrame.Visible ||
+            nativeHostSizeChanged;
         var edgeChanged = firstShow ||
             !previousFrame.Visible ||
             previousFrame.Edge != frame.Edge;
