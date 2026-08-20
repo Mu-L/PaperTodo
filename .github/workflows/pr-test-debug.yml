@@ -4,15 +4,6 @@ on:
   push:
     branches-ignore:
       - main
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/debug.yml"
-      - ".github/workflows/plugin-samples.yml"
-      - "plugin-samples/**"
-      - "plugins/**"
   workflow_dispatch:
 
 permissions:
