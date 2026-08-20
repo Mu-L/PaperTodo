@@ -1,23 +1,13 @@
 name: PR Test Debug
 
 on:
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/debug.yml"
-      - ".github/workflows/plugin-samples.yml"
-      - "plugin-samples/**"
-      - "plugins/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-test-debug-${{ github.event.pull_request.number || github.ref }}
+  group: pr-test-debug-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +23,7 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "true"
-      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SOURCE_SHA: ${{ github.sha }}
 
     steps:
       - name: Check out source
@@ -114,4 +104,4 @@ jobs:
           path: test-debug/${{ steps.meta.outputs.exe_name }}
           archive: false
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
