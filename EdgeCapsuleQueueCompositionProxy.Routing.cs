@@ -5,6 +5,10 @@ namespace PaperTodo;
 
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
+    private const int EndpointSuccessorKeepaliveMilliseconds = 250;
+    private bool _endpointSuccessorKeepaliveArmed;
+    private bool _endpointSuccessorKeepaliveUsed;
+
     private bool ContainsVisual(DeviceScreenPoint point)
     {
         if (_disposed || _coverLost)
@@ -55,7 +59,58 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private void OnCompletionTimerTick(object? sender, EventArgs e)
     {
         _completionTimer.Stop();
+        if (TryBeginOrFinishEndpointSuccessorKeepalive(
+                _completionRetrySuccess))
+        {
+            return;
+        }
         CompleteNow(_completionRetrySuccess);
+    }
+
+    private bool TryBeginOrFinishEndpointSuccessorKeepalive(bool success)
+    {
+        if (_endpointSuccessorKeepaliveArmed)
+        {
+            _endpointSuccessorKeepaliveArmed = false;
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.successor phase=keepalive-expired " +
+                $"session={_sessionOrdinal} queue={_plan.QueueKey}");
+#endif
+            return false;
+        }
+
+        if (!success ||
+            _endpointSuccessorKeepaliveUsed ||
+            _disposed ||
+            _finishing ||
+            _coverLost ||
+            _sourcesReleased ||
+            !_coverPublished ||
+            _successorHeld)
+        {
+            return false;
+        }
+
+        // Keep the exact endpoint cover alive for one short interaction window. A Preview close or
+        // rapid transfer that arrives here can reuse this generation as a successor: the output
+        // HWND/root are already authoritative and identical source HWNDs stay cloaked, avoiding a
+        // second static-cover publication and its extra DwmFlush. Keep the existing pointer sampler
+        // running because the real source HWNDs remain cloaked during this grace. No animation math
+        // or endpoint ownership changes; if no successor arrives, the normal handoff runs after it.
+        _endpointSuccessorKeepaliveUsed = true;
+        _endpointSuccessorKeepaliveArmed = true;
+        _completionTimer.Interval =
+            TimeSpan.FromMilliseconds(
+                EndpointSuccessorKeepaliveMilliseconds);
+        _completionTimer.Start();
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"proxy.successor phase=keepalive " +
+            $"session={_sessionOrdinal} queue={_plan.QueueKey} " +
+            $"graceMs={EndpointSuccessorKeepaliveMilliseconds}");
+#endif
+        return true;
     }
 
     internal bool TryGetPresentationAt(
@@ -135,6 +190,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
+        var consumedEndpointKeepalive =
+            _endpointSuccessorKeepaliveArmed;
+        _endpointSuccessorKeepaliveArmed = false;
         _successorHeld = true;
         _completionPendingDuringSuccessorHold = false;
         _pendingSuccessorCompletionSuccess = true;
@@ -144,7 +202,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"proxy.successor phase=reserve session={_sessionOrdinal} " +
             $"queue={_plan.QueueKey} progress=" +
-            $"{EdgeCapsuleQueueProxyPolicy.SampleProgress(AnimationStartedAtTimestamp, _plan.DurationMilliseconds, Stopwatch.GetTimestamp()):F4}");
+            $"{EdgeCapsuleQueueProxyPolicy.SampleProgress(AnimationStartedAtTimestamp, _plan.DurationMilliseconds, Stopwatch.GetTimestamp()):F4} " +
+            $"endpointKeepalive={consumedEndpointKeepalive}");
 #endif
         return true;
     }
@@ -350,6 +409,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return;
         }
 
+        _endpointSuccessorKeepaliveArmed = false;
         _finishing = true;
         _sampleTimer.Stop();
         _completionTimer.Stop();
@@ -387,6 +447,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return;
         }
 
+        _endpointSuccessorKeepaliveArmed = false;
         _finishing = false;
         _completionRetrySuccess = success;
         _completionRetryCount++;
