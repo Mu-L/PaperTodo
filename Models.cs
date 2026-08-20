@@ -400,6 +400,7 @@ public sealed class AppState
 {
     [JsonRequired]
     public List<PaperData> Papers { get; set; } = new();
+    public string UiLanguage { get; set; } = UiLanguages.Default;
     public string Theme { get; set; } = "system";
     public string ColorScheme { get; set; } = ColorSchemes.Warm;
     public string MarkdownRenderMode { get; set; } = MarkdownRenderModes.Enhanced;

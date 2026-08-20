@@ -449,6 +449,7 @@ public sealed class StateStore
             state.Theme = "system";
         }
 
+        state.UiLanguage = UiLanguages.Normalize(state.UiLanguage);
         state.ColorScheme = ColorSchemes.Normalize(state.ColorScheme);
 
         if (!MarkdownRenderModes.IsValid(state.MarkdownRenderMode))

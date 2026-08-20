@@ -20,7 +20,8 @@ public static class AppTypography
     private static string _textRenderingProfile = TextRenderingProfiles.Standard;
     private static double _scale = 1.0;
 
-    public static XmlLanguage Language { get; } = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
+    public static XmlLanguage Language =>
+        XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
 
     public static FontFamily UiFontFamily => _customFontFace?.Family ?? ResolveUiFontFamily();
 

@@ -645,30 +645,6 @@ public sealed partial class AppController
         ApplyTypographySettingsChange();
     }
 
-    private UIElement CreateTodoVisualSizeSegmentSelector()
-    {
-        var segments = new[]
-        {
-            (TodoVisualSizes.Small, Strings.Get("TodoVisualSizeSmall")),
-            (TodoVisualSizes.Medium, Strings.Get("TodoVisualSizeMedium")),
-            (TodoVisualSizes.Large, Strings.Get("TodoVisualSizeLarge"))
-        };
-
-        return CreateSegmentSelector(segments, TodoVisualSizes.Normalize(State.TodoVisualSize), SetTodoVisualSize);
-    }
-
-    private UIElement CreateVisualTextSizeSegmentSelector(string activeSize, Action<string> onSelect)
-    {
-        var segments = new[]
-        {
-            (VisualTextSizes.Small, Strings.Get("TodoVisualSizeSmall")),
-            (VisualTextSizes.Medium, Strings.Get("TodoVisualSizeMedium")),
-            (VisualTextSizes.Large, Strings.Get("TodoVisualSizeLarge"))
-        };
-
-        return CreateSegmentSelector(segments, VisualTextSizes.Normalize(activeSize), onSelect);
-    }
-
     private UIElement CreateOverallFontScaleStepper()
     {
         var container = new Border
@@ -1670,30 +1646,12 @@ public sealed partial class AppController
             IsEnabled = optionsEnabled,
             Opacity = optionsEnabled ? 1.0 : 0.55
         };
-        options.Children.Add(new Border
-        {
-            Margin = new Thickness(0, 4, 0, 0),
-            Child = WrapWithHint(
-                SettingsFieldLabel(
-                    Strings.Get("LabsEdgeCapsuleHoverIntentSensitivity")),
-                "TipLabsEdgeCapsuleHoverIntentSensitivity")
-        });
-        options.Children.Add(CreateSegmentSelector(
-            [
-                (EdgeCapsuleHoverIntentSensitivities.VeryLow,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityVeryLow")),
-                (EdgeCapsuleHoverIntentSensitivities.Low,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityLow")),
-                (EdgeCapsuleHoverIntentSensitivities.Medium,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityMedium")),
-                (EdgeCapsuleHoverIntentSensitivities.High,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityHigh")),
-                (EdgeCapsuleHoverIntentSensitivities.VeryHigh,
-                    Strings.Get("EdgeCapsuleHoverIntentSensitivityVeryHigh"))
-            ],
-            EdgeCapsuleHoverIntentSensitivities.Normalize(
-                State.ExperimentalEdgeCapsuleHoverIntentSensitivity),
-            SetExperimentalEdgeCapsuleHoverIntentSensitivity));
+        options.Children.Add(CompactSettingsField(
+            Strings.Get("LabsEdgeCapsuleHoverIntentSensitivity"),
+            CreateEdgeCapsuleHoverIntentSensitivitySelector(),
+            editorWidth: 132,
+            tipKey: "TipLabsEdgeCapsuleHoverIntentSensitivity",
+            topMargin: 4));
         content.Children.Add(options);
         card.Child = content;
         return card;
@@ -1933,10 +1891,11 @@ public sealed partial class AppController
             IsEnabled = enabled,
             Opacity = enabled ? 1.0 : 0.55
         };
-        options.Children.Add(SettingsFieldLabel(
+        options.Children.Add(CompactSettingsField(
             Strings.Get("LabsWindowTetherPreferredEdge"),
+            CreateWindowTetherEdgeSelector(),
+            editorWidth: 132,
             topMargin: 8));
-        options.Children.Add(CreateLabsWindowTetherEdgeSelector());
         options.Children.Add(CompactSettingsField(
             Strings.Get("LabsWindowTetherGap"),
             CreateLabsWindowTetherGapStepper(),
@@ -1945,28 +1904,6 @@ public sealed partial class AppController
         content.Children.Add(options);
         card.Child = content;
         return card;
-    }
-
-    private UIElement CreateLabsWindowTetherEdgeSelector()
-    {
-        var segments = new[]
-        {
-            (ExperimentalWindowTetherOptions.Auto,
-                Strings.Get("LabsWindowTetherEdgeAuto")),
-            (ExperimentalWindowTetherOptions.Left,
-                Strings.Get("LabsWindowTetherEdgeLeft")),
-            (ExperimentalWindowTetherOptions.Right,
-                Strings.Get("LabsWindowTetherEdgeRight")),
-            (ExperimentalWindowTetherOptions.Top,
-                Strings.Get("LabsWindowTetherEdgeTop")),
-            (ExperimentalWindowTetherOptions.Bottom,
-                Strings.Get("LabsWindowTetherEdgeBottom"))
-        };
-        return CreateSegmentSelector(
-            segments,
-            ExperimentalWindowTetherOptions.NormalizeEdge(
-                State.ExperimentalWindowTetherPreferredEdge),
-            SetExperimentalWindowTetherPreferredEdge);
     }
 
     private UIElement CreateLabsWindowTetherGapStepper()
@@ -2576,6 +2513,7 @@ public sealed partial class AppController
 
         // Left: everyday desktop / window behavior. Right: paper features, capsule first.
         leftColumn.Children.Add(SettingsSectionLabel(Strings.Get("SettingsGeneral")));
+        leftColumn.Children.Add(CreateUiLanguageSettingsRow());
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("TrayStartup"), SystemSettingsHelper.IsStartupEnabled(), ToggleStartup), "TipStartup"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableToolTips"), State.EnableToolTips, ToggleToolTips), "TipEnableToolTips"));
         leftColumn.Children.Add(WrapWithHint(SettingsToggle(Strings.Get("SettingsEnableAnimations"), State.EnableAnimations, ToggleAnimations), "TipEnableAnimations"));
@@ -2830,8 +2768,7 @@ public sealed partial class AppController
             StackPanel column,
             string sectionKey,
             string tipKey,
-            string activeSize,
-            Action<string> setSize,
+            UIElement sizeSelector,
             bool isBold,
             Action toggleBold,
             bool leadingDivider)
@@ -2841,38 +2778,37 @@ public sealed partial class AppController
                 column.Children.Add(SettingsSoftDivider());
             }
 
-            // One shared tip on the section title: size + bold are the same style group.
-            column.Children.Add(SettingsSectionLabelWithHint(Strings.Get(sectionKey), tipKey));
-            column.Children.Add(CreateVisualTextSizeSegmentSelector(activeSize, setSize));
-            column.Children.Add(SettingsToggle(Strings.Get("SettingsTextBold"), isBold, toggleBold));
+            column.Children.Add(CreateTextStyleRow(
+                Strings.Get(sectionKey),
+                tipKey,
+                sizeSelector,
+                isBold,
+                toggleBold));
         }
 
         AddTextStyleEditor(
             rightColumn,
             "SettingsNoteBodyText",
             "TipNoteBodyTextStyle",
-            State.NoteTextSize,
-            SetNoteTextSize,
+            CreateVisualTextSizeSelector(State.NoteTextSize, SetNoteTextSize),
             State.NoteTextBold,
             ToggleNoteTextBold,
             leadingDivider: false);
 
-        rightColumn.Children.Add(SettingsSoftDivider());
-        rightColumn.Children.Add(SettingsSectionLabelWithHint(
-            Strings.Get("SettingsTodoBodyText"),
-            "TipTodoBodyTextStyle"));
-        rightColumn.Children.Add(CreateTodoVisualSizeSegmentSelector());
-        rightColumn.Children.Add(SettingsToggle(
-            Strings.Get("SettingsTextBold"),
+        AddTextStyleEditor(
+            rightColumn,
+            "SettingsTodoBodyText",
+            "TipTodoBodyTextStyle",
+            CreateTodoVisualSizeSelector(),
             State.TodoTextBold,
-            ToggleTodoTextBold));
+            ToggleTodoTextBold,
+            leadingDivider: true);
 
         AddTextStyleEditor(
             rightColumn,
             "SettingsTitleText",
             "TipTitleTextStyle",
-            State.TitleTextSize,
-            SetTitleTextSize,
+            CreateVisualTextSizeSelector(State.TitleTextSize, SetTitleTextSize),
             State.TitleTextBold,
             ToggleTitleTextBold,
             leadingDivider: true);
@@ -2880,8 +2816,7 @@ public sealed partial class AppController
             rightColumn,
             "SettingsCapsuleText",
             "TipCapsuleTextStyle",
-            State.CapsuleTextSize,
-            SetCapsuleTextSize,
+            CreateVisualTextSizeSelector(State.CapsuleTextSize, SetCapsuleTextSize),
             State.CapsuleTextBold,
             ToggleCapsuleTextBold,
             leadingDivider: true);
@@ -2938,6 +2873,7 @@ public sealed partial class AppController
         State.HidePapersFromWindowSwitcher = true;
         State.EnableToolTips = true;
         State.EnableAnimations = true;
+        State.UiLanguage = UiLanguages.Default;
         State.FullscreenTopmostMode = FullscreenTopmostModes.Avoid;
         State.MarkdownRenderMode = MarkdownRenderModes.Enhanced;
         State.ShowTopBarNewTodoButton = true;

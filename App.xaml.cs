@@ -65,7 +65,7 @@ public partial class App : Application
         }
 
         var startupCommand = StartupCommand.Parse(e.Args);
-        ApplyStartupCultureOverride(startupCommand.DefaultLanguage);
+        ApplyStartupCulturePreference(UiLanguages.LoadPersistedPreference());
 
         // Register global unhandled exception handlers
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -186,50 +186,11 @@ public partial class App : Application
         _controller?.ExecuteStartupCommand(command);
     }
 
-    private static void ApplyStartupCultureOverride(string? defaultLanguage)
+    private static void ApplyStartupCulturePreference(string preference)
     {
-        if (TryResolveStartupCulture(defaultLanguage, out var startupCulture))
+        if (UiLanguages.TryGetCulture(preference, out var startupCulture))
         {
             ApplyCulture(startupCulture);
-            return;
-        }
-
-#if PAPERTODO_DEFAULT_ENGLISH
-        ApplyCulture(CultureInfo.GetCultureInfo("en-US"));
-#endif
-    }
-
-    private static bool TryResolveStartupCulture(string? language, out CultureInfo culture)
-    {
-        culture = null!;
-        var value = (language ?? "").Trim().Replace('_', '-');
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        try
-        {
-            var requested = CultureInfo.GetCultureInfo(value);
-            if (requested.TwoLetterISOLanguageName is not ("zh" or "en" or "ja" or "ko"))
-            {
-                return false;
-            }
-
-            culture = requested.IsNeutralCulture
-                ? CultureInfo.GetCultureInfo(requested.TwoLetterISOLanguageName switch
-                {
-                    "zh" => "zh-CN",
-                    "ja" => "ja-JP",
-                    "ko" => "ko-KR",
-                    _ => "en-US"
-                })
-                : requested;
-            return true;
-        }
-        catch (CultureNotFoundException)
-        {
-            return false;
         }
     }
 

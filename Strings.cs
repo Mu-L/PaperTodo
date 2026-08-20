@@ -11,6 +11,13 @@ public static class Strings
     private static readonly IReadOnlyDictionary<string, string[]> Supplemental =
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
+            ["SettingsUiLanguage"] = ["界面语言", "Interface language", "表示言語", "인터페이스 언어"],
+            ["TipSettingsUiLanguage"] = ["选择界面语言；重启 PaperTodo 后生效。", "Choose the interface language; restart PaperTodo to apply.", "表示言語を選択します。PaperTodo の再起動後に反映されます。", "인터페이스 언어를 선택합니다. PaperTodo를 다시 시작하면 적용됩니다."],
+            ["UiLanguageSystem"] = ["跟随系统", "Follow system", "システムに従う", "시스템 설정 따름"],
+            ["UiLanguageZhHans"] = ["简体中文", "简体中文", "简体中文", "简体中文"],
+            ["UiLanguageEnglish"] = ["English", "English", "English", "English"],
+            ["UiLanguageJapanese"] = ["日本語", "日本語", "日本語", "日本語"],
+            ["UiLanguageKorean"] = ["한국어", "한국어", "한국어", "한국어"],
             ["SettingsDistinguishNumpadShortcutDigits"] = ["区分小键盘数字键", "Distinguish numpad digits", "テンキー数字を区別", "숫자 키패드 숫자 구분"],
             ["TipSettingsDistinguishNumpadShortcutDigits"] = ["开启后数字键与小键盘数字键可分别注册；关闭后两者混合响应，但不会修改已保存的快捷键。快速启动侧边胶囊不受影响。", "When enabled, number-row and numpad digits can be registered separately. When disabled, either key triggers the stored binding without rewriting it. Edge quick-launch sequences are unchanged.", "オンでは数字列とテンキーを別々に登録できます。オフでは保存値を書き換えず両方で反応します。端のクイック起動シーケンスには影響しません。", "켜면 숫자열과 숫자 키패드를 따로 등록할 수 있습니다. 끄면 저장된 값을 바꾸지 않고 둘 다 반응합니다. 가장자리 빠른 실행 시퀀스에는 영향을 주지 않습니다."],
             ["ShortcutNumpadModeConflictTitle"] = ["小键盘快捷键冲突", "Numpad shortcut conflict", "テンキーショートカットの競合", "숫자 키패드 단축키 충돌"],

@@ -68,7 +68,7 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 - **Fonts and sizes** — System default / Microsoft YaHei / DengXian, optional custom font files, plus overall and per-area sizes, bold styles, and text rendering profiles.
 - **Global hotkeys** — Bind show, hide, create, and other commands in settings, including shortcuts for side capsule queues.
 - **Startup arguments** — Show, hide, toggle, and create papers from command-line arguments for hotkey tools or scripts.
-- **Multi-language UI** — Chinese, English, Japanese, and Korean, following the system UI language.
+- **Multi-language UI** — Choose Follow system / 简体中文 / English / 日本語 / 한국어 in Settings; restart to apply.
 - **Startup at login** — Run PaperTodo when Windows starts.
 - **Custom tray icon** — If `PaperTodo.ico` exists next to the executable, it is used instead of the embedded icon.
 - **Desktop integration** — Windows Snap layouts; hide expanded papers from Alt+Tab / Task View or the taskbar.
@@ -156,6 +156,7 @@ The settings window has three pages: **Behavior / Visual / Shortcuts**. **Advanc
 **Behavior**
 
 - **Start with Windows**, normal tooltips, animations
+- **Interface language** — Follow system / 简体中文 / English / 日本語 / 한국어; restart to apply
 - **Markdown rendering** — three intensity levels for note Markdown display
 - **Title bar buttons** — hide new todo, new note, or external open separately
 - **External open** — temporary file suffix for the system editor
@@ -207,12 +208,10 @@ PaperTodo.exe --toggle     Hide all if any paper is visible; otherwise show all
 PaperTodo.exe --new-todo   Create a new todo paper
 PaperTodo.exe --new-note   Create a new note paper
 PaperTodo.exe --exit       Save state and exit
-PaperTodo.exe --language en-US  Start with the specified default UI language
 ```
 
 The `--` prefix is optional; aliases include `open` = `show` and `quit` = `exit`.
 
-`--language` accepts `zh-CN`, `en-US`, `ja-JP`, `ko-KR`, and regional variants, or `--language=en-US`; aliases `--lang` and `--default-language`. It only sets the UI language when the primary instance starts; it does not switch a running instance or write to `data.json`.
 
 If PaperTodo is already running, a second start with arguments forwards the command and exits. A second start with no arguments shows and brings back all papers.
 
