@@ -63,7 +63,7 @@ internal static class EdgeCapsuleTransitionPolicy
                 transition.Target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
             {
                 TracePreviewTerminalSample(
-                    "surface-flip",
+                    "transition-complete",
                     transition,
                     rawProgress,
                     1,
@@ -89,12 +89,28 @@ internal static class EdgeCapsuleTransitionPolicy
             ? target.WallDeviceX + width
             : target.WallDeviceX;
         var bounds = new DeviceScreenRect(left, top, right, top + height);
-        // The old preview tree remains visible while its height shrinks, but it must stop owning
-        // input as soon as the logical preview closes. Keep the outgoing surface identity through
-        // retargets so a compact layout update cannot re-enable the tall card midway through.
+        var bodyWindowWidthDevice =
+            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress);
+
+        // An outgoing preview stays authoritative while any visible device-pixel geometry is still
+        // shrinking. Once Bounds and body width have both quantized to the compact endpoint, the
+        // preview viewport is already visually collapsed. Release the Preview surface identity on
+        // that same frame instead of keeping an invisible preview tree/compact anchor alive until
+        // raw progress reaches 1; that delayed structural flip produced the isolated terminal nudge.
         var outgoingPreview =
             start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
             target.Surface != EdgeCapsuleSurfaceKind.DockedPreview;
+        var outgoingPreviewGeometrySettled =
+            outgoingPreview &&
+            bounds == target.Bounds &&
+            bodyWindowWidthDevice == target.BodyWindowWidthDevice;
+        var surface = outgoingPreview && !outgoingPreviewGeometrySettled
+            ? start.Surface
+            : target.Surface;
+
+        // Input remains suppressed for the whole outgoing transition. Surface identity may be
+        // released as soon as compact geometry is pixel-identical, but pointer authority is not
+        // re-enabled until the transition itself completes.
         var hitTestVisible = target.IsHitTestVisible && !outgoingPreview;
         var interactiveBounds = hitTestVisible
             ? EdgeCapsuleGeometry.InteractiveBoundsForAppliedBounds(
@@ -104,8 +120,6 @@ internal static class EdgeCapsuleTransitionPolicy
                 target.DpiScaleY,
                 EdgeCapsuleLayout.WindowChromeMargin)
             : default;
-        var bodyWindowWidthDevice =
-            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress);
 #if DEBUG
         if (outgoingPreview &&
             Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
@@ -113,11 +127,8 @@ internal static class EdgeCapsuleTransitionPolicy
             Math.Abs(bounds.Top - target.Bounds.Top) <= 2 &&
             Math.Abs(bodyWindowWidthDevice - target.BodyWindowWidthDevice) <= 2)
         {
-            var geometrySettled =
-                bounds == target.Bounds &&
-                bodyWindowWidthDevice == target.BodyWindowWidthDevice;
             TracePreviewTerminalSample(
-                geometrySettled ? "quantized-settled" : "tail-sample",
+                outgoingPreviewGeometrySettled ? "geometry-release" : "tail-sample",
                 transition,
                 rawProgress,
                 progress,
@@ -127,7 +138,7 @@ internal static class EdgeCapsuleTransitionPolicy
 #endif
         var frame = new EdgeCapsulePresentationFrame(
             true,
-            outgoingPreview ? start.Surface : target.Surface,
+            surface,
             bounds,
             target.HostBounds,
             interactiveBounds,
