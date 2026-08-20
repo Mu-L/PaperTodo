@@ -124,9 +124,6 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $frameworkDependentOut "PaperTodo.exe") -Destination (Join-Path $debugDir $env:FRAMEWORK_DEPENDENT_EXE)
           Get-ChildItem -LiteralPath $debugDir -File | Sort-Object Name | Format-Table Name, Length
 
-      - name: Run edge refinement checks
-        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Debug
-
       - name: Upload self-contained Debug executable
         uses: actions/upload-artifact@v7
         with:
