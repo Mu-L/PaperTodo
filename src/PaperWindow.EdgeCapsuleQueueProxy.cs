@@ -78,20 +78,20 @@ public sealed partial class PaperWindow
             return default;
         }
 
-        // This is output-HWND capacity, not a WPF backing surface.
-        // Reserve the legal queue envelope so different plugin card sizes
-        // can replace one another without moving an active DComp target.
+        // The DComp output needs only geometry the real per-paper host can actually expose during
+        // this host generation. Using the protocol's numeric ceiling here would turn every queue
+        // output into a near-work-area-sized HWND after removing the old 480x420 product limit.
         var workAreaDip = layout.Monitor.LocalWorkAreaDip;
         var maximumPreview = new EdgeCapsulePreviewSize(
-            EdgeCapsulePreviewSize.MaximumWidthDip,
-            EdgeCapsulePreviewSize.MaximumHeightDip)
+            Math.Max(
+                layout.PreviewWidthDip,
+                layout.HostCapacityWidthDip),
+            Math.Max(
+                layout.PreviewHeightDip,
+                layout.HostCapacityHeightDip))
             .Normalize(
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumWidthDip,
-                    workAreaDip.Width - 16),
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumHeightDip,
-                    workAreaDip.Height - 16));
+                Math.Max(1, workAreaDip.Width - 16),
+                Math.Max(1, workAreaDip.Height - 16));
         var previewBodyWidth = Math.Max(
             1,
             maximumPreview.WidthDip -
