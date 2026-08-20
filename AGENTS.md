@@ -17,7 +17,7 @@
 | --- | --- |
 | Edge Capsule / 胶囊流畅性 | Architecture「Edge Capsule V3 Lite」→ Decisions D-005～D-014；涉及插件 mini 再读 D-018 |
 | 持久化 / 恢复 / 图片 | Architecture「状态与持久化架构」→ D-002、D-003；插件状态再读 D-020 |
-| paper-body 插件 | Architecture「Paper 与 paper-body 插件」→ D-004；Edge mini 看 D-018，插件数据看 D-020 |
+| paper-body 插件 | `plugin-samples/README.md`（当前插件 API / 示例）→ Architecture「Paper 与 paper-body 插件」→ D-004；Edge mini 看 D-018，插件数据看 D-020 |
 | MCP / 插件外部写入 | Architecture「进程与运行时边界」「外部读写」→ `PaperCommandService` / MCP 当前代码 |
 | 托盘 / Hardcodet | Architecture「OS 与全局集成」→ D-017 → 当前 tray / vendored fork 代码 |
 | Note / Markdown | Architecture 的 Paper/Note 边界；涉及单正文 surface 看 D-019，再读当前 Markdown 代码 |
