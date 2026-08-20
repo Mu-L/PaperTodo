@@ -5,19 +5,29 @@ using System.Windows.Media.Animation;
 namespace PaperTodo;
 
 /// <summary>
-/// Branch-only adapter for the WPF-native Resting <-> Hovered experiment. The production Host.Apply
-/// path remains untouched: this overload supplies the exact planner endpoint only when a new native
-/// WPF clock is started, and prevents the legacy sampled-frame tail from settling that clock early.
+/// Branch-only adapter for WPF-native timing experiments. Resting <-> Hovered still uses the
+/// first probe below; Preview -> Resting adds a second probe where only the outer VisualSurface
+/// width/height are owned by a stock WPF animation clock while the legacy Presenter continues to
+/// drive preview content opacity/lifetime as the control group.
 /// </summary>
 internal sealed partial class EdgeCapsuleHost
 {
     private const double WpfNativeHoverSettleSuppressionWidthDip = 1_000_000;
+
+    private bool _wpfNativePreviewCloseShellOwned;
+    private bool _wpfNativePreviewCloseShellAnimationRunning;
+    private int _wpfNativePreviewCloseShellGeneration;
+    private long _wpfNativePreviewCloseShellStartedAt;
+    private EdgeCapsulePresentationFrame _wpfNativePreviewCloseShellTarget =
+        EdgeCapsulePresentationFrame.Hidden;
 
     public bool Apply(
         EdgeCapsulePresentationFrame frame,
         Func<EdgeCapsulePresentationFrame> targetFrameProvider)
     {
         ArgumentNullException.ThrowIfNull(targetFrameProvider);
+
+        PrepareWpfNativePreviewCloseShell(frame, targetFrameProvider);
 
         var generationBeforeApply = _wpfNativeHoverAnimationGeneration;
         var suppressLogicalEndpointSettle =
@@ -52,11 +62,16 @@ internal sealed partial class EdgeCapsuleHost
             }
         }
 
-        if (!applied ||
-            !_wpfNativeHoverGeometryOwned ||
+        if (!applied)
+        {
+            CancelWpfNativePreviewCloseShell("apply-failed");
+            return false;
+        }
+
+        if (!_wpfNativeHoverGeometryOwned ||
             generationBeforeApply == _wpfNativeHoverAnimationGeneration)
         {
-            return applied;
+            return true;
         }
 
         // A generation change while ownership survived means the normal Host path just started or
@@ -70,11 +85,232 @@ internal sealed partial class EdgeCapsuleHost
                 $"wpf.native-hover phase=endpoint-rejected paper={_options.DiagnosticId} " +
                 $"sample={frame.Surface} target={targetFrame.Surface}");
 #endif
-            return applied;
+            return true;
         }
 
         ArmExactWpfNativeHoverEndpoint(frame, targetFrame);
-        return applied;
+        return true;
+    }
+
+    private void PrepareWpfNativePreviewCloseShell(
+        EdgeCapsulePresentationFrame frame,
+        Func<EdgeCapsulePresentationFrame> targetFrameProvider)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_wpfNativePreviewCloseShellOwned)
+        {
+            if (!CanContinueWpfNativePreviewCloseShell(frame))
+            {
+                CancelWpfNativePreviewCloseShell("geometry-diverged");
+            }
+            return;
+        }
+
+        var previous = _appliedFrame;
+        if (!previous.Visible ||
+            previous.Surface != EdgeCapsuleSurfaceKind.DockedPreview ||
+            !frame.Visible)
+        {
+            return;
+        }
+
+        // Start only after the first real shrinking sample. That keeps a stationary Preview out of
+        // the experiment and gives us the already-arranged preview shell as the exact visual start.
+        var shrinking =
+            frame.Bounds.Width < previous.Bounds.Width ||
+            frame.Bounds.Height < previous.Bounds.Height;
+        if (!shrinking)
+        {
+            return;
+        }
+
+        var targetFrame = targetFrameProvider();
+        if (!CanStartWpfNativePreviewCloseShell(previous, targetFrame))
+        {
+            return;
+        }
+
+        StartWpfNativePreviewCloseShell(previous, targetFrame);
+    }
+
+    private bool CanStartWpfNativePreviewCloseShell(
+        EdgeCapsulePresentationFrame startFrame,
+        EdgeCapsulePresentationFrame targetFrame) =>
+        startFrame.Visible &&
+        targetFrame.Visible &&
+        startFrame.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+        targetFrame.Surface == EdgeCapsuleSurfaceKind.DockedResting &&
+        targetFrame.IsUsable &&
+        startFrame.HostBounds == targetFrame.HostBounds &&
+        startFrame.Edge == targetFrame.Edge &&
+        startFrame.WallDeviceX == targetFrame.WallDeviceX &&
+        startFrame.Bounds.Top == targetFrame.Bounds.Top &&
+        Math.Abs(startFrame.DpiScaleX - targetFrame.DpiScaleX) < 0.001 &&
+        Math.Abs(startFrame.DpiScaleY - targetFrame.DpiScaleY) < 0.001 &&
+        targetFrame.Bounds.Width <= startFrame.Bounds.Width &&
+        targetFrame.Bounds.Height <= startFrame.Bounds.Height &&
+        (targetFrame.Bounds.Width < startFrame.Bounds.Width ||
+         targetFrame.Bounds.Height < startFrame.Bounds.Height);
+
+    private bool CanContinueWpfNativePreviewCloseShell(
+        EdgeCapsulePresentationFrame frame)
+    {
+        var target = _wpfNativePreviewCloseShellTarget;
+        if (!frame.Visible ||
+            frame.Surface is not (
+                EdgeCapsuleSurfaceKind.DockedPreview or
+                EdgeCapsuleSurfaceKind.DockedResting) ||
+            frame.HostBounds != target.HostBounds ||
+            frame.Edge != target.Edge ||
+            frame.WallDeviceX != target.WallDeviceX ||
+            frame.Bounds.Top != target.Bounds.Top ||
+            Math.Abs(frame.DpiScaleX - target.DpiScaleX) > 0.001 ||
+            Math.Abs(frame.DpiScaleY - target.DpiScaleY) > 0.001)
+        {
+            return false;
+        }
+
+        // A re-open retarget reverses size direction while Surface can still be DockedPreview.
+        // Cancel before the normal Apply so the old sampled path becomes authoritative again.
+        var previous = _appliedFrame;
+        return !previous.Visible ||
+            frame.Bounds.Width <= previous.Bounds.Width &&
+            frame.Bounds.Height <= previous.Bounds.Height;
+    }
+
+    private void StartWpfNativePreviewCloseShell(
+        EdgeCapsulePresentationFrame startFrame,
+        EdgeCapsulePresentationFrame targetFrame)
+    {
+        var startScaleX = Math.Max(1, startFrame.DpiScaleX);
+        var startScaleY = Math.Max(1, startFrame.DpiScaleY);
+        var targetScaleX = Math.Max(1, targetFrame.DpiScaleX);
+        var targetScaleY = Math.Max(1, targetFrame.DpiScaleY);
+        var fromWidth =
+            double.IsFinite(VisualSurface.ActualWidth) &&
+            VisualSurface.ActualWidth > 0
+                ? VisualSurface.ActualWidth
+                : startFrame.Bounds.Width / startScaleX;
+        var fromHeight =
+            double.IsFinite(VisualSurface.ActualHeight) &&
+            VisualSurface.ActualHeight > 0
+                ? VisualSurface.ActualHeight
+                : startFrame.Bounds.Height / startScaleY;
+        var targetWidth = targetFrame.Bounds.Width / targetScaleX;
+        var targetHeight = targetFrame.Bounds.Height / targetScaleY;
+
+        ++_wpfNativePreviewCloseShellGeneration;
+        ClearWpfNativePreviewCloseShellAnimations();
+        _wpfNativePreviewCloseShellOwned = true;
+        _wpfNativePreviewCloseShellAnimationRunning = true;
+        _wpfNativePreviewCloseShellTarget = targetFrame;
+        _wpfNativePreviewCloseShellStartedAt =
+            EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var generation = _wpfNativePreviewCloseShellGeneration;
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(
+            EdgeCapsuleLayout.SlotMoveMilliseconds));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var widthAnimation = new DoubleAnimation(
+            fromWidth,
+            targetWidth,
+            duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+        var heightAnimation = new DoubleAnimation(
+            fromHeight,
+            targetHeight,
+            duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+
+        widthAnimation.Completed += (_, _) =>
+        {
+            if (_disposed ||
+                generation != _wpfNativePreviewCloseShellGeneration ||
+                !_wpfNativePreviewCloseShellOwned)
+            {
+                return;
+            }
+
+            var elapsedMilliseconds =
+                EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                    _wpfNativePreviewCloseShellStartedAt);
+            _wpfNativePreviewCloseShellAnimationRunning = false;
+            ClearWpfNativePreviewCloseShellAnimations();
+            VisualSurface.Width = targetWidth;
+            VisualSurface.Height = targetHeight;
+            VisualSurfaceOffset.X = 0;
+            VisualSurfaceOffset.Y = 0;
+            _wpfNativePreviewCloseShellOwned = false;
+            _wpfNativePreviewCloseShellTarget =
+                EdgeCapsulePresentationFrame.Hidden;
+            _wpfNativePreviewCloseShellStartedAt = 0;
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"wpf.native-preview-shell phase=clock-complete " +
+                $"paper={_options.DiagnosticId} elapsedMs={elapsedMilliseconds:F3} " +
+                $"targetWidthDip={targetWidth:F3} targetHeightDip={targetHeight:F3} " +
+                $"targetDevice={targetFrame.Bounds.Width}x{targetFrame.Bounds.Height}");
+#endif
+        };
+
+        VisualSurface.BeginAnimation(
+            FrameworkElement.WidthProperty,
+            widthAnimation,
+            HandoffBehavior.SnapshotAndReplace);
+        VisualSurface.BeginAnimation(
+            FrameworkElement.HeightProperty,
+            heightAnimation,
+            HandoffBehavior.SnapshotAndReplace);
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"wpf.native-preview-shell phase=start paper={_options.DiagnosticId} " +
+            $"fromWidthDip={fromWidth:F3} targetWidthDip={targetWidth:F3} " +
+            $"fromHeightDip={fromHeight:F3} targetHeightDip={targetHeight:F3} " +
+            $"fromDevice={startFrame.Bounds.Width}x{startFrame.Bounds.Height} " +
+            $"targetDevice={targetFrame.Bounds.Width}x{targetFrame.Bounds.Height} " +
+            $"durationMs={EdgeCapsuleLayout.SlotMoveMilliseconds}");
+#endif
+    }
+
+    private void CancelWpfNativePreviewCloseShell(string reason)
+    {
+        if (!_wpfNativePreviewCloseShellOwned)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = _wpfNativePreviewCloseShellStartedAt == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _wpfNativePreviewCloseShellStartedAt);
+        ++_wpfNativePreviewCloseShellGeneration;
+        ClearWpfNativePreviewCloseShellAnimations();
+        _wpfNativePreviewCloseShellOwned = false;
+        _wpfNativePreviewCloseShellAnimationRunning = false;
+        _wpfNativePreviewCloseShellTarget =
+            EdgeCapsulePresentationFrame.Hidden;
+        _wpfNativePreviewCloseShellStartedAt = 0;
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"wpf.native-preview-shell phase=cancel paper={_options.DiagnosticId} " +
+            $"reason={reason} elapsedMs={elapsedMilliseconds:F3}");
+#endif
+    }
+
+    private void ClearWpfNativePreviewCloseShellAnimations()
+    {
+        VisualSurface.BeginAnimation(FrameworkElement.WidthProperty, null);
+        VisualSurface.BeginAnimation(FrameworkElement.HeightProperty, null);
     }
 
     private bool CanUseExactWpfNativeHoverTarget(
@@ -106,7 +342,7 @@ internal sealed partial class EdgeCapsuleHost
     {
         var dpiScaleX = Math.Max(1, targetFrame.DpiScaleX);
         var closeColumn = WpfNativeHoverCloseColumn(targetFrame.Edge);
-        var currentWidth =
+        var currentWidth = _wpfNativeHoverGeometryOwned &&
             double.IsFinite(VisualSurface.ActualWidth) &&
             VisualSurface.ActualWidth > 0
                 ? VisualSurface.ActualWidth
