@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: pull-request-build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     name: Build PaperTodo
@@ -20,6 +16,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[ci]') ||
       contains(github.event.head_commit.message, '[debug-ci]')
+    concurrency:
+      group: pull-request-build-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: windows-latest
     timeout-minutes: 15
 
