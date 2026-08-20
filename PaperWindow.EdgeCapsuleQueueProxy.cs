@@ -161,11 +161,6 @@ public sealed partial class PaperWindow
                 !WindowNative.IsWindowHandleAlive(handle);
         }
 
-        // Settle Measure/Pointer/Presentation while the queue cover is still authoritative. The
-        // controller calls this method before real HWNDs are revealed, so any final text-width or
-        // device-pixel correction remains hidden instead of becoming a one-pixel post-handoff nudge.
-        FlushEdgeCapsuleQueueProxyEndpoint();
-
         endpoint = _edgeCapsule
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
@@ -238,24 +233,10 @@ public sealed partial class PaperWindow
             return;
         }
 
-        var latestEndpoint = _edgeCapsule
-            .PlanTargetPresentation(
-                CaptureEdgeCapsuleLayoutSnapshot())
-            .ToFrame();
-        var hostAlreadyMatches = latestEndpoint.Visible
-            ? _edgeCapsuleHost?.MatchesPresentation(latestEndpoint) == true
-            : _edgeCapsuleHost == null ||
-              _edgeCapsuleHost.MatchesPresentation(latestEndpoint);
-        if (!_edgeCapsule.HasActiveTransition &&
-            _edgeCapsule.AppliedPresentation == latestEndpoint &&
-            hostAlreadyMatches)
-        {
-            // The successful handoff path calls this once more after releasing the DComp cover.
-            // A verified settled endpoint must be a no-op there; recomputing layout after reveal is
-            // exactly the visible final-pixel correction this barrier is intended to eliminate.
-            return;
-        }
-
+        // This is a real synchronous settlement barrier, not a best-effort equality shortcut.
+        // Pending Measure/Pointer/Presentation work can exist even when the currently applied
+        // frame and host already equal the old target; Flush cancels that queued reconcile and
+        // consumes the latest model/layout before the DComp cover is allowed to disappear.
         _edgeCapsule.CancelTransition();
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.Preview,

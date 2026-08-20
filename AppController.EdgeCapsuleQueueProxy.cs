@@ -512,13 +512,22 @@ public sealed partial class AppController
         try
         {
             // A rejected rapid successor must not fall back to one synchronous SetWindowPos per
-            // retained source. Keep the old cover authoritative while every latest real endpoint
-            // is submitted through one HDWP transaction, then render and verify the batch.
+            // retained source. Keep the old cover authoritative while every Presenter consumes its
+            // latest Measure/Pointer/Presentation work first; only then capture and submit all real
+            // endpoints through one HDWP transaction. Any final text/pixel correction therefore
+            // happens under cover, never after the real HWNDs are revealed.
             using (windows[0].Dispatcher.DisableProcessing())
             {
                 using var nativeBoundsBatch =
                     WindowNative.BeginWindowDeviceBoundsBatch(
                         windows.Length);
+                foreach (var window in windows)
+                {
+                    if (!window.IsClosed)
+                    {
+                        window.FlushEdgeCapsuleQueueProxyEndpoint();
+                    }
+                }
                 foreach (var window in windows)
                 {
                     var applied = window
@@ -612,18 +621,6 @@ public sealed partial class AppController
         catch
         {
             current.ForceDisposeForShutdown();
-        }
-
-        foreach (var window in windows)
-        {
-            if (!window.IsClosed)
-            {
-                try
-                {
-                    window.FlushEdgeCapsuleQueueProxyEndpoint();
-                }
-                catch { }
-            }
         }
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(

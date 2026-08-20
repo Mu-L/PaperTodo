@@ -38,6 +38,17 @@ public sealed partial class AppController
         var session = _edgeCapsulePreviewSession;
         if (session != null)
         {
+            // WM_MOUSELEAVE confirmation reuses the existing corridor watcher. Passive WPF and
+            // reconcile samples that still resolve to the owner are wake noise, not fresh native
+            // re-entry, so they must not cancel that watcher. An outside-owner sample retires the
+            // confirmation marker here and then continues through the canonical owner arbiter.
+            if (PreserveEdgeCapsulePreviewHostBoundaryLeave(
+                    session,
+                    pointer))
+            {
+                return;
+            }
+
             // Physical host input is only the wake-up authority. Once a preview session exists,
             // the owner remains the single queue-wide arbiter for owner/target/corridor/outside
             // resolution, transfer timing and close timing. Do not recreate that state machine in
@@ -49,6 +60,7 @@ public sealed partial class AppController
             return;
         }
 
+        ClearEdgeCapsulePreviewHostBoundaryLeaveConfirmation();
         ResetEdgeCapsulePreviewCorridorExitIntent();
         if (!pointer.HasValue)
         {
