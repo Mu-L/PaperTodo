@@ -35,6 +35,7 @@ internal sealed class EdgeCapsuleFrameScheduler
 #if DEBUG
     private long _pendingRenderReconcileStartedAtTimestamp;
     private long _lastRenderingTimestamp;
+    private long _lastWpfPresentationChangeTimestamp;
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
     private int _suppressedPendingReconcileRenderingCallbacks;
@@ -331,6 +332,8 @@ internal sealed class EdgeCapsuleFrameScheduler
         _suppressedReentrantRenderingCallbacks = 0;
         _suppressedRenderingStartedAtTimestamp = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
+        var debugHadActiveTransitionBefore = HasActiveTransitionPresenter();
+        long debugAppliedPresentationVersionBefore = 0;
 #endif
         var anyCommittedApply = false;
         _isTicking = true;
@@ -345,6 +348,13 @@ internal sealed class EdgeCapsuleFrameScheduler
                 return;
             }
 
+#if DEBUG
+            for (var index = 0; index < initialCount; index++)
+            {
+                debugAppliedPresentationVersionBefore +=
+                    _presenters[index].AppliedPresentationVersion;
+            }
+#endif
             var frameTimestamp = Stopwatch.GetTimestamp();
             var pointer = WindowNative.TryGetCursorScreenPosition(
                 out var currentPointer)
@@ -373,11 +383,45 @@ internal sealed class EdgeCapsuleFrameScheduler
         finally
         {
 #if DEBUG
+            long debugAppliedPresentationVersionAfter = 0;
+            var debugVersionCount = Math.Min(debugInitialCount, _presenters.Count);
+            for (var index = 0; index < debugVersionCount; index++)
+            {
+                debugAppliedPresentationVersionAfter +=
+                    _presenters[index].AppliedPresentationVersion;
+            }
+            var debugWpfPresentationVersionDelta =
+                debugAppliedPresentationVersionAfter -
+                debugAppliedPresentationVersionBefore;
+            var debugWpfPresentationChanged =
+                debugWpfPresentationVersionDelta != 0;
+            var debugActiveTransitionAfter = HasActiveTransitionPresenter();
+            var debugWpfPresentationGapMilliseconds = -1.0;
+            if (debugWpfPresentationChanged)
+            {
+                debugWpfPresentationGapMilliseconds =
+                    _lastWpfPresentationChangeTimestamp == 0
+                        ? 0
+                        : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                            _lastWpfPresentationChangeTimestamp,
+                            callbackStartedAt);
+                _lastWpfPresentationChangeTimestamp = callbackStartedAt;
+            }
+            if (!debugActiveTransitionAfter)
+            {
+                // Idle time between independent interactions is not a dropped WPF frame.
+                _lastWpfPresentationChangeTimestamp = 0;
+            }
+
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"scheduler.frame sequence={frameSequence} source={source} " +
                 $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(callbackStartedAt):F3} " +
                 $"gapMs={frameGapMilliseconds:F3} renderMs={renderingTimeMilliseconds:F3} " +
-                $"committedApply={anyCommittedApply} activeTransition={HasActiveTransitionPresenter()} " +
+                $"committedApply={anyCommittedApply} activeTransition={debugActiveTransitionAfter} " +
+                $"wpfActiveBefore={debugHadActiveTransitionBefore} " +
+                $"wpfChanged={debugWpfPresentationChanged} " +
+                $"wpfDelta={debugWpfPresentationVersionDelta} " +
+                $"wpfGapMs={debugWpfPresentationGapMilliseconds:F3} " +
                 $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
                 $"groups={debugGroupCount} renderPending={_pendingRenderReconciles} " +
                 $"skippedPending={suppressedPendingCallbacks} " +

@@ -312,6 +312,13 @@ internal static class QueueProxyBarrierRegression
                 "AdvanceSharedFrame(renderingTime: null, source: \"watchdog\")") &&
             frameScheduler.Contains("committedApply=") &&
             frameScheduler.Contains("activeTransition=") &&
+            frameScheduler.Contains("_lastWpfPresentationChangeTimestamp") &&
+            frameScheduler.Contains("AppliedPresentationVersion") &&
+            frameScheduler.Contains("wpfActiveBefore=") &&
+            frameScheduler.Contains("wpfChanged=") &&
+            frameScheduler.Contains("wpfDelta=") &&
+            frameScheduler.Contains("wpfGapMs=") &&
+            frameScheduler.Contains("Idle time between independent interactions") &&
             !frameScheduler.Contains("!anyCommittedApply &&") &&
             Count(frameScheduler, "ArmTransitionLivenessWatchdog();") == 1 &&
             frameScheduler.Contains("HasActiveTransitionPresenter()") &&
