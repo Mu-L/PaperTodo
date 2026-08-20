@@ -318,8 +318,21 @@ internal static class QueueProxyBarrierRegression
                 "AdvanceSharedFrame(renderingTime: null, source: \"watchdog\")") &&
             frameScheduler.Contains("committedApply=") &&
             frameScheduler.Contains("activeTransition=") &&
+            frameScheduler.Contains("_lastRawRenderingCallbackTimestamp") &&
+            frameScheduler.Contains("_debugRenderingCallbackSequence") &&
+            frameScheduler.Contains("scheduler.rendering sequence=") &&
+            frameScheduler.Contains("rawGapMs=") &&
+            frameScheduler.Contains("outcome={outcome} reason={reason}") &&
+            frameScheduler.Contains("\"reentrant\"") &&
+            frameScheduler.Contains("\"pending-reconcile\"") &&
+            frameScheduler.Contains("\"external-native-batch\"") &&
+            frameScheduler.Contains("\"duplicate\"") &&
+            frameScheduler.Contains("\"accepted\"") &&
             frameScheduler.Contains("_lastWpfPresentationChangeTimestamp") &&
+            frameScheduler.Contains("_lastWpfTransitionFingerprint") &&
+            frameScheduler.Contains("GetDebugActiveTransitionFingerprint") &&
             frameScheduler.Contains("_debugWpfPresentationSamples") &&
+            frameScheduler.Contains("ActiveBefore") &&
             frameScheduler.Contains("AppliedPresentationVersion") &&
             frameScheduler.Contains("debugDelta > 0") &&
             !frameScheduler.Contains("debugAppliedPresentationVersionAfter") &&
@@ -327,12 +340,18 @@ internal static class QueueProxyBarrierRegression
             frameScheduler.Contains("wpfChanged=") &&
             frameScheduler.Contains("wpfDelta=") &&
             frameScheduler.Contains("wpfGapMs=") &&
+            frameScheduler.Contains("wpfTransitionId=") &&
+            frameScheduler.Contains("wpfSampleChanged=") &&
+            frameScheduler.Contains("wpfSampleEqual=") &&
+            frameScheduler.Contains("wpfCompleteEqual=") &&
+            frameScheduler.Contains("wpfSettledEqual=") &&
+            frameScheduler.Contains("wpfApplyFailed=") &&
             frameScheduler.Contains("Idle time between independent interactions") &&
             !frameScheduler.Contains("!anyCommittedApply &&") &&
             Count(frameScheduler, "ArmTransitionLivenessWatchdog();") == 1 &&
             frameScheduler.Contains("HasActiveTransitionPresenter()") &&
             frameScheduler.Contains("NativeBatchCommitVersion"),
-            "transition liveness must use one persistent ThreadPool one-shot timer only as an off-Dispatcher wake source; QPC deadlines and UI-thread gates remain authoritative, and the timer thread may only enqueue a Render-priority dispatcher wake");
+            "transition liveness must keep one persistent ThreadPool one-shot timer while DEBUG cadence diagnostics expose raw Rendering admission, transition-scoped WPF gaps and aggregate presentation decisions without creating a second frame clock");
 
         Require(
             !dragWindow.Contains("public void AnimateDockingHandoff(") &&
