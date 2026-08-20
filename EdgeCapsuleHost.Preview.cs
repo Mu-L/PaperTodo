@@ -497,25 +497,25 @@ internal sealed partial class EdgeCapsuleHost
 
         if (_previewVisible)
         {
-            if (closingPreview &&
-                _compactLabelSuppressedForPreview &&
-                TryRetargetCompactContentAnchorForPreviewClose(
+            if (closingPreview && _compactLabelSuppressedForPreview)
+            {
+                // Keep the compact title fully transparent while its temporary preview anchor is
+                // still installed. Retargeting keeps the hidden tree coherent, but opacity must not
+                // recover until RestoreCompactContentAnchor has switched it to final compact layout.
+                _ = TryRetargetCompactContentAnchorForPreviewClose(
                     previousPreviewProgress,
                     previewProgress,
                     previousCloseWidth,
-                    currentCloseWidth))
-            {
-                ScheduleCompactLabelRestoreForPreviewClose(
-                    previousPreviewProgress,
-                    previewProgress);
+                    currentCloseWidth);
             }
             ApplyCompactContentAnchor(frame);
         }
         else if (!retainPreview)
         {
+            // The compact tree must change from its fixed preview anchor back to ordinary compact
+            // layout while it is still fully transparent. Start the 35 ms restore fade only after
+            // that structural switch so no partially visible title can expose a one-pixel reflow.
             RestoreCompactContentAnchor();
-            // If the last-35-ms fade is already running, its logical state is unsuppressed and this
-            // is a no-op; the final compact frame therefore cannot restart or truncate that fade.
             SetCompactLabelSuppressedForPreview(false);
         }
 
@@ -622,8 +622,8 @@ internal sealed partial class EdgeCapsuleHost
 
         // Every interpolated field uses the same eased transition progress. On a close, preview
         // height remaining and close-width distance to the target therefore share the same ratio.
-        // Solve the target close width from the first two closing samples, then move the invisible
-        // compact title to that final screen position before its last-35-ms fade begins.
+        // Solve the target close width from the first two closing samples so the hidden compact
+        // tree remains pinned until the final compact layout takes authority.
         var remainingRatio = Math.Clamp(
             previewProgress / previousPreviewProgress,
             0,
@@ -811,61 +811,6 @@ internal sealed partial class EdgeCapsuleHost
                     TimeSpan.FromMilliseconds(CompactLabelFadeMilliseconds)),
                 FillBehavior = FillBehavior.Stop
             },
-            HandoffBehavior.SnapshotAndReplace);
-    }
-
-    private void ScheduleCompactLabelRestoreForPreviewClose(
-        double previousPreviewProgress,
-        double previewProgress)
-    {
-        if (!_compactLabelSuppressedForPreview ||
-            previousPreviewProgress <= 0.0001)
-        {
-            return;
-        }
-
-        // Preview geometry uses EaseOutCubic. During a close, normalized height remaining is
-        // remainingTime^3, so cube-rooting the first observed progress ratio recovers the remaining
-        // fraction of the 200 ms preview transition without introducing a second timing source.
-        var remainingFraction = Math.Cbrt(Math.Clamp(
-            previewProgress / previousPreviewProgress,
-            0,
-            1));
-        var remainingMilliseconds = Math.Max(
-            1,
-            EdgeCapsuleLayout.SlotMoveMilliseconds * remainingFraction);
-        var fadeStartMilliseconds = Math.Max(
-            0,
-            remainingMilliseconds - CompactLabelFadeMilliseconds);
-
-        _compactLabelSuppressedForPreview = false;
-        Label.BeginAnimation(UIElement.OpacityProperty, null);
-        Icon.BeginAnimation(UIElement.OpacityProperty, null);
-        Label.Opacity = 1;
-        Icon.Opacity = 1;
-        ContentGrid.BeginAnimation(UIElement.OpacityProperty, null);
-        ContentGrid.Opacity = 1;
-
-        var animation = new DoubleAnimationUsingKeyFrames
-        {
-            Duration = new Duration(
-                TimeSpan.FromMilliseconds(remainingMilliseconds)),
-            FillBehavior = FillBehavior.Stop
-        };
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(
-            0,
-            KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(
-            0,
-            KeyTime.FromTimeSpan(
-                TimeSpan.FromMilliseconds(fadeStartMilliseconds))));
-        animation.KeyFrames.Add(new LinearDoubleKeyFrame(
-            1,
-            KeyTime.FromTimeSpan(
-                TimeSpan.FromMilliseconds(remainingMilliseconds))));
-        ContentGrid.BeginAnimation(
-            UIElement.OpacityProperty,
-            animation,
             HandoffBehavior.SnapshotAndReplace);
     }
 
