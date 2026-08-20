@@ -102,12 +102,13 @@ public sealed partial class PaperWindow
 
     private bool CanUseExperimentalInactiveTitleBarGeometry()
     {
+        // An expanded edge reservation is rendered by its own EdgeCapsuleHost. It no longer
+        // shares PaperWindow geometry, so retaining that slot must not disable title-bar collapse.
         return IsVisible &&
             !_paper.IsCollapsed &&
             WindowState == WindowState.Normal &&
             !_isSnappedPresentation &&
-            !IsPaperFormTransitioning &&
-            !HasDeepCapsuleSlotPlacement;
+            !IsPaperFormTransitioning;
     }
 
     private double ExperimentalTitleBarExtent()
