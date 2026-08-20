@@ -11,6 +11,10 @@ public sealed partial class AppController
             return;
         }
 
+        EdgeCapsuleRetractionDiagnostics.BeginMasterToggle(
+            monitorDeviceName,
+            edge);
+
         var side = edge == EdgeCapsuleEdge.Left
             ? DeepCapsuleSides.Left
             : DeepCapsuleSides.Right;
@@ -31,11 +35,17 @@ public sealed partial class AppController
                 StringComparison.Ordinal));
         if (target == null)
         {
+            EdgeCapsuleRetractionDiagnostics.Trace(
+                "master-suppression",
+                $"queue={queueKey} target=<none>");
             _edgeCapsulePreviewLayoutSuppressionAnchor = null;
             _edgeCapsulePreviewIntentPredictor.Reset();
             return;
         }
 
+        EdgeCapsuleRetractionDiagnostics.Trace(
+            "master-suppression",
+            $"queue={queueKey} target={EdgeCapsulePerformanceDiagnostics.ShortId(target.EdgeCapsulePreviewPaperId)}");
         RecordEdgeCapsulePreviewTransferPointer(target, queueKey);
     }
 }
