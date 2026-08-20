@@ -10,6 +10,7 @@ public sealed partial class PaperWindow
     private readonly EdgeCapsulePreviewInvalidationSource
         _edgeCapsulePreviewInvalidationSource = new();
     private EdgeCapsulePreviewRequest? _edgeCapsulePreviewRequest;
+    private EdgeCapsulePreviewSize? _edgeCapsulePendingPreviewCapacity;
     private int _edgeCapsulePreviewContentGeneration;
     private EventHandler? _edgeCapsulePreviewDeferredContentRenderHandler;
 
@@ -79,18 +80,26 @@ public sealed partial class PaperWindow
             }
             var monitor = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
             var size = descriptor.Size.Normalize(
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumWidthDip,
-                    monitor.Width - 16),
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumHeightDip,
-                    monitor.Height - 16));
+                Math.Max(1, monitor.Width - 16),
+                Math.Max(1, monitor.Height - 16));
             if (!PrepareEdgeCapsuleHostCapacity(size))
             {
+                if (!TryConstrainEdgeCapsulePreviewToCurrentHostCapacity(
+                        size,
+                        out var constrainedSize))
+                {
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"preview.prepare.cancel paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                        "phase=capacity-unavailable");
+                    return null;
+                }
+
                 EdgeCapsulePerformanceDiagnostics.Trace(
-                    $"preview.prepare.cancel paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
-                    "phase=capacity-unavailable");
-                return null;
+                    $"preview.prepare.capacity-constrained paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"requested={size.WidthDip:F1}x{size.HeightDip:F1} " +
+                    $"effective={constrainedSize.WidthDip:F1}x{constrainedSize.HeightDip:F1}");
+                RememberEdgeCapsulePreviewCapacityRequest(size);
+                size = constrainedSize;
             }
             // Native/Web/migration providers may execute arbitrary plugin code or construct a
             // WebView. Paint the host-owned 1.6/1.7 fallback first, then replace it only after the
@@ -154,6 +163,56 @@ public sealed partial class PaperWindow
         }
     }
 
+    private bool TryConstrainEdgeCapsulePreviewToCurrentHostCapacity(
+        EdgeCapsulePreviewSize requested,
+        out EdgeCapsulePreviewSize constrained)
+    {
+        constrained = default;
+        if (_edgeCapsuleHost?.IsVisible != true ||
+            !HasDeepCapsuleSlotPlacement)
+        {
+            return false;
+        }
+
+        var monitor = DeepCapsuleMonitorGeometry();
+        var generationMatches =
+            string.Equals(
+                _edgeCapsuleHostCapacityMonitor,
+                monitor.DeviceName,
+                StringComparison.Ordinal) &&
+            _edgeCapsuleHostCapacityEdge == MyDeepCapsuleEdge &&
+            Math.Abs(_edgeCapsuleHostCapacityDpiX - monitor.DpiScaleX) < 0.001 &&
+            Math.Abs(_edgeCapsuleHostCapacityDpiY - monitor.DpiScaleY) < 0.001;
+        if (!generationMatches)
+        {
+            return false;
+        }
+
+        var availableWidth = Math.Max(1, _edgeCapsuleHostCapacityWidthDip);
+        var availableHeight = Math.Max(1, _edgeCapsuleHostCapacityHeightDip);
+        constrained = new EdgeCapsulePreviewSize(
+            Math.Min(requested.WidthDip, availableWidth),
+            Math.Min(requested.HeightDip, availableHeight));
+        return double.IsFinite(constrained.WidthDip) &&
+            double.IsFinite(constrained.HeightDip) &&
+            constrained.WidthDip > 0 &&
+            constrained.HeightDip > 0;
+    }
+
+    private void RememberEdgeCapsulePreviewCapacityRequest(
+        EdgeCapsulePreviewSize requested)
+    {
+        if (_edgeCapsulePendingPreviewCapacity is not { } pending)
+        {
+            _edgeCapsulePendingPreviewCapacity = requested;
+            return;
+        }
+
+        _edgeCapsulePendingPreviewCapacity = new EdgeCapsulePreviewSize(
+            Math.Max(pending.WidthDip, requested.WidthDip),
+            Math.Max(pending.HeightDip, requested.HeightDip));
+    }
+
     private EdgeCapsulePreviewContext CreateEdgeCapsulePreviewContext() =>
         new(
             _paper,
@@ -174,49 +233,21 @@ public sealed partial class PaperWindow
         size = default;
         source = "";
 
+        // These are renderer envelopes, not protocol limits. They mirror the built-in providers'
+        // own deliberate maxima so edits can change Preferred Size without growing a live WPF HWND.
         if (_paper.Type == PaperTypes.Todo)
         {
-            source = "TodoRuntimeEnvelope";
+            size = new EdgeCapsulePreviewSize(450, 400);
+            source = "TodoRendererEnvelope";
+            return true;
         }
-        else if (_paper.Type == PaperTypes.Note && IsCurrentBodyProviderMarkdown)
+        if (_paper.Type == PaperTypes.Note && IsCurrentBodyProviderMarkdown)
         {
-            source = "MarkdownRuntimeEnvelope";
+            size = new EdgeCapsulePreviewSize(460, 410);
+            source = "MarkdownRendererEnvelope";
+            return true;
         }
-        else if (_paper.Type == PaperTypes.Note)
-        {
-            var descriptor = _bodyDescriptor;
-            if (descriptor == null)
-            {
-                var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
-                if (!_controller.PaperBodyPlugins.TryGet(
-                        providerId,
-                        out var registeredDescriptor))
-                {
-                    return false;
-                }
-                descriptor = registeredDescriptor;
-            }
-
-            if (descriptor.Kind != PaperBodyPluginKind.Native)
-            {
-                return false;
-            }
-            source = "NativePluginRuntimeEnvelope";
-        }
-        else
-        {
-            return false;
-        }
-
-        var workArea = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
-        size = new EdgeCapsulePreviewSize(
-            Math.Max(
-                EdgeCapsulePreviewSize.MinimumWidthDip,
-                workArea.Width - 16),
-            Math.Max(
-                EdgeCapsulePreviewSize.MinimumHeightDip,
-                workArea.Height - 16));
-        return true;
+        return false;
     }
 
     private bool TryGetDeferredPluginPreviewCapacity(
@@ -252,9 +283,8 @@ public sealed partial class PaperWindow
                 return true;
             }
 
-            // A Web body without a protocol-1.8 mini can expose a changing enlarged capsule
-            // fallback. Reserve its bounded compatibility envelope whether or not the body session
-            // has already been loaded, so later capsule-presentation changes cannot outgrow Host.
+            // Web fallback width can change with capsule presentation; reserve its actual bounded
+            // compatibility envelope whether the body is loaded or still deferred.
             size = new EdgeCapsulePreviewSize(
                 PluginFallbackMiniMaximumWidth,
                 Math.Max(PluginFallbackMiniHeight, 220));
@@ -262,14 +292,13 @@ public sealed partial class PaperWindow
             return true;
         }
 
-        if (descriptor.Kind == PaperBodyPluginKind.Native)
+        if (descriptor.Kind == PaperBodyPluginKind.Native && !_isShellBuilt)
         {
-            // Defensive fallback: runtime-variable Native previews normally reserve their complete
-            // work-area envelope before this path is considered.
-            size = new EdgeCapsulePreviewSize(
-                EdgeCapsulePreviewSize.MaximumWidthDip,
-                EdgeCapsulePreviewSize.MaximumHeightDip);
-            source = "DeferredNativePluginEnvelope";
+            // The body session has not run yet, so PreferredMiniViewSize is intentionally unknown.
+            // This initial envelope covers both protocol defaults (320x220 dedicated mini and
+            // 360x260 migration) without pretending to cap future Native Preferred sizes.
+            size = new EdgeCapsulePreviewSize(360, 260);
+            source = "DeferredNativePluginDefaultEnvelope";
             return true;
         }
 
@@ -277,10 +306,10 @@ public sealed partial class PaperWindow
     }
 
     // Descriptor sizing is presentation capacity, not preview content. Resolve it while
-    // the capsule is being attached so the very first docked HWND already owns the
-    // bounded capacity required by its Preview. Runtime-variable built-in/Native previews reserve
-    // the current work-area envelope; static Web/fallback previews reserve their declared envelope.
-    // No WPF tree or plugin session is created here.
+    // the capsule is being attached so the very first docked HWND owns a bounded useful capacity.
+    // Built-ins use their renderer envelope, Web uses declared/fallback bounds, and a loaded Native
+    // session reserves its current Preferred Size. A later Native growth is constrained to the
+    // current host generation and remembered for the next safe first-show generation.
     private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
     {
         // This method owns only the immutable first-show capacity generation. Hot queue
@@ -306,10 +335,37 @@ public sealed partial class PaperWindow
         IEdgeCapsulePreviewProvider? provider = null;
         try
         {
+            var workArea = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
+            var maximumWidth = Math.Max(1, workArea.Width - 16);
+            var maximumHeight = Math.Max(1, workArea.Height - 16);
+
+            if (_edgeCapsulePendingPreviewCapacity is { } pendingCapacity)
+            {
+                var pendingSize = pendingCapacity.Normalize(
+                    maximumWidth,
+                    maximumHeight);
+                var pendingReserved = TryReserveEdgeCapsuleHostCapacity(
+                    pendingSize,
+                    out var pendingChanged);
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.capacity.reserve paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"provider=PendingDynamicEnvelope size={pendingSize.WidthDip:F1}x{pendingSize.HeightDip:F1} " +
+                    $"reserved={pendingReserved} changed={pendingChanged} " +
+                    $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
+                if (pendingReserved)
+                {
+                    _edgeCapsulePendingPreviewCapacity = null;
+                    return;
+                }
+            }
+
             if (TryGetRuntimeVariableEdgeCapsulePreviewCapacity(
                     out var runtimeSize,
                     out var runtimeSource))
             {
+                runtimeSize = runtimeSize.Normalize(
+                    maximumWidth,
+                    maximumHeight);
                 var runtimeReserved = TryReserveEdgeCapsuleHostCapacity(
                     runtimeSize,
                     out var runtimeChanged);
@@ -325,15 +381,9 @@ public sealed partial class PaperWindow
                     out var deferredSize,
                     out var deferredSource))
             {
-                var deferredWorkArea =
-                    DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
                 deferredSize = deferredSize.Normalize(
-                    Math.Max(
-                        EdgeCapsulePreviewSize.MinimumWidthDip,
-                        deferredWorkArea.Width - 16),
-                    Math.Max(
-                        EdgeCapsulePreviewSize.MinimumHeightDip,
-                        deferredWorkArea.Height - 16));
+                    maximumWidth,
+                    maximumHeight);
                 var deferredReserved = TryReserveEdgeCapsuleHostCapacity(
                     deferredSize,
                     out var deferredChanged);
@@ -354,14 +404,9 @@ public sealed partial class PaperWindow
                 return;
             }
 
-            var workArea = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
             var size = descriptor.Size.Normalize(
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumWidthDip,
-                    workArea.Width - 16),
-                Math.Max(
-                    EdgeCapsulePreviewSize.MinimumHeightDip,
-                    workArea.Height - 16));
+                maximumWidth,
+                maximumHeight);
             var reserved = TryReserveEdgeCapsuleHostCapacity(
                 size,
                 out var changed);
@@ -373,8 +418,9 @@ public sealed partial class PaperWindow
         }
         catch (Exception ex)
         {
-            // Capacity warmup is opportunistic. Opening still performs a fresh descriptor
-            // read, but a larger late descriptor is rejected while this Host generation is visible.
+            // Capacity warmup is opportunistic. Opening still performs a fresh descriptor read;
+            // an oversized late Native request degrades to current Host capacity instead of
+            // disabling preview and is remembered for a future safe Host generation.
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"preview.capacity.reserve-fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
                 $"provider={provider?.GetType().Name ?? "<unresolved>"} " +
