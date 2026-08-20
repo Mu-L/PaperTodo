@@ -14,6 +14,12 @@ internal static class QueueProxyBarrierRegression
             "AppController.EdgeCapsuleVisualTransaction.cs");
         var queueProxyController = Source(
             "AppController.EdgeCapsuleQueueProxy.cs");
+        var queueProxyWindow = Source(
+            "PaperWindow.EdgeCapsuleQueueProxy.cs");
+        var previewBoundary = Source(
+            "AppController.EdgeCapsulePreviewBoundary.cs");
+        var previewPointerInput = Source(
+            "AppController.EdgeCapsulePreviewPointerInput.cs");
         var presenter = Source("EdgeCapsulePresenter.cs");
         var hostPolicy = Source("PaperWindow.EdgeCapsule.cs");
         var preview = Source("PaperWindow.EdgeCapsulePreview.cs");
@@ -380,17 +386,99 @@ internal static class QueueProxyBarrierRegression
                 "BeginWindowDeviceBoundsBatch",
                 endpointApply,
                 StringComparison.Ordinal);
+        var preHandoffFlush = batchBegin < 0
+            ? -1
+            : queueProxyController.IndexOf(
+                "window.FlushEdgeCapsuleQueueProxyEndpoint();",
+                batchBegin,
+                StringComparison.Ordinal);
         var handoffRelease = endpointApply < 0
             ? -1
             : queueProxyController.IndexOf(
                 "TryReleaseForHandoff",
                 endpointApply,
                 StringComparison.Ordinal);
+        var normalReleaseTail = handoffRelease < 0
+            ? ""
+            : queueProxyController[handoffRelease..];
+        var coverLost = queueProxyController.IndexOf(
+            "if (current.CoverLost)",
+            StringComparison.Ordinal);
+        var emergencyFlush = coverLost < 0
+            ? -1
+            : queueProxyController.IndexOf(
+                "window.FlushEdgeCapsuleQueueProxyEndpoint();",
+                coverLost,
+                StringComparison.Ordinal);
         Require(
             batchBegin >= 0 &&
-            batchBegin < endpointApply &&
-            handoffRelease > endpointApply,
-            "handoff endpoints must be submitted as one native batch before cover release");
+            preHandoffFlush > batchBegin &&
+            endpointApply > preHandoffFlush &&
+            handoffRelease > endpointApply &&
+            !normalReleaseTail.Contains(
+                "window.FlushEdgeCapsuleQueueProxyEndpoint();") &&
+            emergencyFlush > coverLost &&
+            emergencyFlush < batchBegin,
+            "normal handoff must settle all presenters under cover before one endpoint batch and must not flush after reveal; cover-loss recovery keeps its emergency flush");
+
+        var applyLatestStart = queueProxyWindow.IndexOf(
+            "internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint",
+            StringComparison.Ordinal);
+        var verifyStart = applyLatestStart < 0
+            ? -1
+            : queueProxyWindow.IndexOf(
+                "internal bool VerifyEdgeCapsuleQueueProxyEndpoint",
+                applyLatestStart,
+                StringComparison.Ordinal);
+        var flushStart = verifyStart < 0
+            ? -1
+            : queueProxyWindow.IndexOf(
+                "internal void FlushEdgeCapsuleQueueProxyEndpoint",
+                verifyStart,
+                StringComparison.Ordinal);
+        var applyLatestBody =
+            applyLatestStart >= 0 && verifyStart > applyLatestStart
+                ? queueProxyWindow[applyLatestStart..verifyStart]
+                : "";
+        var verifyBody =
+            verifyStart >= 0 && flushStart > verifyStart
+                ? queueProxyWindow[verifyStart..flushStart]
+                : "";
+        var flushBody = flushStart >= 0
+            ? queueProxyWindow[flushStart..]
+            : "";
+        Require(
+            !applyLatestBody.Contains(
+                "FlushEdgeCapsuleQueueProxyEndpoint") &&
+            verifyBody.Contains("!_edgeCapsule.HasActiveTransition") &&
+            verifyBody.Contains("_edgeCapsule.AppliedPresentation == endpoint") &&
+            verifyBody.Contains("latestEndpoint == endpoint") &&
+            flushBody.Contains("_edgeCapsule.CancelTransition();") &&
+            flushBody.Contains("EdgeCapsuleDirty.Presentation") &&
+            flushBody.Contains("EdgeCapsuleDirty.Measure") &&
+            flushBody.Contains("EdgeCapsuleDirty.Pointer") &&
+            !flushBody.Contains("hostAlreadyMatches"),
+            "proxy endpoint settlement must consume queued presenter work synchronously under cover, while endpoint apply remains a pure capture/apply step and verify checks presenter/host convergence");
+
+        Require(
+            !previewBoundary.Contains("DispatcherTimer") &&
+            !previewBoundary.Contains(
+                "_edgeCapsulePreviewBoundaryLeaveTimer") &&
+            previewBoundary.Contains(
+                "_edgeCapsulePreviewCorridorExitIntent") &&
+            previewBoundary.Contains(
+                "_edgeCapsulePreviewCorridorIntentTimer") &&
+            previewBoundary.Contains(
+                "ScheduleEdgeCapsulePreviewCorridorIntentCheck") &&
+            previewPointerInput.Contains(
+                "PreserveEdgeCapsulePreviewHostBoundaryLeave") &&
+            hostPolicy.Contains(
+                "InvalidateEdgeCapsulePointerFromHostBoundaryLeave") &&
+            hostPolicy.Contains("if (authoritativePointer.HasValue)") &&
+            previewBoundary.Contains("boundary confirm armed") &&
+            previewBoundary.Contains("boundary confirm resolved") &&
+            previewBoundary.Contains("boundary confirm cancelled"),
+            "WM_MOUSELEAVE confirmation must reuse the existing corridor timer/owner arbiter; only verified native host activity may cancel it");
     }
 
     private static int Count(string source, string value)
