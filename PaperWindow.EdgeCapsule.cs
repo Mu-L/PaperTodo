@@ -104,7 +104,7 @@ public sealed partial class PaperWindow
         // consume the native leave as well so that a later genuine exit cannot be lost.
         if (msg is 0x02A3 or 0x02A2)
         {
-            InvalidateEdgeCapsulePointerFromHostInput();
+            InvalidateEdgeCapsulePointerFromHostBoundaryLeave();
         }
 
         // The slot host is not a paper window. In particular it must not inherit the paper's
@@ -488,9 +488,28 @@ public sealed partial class PaperWindow
         DeviceScreenPoint? authoritativePointer = null)
     {
         _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        if (authoritativePointer.HasValue)
+        {
+            // Only host-native hit/move reaches this method with a verified point. Routed WPF
+            // enter/leave passes null and must not cancel an armed WM_MOUSELEAVE confirmation.
+            _controller.NotifyEdgeCapsulePreviewHostPointerActivity();
+        }
         _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
             this,
             authoritativePointer ?? CaptureEdgeCapsulePointerPosition());
+        var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
+        _edgeCapsule.InvalidateBeforeNextRender(
+            EdgeCapsuleDirty.Pointer,
+            dispatcher,
+            ReconcileEdgeCapsule);
+    }
+
+    private void InvalidateEdgeCapsulePointerFromHostBoundaryLeave()
+    {
+        _controller.InvalidateEdgeCapsulePreviewPointerResolution();
+        _controller.NotifyEdgeCapsulePreviewHostBoundaryLeave(
+            this,
+            CaptureEdgeCapsulePointerPosition());
         var dispatcher = _edgeCapsuleHost?.Dispatcher ?? Dispatcher;
         _edgeCapsule.InvalidateBeforeNextRender(
             EdgeCapsuleDirty.Pointer,
