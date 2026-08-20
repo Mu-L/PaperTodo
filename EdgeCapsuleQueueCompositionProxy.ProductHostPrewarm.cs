@@ -12,6 +12,9 @@ namespace PaperTodo;
 
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
+    private const string ProductHostPrewarmQueueKey =
+        "__papertodo_product_host_prewarm__";
+
     private sealed class ProductHostPrewarmState
     {
         public bool Attempted { get; set; }
@@ -76,6 +79,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsulePerformanceDiagnostics.Trace(
             "prewarm.product-host phase=start");
 #endif
+
         try
         {
             runtimeReady = TryGetRuntime(dispatcher, out var runtime);
@@ -84,8 +88,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 return;
             }
 
-            // Reuse the exact dispatcher-wide spare that the first real queue session will acquire.
-            // The probe never assigns a queue identity and leaves the host hidden/available again.
             runtime.PrewarmOutputHost();
             probeSucceeded = TryRunProductHostAssemblyProbe(
                 runtime,
@@ -149,27 +151,36 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var finalPublicationSucceeded = false;
         var outputCloaked = false;
 
-        QueueHost? spareHost = null;
+        QueueHost? probeHost = null;
         IDCompositionVisual2? root = null;
         var surfaces = new List<IUnknown>();
         var visuals = new List<IDCompositionVisual>();
         var animations = new List<IDCompositionAnimation>();
         var sources = Array.Empty<ProductHostPrewarmSource>();
+        var outputBounds =
+            new DeviceScreenRect(-32000, -32000, -31872, -31872);
 
         try
         {
             dispatcher.VerifyAccess();
-            if (!runtime.IsUsable || runtime._spareHosts.Count == 0)
+            if (!runtime.IsUsable)
+            {
+                throw new InvalidOperationException(
+                    "The shared composition runtime is unavailable.");
+            }
+
+            // Borrow the existing dispatcher-wide spare through the runtime's
+            // normal queue-host lifecycle. Never reach into SharedRuntime's
+            // private spare stack from the containing type.
+            probeHost = runtime.TryAcquire(
+                ProductHostPrewarmQueueKey,
+                topmost: true,
+                outputBounds,
+                predecessor: null);
+            if (probeHost == null || !probeHost.IsAvailable)
             {
                 throw new InvalidOperationException(
                     "No warm queue output host is available for product-host prewarm.");
-            }
-
-            spareHost = runtime._spareHosts.Peek();
-            if (!spareHost.IsAvailable)
-            {
-                throw new InvalidOperationException(
-                    "The dispatcher-wide spare queue output host is not available.");
             }
 
             var discoveryStartedAt = Stopwatch.GetTimestamp();
@@ -203,6 +214,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     handle,
                     bounds));
             }
+
             sources = discovered
                 .GroupBy(source => source.Handle)
                 .Select(group => group.First())
@@ -216,8 +228,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     "No live edge-capsule WPF host HWNDs were found for prewarm.");
             }
 
-            // Drain the already-visible real hosts through WPF Render once, but do not flush yet.
-            // The following real-surface publication crosses the desktop boundary for the whole set.
             var renderStartedAt = Stopwatch.GetTimestamp();
             foreach (var source in sources)
             {
@@ -234,8 +244,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 renderStartedAt,
                 Stopwatch.GetTimestamp()).TotalMilliseconds;
 
-            // Exercise the exact real HWND inspection/batch plumbing with unchanged endpoints.
-            // This intentionally produces no WM_WINDOWPOS* traffic and cannot move a user window.
+            // Exercise real-host inspection/batch plumbing at unchanged bounds.
+            // This must remain a geometric no-op: prewarm never moves user HWNDs.
             var endpointStartedAt = Stopwatch.GetTimestamp();
             endpointNoopSucceeded = true;
             using (dispatcher.DisableProcessing())
@@ -262,6 +272,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     sources[index].Handle,
                     out var surface).CheckError();
                 surfaces.Add(surface);
+
                 runtime.Device.CreateVisual(
                     out IDCompositionVisual2 visual).CheckError();
                 visuals.Add(visual);
@@ -281,18 +292,15 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 surfaceStartedAt,
                 Stopwatch.GetTimestamp()).TotalMilliseconds;
 
-            // Install the real-host tree on the exact spare QueueHost target used by session 1.
             var rootCommitStartedAt = Stopwatch.GetTimestamp();
-            spareHost.Target.SetRoot(root).CheckError();
+            probeHost.Target.SetRoot(root).CheckError();
             runtime.Device.Commit().CheckError();
             rootCommitMilliseconds = Stopwatch.GetElapsedTime(
                 rootCommitStartedAt,
                 Stopwatch.GetTimestamp()).TotalMilliseconds;
 
-            var outputBounds =
-                new DeviceScreenRect(-32000, -32000, -31872, -31872);
             var showFlushStartedAt = Stopwatch.GetTimestamp();
-            if (!spareHost.Window.Show(outputBounds, topmost: true) ||
+            if (!probeHost.Window.Show(outputBounds, topmost: true) ||
                 !WindowNative.TryFlushDesktopComposition())
             {
                 throw new InvalidOperationException(
@@ -303,15 +311,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 showFlushStartedAt,
                 Stopwatch.GetTimestamp()).TotalMilliseconds;
 
-            // Match cold session final publication: animation configuration + DComp Commit occurs
-            // inside one coordinated cloak callback, followed by the batch's single DwmFlush.
-            // Only the off-screen queue output is cloaked; real paper HWNDs remain untouched.
             var finalPublishStartedAt = Stopwatch.GetTimestamp();
             var publication = WindowNative.TrySetWindowCloakedBatchDetailed(
                 new[]
                 {
                     new WindowNative.WindowCloakChange(
-                        spareHost.Window.Handle,
+                        probeHost.Window.Handle,
                         Cloaked: true,
                         RollbackCloaked: false)
                 },
@@ -321,6 +326,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                     var absoluteBeginTimestamp = Stopwatch.GetTimestamp();
                     const double durationSeconds = 0.016;
                     const float delta = 1f;
+
                     for (var index = 0; index < visuals.Count; index++)
                     {
                         var from = index * 2f;
@@ -341,6 +347,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                         animation.End(durationSeconds, to).CheckError();
                         visuals[index].SetOffsetY(animation).CheckError();
                     }
+
                     runtime.Device.Commit().CheckError();
                     animationMilliseconds = Stopwatch.GetElapsedTime(
                         animationStartedAt,
@@ -363,16 +370,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 new[]
                 {
                     new WindowNative.WindowCloakChange(
-                        spareHost.Window.Handle,
+                        probeHost.Window.Handle,
                         Cloaked: false,
                         RollbackCloaked: true)
                 });
             uncloakMilliseconds = Stopwatch.GetElapsedTime(
                 uncloakStartedAt,
                 Stopwatch.GetTimestamp()).TotalMilliseconds;
-            outputCloaked = false;
             finalPublicationSucceeded =
                 uncloak == WindowNative.WindowCloakBatchResult.Success;
+            outputCloaked = !finalPublicationSucceeded;
             if (!finalPublicationSucceeded)
             {
                 throw new InvalidOperationException(
@@ -388,28 +395,31 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         finally
         {
             var cleanupStartedAt = Stopwatch.GetTimestamp();
-            if (spareHost != null)
+
+            if (probeHost != null)
             {
                 if (outputCloaked)
                 {
                     try
                     {
-                        _ = WindowNative.TrySetWindowCloakedBatchDetailed(
+                        var retry = WindowNative.TrySetWindowCloakedBatchDetailed(
                             new[]
                             {
                                 new WindowNative.WindowCloakChange(
-                                    spareHost.Window.Handle,
+                                    probeHost.Window.Handle,
                                     Cloaked: false,
                                     RollbackCloaked: true)
                             });
+                        outputCloaked =
+                            retry != WindowNative.WindowCloakBatchResult.Success;
                     }
                     catch { }
                 }
 
-                try { spareHost.Window.Hide(); } catch { }
+                try { probeHost.Window.Hide(); } catch { }
                 try
                 {
-                    spareHost.Target.SetRoot(null!).CheckError();
+                    probeHost.Target.SetRoot(null!).CheckError();
                     runtime.Device.Commit().CheckError();
                     _ = WindowNative.TryFlushDesktopComposition();
                 }
@@ -429,6 +439,19 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 try { surfaces[index].Dispose(); } catch { }
             }
             try { root?.Dispose(); } catch { }
+
+            if (probeHost != null)
+            {
+                if (!outputCloaked)
+                {
+                    try { runtime.ReturnIdleHost(probeHost); } catch { }
+                }
+                else
+                {
+                    // Never return a possibly cloaked output to the reusable pool.
+                    try { probeHost.Dispose(); } catch { }
+                }
+            }
 
             cleanupMilliseconds = Stopwatch.GetElapsedTime(
                 cleanupStartedAt,
@@ -480,8 +503,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             return false;
         }
 
-        // Current EdgeCapsuleHost shape: Chrome Border + Shell Grid + Outline Border.
-        // Keep this probe deliberately narrow so unrelated raw WPF windows are never wrapped.
         return
             visualSurface.Children.OfType<Border>().Count() >= 2 &&
             visualSurface.Children.OfType<Grid>().Any();
