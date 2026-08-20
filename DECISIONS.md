@@ -244,6 +244,10 @@ Edge capsule 同时存在单纸片状态与跨纸片会话。若 `PaperWindow`�
 
 endpoint-sized HWND 会让 Hover/Preview 每轮改变 native surface identity，使 compositor translation 和 resize ownership 缠在一起；过大的长期透明 host 又扩大 hit-test、z-order、资源和透明区域 ownership 问题。bounded live host 把 native capacity 与可见 shape 分开。
 
+`agent/edge-animation-v2` / PR #84 先证明了另一个更基础的事实：Edge 热帧的主要成本曾经不是插值或 C# 属性赋值，而是同步 native geometry boundary。对应 trace 中第一次真实 HWND move 常见约 10–15ms，逐帧把位置交给 `EndDeferWindowPos` 在部分机器上也会出现 10–20ms+ 阻塞；固定 HWND、只更新内部 WPF surface 后，活跃视觉更新可以降到亚毫秒级。因此这里保留“正常动画不逐帧提交 native geometry”的方向，而不是回头优化同一条昂贵系统调用。
+
+但 V2 又把这个结论推得过远：为了完全避免 HWND movement，每张纸预留 work-area / queue 级永久透明 motion envelope。PR #85 随后必须专门测量透明 host 数量、像素面积、内存和 handle 成本。V3 Lite 因此选择中间边界：**native capacity 可以稳定，但必须按真实单纸片需求有界；不能用永久巨型透明 surface 交换掉所有 resize/move。**
+
 ### Rejected / Do not reintroduce
 
 - 不恢复逐帧 resize 真实 HWND 的 endpoint-sized 架构。
@@ -252,6 +256,9 @@ endpoint-sized HWND 会让 Hover/Preview 每轮改变 native surface identity，
 
 ### Evidence
 
+- `6fb9c33d1827963df1fb84b1c7eb837eeb54cc77` — ordinary edge frames 从 HDWP batch 退回直接 HWND move，暴露 native boundary 本身的高成本。
+- `26afaed1b5b65b4a9771916d4edaf91c5abbb028` / PR #84 — fixed-host V2，把 per-frame HWND geometry 移出动画热路径。
+- `b02add61e9d61c427af31e3a3859e7dcb499ce1d` / PR #85 — 专门测量永久透明 host 的资源成本。
 - `32866e9085c2002c3411d4a2c93a96903fe6c9ee` — `refactor(edge): establish V3 Lite bounded live hosts`。
 - `ca70631d2c3b77a883a5c78f5a912cfe2ccc9294` — late-bound plugin preview capacity。
 - 当前 `src/EdgeCapsuleTargetPlanner.cs` / `src/EdgeCapsuleHost.cs`。
@@ -274,6 +281,10 @@ V3 Lite 的最终职责切分：
 
 如果 compositor 同时拥有 translation、clip、scale、resize、snapshot，而 WPF 也在改变真实 HWND/visual size，就会出现两套 presentation model。successor、pointer hit test、DPI handoff 和 rollback 都必须额外判断“此刻谁才是真的”。translation-only 把 compositor 限制成位置加速层，而不是第二套 UI renderer。
 
+`codex/edge-queue-composition-proxy-v2` / PR #86 正确地纠正了 V2 的永久大 host：真实 HWND 恢复 compact，只在当前 queue 的浏览事务中临时建立 DComp proxy。但当 proxy 后续开始拥有 snapshot、clip、rounded morph、opacity、pointer geometry、endpoint replacement 和 cloak/uncloak 时，它事实上已经从“临时位置加速器”扩成第二套 presentation engine。此后每个 DPI、rollback、successor、drag、hide/close 边界都必须额外回答 WPF 与 proxy 谁拥有 shape、输入和当前可见帧。
+
+`agent/v25-edge-smoothness-final` / PR #90 把这个信号暴露得最清楚：为了继续维护 proxy-owned resize/shape，需要逐渐增加 snapshot host/pool、warm lease、successor/late latch、admission、reveal/conceal、freeze、deferred endpoint handoff、secondary owner routing、output-growth fallback 和资源退休时序。单个机制各自都有局部理由，但如果 correctness 持续依赖越来越多 shadow ownership / deferred recovery 状态，应该把它视为 **authority 划分失衡的架构报警器**，优先收窄 owner，而不是继续扩 handoff 状态机。V3 Lite 最终通过“WPF owns shape；DComp translation-only”消掉这一类补偿需求。
+
 ### Rejected / Do not reintroduce
 
 V3 Lite production translation backend 明确不包含：
@@ -286,8 +297,13 @@ V3 Lite production translation backend 明确不包含：
 - deferred resize state machine
 - 用 compositor opacity/bitmap trick 模拟 WPF Preview shape
 
+如果为了让 compositor-owned shape/resize 继续成立，又开始需要 snapshot pool、warm lease、freeze/conceal、deferred handoff、secondary owner index 等成套补偿状态，不把它当作“再补一个边界 case”；先重新审视 presentation authority 是否已经分叉。
+
 ### Evidence
 
+- `c181f63dc02dde6c101439f8ee0d3737f49c4b45` / PR #86 — compact real HWND + transient queue DComp proxy 的 V2 探索。
+- PR #90 (`agent/v25-edge-smoothness-final`) — 在 proxy 路线上集中出现 snapshot/warm lease/successor/late latch/freeze/deferred handoff 等补偿机制。
+- `49cf645796730cdc8d2a93338a135b75aa0c44bf` / `63df9f049077ece9050f12943b4b768453a64998` / `a402a80c656f0e6aa9769225035aa6aa53267857` — conceal/freeze/owner recovery 链路的典型后期修补。
 - `32866e9085c2002c3411d4a2c93a96903fe6c9ee`。
 - `d4af6affc0d5b704e20e020ae9e9621170613c8c` — 删除 snapshot/pointer-proxy 路径并收紧 backend 能力。
 - `849c9bb044550a7c267078e0a6bfe1f8af56b1bb` — closeout 验证 live-surface bridge 且拒绝 clip/scale/effect/snapshot。
@@ -305,18 +321,25 @@ Queue compositor、真实 docked HWND 和 floating drag HWND 是显式 visual au
 
 DComp root replacement 与 DWM cloak/uncloak 通过可验证 transaction boundary 协调。cover 丢失时先立即尝试恢复真实 HWND；只有即时恢复本身失败时才进入有界 completion retry。
 
+一次 visual transaction 的原子单位对应**用户看到的一次 authority swap**，而不是一个 HWND。涉及同一队列的 endpoint settle / reveal / cloak / root detach 时，优先先完成所有成员需要的 apply/layout，再跨一个共享的 render / desktop-composition boundary，最后统一验证和交接；不要让每个成员各自完成一套完整 flush/handoff。
+
 ### Why
 
 真实 HWND 已经到 endpoint 并不代表用户一定能看到它。如果 source 仍 cloaked 而 proxy root 已撤，用户会看到空白；如果 proxy 和 real source 无约束同时可见，又会出现 duplicate/flash。真正需要原子化的是谁拥有可见像素。
+
+V2.5 的日志还证明了 transaction 粒度本身会成为性能和正确性问题：逐成员执行 endpoint / cloak / flush / verify 时，close 后仍存在约 58–85ms 的 proxy handoff 尾段，中位约 76.6ms，并随参与 member 数增长。PR #90 因此把 endpoint apply/layout 和 cloak/uncloak 收敛成整队列批处理，并减少重复 Render/DwmFlush 边界。这里保留的经验不是“永远只有一次某个 Win32 调用”，而是**共享一个可见交接的成员应该共享 publication/verification 边界**。
 
 ### Rejected / Do not reintroduce
 
 - 不允许“先全部 cloak，稍后再发布 cover”。
 - 不允许 cover 丢失后什么都不做、先空等 timer 才首次恢复 real source。
 - 不把资源 Dispose 当作 authority transfer。
+- 不为同一 visual transaction 按 HWND 重复执行 `apply → render/flush → verify → next member` 的完整交接；成员级准备可以独立，但 authority swap 应在共享边界统一完成和验证。
 
 ### Evidence
 
+- `9c5c2679194edf2e3d84261f1b9a58faf7b16a5b` / PR #90 — 批量 endpoint、cloak/reveal 与 UI-critical handoff 收敛。
+- `59920e0bd8b50cfc476c090b9fcfa38f427e9862` — shared compositor failure 时按 queue 安全 reveal/drain，而不是破坏其他 authority。
 - `f444f2897d1a741d2478a5d9af15744ed6a99716`。
 - `bb45739d49b16b4e609333476888f65f402fb17b`。
 - 当前 `src/EdgeCapsuleQueueCompositionProxy.Handoff.cs`。
