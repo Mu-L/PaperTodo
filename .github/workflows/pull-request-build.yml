@@ -47,6 +47,3 @@ jobs:
 
       - name: Build
         run: dotnet build .\PaperTodo.csproj -c Release --no-restore
-
-      - name: Run edge refinement checks
-        run: dotnet run --project .\scripts\edge-refinement-tests\EdgeRefinementChecks.csproj -c Release

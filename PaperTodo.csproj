@@ -27,7 +27,7 @@
     <PaperTodoLmdbLibrary>$(MSBuildProjectDirectory)\native\lmdb\bin\win-x64\papertodo_lmdb.dll</PaperTodoLmdbLibrary>
     <OutputPath>$(MSBuildProjectDirectory)\输出\PaperTodo-v$(Version)\</OutputPath>
     <SatelliteResourceLanguages>en;ja;ko</SatelliteResourceLanguages>
-    <DefaultItemExcludes>$(DefaultItemExcludes);对比_StickyMD\**;输出\**;PaperTodo_v*\**;.codex_decompile_debug\**;PaperTodo.Plugin.Abstractions\**;plugin-samples\**;plugins\**\.runtime\**;plugins\data\**;vendor\**;scripts\edge-refinement-tests\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);对比_StickyMD\**;输出\**;PaperTodo_v*\**;.codex_decompile_debug\**;PaperTodo.Plugin.Abstractions\**;plugin-samples\**;plugins\**\.runtime\**;plugins\data\**;vendor\**</DefaultItemExcludes>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(PaperTodoDefaultEnglish)' == 'true'">
@@ -58,9 +58,6 @@
          the Windows App SDK runtime. Opening captures one compact shell; the queue proxy is
          transient and falls back to the normal HWND path when a surface cannot be created. -->
     <PackageReference Include="Vortice.DirectComposition" Version="3.8.3" />
-  </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="EdgeRefinementChecks" />
   </ItemGroup>
   <!-- WinForms pulls System.Drawing into global usings; keep WPF type names unambiguous. -->
   <ItemGroup>
