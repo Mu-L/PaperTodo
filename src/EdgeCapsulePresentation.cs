@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace PaperTodo;
 
 internal enum EdgeCapsuleMotionKind
@@ -38,16 +40,48 @@ internal readonly record struct EdgeCapsuleMotion(
     int DurationMilliseconds,
     EdgeCapsuleTransitionReason Reason)
 {
-    public static EdgeCapsuleMotion Snap(EdgeCapsuleTransitionReason reason) =>
-        new(EdgeCapsuleMotionKind.Snap, 0, reason);
+    public static EdgeCapsuleMotion Snap(
+        EdgeCapsuleTransitionReason reason,
+        [CallerMemberName] string caller = "")
+    {
+        var motion = new EdgeCapsuleMotion(
+            EdgeCapsuleMotionKind.Snap,
+            0,
+            reason);
+#if DEBUG
+        EdgeCapsuleRetractionDiagnostics.TraceMotionFactory(motion, caller);
+#endif
+        return motion;
+    }
 
     public static EdgeCapsuleMotion Animate(
         EdgeCapsuleTransitionReason reason,
-        int durationMilliseconds = EdgeCapsuleLayout.SlotMoveMilliseconds) =>
-        new(EdgeCapsuleMotionKind.Animate, Math.Max(1, durationMilliseconds), reason);
+        int durationMilliseconds = EdgeCapsuleLayout.SlotMoveMilliseconds,
+        [CallerMemberName] string caller = "")
+    {
+        var motion = new EdgeCapsuleMotion(
+            EdgeCapsuleMotionKind.Animate,
+            Math.Max(1, durationMilliseconds),
+            reason);
+#if DEBUG
+        EdgeCapsuleRetractionDiagnostics.TraceMotionFactory(motion, caller);
+#endif
+        return motion;
+    }
 
-    public static EdgeCapsuleMotion Preserve(EdgeCapsuleTransitionReason reason) =>
-        new(EdgeCapsuleMotionKind.Preserve, 0, reason);
+    public static EdgeCapsuleMotion Preserve(
+        EdgeCapsuleTransitionReason reason,
+        [CallerMemberName] string caller = "")
+    {
+        var motion = new EdgeCapsuleMotion(
+            EdgeCapsuleMotionKind.Preserve,
+            0,
+            reason);
+#if DEBUG
+        EdgeCapsuleRetractionDiagnostics.TraceMotionFactory(motion, caller);
+#endif
+        return motion;
+    }
 }
 
 /// <summary>
