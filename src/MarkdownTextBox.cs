@@ -3652,27 +3652,27 @@ public sealed partial class MarkdownTextBox : TextEditor
         var search = 0;
         while (search < text.Length)
         {
-            var labelStart = text.IndexOf('[', search);
+            var labelStart = MarkdownInlineSyntax.IndexOfUnescaped(text, '[', search);
             if (labelStart < 0)
             {
                 yield break;
             }
 
-            var labelEnd = text.IndexOf("](", labelStart + 1, StringComparison.Ordinal);
+            var labelEnd = MarkdownInlineSyntax.IndexOfUnescaped(text, "](", labelStart + 1);
             if (labelEnd < 0)
             {
                 yield break;
             }
 
             var urlStart = labelEnd + 2;
-            var urlEnd = text.IndexOf(')', urlStart);
+            var urlEnd = MarkdownInlineSyntax.IndexOfUnescaped(text, ')', urlStart);
             if (urlEnd < 0)
             {
                 yield break;
             }
 
             var spanEnd = urlEnd + 1;
-            if (TryNormalizeMarkdownUrl(text[urlStart..urlEnd], out var url))
+            if (TryNormalizeMarkdownUrl(MarkdownInlineSyntax.Unescape(text[urlStart..urlEnd]), out var url))
             {
                 yield return new MarkdownLinkSpan(labelStart, spanEnd, url);
             }
@@ -3706,7 +3706,7 @@ public sealed partial class MarkdownTextBox : TextEditor
         var search = 0;
         while (search < text.Length)
         {
-            var openStart = text.IndexOf('<', search);
+            var openStart = MarkdownInlineSyntax.IndexOfUnescaped(text, '<', search);
             if (openStart < 0)
             {
                 yield break;
@@ -3972,13 +3972,13 @@ public sealed partial class MarkdownTextBox : TextEditor
         var index = 0;
         while (index < text.Length)
         {
-            var start = text.IndexOf('`', index);
+            var start = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', index);
             if (start < 0)
             {
                 yield break;
             }
 
-            var end = text.IndexOf('`', start + 1);
+            var end = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', start + 1);
             if (end < 0)
             {
                 yield break;
@@ -4295,6 +4295,12 @@ public sealed partial class MarkdownTextBox : TextEditor
             NoteTypography.FontWeight,
             NoteTypography.FontStretch);
 
+        private static Typeface StrongEmphasisTypeface => new(
+            NoteTypography.FontFamily,
+            FontStyles.Italic,
+            NoteTypography.HeadingFontWeight,
+            NoteTypography.FontStretch);
+
         private static Typeface CodeTypeface => new(
             NoteTypography.CodeFontFamily,
             NoteTypography.FontStyle,
@@ -4475,13 +4481,13 @@ public sealed partial class MarkdownTextBox : TextEditor
             var index = 0;
             while (index < text.Length)
             {
-                var start = text.IndexOf('`', index);
+                var start = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', index);
                 if (start < 0)
                 {
                     return spans;
                 }
 
-                var end = text.IndexOf('`', start + 1);
+                var end = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', start + 1);
                 if (end < 0)
                 {
                     if (isPreviewMode)
@@ -4522,20 +4528,20 @@ public sealed partial class MarkdownTextBox : TextEditor
             var index = 0;
             while (index < text.Length)
             {
-                var labelStart = text.IndexOf('[', index);
+                var labelStart = MarkdownInlineSyntax.IndexOfUnescaped(text, '[', index);
                 if (labelStart < 0)
                 {
                     return spans;
                 }
 
-                var labelEnd = text.IndexOf("](", labelStart + 1, StringComparison.Ordinal);
+                var labelEnd = MarkdownInlineSyntax.IndexOfUnescaped(text, "](", labelStart + 1);
                 if (labelEnd < 0)
                 {
                     return spans;
                 }
 
                 var urlStart = labelEnd + 2;
-                var urlEnd = text.IndexOf(')', urlStart);
+                var urlEnd = MarkdownInlineSyntax.IndexOfUnescaped(text, ')', urlStart);
                 if (urlEnd < 0)
                 {
                     return spans;
@@ -4552,12 +4558,9 @@ public sealed partial class MarkdownTextBox : TextEditor
                 MarkSymbol(line, labelEnd, 2, symbol);
                 MarkSymbol(line, urlEnd, 1, symbol);
 
-                if (labelEnd > labelStart + 1)
+                if (labelEnd > labelStart + 1 && isPreviewMode)
                 {
-                    if (isPreviewMode)
-                    {
-                        MarkLinkLabel(line, labelStart + 1, labelEnd - labelStart - 1, link);
-                    }
+                    MarkLinkLabel(line, labelStart + 1, labelEnd - labelStart - 1, link);
                 }
 
                 if (urlEnd > urlStart)
@@ -4565,7 +4568,10 @@ public sealed partial class MarkdownTextBox : TextEditor
                     MarkSymbol(line, urlStart, urlEnd - urlStart, urlBrush);
                 }
 
-                spans.Add(new InlineSpan(labelStart, spanEnd));
+                // Keep only link syntax/URL out of later inline passes. The label remains
+                // available so **bold**, *italic* and ~~strike~~ can compose inside links.
+                spans.Add(new InlineSpan(labelStart, labelStart + 1));
+                spans.Add(new InlineSpan(labelEnd, spanEnd));
                 index = spanEnd;
             }
 
@@ -4632,13 +4638,15 @@ public sealed partial class MarkdownTextBox : TextEditor
         private void MarkInlineEmphasis(DocumentLine line, string text, Brush weak, List<InlineSpan> ignoredSpans)
         {
             MarkDelimited(line, text, "~~", weak, NormalTypeface, TextDecorations.Strikethrough, ignoredSpans);
+            ignoredSpans.AddRange(MarkDelimited(line, text, "***", weak, StrongEmphasisTypeface, null, ignoredSpans));
+            ignoredSpans.AddRange(MarkDelimited(line, text, "___", weak, StrongEmphasisTypeface, null, ignoredSpans));
             MarkDelimited(line, text, "**", weak, StrongTypeface, null, ignoredSpans);
             MarkDelimited(line, text, "__", weak, StrongTypeface, null, ignoredSpans);
             MarkSingleDelimited(line, text, '*', weak, EmphasisTypeface, ignoredSpans);
             MarkSingleDelimited(line, text, '_', weak, EmphasisTypeface, ignoredSpans);
         }
 
-        private void MarkDelimited(
+        private List<InlineSpan> MarkDelimited(
             DocumentLine line,
             string text,
             string delimiter,
@@ -4647,20 +4655,21 @@ public sealed partial class MarkdownTextBox : TextEditor
             TextDecorationCollection? decorations,
             List<InlineSpan> ignoredSpans)
         {
+            var spans = new List<InlineSpan>();
             var index = 0;
             while (index < text.Length)
             {
-                var start = text.IndexOf(delimiter, index, StringComparison.Ordinal);
+                var start = MarkdownInlineSyntax.IndexOfUnescaped(text, delimiter, index);
                 if (start < 0)
                 {
-                    return;
+                    return spans;
                 }
 
                 var contentStart = start + delimiter.Length;
-                var end = text.IndexOf(delimiter, contentStart, StringComparison.Ordinal);
+                var end = MarkdownInlineSyntax.IndexOfUnescaped(text, delimiter, contentStart);
                 if (end < 0)
                 {
-                    return;
+                    return spans;
                 }
 
                 var spanEnd = end + delimiter.Length;
@@ -4673,8 +4682,11 @@ public sealed partial class MarkdownTextBox : TextEditor
                 MarkSymbol(line, start, delimiter.Length, markerBrush);
                 MarkStyled(line, contentStart, end - contentStart, contentTypeface, decorations);
                 MarkSymbol(line, end, delimiter.Length, markerBrush);
+                spans.Add(new InlineSpan(start, spanEnd));
                 index = spanEnd;
             }
+
+            return spans;
         }
 
         private void MarkSingleDelimited(
@@ -4739,14 +4751,30 @@ public sealed partial class MarkdownTextBox : TextEditor
                 return;
             }
 
+            var slashRun = 0;
             for (var i = 0; i < text.Length; i++)
             {
-                if (IsIgnored(ignoredSpans, i, 1))
+                var c = text[i];
+                if (c == '\\')
+                {
+                    var escapedSlash = (slashRun & 1) != 0;
+                    if (!escapedSlash &&
+                        i + 1 < text.Length &&
+                        MarkdownInlineSyntax.IsEscapable(text[i + 1]))
+                    {
+                        MarkSymbol(line, i, 1, weak);
+                    }
+                    slashRun++;
+                    continue;
+                }
+
+                var escaped = (slashRun & 1) != 0;
+                slashRun = 0;
+                if (escaped || IsIgnored(ignoredSpans, i, 1))
                 {
                     continue;
                 }
 
-                var c = text[i];
                 if (c == '[' || c == ']' || c == '(' || c == ')')
                 {
                     MarkSymbol(line, i, 1, weak);
@@ -4773,7 +4801,7 @@ public sealed partial class MarkdownTextBox : TextEditor
         {
             for (var i = startIndex; i < text.Length; i++)
             {
-                if (text[i] != delimiter)
+                if (text[i] != delimiter || MarkdownInlineSyntax.IsEscaped(text, i))
                 {
                     continue;
                 }
@@ -4872,13 +4900,37 @@ public sealed partial class MarkdownTextBox : TextEditor
         {
             Change(line, startInLine, length, element =>
             {
-                element.TextRunProperties.SetTypeface(typeface);
-                var fontSize = _owner.ScaledFontSize(NoteTypography.FontSize);
-                element.TextRunProperties.SetFontRenderingEmSize(fontSize);
-                element.TextRunProperties.SetFontHintingEmSize(fontSize);
+                var current = element.TextRunProperties.Typeface;
+                var style = typeface.Style == FontStyles.Italic
+                    ? FontStyles.Italic
+                    : current.Style;
+                var weight = typeface.Weight == NoteTypography.HeadingFontWeight
+                    ? NoteTypography.HeadingFontWeight
+                    : current.Weight;
+                element.TextRunProperties.SetTypeface(new Typeface(
+                    current.FontFamily,
+                    style,
+                    weight,
+                    current.Stretch));
+
                 if (decorations != null)
                 {
-                    element.TextRunProperties.SetTextDecorations(decorations);
+                    var merged = new TextDecorationCollection();
+                    if (element.TextRunProperties.TextDecorations is { } existing)
+                    {
+                        foreach (var decoration in existing)
+                        {
+                            merged.Add(decoration);
+                        }
+                    }
+                    foreach (var decoration in decorations)
+                    {
+                        if (!merged.Contains(decoration))
+                        {
+                            merged.Add(decoration);
+                        }
+                    }
+                    element.TextRunProperties.SetTextDecorations(merged);
                 }
                 if (foreground != null)
                 {
