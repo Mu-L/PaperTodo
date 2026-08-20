@@ -7,6 +7,7 @@
 - 多种日期格式、标题模式和显示缩放；
 - `initialize`、`settingsChanged`、`themeChanged`、`visibilityChanged` 生命周期；
 - 1.8 `miniEntry` 提供独立轻量时钟，收到初始化后完成首帧再调用 `papertodo.mini.ready()`；
+- Web Mini 默认把点击和拖拽交给 PaperTodo；网页需要自己处理指针的局部区域使用 `data-papertodo-interactive` 显式声明，本示例的“暂停 / 继续”按钮即为示例；
 - 迷你网页就绪前由放大的 1.6 胶囊立即显示，不出现空白卡片；
 - `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别同步纸片顶栏和 1.6 胶囊模板，胶囊按当前标题和日进度组件自动适配宽度；
 - 正文可用较高频率对齐秒边界，但对宿主胶囊写入做去重，避免无意义地重复重建同一模板。

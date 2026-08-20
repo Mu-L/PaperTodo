@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -86,18 +87,30 @@ internal sealed partial class WebPaperBodySession
 
     private sealed class WebPluginMiniViewHost : Grid, IDisposable
     {
+        private readonly record struct InteractiveRegion(
+            double Left,
+            double Top,
+            double Right,
+            double Bottom)
+        {
+            public bool Contains(double x, double y) =>
+                x >= Left && x < Right && y >= Top && y < Bottom;
+        }
+
         // CoreWebView2 can front-load tens of milliseconds of UI-thread work the first time a
         // mini surface is initialized. Keep that cold bootstrap out of the same 200 ms window in
         // which the fallback card is morphing/moving; the already-rendered fallback remains the
         // visible authority until the WebView is ready.
         private const int ColdInitializationDeferralMilliseconds =
             EdgeCapsuleLayout.SlotMoveMilliseconds + 20;
+        private const int MaximumInteractiveRegions = 128;
 
         private readonly WebPaperBodySession _owner;
         private readonly EdgeCapsulePreviewSize _size;
         private readonly WebView2CompositionControl _webView;
         private readonly CancellationTokenSource _lifetime = new();
         private FrameworkElement _fallback;
+        private InteractiveRegion[] _interactiveRegions = Array.Empty<InteractiveRegion>();
         private string _expectedOrigin = "";
         private bool _visible;
         private bool _initializationQueued;
@@ -136,13 +149,18 @@ internal sealed partial class WebPaperBodySession
                 IsHitTestVisible = false
             };
             _webView.SetValue(UIElement.OpacityProperty, 0.0);
-            PaperMiniViewInteraction.SetConsumesPointer(_webView, true);
+            // Web mini surfaces are host-owned by default. The bridge mirrors only explicitly
+            // declared data-papertodo-interactive rectangles; WPF evaluates the current pointer
+            // against those rectangles synchronously before the next click reaches the host.
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
             Children.Add(_fallback);
             Children.Add(_webView);
             Panel.SetZIndex(_webView, 2);
 
             Loaded += OnLoaded;
             SizeChanged += OnSizeChanged;
+            _webView.PreviewMouseMove += OnWebViewPreviewMouseMove;
+            _webView.MouseLeave += OnWebViewMouseLeave;
         }
 
         public bool Matches(EdgeCapsulePreviewSize size) =>
@@ -189,6 +207,7 @@ internal sealed partial class WebPaperBodySession
             }
             else
             {
+                PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
                 _initializationQueued = false;
                 _initializationDeferralGeneration++;
                 Send(new { type = "commitRequested" });
@@ -219,8 +238,17 @@ internal sealed partial class WebPaperBodySession
         private void OnLoaded(object sender, RoutedEventArgs e) =>
             QueueInitialization();
 
-        private void OnSizeChanged(object sender, SizeChangedEventArgs e) =>
+        private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+        {
             QueueInitialization();
+            RefreshPointerOwnership();
+        }
+
+        private void OnWebViewPreviewMouseMove(object sender, MouseEventArgs e) =>
+            RefreshPointerOwnership(e.GetPosition(_webView));
+
+        private void OnWebViewMouseLeave(object sender, MouseEventArgs e) =>
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
 
         private void QueueInitialization()
         {
@@ -403,6 +431,82 @@ internal sealed partial class WebPaperBodySession
                   let sequence = 0;
                   let stateProvider = null;
                   const post = (type, payload = null) => window.chrome.webview.postMessage({ type, payload });
+
+                  const interactiveSelector = '[data-papertodo-interactive]';
+                  let interactiveRegionFrame = 0;
+                  let interactiveRegionSignature = '';
+                  const observedInteractiveElements = new Set();
+                  const interactiveResizeObserver = typeof ResizeObserver === 'function'
+                    ? new ResizeObserver(() => queueInteractiveRegions())
+                    : null;
+                  const syncObservedInteractiveElements = elements => {
+                    if (!interactiveResizeObserver) return;
+                    const next = new Set(elements);
+                    for (const element of [...observedInteractiveElements]) {
+                      if (next.has(element)) continue;
+                      interactiveResizeObserver.unobserve(element);
+                      observedInteractiveElements.delete(element);
+                    }
+                    for (const element of elements) {
+                      if (observedInteractiveElements.has(element)) continue;
+                      observedInteractiveElements.add(element);
+                      interactiveResizeObserver.observe(element);
+                    }
+                  };
+                  const publishInteractiveRegions = () => {
+                    const viewportWidth = Math.max(1, window.innerWidth || document.documentElement?.clientWidth || 1);
+                    const viewportHeight = Math.max(1, window.innerHeight || document.documentElement?.clientHeight || 1);
+                    const elements = [...document.querySelectorAll(interactiveSelector)];
+                    syncObservedInteractiveElements(elements);
+                    const regions = [];
+                    for (const element of elements) {
+                      const style = getComputedStyle(element);
+                      if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+                      const rect = element.getBoundingClientRect();
+                      const left = Math.max(0, Math.min(viewportWidth, rect.left));
+                      const top = Math.max(0, Math.min(viewportHeight, rect.top));
+                      const right = Math.max(0, Math.min(viewportWidth, rect.right));
+                      const bottom = Math.max(0, Math.min(viewportHeight, rect.bottom));
+                      if (right <= left || bottom <= top) continue;
+                      regions.push({
+                        left: left / viewportWidth,
+                        top: top / viewportHeight,
+                        right: right / viewportWidth,
+                        bottom: bottom / viewportHeight
+                      });
+                    }
+                    const signature = JSON.stringify(regions);
+                    if (signature === interactiveRegionSignature) return;
+                    interactiveRegionSignature = signature;
+                    post('miniInteractiveRegions', { regions });
+                  };
+                  function queueInteractiveRegions() {
+                    if (interactiveRegionFrame) return;
+                    interactiveRegionFrame = requestAnimationFrame(() => {
+                      interactiveRegionFrame = 0;
+                      publishInteractiveRegions();
+                    });
+                  }
+                  const startInteractiveRegionTracking = () => {
+                    const root = document.documentElement;
+                    if (!root) return;
+                    new MutationObserver(queueInteractiveRegions).observe(root, {
+                      subtree: true,
+                      childList: true,
+                      attributes: true,
+                      characterData: true
+                    });
+                    publishInteractiveRegions();
+                  };
+                  if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', startInteractiveRegionTracking, { once: true });
+                  } else {
+                    startInteractiveRegionTracking();
+                  }
+                  document.addEventListener('scroll', queueInteractiveRegions, true);
+                  window.addEventListener('resize', queueInteractiveRegions);
+                  window.addEventListener('load', queueInteractiveRegions);
+
                   const saveState = state => post('saveState', state ?? {});
                   const flushState = () => {
                     if (typeof stateProvider !== 'function') return;
@@ -512,6 +616,7 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            ClearInteractiveRegions();
             ShowFallback();
         }
 
@@ -555,6 +660,7 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            ClearInteractiveRegions();
             ShowFallback();
         }
 
@@ -607,6 +713,9 @@ internal sealed partial class WebPaperBodySession
                         _pluginReportedReady = true;
                         QueueShowPlugin();
                         break;
+                    case "miniInteractiveRegions":
+                        UpdateInteractiveRegions(payload);
+                        break;
                     case "saveState":
                         _owner.UpdateStateFromWebSurface(payload, this);
                         break;
@@ -639,6 +748,91 @@ internal sealed partial class WebPaperBodySession
             {
                 // A malformed mini message cannot affect the body session.
             }
+        }
+
+        private void UpdateInteractiveRegions(JsonElement payload)
+        {
+            if (_disposed ||
+                payload.ValueKind != JsonValueKind.Object ||
+                !payload.TryGetProperty("regions", out var regionsValue) ||
+                regionsValue.ValueKind != JsonValueKind.Array)
+            {
+                ClearInteractiveRegions();
+                return;
+            }
+
+            var regions = new List<InteractiveRegion>();
+            foreach (var region in regionsValue.EnumerateArray())
+            {
+                if (regions.Count >= MaximumInteractiveRegions)
+                {
+                    break;
+                }
+                if (region.ValueKind != JsonValueKind.Object ||
+                    !TryReadFiniteCoordinate(region, "left", out var left) ||
+                    !TryReadFiniteCoordinate(region, "top", out var top) ||
+                    !TryReadFiniteCoordinate(region, "right", out var right) ||
+                    !TryReadFiniteCoordinate(region, "bottom", out var bottom))
+                {
+                    continue;
+                }
+
+                left = Math.Clamp(left, 0, 1);
+                top = Math.Clamp(top, 0, 1);
+                right = Math.Clamp(right, 0, 1);
+                bottom = Math.Clamp(bottom, 0, 1);
+                if (right <= left || bottom <= top)
+                {
+                    continue;
+                }
+                regions.Add(new InteractiveRegion(left, top, right, bottom));
+            }
+
+            _interactiveRegions = regions.ToArray();
+            RefreshPointerOwnership();
+        }
+
+        private static bool TryReadFiniteCoordinate(
+            JsonElement source,
+            string propertyName,
+            out double value)
+        {
+            value = 0;
+            return source.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.Number &&
+                property.TryGetDouble(out value) &&
+                double.IsFinite(value);
+        }
+
+        private void ClearInteractiveRegions()
+        {
+            _interactiveRegions = Array.Empty<InteractiveRegion>();
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
+        }
+
+        private void RefreshPointerOwnership(Point? localPoint = null)
+        {
+            var interactive = false;
+            if (!_disposed &&
+                _visible &&
+                _pluginReady &&
+                _webView.IsHitTestVisible &&
+                _webView.IsMouseOver &&
+                _interactiveRegions.Length > 0 &&
+                _webView.ActualWidth > 0 &&
+                _webView.ActualHeight > 0)
+            {
+                var point = localPoint ?? Mouse.GetPosition(_webView);
+                if (point.X >= 0 && point.Y >= 0 &&
+                    point.X < _webView.ActualWidth &&
+                    point.Y < _webView.ActualHeight)
+                {
+                    var x = point.X / _webView.ActualWidth;
+                    var y = point.Y / _webView.ActualHeight;
+                    interactive = _interactiveRegions.Any(region => region.Contains(x, y));
+                }
+            }
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, interactive);
         }
 
         private void HandleHostRequest(JsonElement payload)
@@ -788,6 +982,7 @@ internal sealed partial class WebPaperBodySession
             var painted = _documentReady && _pluginReady && !_disposed;
             _webView.SetValue(UIElement.OpacityProperty, painted ? 1.0 : 0.0);
             _webView.IsHitTestVisible = painted && _visible;
+            RefreshPointerOwnership();
             if (!_pluginReady)
             {
                 _fallback.Visibility = Visibility.Visible;
@@ -805,6 +1000,7 @@ internal sealed partial class WebPaperBodySession
             _readyProbeToken = null;
             _pluginReady = false;
             _pluginReportedReady = false;
+            ClearInteractiveRegions();
             _fallback.Visibility = Visibility.Visible;
             _webView.SetValue(UIElement.OpacityProperty, 0.0);
             _webView.IsHitTestVisible = false;
@@ -834,10 +1030,13 @@ internal sealed partial class WebPaperBodySession
             }
             Send(new { type = "commitRequested" });
             _disposed = true;
+            ClearInteractiveRegions();
             CancelQueuedShowPlugin();
             _lifetime.Cancel();
             Loaded -= OnLoaded;
             SizeChanged -= OnSizeChanged;
+            _webView.PreviewMouseMove -= OnWebViewPreviewMouseMove;
+            _webView.MouseLeave -= OnWebViewMouseLeave;
             if (_webView.CoreWebView2 is { } core)
             {
                 core.WebMessageReceived -= OnWebMessageReceived;

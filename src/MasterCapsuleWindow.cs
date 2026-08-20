@@ -318,6 +318,9 @@ public sealed class MasterCapsuleWindow : Window
             var wasDragging = FinishMasterGesture(commit: true, clearFocus: false);
             if (!wasDragging)
             {
+                _controller.SuppressEdgeCapsulePreviewForMasterQueueLayout(
+                    _queueMonitorDeviceName,
+                    _queueEdge);
                 _controller.ToggleCapsuleCollapseAllActive(_queueMonitorDeviceName, _queueEdge);
             }
 
@@ -333,7 +336,7 @@ public sealed class MasterCapsuleWindow : Window
 
     public void UpdateTheme()
     {
-        // Pill background is always the opaque PaperBrush; the hover tint lives on the overlay.
+        // The pill background stays opaque; hover is rendered by the overlay.
         _pill.Background = Theme.PaperBrush;
         _pill.BorderBrush = Theme.PaperBorderBrush;
         _hoverOverlay.Background = _isHovering ? Theme.HoverBrush : Brushes.Transparent;

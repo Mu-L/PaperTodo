@@ -6,28 +6,38 @@ internal readonly record struct EdgeCapsulePreviewSize(
     double WidthDip,
     double HeightDip)
 {
+    // Protocol 1.8 does not impose a product-level mini-card minimum or maximum. These legacy
+    // minimum constants remain only as built-in presentation defaults; Normalize deliberately
+    // accepts any positive finite plugin size and clamps only to the current monitor work area.
     public const double MinimumWidthDip = 120;
-    public const double MaximumWidthDip = 480;
+    public const double MaximumWidthDip = double.MaxValue;
     public const double MinimumHeightDip = 90;
-    public const double MaximumHeightDip = 420;
+    public const double MaximumHeightDip = double.MaxValue;
 
     public EdgeCapsulePreviewSize Normalize(double maximumWidthDip, double maximumHeightDip)
     {
-        var maxWidth = Math.Max(
-            MinimumWidthDip,
-            Math.Min(MaximumWidthDip, maximumWidthDip));
-        var maxHeight = Math.Max(
-            MinimumHeightDip,
-            Math.Min(MaximumHeightDip, maximumHeightDip));
+        if (!double.IsFinite(WidthDip) ||
+            !double.IsFinite(HeightDip) ||
+            WidthDip <= 0 ||
+            HeightDip <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(EdgeCapsulePreviewSize),
+                "Edge preview width and height must be positive finite numbers.");
+        }
+        if (!double.IsFinite(maximumWidthDip) ||
+            !double.IsFinite(maximumHeightDip) ||
+            maximumWidthDip <= 0 ||
+            maximumHeightDip <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumWidthDip),
+                "Edge preview monitor limits must be positive finite numbers.");
+        }
+
         return new EdgeCapsulePreviewSize(
-            Math.Clamp(
-                double.IsFinite(WidthDip) ? WidthDip : MinimumWidthDip,
-                MinimumWidthDip,
-                maxWidth),
-            Math.Clamp(
-                double.IsFinite(HeightDip) ? HeightDip : MinimumHeightDip,
-                MinimumHeightDip,
-                maxHeight));
+            Math.Min(WidthDip, maximumWidthDip),
+            Math.Min(HeightDip, maximumHeightDip));
     }
 }
 
