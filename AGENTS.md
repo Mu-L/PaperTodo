@@ -2,19 +2,40 @@
 
 本文件只记录“不通读历史和全量代码很难知道”的项目约束。代码是真相；普通文件职责、字段含义、WPF/C# 常识不要写进来。
 
+## 项目知识入口
+
+开始涉及架构、ownership、跨子系统行为或历史方案的任务前，先按职责读取对应文档，不要只依赖当前对话、PR 描述或旧 Agent 记忆：
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) 记录**当前实际架构**、数据流和 ownership；改变架构事实时必须在同一变更中更新。
+- [`DECISIONS.md`](DECISIONS.md) 记录**为什么选择当前路线、哪些路线已被否决以及关键踩坑**；产生新的明确取舍、推翻旧选择或准备恢复旧实现时必须同步核对和更新。
+- `AGENTS.md` 只保留 Agent 必须遵守的隐藏硬约束和执行规则；可以为可执行性保留必要的不变量，但不要完整复述前两份文档成为第二套架构说明。
+- 关键代码注释解释局部的 why、不变量和危险边界；改变对应实现时必须一起核对，不能让注释描述旧机制。
+
+文档或注释与代码冲突时，不要默认相信任一方，也不要悄悄按旧文档改代码；先用当前代码、提交历史和可观察行为核对真实状态，再同步修正。
+
+## 文档与代码同步流程
+
+- 涉及架构、ownership、历史方案或文档整理时，先完整检查现有文档，再读相关代码和 git 提交记录；事实核对完成后再统一修订，不要边发现边写、让前面刚写的结论被后面的代码历史推翻。
+- **每次代码变化都要显式检查四个知识落点：关键代码注释、`ARCHITECTURE.md`、`DECISIONS.md`、`AGENTS.md`。** 只更新真正受影响的部分，但不能因为改动“小”就跳过检查。
+- 架构事实变化与 Architecture 同一变更更新；形成/推翻明确取舍与 Decisions 同一变更更新；Agent 执行约束变化与 Agents 同一变更更新；局部隐藏不变量变化与附近关键注释同一变更更新。不要计划“最后再补文档”。
+- 不新增并行描述“当前完整架构”的专题文档；专题文档只能补充根文档没有承载的局部材料，并明确链接当前 Source of Truth。过期专题说明应删除或标记为历史，而不是继续和根文档竞争。
+- 一次性验证结果、PR 过程和临时手工场景不升级成长期验收矩阵；能长期证明的正确性优先放在编译、测试、诊断日志和可执行检查中。
+
 ## 工作方式
 
 不要用临时最简原型、止血式局部假模型或明显偏离产品形态的替代实现来交付改动。除非改动巨大到需要重新定路线，必须先向用户确认，再按真实产品结构修改。
 
-尽量不引入过重实现，打补丁叠屎山代码，不要过于考虑边界场景和少数极端情况，
+避免两种相反倾向：不要为了缺乏证据的少数极端场景把实现膨胀成过重框架，也不要用一次性补丁叠加并行状态。先修清 ownership、数据流和真实高风险边界，再决定是否需要新增机制。
 
 需要提交时，如果未提交改动能按功能边界无损拆分，并且每个提交都保持可构建、可理解、可独立回滚，应拆成多个独立提交方便管理；不要把无关文档、备份文件或用户的其他改动混入功能提交。
 
 ## 产品边界
 
-PaperTodo 是“桌面上的几张纸”，不是任务管理器、知识库或文档编辑器。默认不做账号、同步、分类、标签、搜索、归档、统计、提醒、日历、主管理页和集中列表页。
+PaperTodo 当前的交互中心仍是“桌面上的几张纸”。在没有明确产品决策时，不要把局部需求自动扩张成中心式任务管理器、中心式知识库编辑器或主管理页，也不要自行补账号、云同步、分类、标签、搜索、归档等整套系统。
 
-Markdown 只做轻量显示和编辑辅助。可兼容少量单行内联 HTML 标签（`b/strong/i/em/s/del/u/code/a href`）；笔记图片只支持内部 `i:` 独占行图片块，不扩展网络图片、表格、附件、其他嵌入内容、块级 HTML 或完整块编辑器。
+这是一条**默认防扩张规则**，不是永久否决清单。已经存在于代码中的能力，或用户通过新需求 / 新 decision 明确引入的产品方向，以当前代码和最新决策为准；发生产品边界变化时同步更新本节和 `DECISIONS.md`，不能让旧 Agent 文案反过来阻止已经明确的新路线。
+
+Markdown 当前只做轻量显示和编辑辅助。可兼容少量单行内联 HTML 标签（`b/strong/i/em/s/del/u/code/a href`）；笔记图片只支持内部 `i:` 独占行图片块，不扩展网络图片、表格、附件、其他嵌入内容、块级 HTML 或完整块编辑器，除非后续有新的明确产品决策。
 
 ## 数据和保存
 
@@ -40,26 +61,28 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 
 ## 胶囊和贴边胶囊
 
-这是最高风险区，问题通常来自“窗口几何、动画状态、隐藏状态、持久化状态”混在一起。
+这是最高风险区，问题通常来自“窗口几何、动画状态、隐藏状态、持久化状态”混在一起。先读 `ARCHITECTURE.md` 的 Edge Capsule 章节和 `DECISIONS.md` 的相关条目；下面只保留 Agent 不能误改的硬约束。
 
 - 普通胶囊和贴边胶囊共用度量来源：`PaperLayoutDefaults` / `EdgeCapsuleLayout`。
 - 应用清单固定为 `PerMonitorV2,PerMonitor`；贴边 HWND 的物理像素几何以目标显示器和已创建宿主的实际 DPI 为准，不得回退到主纸片窗口的 DPI。
 - 贴边槽位不再由 `DeepCapsuleSlotWindow.cs` 或零散 `PaperWindow` 字段维护；`EdgeCapsuleHost` 独占 docked HWND 和视觉树，floating drag 继续使用独立 HWND。
-- 所有贴边输入先变成带强类型参数的语义 `EdgeCapsuleIntent`，再经过 `EdgeCapsuleReducer`；不得重新引入 `SetSlot` / `SetVisual` / `SetPlacement` 这类字段 setter、通用参数袋或在 `PaperWindow` 另写布尔状态机。
+- 所有会改变单纸片 Slot / Visual / Gesture / Preview / Placement 的输入，先变成带强类型参数的语义 `EdgeCapsuleIntent`，再经过 `EdgeCapsuleReducer`；不得重新引入 `SetSlot` / `SetVisual` / `SetPlacement` 这类字段 setter、通用参数袋或在 `PaperWindow` 另写布尔状态机。队列级 preview owner、corridor 和 visual transaction 仍由 controller 协调。
 - 每张纸的 desired model、target presentation、业务 applied frame 和延迟工作只能由一个 `EdgeCapsulePresenter` 持有；`PaperWindow` 只提供环境快照和一个 `EdgeCapsuleHost.Apply(frame)` 效果入口，不得再增加业务状态机。队列级 Composition 代理只允许临时采样同一组起终帧来呈现过渡像素和命中几何，不能反写 reducer、持有第二份 desired state 或在交接后继续存在。
 - `EdgeCapsuleTargetPlanner` 必须一次产出完整 shape plan；`Docked*` 和 `FloatingFree` 是互斥外形，悬浮拖拽窗口只能消费 planner 的 `FloatingFree`，不得由构造参数临时拼关闭区、圆角或宽度。
 - 显示器、边、顶部、内容宽度和关闭宽度到 `DeviceScreenRect` 的转换只走纯 `EdgeCapsuleGeometry`；不得在窗口移动、动画或 measure 回调中复制物理像素公式。
 - per-window 的显示器 settle、标题 measure、物理指针采样和 frame apply 共用一个 dirty/reconcile 调度入口；普通同步交接调用同一管线的 `Flush`，不得直接调用 planner/apply，也不得为新条件增加独立 pending/scheduled 布尔对。唯一例外是 controller-owned 队列代理：它可在统一 visual transaction 内捕获每项起终帧，并在所有真实源已被代理遮盖且 cloak 后直接提交、验证端点。跨胶囊 arrange 只由队列协调器单独合并。
 - 同一 Dispatcher 上的 Presenter 必须共用一个调度器和每帧一次的物理指针采样；Resting/Hover/Preview 的宽高、圆角和内容变化只由 bounded host 内的 WPF Visual 完成，DComp queue proxy 只允许移动同尺寸 live surface。
-- 指针是否位于胶囊上只根据 applied frame 的物理 `InteractiveBounds` 判断；该矩形排除透明阴影边距，WPF enter/leave 只负责唤醒采样，不能直接写 Hover。
+- 指针是否位于胶囊上只根据当前 presented/applied frame 的物理 `InteractiveBounds` 判断；该矩形排除透明阴影边距，WPF enter/leave 只负责唤醒采样，不能直接写 Hover。proxy 拥有可见像素时也必须使用同一 logical frame 的 `InteractiveBounds` 路由输入。
 - 边缘预览展开后，当前卡片与其他可浏览胶囊的 applied `InteractiveBounds` 是真实选择区；每段连续可交互队列项的外接矩形是临时空白转移区，但不是胶囊命中区，真实 `HostBounds` 和代理 envelope 都不得混入。不可交互或正在收回的旧卡必须切断前后矩形。指针在空白转移区内时，开启移动意图只在轨迹明确朝向某个可浏览胶囊时保活，否则按五档分别约 0.2 / 0.35 / 0.5 / 0.65 / 0.8 秒收起；关闭移动意图时固定等待 1 秒。越出该外接矩形在两种模式下都必须无条件立即收起，预测没有否决权；指针捕获期间不得触发。
 - 每个队列的 index、master offset 和 slot count 只由 `EdgeCapsuleQueueCoordinator` 生成，`AppController` 和单个窗口不得各自重新推导。
 - **贴边胶囊队列永远不分页。** 不得按工作区高度做安全容量、隐藏溢出胶囊、页头、页码、自动翻页或容量截断；队列始终按完整顺序连续向下排列，超过当前显示器工作区就允许直接出屏。后续不要以“防重叠”“小屏适配”或任何其他名义重新引入分页。
+- `MasterCapsuleWindow` 只拥有每队列 slot 0、自己的 pill/手势和纵向队列锚点；真实纸片的 retract/release 由 controller 驱动，master 不得持有第二套纸片 presenter 状态。
 - 每张纸的 docked HWND 使用 V3 Lite bounded host：容量只覆盖该纸在当前显示器上的最大合法 Preview，不得扩成工作区或整队列高度；`HostBounds` 是稳定容量，`Bounds` 是当前可见 WPF 形状。
 - 贴边胶囊的关闭区位于屏幕墙边、悬停时从 0 宽度展开并把图标/标题推向屏幕内部；靠墙侧始终为直角，内容区拥有朝屏幕内部的圆角。
 - 贴边胶囊水平伸缩只插值已经取整的可见物理宽度，并由 WPF Visual 在 bounded host 内完成；Composition 层不得改变 surface 尺寸、clip 尺寸或用 bitmap 缩放模拟 Preview。
 - `EdgeCapsuleHost.Apply(frame)` 仍是每纸片真实 docked HWND 的唯一呈现契约；`HostBounds` 可大于 `Bounds`，但两者必须同墙、当前可见宽高不得超过容量，透明容量不得参与命中。
 - Translation proxy 必须 `NOACTIVATE`、只包装同尺寸 live HWND surface，并在 cover 发布后把真实 HWND 一次落到 endpoint；禁止 snapshot、freeze、Reveal/Conceal resize handoff。取消、拖拽、DPI/显示器/z-order 变化必须立即恢复至少一个可见 authority。
+- completion timer 只能发起完成尝试，不能证明 WPF terminal frame 已就绪；撤掉 cover 前必须重新完成 endpoint flush/apply、必要 render turn 和 bounds verify。cover 丢失时先立即恢复真实 HWND，只有即时恢复失败后才允许安排有界 retry。
 - 跨队列拖拽使用独立的 floating drag HWND；贴边 slot host 永远只保留贴边布局，禁止把它改造成自由胶囊或在两种外形间复用列顺序、圆角和宽度状态。
 - 拖动期间收到的全局 `ArrangeDeepCapsules` 请求必须合并并在拖动结束后刷新，不能静默丢弃；显示器指标刷新可用自己的延迟刷新吞并该请求。
 - 标题测量刷新只改变 target 的真实内容宽度，不得重新推导 Hover / Active、关闭区或槽位语义；它不能覆盖已经排队的动画，动画中从当前 applied frame 平滑 retarget，拖动中则延迟到会话结束。
@@ -78,9 +101,9 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 ## 待办和笔记
 
 - 多行粘贴待办只能形成一次撤销快照。
-- `PaperItem.LinkedPaperId` 会影响删除纸片、关闭关联功能、显示关联纸片名称、以及“已关联纸片不显示为胶囊”。
+- `PaperItem.LinkedPaperId` 会影响删除纸片、关闭关联功能、显示关联纸片名称，以及“已关联纸片不显示为胶囊”。
 - 笔记编辑态和浏览态共用同一个 `MarkdownTextBox`。不要拆成两套文本控件，否则滚动、换行、选区和测量容易漂。
-- `MarkdownTextBox` 长度上限是 WPF布局 / 渲染保护，不要直接删除。
+- `MarkdownTextBox` 长度上限是 WPF 布局 / 渲染保护，不要直接删除。
 
 ## 主题、资源、提示
 
@@ -142,6 +165,4 @@ dotnet build PaperTodo.csproj -c Release
 
 ## 更新本文
 
-只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程发生变化时才更新本文。普通 UI 微调、文案、颜色、间距、动画参数不需要同步。
-
-- DComp translation backend 的类型层不得暴露 clip、scale、effect、snapshot、Reveal/Conceal 或 deferred resize；这些能力不是“暂时不用”，而是 V3 Lite 中禁止存在。
+每次代码变更都必须先检查本文是否受影响；只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程等隐藏硬约束或 Agent 执行规则发生变化时才实际修改本文。普通 UI 微调、文案、颜色、间距、动画参数如果没有改变这些约束，不需要为了制造 diff 而更新。
