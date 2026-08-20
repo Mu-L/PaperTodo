@@ -116,7 +116,7 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 
 `plugin-samples/` 只保存插件源码和构建说明，`plugins/` 只保存可直接加载的最终插件产物。普通开发构建可以复制 `plugins/` 方便调试，但本地 `dotnet publish` 和 GitHub Release 都不携带插件；插件单独构建和分发。最终插件目录不保留 PDB、XML 文档、重复原生库、宿主已提供的共享程序集或其他中间产物。
 
-`.github/workflows/pr-test-debug.yml` 只允许手动 `workflow_dispatch`，不得挂到 `pull_request`、`push` 或其他自动事件。只有同时满足“当前 Agent 环境无法可靠完成 Windows x64 Debug 单文件编译”和“本轮改动确实需要用户真机验证”时，Agent 才触发该 workflow；能本地编译、只需要静态检查 / 普通 CI、或尚不需要用户测试时都不要触发。触发时必须指定当前要测试的 branch / ref（例如 `gh workflow run pr-test-debug.yml --ref <branch>`），确认 run 的 HEAD/产物 SHA 对应预期提交后，再把 no-runtime 单文件交给用户。该 workflow 的 Artifact 只保留 1 天，不把它当常规 CI。注意 `workflow_dispatch` 只有 workflow 已存在于默认分支时才能触发；尚未合入默认分支时不要误报已触发，当前工具缺少 Actions dispatch 权限或能力时也要明确说明。
+PR 分支按提交信息按需触发 CI：`[debug]` 运行 `PR Test Debug` 并生成 Debug 测试包，`[ci]` 运行 `Pull request build`，`[debug-ci]` 两者都运行；普通提交不执行这两个 Windows 构建。两者仍保留 `workflow_dispatch` 作为手动兜底。Agent 需要对应检查时把标记直接放进真实提交信息，不要为了触发单独制造空提交。`PR Test Debug` Artifact 只保留 1 天。
 
 普通编译：
 
@@ -137,5 +137,3 @@ dotnet build PaperTodo.csproj -c Release
 ## 更新本文
 
 只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程发生变化时才更新本文。普通 UI 微调、文案、颜色、间距、动画参数不需要同步。
-
-- DComp translation backend 的类型层不得暴露 clip、scale、effect、snapshot、Reveal/Conceal 或 deferred resize；这些能力不是“暂时不用”，而是 V3 Lite 中禁止存在。
