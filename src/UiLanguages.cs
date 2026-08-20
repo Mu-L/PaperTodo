@@ -25,6 +25,7 @@ public static class UiLanguages
     private static readonly CultureInfo SystemUiCulture = CultureInfo.CurrentUICulture;
     private static readonly string StartupPreference = LoadPersistedPreferenceCore();
 
+    // Intentionally fixed for the process lifetime; a settings change takes effect after restart.
     public static CultureInfo EffectiveCulture { get; } =
         ResolveCulture(StartupPreference, SystemCulture);
 
