@@ -6,15 +6,16 @@ public partial class App
 {
     public App()
     {
-        // Warm the cheap DComp/native publication path after startup work drains so the first real
-        // preview does not pay device/target/visual/commit/show/DwmFlush/cloak first-use costs. WPF
-        // is deliberately left cold here; existing host.apply timings remain the unbiased probe for
-        // deciding whether a separate WPF warm-up is worth its startup and memory cost.
+        // Pay first-use composition costs at ApplicationIdle, after the real edge hosts exist.
+        // The lightweight probe warms WPF/Win32/DComp primitives; the product-host probe then
+        // wraps those already-visible real host HWNDs on the exact spare QueueHost target without
+        // moving or cloaking any paper window.
         _ = Dispatcher.BeginInvoke(
             DispatcherPriority.ApplicationIdle,
             (Action)(() =>
             {
                 EdgeCapsuleQueueCompositionProxy.PrewarmLightweight(Dispatcher);
+                EdgeCapsuleQueueCompositionProxy.PrewarmProductHostAssembly(Dispatcher);
             }));
     }
 }
