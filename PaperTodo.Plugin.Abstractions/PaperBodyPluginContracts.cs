@@ -119,8 +119,8 @@ public interface IPaperCapsuleViewProvider
 
 /// <summary>
 /// Preferred complete edge mini-card size in device-independent pixels. The size includes the
-/// host-owned chrome and close segment; PaperTodo normalizes it to the current monitor work area.
-/// Protocol 1.8 accepts sizes from 120 x 90 DIPs through 480 x 420 DIPs.
+/// host-owned chrome and close segment. Width and Height must be positive finite numbers; PaperTodo
+/// clamps the requested size only to the usable area of the current monitor.
 /// </summary>
 public readonly record struct PaperMiniViewSize(double Width, double Height)
 {

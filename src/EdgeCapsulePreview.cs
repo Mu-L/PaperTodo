@@ -6,28 +6,38 @@ internal readonly record struct EdgeCapsulePreviewSize(
     double WidthDip,
     double HeightDip)
 {
-    public const double MinimumWidthDip = 120;
-    public const double MaximumWidthDip = 480;
-    public const double MinimumHeightDip = 90;
-    public const double MaximumHeightDip = 420;
+    // Protocol 1.8 does not impose a product-level mini-card size. Keep these compatibility
+    // constants at the finite numeric envelope so existing capacity code still has one source of
+    // truth; the actual presentation limit is supplied by the current monitor work area.
+    public const double MinimumWidthDip = double.Epsilon;
+    public const double MaximumWidthDip = double.MaxValue;
+    public const double MinimumHeightDip = double.Epsilon;
+    public const double MaximumHeightDip = double.MaxValue;
 
     public EdgeCapsulePreviewSize Normalize(double maximumWidthDip, double maximumHeightDip)
     {
-        var maxWidth = Math.Max(
-            MinimumWidthDip,
-            Math.Min(MaximumWidthDip, maximumWidthDip));
-        var maxHeight = Math.Max(
-            MinimumHeightDip,
-            Math.Min(MaximumHeightDip, maximumHeightDip));
+        if (!double.IsFinite(WidthDip) ||
+            !double.IsFinite(HeightDip) ||
+            WidthDip <= 0 ||
+            HeightDip <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(EdgeCapsulePreviewSize),
+                "Edge preview width and height must be positive finite numbers.");
+        }
+        if (!double.IsFinite(maximumWidthDip) ||
+            !double.IsFinite(maximumHeightDip) ||
+            maximumWidthDip <= 0 ||
+            maximumHeightDip <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumWidthDip),
+                "Edge preview monitor limits must be positive finite numbers.");
+        }
+
         return new EdgeCapsulePreviewSize(
-            Math.Clamp(
-                double.IsFinite(WidthDip) ? WidthDip : MinimumWidthDip,
-                MinimumWidthDip,
-                maxWidth),
-            Math.Clamp(
-                double.IsFinite(HeightDip) ? HeightDip : MinimumHeightDip,
-                MinimumHeightDip,
-                maxHeight));
+            Math.Min(WidthDip, maximumWidthDip),
+            Math.Min(HeightDip, maximumHeightDip));
     }
 }
 
@@ -118,7 +128,7 @@ internal sealed class DefaultEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPro
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             title,
             status,
-            minimum: EdgeCapsulePreviewSize.MinimumWidthDip,
+            minimum: 120,
             maximum: 440);
         var height = Math.Clamp(
             150 + EdgeCapsulePreviewMeasure.EstimateWrappedLines(

@@ -109,6 +109,7 @@ internal sealed partial class WebPaperBodySession
         private bool _documentReady;
         private bool _pluginReportedReady;
         private bool _pluginReady;
+        private bool _webPointerInteractive;
         private bool _disposed;
         private int _documentGeneration;
         private ulong _documentNavigationId;
@@ -136,7 +137,10 @@ internal sealed partial class WebPaperBodySession
                 IsHitTestVisible = false
             };
             _webView.SetValue(UIElement.OpacityProperty, 0.0);
-            PaperMiniViewInteraction.SetConsumesPointer(_webView, true);
+            // Web mini surfaces are host-owned by default. The injected bridge flips this attached
+            // claim only while the pointer is over an element explicitly marked
+            // data-papertodo-interactive.
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
             Children.Add(_fallback);
             Children.Add(_webView);
             Panel.SetZIndex(_webView, 2);
@@ -189,6 +193,7 @@ internal sealed partial class WebPaperBodySession
             }
             else
             {
+                _webPointerInteractive = false;
                 _initializationQueued = false;
                 _initializationDeferralGeneration++;
                 Send(new { type = "commitRequested" });
@@ -402,7 +407,27 @@ internal sealed partial class WebPaperBodySession
                   const pending = new Map();
                   let sequence = 0;
                   let stateProvider = null;
+                  let pointerInteractive = false;
                   const post = (type, payload = null) => window.chrome.webview.postMessage({ type, payload });
+                  const isInteractiveTarget = target =>
+                    target instanceof Element &&
+                    target.closest('[data-papertodo-interactive]') !== null;
+                  const publishPointerInteractive = target => {
+                    const next = isInteractiveTarget(target);
+                    if (next === pointerInteractive) return;
+                    pointerInteractive = next;
+                    post('miniPointerInteractive', { interactive: next });
+                  };
+                  const clearPointerInteractive = () => {
+                    if (!pointerInteractive) return;
+                    pointerInteractive = false;
+                    post('miniPointerInteractive', { interactive: false });
+                  };
+                  document.addEventListener('pointerover', event => publishPointerInteractive(event.target), true);
+                  document.addEventListener('pointermove', event => publishPointerInteractive(event.target), true);
+                  document.addEventListener('pointerdown', event => publishPointerInteractive(event.target), true);
+                  document.addEventListener('pointerleave', clearPointerInteractive, true);
+                  window.addEventListener('blur', clearPointerInteractive);
                   const saveState = state => post('saveState', state ?? {});
                   const flushState = () => {
                     if (typeof stateProvider !== 'function') return;
@@ -473,7 +498,10 @@ internal sealed partial class WebPaperBodySession
                   });
                   window.addEventListener('beforeunload', flushState);
                   document.addEventListener('visibilitychange', () => {
-                    if (document.visibilityState === 'hidden') flushState();
+                    if (document.visibilityState === 'hidden') {
+                      clearPointerInteractive();
+                      flushState();
+                    }
                   });
                 })();
                 """;
@@ -512,6 +540,7 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            _webPointerInteractive = false;
             ShowFallback();
         }
 
@@ -555,6 +584,7 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            _webPointerInteractive = false;
             ShowFallback();
         }
 
@@ -607,6 +637,14 @@ internal sealed partial class WebPaperBodySession
                         _pluginReportedReady = true;
                         QueueShowPlugin();
                         break;
+                    case "miniPointerInteractive":
+                        SetWebPointerInteractive(
+                            payload.ValueKind == JsonValueKind.Object &&
+                            payload.TryGetProperty(
+                                "interactive",
+                                out var interactiveValue) &&
+                            interactiveValue.ValueKind == JsonValueKind.True);
+                        break;
                     case "saveState":
                         _owner.UpdateStateFromWebSurface(payload, this);
                         break;
@@ -639,6 +677,19 @@ internal sealed partial class WebPaperBodySession
             {
                 // A malformed mini message cannot affect the body session.
             }
+        }
+
+        private void SetWebPointerInteractive(bool interactive)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _webPointerInteractive = interactive;
+            PaperMiniViewInteraction.SetConsumesPointer(
+                _webView,
+                interactive && _visible && _pluginReady);
         }
 
         private void HandleHostRequest(JsonElement payload)
@@ -788,6 +839,9 @@ internal sealed partial class WebPaperBodySession
             var painted = _documentReady && _pluginReady && !_disposed;
             _webView.SetValue(UIElement.OpacityProperty, painted ? 1.0 : 0.0);
             _webView.IsHitTestVisible = painted && _visible;
+            PaperMiniViewInteraction.SetConsumesPointer(
+                _webView,
+                painted && _visible && _webPointerInteractive);
             if (!_pluginReady)
             {
                 _fallback.Visibility = Visibility.Visible;
@@ -805,9 +859,11 @@ internal sealed partial class WebPaperBodySession
             _readyProbeToken = null;
             _pluginReady = false;
             _pluginReportedReady = false;
+            _webPointerInteractive = false;
             _fallback.Visibility = Visibility.Visible;
             _webView.SetValue(UIElement.OpacityProperty, 0.0);
             _webView.IsHitTestVisible = false;
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
         }
 
         private void Send(object value)
@@ -834,6 +890,8 @@ internal sealed partial class WebPaperBodySession
             }
             Send(new { type = "commitRequested" });
             _disposed = true;
+            _webPointerInteractive = false;
+            PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
             CancelQueuedShowPlugin();
             _lifetime.Cancel();
             Loaded -= OnLoaded;

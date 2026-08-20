@@ -167,6 +167,58 @@ public sealed partial class PaperWindow
             OpenExternalFromEdgeCapsulePreview,
             _edgeCapsulePreviewInvalidationSource);
 
+    private bool TryGetRuntimeVariableEdgeCapsulePreviewCapacity(
+        out EdgeCapsulePreviewSize size,
+        out string source)
+    {
+        size = default;
+        source = "";
+
+        if (_paper.Type == PaperTypes.Todo)
+        {
+            source = "TodoRuntimeEnvelope";
+        }
+        else if (_paper.Type == PaperTypes.Note && IsCurrentBodyProviderMarkdown)
+        {
+            source = "MarkdownRuntimeEnvelope";
+        }
+        else if (_paper.Type == PaperTypes.Note)
+        {
+            var descriptor = _bodyDescriptor;
+            if (descriptor == null)
+            {
+                var providerId = NormalizeBodyProviderId(_paper.BodyProviderId);
+                if (!_controller.PaperBodyPlugins.TryGet(
+                        providerId,
+                        out var registeredDescriptor))
+                {
+                    return false;
+                }
+                descriptor = registeredDescriptor;
+            }
+
+            if (descriptor.Kind != PaperBodyPluginKind.Native)
+            {
+                return false;
+            }
+            source = "NativePluginRuntimeEnvelope";
+        }
+        else
+        {
+            return false;
+        }
+
+        var workArea = DeepCapsuleMonitorGeometry().LocalWorkAreaDip;
+        size = new EdgeCapsulePreviewSize(
+            Math.Max(
+                EdgeCapsulePreviewSize.MinimumWidthDip,
+                workArea.Width - 16),
+            Math.Max(
+                EdgeCapsulePreviewSize.MinimumHeightDip,
+                workArea.Height - 16));
+        return true;
+    }
+
     private bool TryGetDeferredPluginPreviewCapacity(
         out EdgeCapsulePreviewSize size,
         out string source)
@@ -174,8 +226,7 @@ public sealed partial class PaperWindow
         size = default;
         source = "";
         if (_paper.Type != PaperTypes.Note ||
-            IsCurrentBodyProviderMarkdown ||
-            _isShellBuilt)
+            IsCurrentBodyProviderMarkdown)
         {
             return false;
         }
@@ -197,26 +248,24 @@ public sealed partial class PaperWindow
                 size = new EdgeCapsulePreviewSize(
                     declared?.Width ?? 320,
                     declared?.Height ?? 220);
-                source = "DeferredWebPluginManifest";
+                source = "WebPluginManifest";
                 return true;
             }
 
-            // A deferred Web body without a protocol-1.8 mini can later expose the enlarged
-            // plugin-capsule fallback. Reserve its bounded compatibility envelope before the
-            // docked HWND is visible instead of treating the temporary Default provider as final.
+            // A Web body without a protocol-1.8 mini can expose a changing enlarged capsule
+            // fallback. Reserve its bounded compatibility envelope whether or not the body session
+            // has already been loaded, so later capsule-presentation changes cannot outgrow Host.
             size = new EdgeCapsulePreviewSize(
                 PluginFallbackMiniMaximumWidth,
                 Math.Max(PluginFallbackMiniHeight, 220));
-            source = "DeferredWebPluginFallback";
+            source = "WebPluginFallbackEnvelope";
             return true;
         }
 
         if (descriptor.Kind == PaperBodyPluginKind.Native)
         {
-            // A collapsed deep capsule deliberately defers Shell/body construction. Native
-            // PreferredMiniViewSize lives on the body session, so it cannot be read yet without
-            // activating arbitrary plugin code. Reserve only this plugin paper's protocol envelope;
-            // normal built-in and already-loaded providers still use their exact descriptor size.
+            // Defensive fallback: runtime-variable Native previews normally reserve their complete
+            // work-area envelope before this path is considered.
             size = new EdgeCapsulePreviewSize(
                 EdgeCapsulePreviewSize.MaximumWidthDip,
                 EdgeCapsulePreviewSize.MaximumHeightDip);
@@ -229,8 +278,8 @@ public sealed partial class PaperWindow
 
     // Descriptor sizing is presentation capacity, not preview content. Resolve it while
     // the capsule is being attached so the very first docked HWND already owns the
-    // exact bounded capacity required by its Preview. Deferred plugin bodies use a finite
-    // protocol envelope because their runtime descriptor does not exist until Shell activation.
+    // bounded capacity required by its Preview. Runtime-variable built-in/Native previews reserve
+    // the current work-area envelope; static Web/fallback previews reserve their declared envelope.
     // No WPF tree or plugin session is created here.
     private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
     {
@@ -257,6 +306,21 @@ public sealed partial class PaperWindow
         IEdgeCapsulePreviewProvider? provider = null;
         try
         {
+            if (TryGetRuntimeVariableEdgeCapsulePreviewCapacity(
+                    out var runtimeSize,
+                    out var runtimeSource))
+            {
+                var runtimeReserved = TryReserveEdgeCapsuleHostCapacity(
+                    runtimeSize,
+                    out var runtimeChanged);
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.capacity.reserve paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                    $"provider={runtimeSource} size={runtimeSize.WidthDip:F1}x{runtimeSize.HeightDip:F1} " +
+                    $"reserved={runtimeReserved} changed={runtimeChanged} " +
+                    $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
+                return;
+            }
+
             if (TryGetDeferredPluginPreviewCapacity(
                     out var deferredSize,
                     out var deferredSource))

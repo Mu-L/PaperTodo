@@ -5,6 +5,13 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private readonly record struct PreviewOriginReorderBaseline(
+        int OriginalIndex,
+        DeviceScreenPoint PointerDownScreenPosition,
+        double DpiScaleY);
+
+    private PreviewOriginReorderBaseline? _previewOriginReorderBaseline;
+
     internal bool AllowsDeepCapsuleQueueProxyOwnership =>
         EdgeCapsuleQueueProxyPolicy.AllowsQueueProxyOwnership(
             CurrentEdgeCapsuleVisualAuthority);
@@ -333,6 +340,7 @@ public sealed partial class PaperWindow
 
     private void StartDeepCapsuleReorderDrag(DeviceScreenPoint currentScreenPos)
     {
+        _previewOriginReorderBaseline = null;
         if (_edgeCapsule.NativeBatchRetryPending)
         {
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
@@ -375,6 +383,12 @@ public sealed partial class PaperWindow
             ? compactHeightDevice / 2.0
             : currentScreenPos.Y - appliedBounds.Top;
         var topDip = DeepCapsuleMonitorGeometry().DeviceYToLocalDip(appliedBounds.Top);
+        var previewOriginBaseline = collapsedPreview
+            ? new PreviewOriginReorderBaseline(
+                _edgeCapsule.Placement.Index,
+                session.PointerDownScreenPosition,
+                Math.Max(1, DeepCapsuleMonitorGeometry().DpiScaleY))
+            : (PreviewOriginReorderBaseline?)null;
         if (!BeginEdgeCapsuleDockedReorder(
                 currentScreenPos,
                 startMonitorDeviceName,
@@ -384,6 +398,7 @@ public sealed partial class PaperWindow
             CancelDeepCapsuleReorderDrag(restoreLayout: true);
             return;
         }
+        _previewOriginReorderBaseline = previewOriginBaseline;
 
         _controller.BeginDeepCapsuleReorderDrag(_paper);
         CloseDeepCapsuleFloatingDragHost();
@@ -738,6 +753,7 @@ public sealed partial class PaperWindow
             // Keep the gesture alive through the queue mutation so arrange calls are coalesced. End
             // it before completing the controller gate, allowing the destination placement to be
             // measured and committed while the floating HWND is still visible.
+            _previewOriginReorderBaseline = null;
             FinishEdgeCapsulePointerInteraction();
             _controller.CompleteDeepCapsuleReorderDrag();
             var handoffStarted = shouldAnimateFloatingDrop &&
@@ -768,6 +784,7 @@ public sealed partial class PaperWindow
             !IsDeepCapsuleSlotPendingClick &&
             _deepCapsuleFloatingDragHost == null)
         {
+            _previewOriginReorderBaseline = null;
             return;
         }
 
@@ -783,6 +800,7 @@ public sealed partial class PaperWindow
         }
         finally
         {
+            _previewOriginReorderBaseline = null;
             FinishEdgeCapsulePointerInteraction();
             _edgeCapsuleHost?.ReleaseContentPointer();
             if (wasReordering || wasDockingReveal)
@@ -810,13 +828,35 @@ public sealed partial class PaperWindow
             return 0;
         }
 
+        var slotHeight = EdgeCapsuleLayout.SlotHeight(DeepCapsuleGap);
+        var originalIndex = Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
+        if (IsDeepCapsuleDockedReordering &&
+            _previewOriginReorderBaseline is { } baseline &&
+            TryGetEdgeCapsuleDragSession(out var previewDragSession))
+        {
+            // A preview owner may be hundreds of DIPs tall. Its compact visual is intentionally
+            // recentered under the pointer when drag begins, but that visual rebase must not count
+            // as user reorder motion. Logical ordering starts at the original compact slot and is
+            // driven only by pointer travel after the original press.
+            var pointerDeltaDip =
+                (previewDragSession.LastScreenPosition.Y -
+                 baseline.PointerDownScreenPosition.Y) /
+                baseline.DpiScaleY;
+            var rawPreviewIndex = baseline.OriginalIndex +
+                pointerDeltaDip / slotHeight;
+            var previewIndex = rawPreviewIndex >= baseline.OriginalIndex
+                ? (int)Math.Floor(rawPreviewIndex)
+                : (int)Math.Ceiling(rawPreviewIndex);
+            return Math.Clamp(previewIndex, 0, count - 1);
+        }
+
         var dragBounds = _deepCapsuleFloatingDragHost != null &&
             WindowNative.TryGetWindowDeviceBounds(_deepCapsuleFloatingDragHost, out var floatingBounds)
                 ? floatingBounds
                 : _edgeCapsule.AppliedPresentation.Bounds;
         if (dragBounds.IsEmpty)
         {
-            return Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
+            return originalIndex;
         }
 
         var geometry = DeepCapsuleMonitorGeometry();
@@ -824,8 +864,6 @@ public sealed partial class PaperWindow
         // Real capsules start after slot 0 when the master capsule occupies that slot.
         var firstCenterY = DeepCapsuleTopForIndex(_edgeCapsule.Placement.VisualOffset) +
             (PaperLayoutDefaults.CapsuleHeight / 2);
-        var slotHeight = EdgeCapsuleLayout.SlotHeight(DeepCapsuleGap);
-        var originalIndex = Math.Clamp(_edgeCapsule.Placement.Index, 0, count - 1);
         var rawIndex = (centerY - firstCenterY) / slotHeight;
         var index = rawIndex >= originalIndex
             ? (int)Math.Floor(rawIndex)
