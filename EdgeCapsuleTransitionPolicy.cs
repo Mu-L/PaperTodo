@@ -58,6 +58,7 @@ internal static class EdgeCapsuleTransitionPolicy
             1);
         if (rawProgress >= 1)
         {
+            var targetFrame = transition.Target.ToFrame();
 #if DEBUG
             if (transition.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
                 transition.Target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
@@ -67,12 +68,11 @@ internal static class EdgeCapsuleTransitionPolicy
                     transition,
                     rawProgress,
                     1,
-                    transition.Target.Bounds,
-                    transition.Target.BodyWindowWidthDevice);
+                    targetFrame);
             }
 #endif
             return new EdgeCapsuleTransitionSample(
-                transition.Target.ToFrame(),
+                targetFrame,
                 true);
         }
 
@@ -120,22 +120,6 @@ internal static class EdgeCapsuleTransitionPolicy
                 target.DpiScaleY,
                 EdgeCapsuleLayout.WindowChromeMargin)
             : default;
-#if DEBUG
-        if (outgoingPreview &&
-            Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
-            Math.Abs(bounds.Height - target.Bounds.Height) <= 2 &&
-            Math.Abs(bounds.Top - target.Bounds.Top) <= 2 &&
-            Math.Abs(bodyWindowWidthDevice - target.BodyWindowWidthDevice) <= 2)
-        {
-            TracePreviewTerminalSample(
-                outgoingPreviewGeometrySettled ? "geometry-release" : "tail-sample",
-                transition,
-                rawProgress,
-                progress,
-                bounds,
-                bodyWindowWidthDevice);
-        }
-#endif
         var frame = new EdgeCapsulePresentationFrame(
             true,
             surface,
@@ -153,6 +137,21 @@ internal static class EdgeCapsuleTransitionPolicy
             target.OutlineVisible,
             hitTestVisible,
             target.CloseSegmentActsAsContent);
+#if DEBUG
+        if (outgoingPreview &&
+            Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
+            Math.Abs(bounds.Height - target.Bounds.Height) <= 2 &&
+            Math.Abs(bounds.Top - target.Bounds.Top) <= 2 &&
+            Math.Abs(bodyWindowWidthDevice - target.BodyWindowWidthDevice) <= 2)
+        {
+            TracePreviewTerminalSample(
+                outgoingPreviewGeometrySettled ? "geometry-release" : "tail-sample",
+                transition,
+                rawProgress,
+                progress,
+                frame);
+        }
+#endif
         return new EdgeCapsuleTransitionSample(frame, false);
     }
 
@@ -194,25 +193,38 @@ internal static class EdgeCapsuleTransitionPolicy
         EdgeCapsuleTransition transition,
         double rawProgress,
         double easedProgress,
-        DeviceScreenRect bounds,
-        int bodyWindowWidthDevice)
+        EdgeCapsulePresentationFrame frame)
     {
         var target = transition.Target;
+        var targetFrame = target.ToFrame();
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"preview.terminal phase={phase} reason={transition.Reason} " +
             $"raw={rawProgress:F6} eased={easedProgress:F6} " +
-            $"surface={transition.Start.Surface}->{target.Surface} " +
-            $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height} " +
-            $"target={target.Bounds.Left},{target.Bounds.Top}," +
-            $"{target.Bounds.Width}x{target.Bounds.Height} " +
-            $"deltaTop={bounds.Top - target.Bounds.Top} " +
-            $"deltaWidth={bounds.Width - target.Bounds.Width} " +
-            $"deltaHeight={bounds.Height - target.Bounds.Height} " +
-            $"body={bodyWindowWidthDevice} targetBody={target.BodyWindowWidthDevice} " +
-            $"deltaBody={bodyWindowWidthDevice - target.BodyWindowWidthDevice} " +
-            $"host={target.HostBounds.Left},{target.HostBounds.Top}," +
-            $"{target.HostBounds.Width}x{target.HostBounds.Height} edge={target.Edge}");
+            $"surface={frame.Surface} targetSurface={targetFrame.Surface} " +
+            $"bounds={FormatRect(frame.Bounds)} target={FormatRect(targetFrame.Bounds)} " +
+            $"deltaTop={frame.Bounds.Top - targetFrame.Bounds.Top} " +
+            $"deltaWidth={frame.Bounds.Width - targetFrame.Bounds.Width} " +
+            $"deltaHeight={frame.Bounds.Height - targetFrame.Bounds.Height} " +
+            $"body={frame.BodyWindowWidthDevice} " +
+            $"targetBody={targetFrame.BodyWindowWidthDevice} " +
+            $"deltaBody={frame.BodyWindowWidthDevice - targetFrame.BodyWindowWidthDevice} " +
+            $"interactive={FormatRect(frame.InteractiveBounds)} " +
+            $"targetInteractive={FormatRect(targetFrame.InteractiveBounds)} " +
+            $"hitTest={frame.IsHitTestVisible} targetHitTest={targetFrame.IsHitTestVisible} " +
+            $"opacity={frame.Opacity:F6} targetOpacity={targetFrame.Opacity:F6} " +
+            $"deltaOpacity={frame.Opacity - targetFrame.Opacity:F6} " +
+            $"contentOpacity={frame.ContentOpacity:F6} " +
+            $"targetContentOpacity={targetFrame.ContentOpacity:F6} " +
+            $"deltaContentOpacity={frame.ContentOpacity - targetFrame.ContentOpacity:F6} " +
+            $"outline={frame.OutlineVisible} targetOutline={targetFrame.OutlineVisible} " +
+            $"closeSegment={frame.CloseSegmentActsAsContent} " +
+            $"targetCloseSegment={targetFrame.CloseSegmentActsAsContent} " +
+            $"frameMatch={frame == targetFrame} " +
+            $"host={FormatRect(target.HostBounds)} edge={target.Edge}");
     }
+
+    private static string FormatRect(DeviceScreenRect rect) =>
+        $"{rect.Left},{rect.Top},{rect.Width}x{rect.Height}";
 #endif
 
     private static int LerpDevice(int from, int to, double progress) =>
