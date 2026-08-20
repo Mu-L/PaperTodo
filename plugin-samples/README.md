@@ -685,11 +685,7 @@ Edge Mini 是快速浏览 surface。**插件贡献内容，PaperTodo 始终拥�
 
 `PaperMiniViewSize` / `miniSize` 描述**包含宿主外框和关闭区的完整卡片尺寸**，单位 DIP。
 
-允许范围：
-
-```text
-120 × 90  ～  480 × 420 DIP
-```
+协议不设置固定的 120×90 下限或 480×420 上限。插件声明的 `width` / `height` 必须是**正且有限的数值**；宿主只按当前显示器可用工作区对最终尺寸做约束。
 
 默认：
 
@@ -697,7 +693,7 @@ Edge Mini 是快速浏览 surface。**插件贡献内容，PaperTodo 始终拥�
 320 × 220 DIP
 ```
 
-宿主还会按当前显示器工作区归一化。插件内容更新不应通过不断改变声明尺寸制造整列 Edge 跳动。
+内置 Todo / Markdown 可以继续使用自己的 renderer envelope 和视觉默认尺寸；这些值不是插件协议限制。Native 插件若在一个已经可见的 bounded host generation 中临时请求更大的 Preferred Size，宿主可能先约束到当前安全 capacity，并把更大的请求留到下一次安全 host generation。插件应把 Preferred Size 当作稳定布局偏好，而不是持续动画参数。
 
 ### 8.2 Native dedicated mini
 
@@ -789,6 +785,14 @@ window.addEventListener('papertodo', event => {
   }
 });
 ```
+
+Web Mini 的 pointer 默认属于 PaperTodo。网页只有在某个局部区域确实需要自己处理点击、按下或拖动时，才在该元素上声明：
+
+```html
+<button type="button" data-papertodo-interactive>暂停</button>
+```
+
+宿主会把所有 `data-papertodo-interactive` 元素的当前 DOM 矩形镜像到 WPF 输入层，并随布局、属性、滚动和尺寸变化刷新；只有这些矩形内的 pointer 交给 Web surface。未标记区域继续用于打开完整 paper、拖动 Edge Mini 等宿主交互。不要把整个页面根节点无差别标记为 interactive。
 
 正文与 mini 获得同一个宿主管理 state/settings。任一 surface `saveState` 后，宿主把新的 `stateChanged` 发给另一侧。接收方**不要在 `stateChanged` 中原样再调用 `saveState`**，否则两棵页面会形成回声；只有用户操作或真实业务状态变化才写回。
 
@@ -890,7 +894,7 @@ papertodo.workspace.request(method, params);
 papertodo.onEvent(listener);
 ```
 
-Mini 没有正文的 `setInputClaims`；它的 pointer/keyboard 规则由 Edge host 管理。
+Mini 没有正文的 `setInputClaims`；键盘焦点始终不属于 Edge Mini。Pointer 也默认归宿主，只有带 `data-papertodo-interactive` 的局部 DOM 区域会把 pointer 交给 Web 页面。
 
 ### 9.4 状态写入
 
@@ -948,6 +952,13 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - 在只读自定义 capsule 中放需要点击的按钮；
 - 让 Edge Mini 依赖键盘焦点。
 
+### Web Mini
+
+- 认为 `miniSize` 仍有固定 120×90～480×420 协议范围；
+- 需要网页自己处理点击的局部控件没有声明 `data-papertodo-interactive`；
+- 为了接管所有输入把整个页面根节点无差别标记为 interactive；
+- 假设 `mini.ready()` 调用后 Web surface 会同步立即显示。
+
 ### 状态
 
 - 只在 `Commit()` 或页面卸载时保存，而不是每次 mutation 后提交；
@@ -973,6 +984,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - 最终 `plugins/<id>/` 不包含 PDB/XML/重复 shared assemblies；
 - `.runtime/` 不被构建脚本误删；
 - Web body 与 mini 的 state/settings 同步没有回声；
+- Web mini 只有真正需要网页处理 pointer 的局部元素声明 `data-papertodo-interactive`；
 - capsule 提供合理 `plainText`；
 - custom WPF surface 均为 fresh / unparented / pure-WPF；
 - Edge Mini 不依赖键盘输入；
