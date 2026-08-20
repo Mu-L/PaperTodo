@@ -460,6 +460,10 @@ public sealed partial class PaperWindow
                 _edgeCapsuleHostCapacityHeightDip));
     }
 
+    private EdgeCapsulePresentationFrame CaptureEdgeCapsuleTargetPresentationFrame() =>
+        _edgeCapsule.PlanTargetPresentation(
+            CaptureEdgeCapsuleLayoutSnapshot()).ToFrame();
+
     private bool ApplyEdgeCapsulePresentationFrame(
         EdgeCapsulePresentationFrame frame)
     {
@@ -471,7 +475,9 @@ public sealed partial class PaperWindow
         }
 
         EnsureDeepCapsuleSlotHost();
-        return _edgeCapsuleHost?.Apply(frame) == true;
+        return _edgeCapsuleHost?.Apply(
+            frame,
+            CaptureEdgeCapsuleTargetPresentationFrame) == true;
     }
 
     private DeviceScreenPoint? CaptureEdgeCapsulePointerPosition()
