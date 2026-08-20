@@ -313,7 +313,10 @@ internal static class QueueProxyBarrierRegression
             frameScheduler.Contains("committedApply=") &&
             frameScheduler.Contains("activeTransition=") &&
             frameScheduler.Contains("_lastWpfPresentationChangeTimestamp") &&
+            frameScheduler.Contains("_debugWpfPresentationSamples") &&
             frameScheduler.Contains("AppliedPresentationVersion") &&
+            frameScheduler.Contains("debugDelta > 0") &&
+            !frameScheduler.Contains("debugAppliedPresentationVersionAfter") &&
             frameScheduler.Contains("wpfActiveBefore=") &&
             frameScheduler.Contains("wpfChanged=") &&
             frameScheduler.Contains("wpfDelta=") &&

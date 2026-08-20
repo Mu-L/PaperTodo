@@ -36,6 +36,8 @@ internal sealed class EdgeCapsuleFrameScheduler
     private long _pendingRenderReconcileStartedAtTimestamp;
     private long _lastRenderingTimestamp;
     private long _lastWpfPresentationChangeTimestamp;
+    private readonly List<(EdgeCapsulePresenter Presenter, int Version)>
+        _debugWpfPresentationSamples = new();
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
     private int _suppressedPendingReconcileRenderingCallbacks;
@@ -333,7 +335,6 @@ internal sealed class EdgeCapsuleFrameScheduler
         _suppressedRenderingStartedAtTimestamp = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
         var debugHadActiveTransitionBefore = HasActiveTransitionPresenter();
-        long debugAppliedPresentationVersionBefore = 0;
 #endif
         var anyCommittedApply = false;
         _isTicking = true;
@@ -349,10 +350,12 @@ internal sealed class EdgeCapsuleFrameScheduler
             }
 
 #if DEBUG
+            _debugWpfPresentationSamples.Clear();
             for (var index = 0; index < initialCount; index++)
             {
-                debugAppliedPresentationVersionBefore +=
-                    _presenters[index].AppliedPresentationVersion;
+                var presenter = _presenters[index];
+                _debugWpfPresentationSamples.Add(
+                    (presenter, presenter.AppliedPresentationVersion));
             }
 #endif
             var frameTimestamp = Stopwatch.GetTimestamp();
@@ -383,18 +386,19 @@ internal sealed class EdgeCapsuleFrameScheduler
         finally
         {
 #if DEBUG
-            long debugAppliedPresentationVersionAfter = 0;
-            var debugVersionCount = Math.Min(debugInitialCount, _presenters.Count);
-            for (var index = 0; index < debugVersionCount; index++)
+            var debugWpfPresentationVersionDelta = 0;
+            for (var index = 0; index < _debugWpfPresentationSamples.Count; index++)
             {
-                debugAppliedPresentationVersionAfter +=
-                    _presenters[index].AppliedPresentationVersion;
+                var sample = _debugWpfPresentationSamples[index];
+                var debugDelta =
+                    sample.Presenter.AppliedPresentationVersion - sample.Version;
+                if (debugDelta > 0)
+                {
+                    debugWpfPresentationVersionDelta += debugDelta;
+                }
             }
-            var debugWpfPresentationVersionDelta =
-                debugAppliedPresentationVersionAfter -
-                debugAppliedPresentationVersionBefore;
             var debugWpfPresentationChanged =
-                debugWpfPresentationVersionDelta != 0;
+                debugWpfPresentationVersionDelta > 0;
             var debugActiveTransitionAfter = HasActiveTransitionPresenter();
             var debugWpfPresentationGapMilliseconds = -1.0;
             if (debugWpfPresentationChanged)
@@ -428,6 +432,7 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"skippedExternal={suppressedExternalCallbacks} " +
                 $"skippedReentrant={suppressedReentrantCallbacks} " +
                 $"skipSpanMs={suppressedSpanMilliseconds:F3}");
+            _debugWpfPresentationSamples.Clear();
 #endif
             _acceptingPostCommitCallbacks = false;
             _postCommitCallbacks.Clear();
