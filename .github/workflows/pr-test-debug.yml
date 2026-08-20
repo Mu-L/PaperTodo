@@ -12,6 +12,8 @@ permissions:
 jobs:
   package:
     name: Package Debug test executable
+    # Keep marker gating and concurrency at job scope: an ordinary push stays skipped and cannot
+    # cancel a tagged Debug package that is already running for this branch.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[debug]') ||
