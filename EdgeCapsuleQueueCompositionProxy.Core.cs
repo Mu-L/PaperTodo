@@ -11,7 +11,10 @@ namespace PaperTodo;
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
-    private const int CompletionGuardMilliseconds = 1;
+    // The shared WPF scheduler rescues a live transition after 12 ms without a presentation. Keep
+    // the translation cover through that deadline and run completion below Render priority, so a
+    // direct/WPF-only queue participant gets its endpoint frame before proxy members are revealed.
+    private const int CompletionGuardMilliseconds = 13;
     private readonly EdgeCapsuleQueueProxyPlan _plan;
     private readonly IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> _members;
     private readonly EdgeCapsuleQueueCompositionProxy? _predecessor;
@@ -101,7 +104,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _completionTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(
                 plan.DurationMilliseconds + CompletionGuardMilliseconds),
-            DispatcherPriority.Send,
+            DispatcherPriority.Input,
             OnCompletionTimerTick,
             dispatcher)
         {
