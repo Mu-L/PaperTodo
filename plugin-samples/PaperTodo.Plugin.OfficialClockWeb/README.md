@@ -6,13 +6,13 @@
 - 本地、UTC 和多个常用城市时区；
 - 多种日期格式、标题模式和显示缩放；
 - `initialize`、`settingsChanged`、`themeChanged`、`visibilityChanged` 生命周期；
-- 1.8 `miniEntry` 提供独立轻量时钟，收到初始化后完成首帧再调用 `papertodo.mini.ready()`；
+- `miniEntry` 提供独立轻量时钟，收到初始化后完成首帧再调用 `papertodo.mini.ready()`；
 - Web Mini 默认把点击和拖拽交给 PaperTodo；网页需要自己处理指针的局部区域使用 `data-papertodo-interactive` 显式声明，本示例的“暂停 / 继续”按钮即为示例；
-- 迷你网页就绪前由放大的 1.6 胶囊立即显示，不出现空白卡片；
-- `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别同步纸片顶栏和 1.6 胶囊模板，胶囊按当前标题和日进度组件自动适配宽度；
+- Mini 加载期间使用透明内容占位；只有当前文档通过 ready challenge 并跨过真实 Rendering publication boundary 后才显示 Web surface；
+- `paper.setHeaderText` 与 `paper.setCapsulePresentation` 分别同步纸片顶栏和标准胶囊 presentation，胶囊按当前标题和日进度组件自动适配宽度；
 - 正文可用较高频率对齐秒边界，但对宿主胶囊写入做去重，避免无意义地重复重建同一模板。
 
-Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样副本。1.7 自绘胶囊仍只属于原生插件；本示例的紧凑胶囊使用 1.6 宿主模板，边缘快速浏览使用 1.8 Web 迷你入口。仓库中的可加载副本位于：
+Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样副本。自定义 WPF 胶囊只属于 Native 插件；本示例的紧凑胶囊使用宿主标准 presentation，边缘快速浏览使用 Web `miniEntry`。仓库中的可加载副本位于：
 
 ```text
 plugins\official.clock.web\
