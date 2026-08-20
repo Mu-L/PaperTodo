@@ -72,7 +72,8 @@ public static class Strings
 
     public static string Get(string key)
     {
-        var resource = Manager.GetString(key, CultureInfo.CurrentUICulture);
+        var uiCulture = UiLanguages.EffectiveUiCulture;
+        var resource = Manager.GetString(key, uiCulture);
         if (resource != null)
         {
             return resource;
@@ -83,7 +84,7 @@ public static class Strings
             return key;
         }
 
-        return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName switch
+        return uiCulture.TwoLetterISOLanguageName switch
         {
             "en" => values[1],
             "ja" => values[2],
@@ -94,6 +95,6 @@ public static class Strings
 
     public static string Format(string key, params object[] args)
     {
-        return string.Format(CultureInfo.CurrentCulture, Get(key), args);
+        return string.Format(UiLanguages.EffectiveCulture, Get(key), args);
     }
 }
