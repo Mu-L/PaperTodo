@@ -6,13 +6,13 @@ public partial class App
 {
     public App()
     {
-        // Device creation is independent from any queue plan. Warm it after startup work drains so
-        // the first user hover does not pay DCompositionCreateDevice2 on the animation path.
+        // Pay known DComp publication and WPF HWND first-use costs at ApplicationIdle so the
+        // first real edge-preview transaction does not carry them on the interaction path.
         _ = Dispatcher.BeginInvoke(
             DispatcherPriority.ApplicationIdle,
             (Action)(() =>
             {
-                EdgeCapsuleQueueCompositionProxy.Prewarm(Dispatcher);
+                EdgeCapsuleQueueCompositionProxy.PrewarmLightweight(Dispatcher);
             }));
     }
 }
