@@ -5,9 +5,17 @@ namespace PaperTodo;
 
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
+    // A queue generation that enters or leaves DockedRetracted is the master collapse-all/release
+    // animation. It is purely visual: the master owns the gesture, and moving proxy pixels must
+    // never become a temporary mouse owner for the desktop or another application.
+    private bool RoutesPointerInput =>
+        !_plan.Members.Any(member =>
+            member.Start.Surface == EdgeCapsuleSurfaceKind.DockedRetracted ||
+            member.Target.Surface == EdgeCapsuleSurfaceKind.DockedRetracted);
+
     private bool ContainsVisual(DeviceScreenPoint point)
     {
-        if (_disposed || _coverLost)
+        if (_disposed || _coverLost || !RoutesPointerInput)
         {
             return false;
         }
@@ -42,7 +50,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 
     private void OnSampleTimerTick(object? sender, EventArgs e)
     {
-        if (_disposed || _finishing || _successorHeld)
+        if (_disposed || _finishing || _successorHeld ||
+            !RoutesPointerInput)
         {
             return;
         }
@@ -210,7 +219,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         out IntPtr targetHandle,
         out DeviceScreenPoint endpointPoint)
     {
-        if (_disposed || _coverLost)
+        if (_disposed || _coverLost || !RoutesPointerInput)
         {
             targetHandle = IntPtr.Zero;
             endpointPoint = point;
@@ -262,7 +271,7 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         DeviceScreenPoint point,
         int message)
     {
-        if (!_disposed && !_coverLost)
+        if (!_disposed && !_coverLost && RoutesPointerInput)
         {
             _interactionRequested(point, message);
         }
