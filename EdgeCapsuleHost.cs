@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -84,6 +85,18 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private bool _experimentalPassive;
     private bool _interactionLocked;
     private bool _disposed;
+    // Branch-only experiment: let WPF's own animation clock own the visible Resting <-> Hovered
+    // geometry while the existing Presenter sampler continues to run as the logical/control group.
+    // No Preview, Active, queue translation or native HWND authority is moved into this path.
+    private bool _wpfNativeHoverGeometryOwned;
+    private bool _wpfNativeHoverAnimationRunning;
+    private EdgeCapsuleSurfaceKind _wpfNativeHoverTargetSurface;
+    private EdgeCapsulePresentationFrame _wpfNativeHoverAnchorFrame =
+        EdgeCapsulePresentationFrame.Hidden;
+    private double _wpfNativeHoverTargetWidthDip;
+    private double _wpfNativeHoverTargetCloseWidthDip;
+    private double _wpfNativeHoverTargetCloseOpacity;
+    private int _wpfNativeHoverAnimationGeneration;
     private Window Window { get; }
     private Grid Root { get; }
     private Grid VisualSurface { get; }
@@ -268,6 +281,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
         if (!frame.Visible)
         {
+            CancelWpfNativeHoverGeometry("hidden");
 #if DEBUG
             var previousHostBounds = _appliedFrame.HostBounds;
 #endif
@@ -406,7 +420,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             ApplyFixedLayout(frame.Edge);
         }
-        if (visualSurfaceSizeChanged || visualSurfaceOffsetChanged)
+        var wpfNativeHoverGeometryApplied =
+            TryApplyWpfNativeHoverGeometry(previousFrame, frame);
+        if (!wpfNativeHoverGeometryApplied &&
+            (visualSurfaceSizeChanged || visualSurfaceOffsetChanged))
         {
             ApplyVisualSurface(frame);
         }
@@ -414,7 +431,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             ApplyCloseSegmentMode(frame);
         }
-        if (segmentLayoutChanged)
+        if (!wpfNativeHoverGeometryApplied && segmentLayoutChanged)
         {
             var closeWidth = EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
                 frame.Bounds.Width,
@@ -426,6 +443,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 closeWidth,
                 frame.MaximumCloseWidthDip,
                 frame.IsHitTestVisible);
+        }
+        else if (wpfNativeHoverGeometryApplied)
+        {
+            UpdateWpfNativeHoverLogicalSegmentState(frame);
         }
         else if (previousFrame.IsHitTestVisible != frame.IsHitTestVisible ||
             closeSegmentModeChanged)
@@ -1242,7 +1263,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         {
             if (_experimentalPassive)
             {
-                WindowNative.ApplyBottomZOrder(Window);
+                WindowNative.ApplyBottomZOrder(window: Window);
             }
             else
             {
@@ -1554,6 +1575,338 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             ? new CornerRadius(0, radius, radius, 0)
             : new CornerRadius(radius, 0, 0, radius);
 
+    private bool TryApplyWpfNativeHoverGeometry(
+        EdgeCapsulePresentationFrame previous,
+        EdgeCapsulePresentationFrame frame)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        if (_wpfNativeHoverGeometryOwned)
+        {
+            if (!CanContinueWpfNativeHoverGeometry(frame))
+            {
+                CancelWpfNativeHoverGeometry("geometry-diverged");
+                return false;
+            }
+
+            if (frame.Surface != _wpfNativeHoverTargetSurface)
+            {
+                if (IsWpfNativeHoverPair(previous.Surface, frame.Surface))
+                {
+                    StartWpfNativeHoverAnimation(previous, frame, retarget: true);
+                    return true;
+                }
+
+                CancelWpfNativeHoverGeometry("surface-diverged");
+                return false;
+            }
+
+            if (WpfNativeHoverLogicalFrameReachedTarget(frame))
+            {
+                SettleWpfNativeHoverGeometry(frame, "logical-endpoint");
+            }
+            return true;
+        }
+
+        if (!CanStartWpfNativeHoverGeometry(previous, frame))
+        {
+            return false;
+        }
+
+        StartWpfNativeHoverAnimation(previous, frame, retarget: false);
+        return true;
+    }
+
+    private bool CanStartWpfNativeHoverGeometry(
+        EdgeCapsulePresentationFrame previous,
+        EdgeCapsulePresentationFrame frame) =>
+        previous.Visible &&
+        frame.Visible &&
+        IsWpfNativeHoverPair(previous.Surface, frame.Surface) &&
+        previous.HostBounds == frame.HostBounds &&
+        previous.Edge == frame.Edge &&
+        previous.WallDeviceX == frame.WallDeviceX &&
+        previous.Bounds.Top == frame.Bounds.Top &&
+        previous.Bounds.Height == frame.Bounds.Height &&
+        previous.BodyWindowWidthDevice == frame.BodyWindowWidthDevice &&
+        Math.Abs(previous.DpiScaleX - frame.DpiScaleX) < 0.001 &&
+        Math.Abs(previous.DpiScaleY - frame.DpiScaleY) < 0.001 &&
+        Math.Abs(previous.MaximumCloseWidthDip - frame.MaximumCloseWidthDip) < 0.001 &&
+        previous.CloseSegmentActsAsContent == frame.CloseSegmentActsAsContent &&
+        frame.MaximumCloseWidthDip > 0.001;
+
+    private bool CanContinueWpfNativeHoverGeometry(
+        EdgeCapsulePresentationFrame frame)
+    {
+        var anchor = _wpfNativeHoverAnchorFrame;
+        return frame.Visible &&
+            IsWpfNativeHoverSurface(frame.Surface) &&
+            frame.HostBounds == anchor.HostBounds &&
+            frame.Edge == anchor.Edge &&
+            frame.WallDeviceX == anchor.WallDeviceX &&
+            frame.Bounds.Top == anchor.Bounds.Top &&
+            frame.Bounds.Height == anchor.Bounds.Height &&
+            frame.BodyWindowWidthDevice == anchor.BodyWindowWidthDevice &&
+            Math.Abs(frame.DpiScaleX - anchor.DpiScaleX) < 0.001 &&
+            Math.Abs(frame.DpiScaleY - anchor.DpiScaleY) < 0.001 &&
+            Math.Abs(frame.MaximumCloseWidthDip - anchor.MaximumCloseWidthDip) < 0.001 &&
+            frame.CloseSegmentActsAsContent == anchor.CloseSegmentActsAsContent;
+    }
+
+    private void StartWpfNativeHoverAnimation(
+        EdgeCapsulePresentationFrame previous,
+        EdgeCapsulePresentationFrame frame,
+        bool retarget)
+    {
+        var dpiScaleX = Math.Max(1, frame.DpiScaleX);
+        var closeColumn = WpfNativeHoverCloseColumn(frame.Edge);
+        var currentWidth = _wpfNativeHoverGeometryOwned &&
+            double.IsFinite(VisualSurface.ActualWidth) &&
+            VisualSurface.ActualWidth > 0
+                ? VisualSurface.ActualWidth
+                : previous.Bounds.Width / dpiScaleX;
+        var currentCloseWidth = _wpfNativeHoverGeometryOwned &&
+            double.IsFinite(closeColumn.ActualWidth)
+                ? Math.Max(0, closeColumn.ActualWidth)
+                : EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
+                    previous.Bounds.Width,
+                    previous.BodyWindowWidthDevice,
+                    previous.DpiScaleX,
+                    previous.MaximumCloseWidthDip);
+        var currentCloseOpacity = _wpfNativeHoverGeometryOwned
+            ? Math.Clamp(CloseArea.Opacity, 0, 1)
+            : previous.CloseSegmentActsAsContent
+                ? 1
+                : previous.MaximumCloseWidthDip <= 0
+                    ? 0
+                    : Math.Clamp(
+                        currentCloseWidth / previous.MaximumCloseWidthDip,
+                        0,
+                        1);
+
+        ClearWpfNativeHoverAnimations(frame.Edge);
+
+        var targetCloseWidth = frame.Surface == EdgeCapsuleSurfaceKind.DockedHovered
+            ? frame.MaximumCloseWidthDip
+            : 0;
+        var targetWidth =
+            frame.BodyWindowWidthDevice / dpiScaleX + targetCloseWidth;
+        var targetCloseOpacity = frame.CloseSegmentActsAsContent
+            ? 1
+            : frame.MaximumCloseWidthDip <= 0
+                ? 0
+                : targetCloseWidth / frame.MaximumCloseWidthDip;
+
+        _wpfNativeHoverGeometryOwned = true;
+        _wpfNativeHoverAnimationRunning = true;
+        _wpfNativeHoverTargetSurface = frame.Surface;
+        _wpfNativeHoverAnchorFrame = frame;
+        _wpfNativeHoverTargetWidthDip = targetWidth;
+        _wpfNativeHoverTargetCloseWidthDip = targetCloseWidth;
+        _wpfNativeHoverTargetCloseOpacity = targetCloseOpacity;
+        var generation = ++_wpfNativeHoverAnimationGeneration;
+
+        VisualSurface.HorizontalAlignment = frame.Edge == EdgeCapsuleEdge.Left
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+        VisualSurface.Width = targetWidth;
+        VisualSurface.Height = frame.Bounds.Height / Math.Max(1, frame.DpiScaleY);
+        VisualSurfaceOffset.X = 0;
+        VisualSurfaceOffset.Y = 0;
+
+        // Keep the close column at its maximum structural width and animate MaxWidth. This uses
+        // only stock WPF double animations; no custom frame timer or GridLength animation is added.
+        closeColumn.Width = new GridLength(frame.MaximumCloseWidthDip);
+        closeColumn.MaxWidth = double.PositiveInfinity;
+        CloseArea.Width = double.NaN;
+        CloseArea.Opacity = targetCloseOpacity;
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(
+            EdgeCapsuleLayout.HorizontalResizeMilliseconds));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var widthAnimation = new DoubleAnimation(
+            currentWidth,
+            targetWidth,
+            duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+        var closeWidthAnimation = new DoubleAnimation(
+            currentCloseWidth,
+            targetCloseWidth,
+            duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+        var closeOpacityAnimation = new DoubleAnimation(
+            currentCloseOpacity,
+            targetCloseOpacity,
+            duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+        widthAnimation.Completed += (_, _) =>
+        {
+            if (_disposed ||
+                generation != _wpfNativeHoverAnimationGeneration ||
+                !_wpfNativeHoverGeometryOwned)
+            {
+                return;
+            }
+
+            _wpfNativeHoverAnimationRunning = false;
+            SetWpfNativeHoverVisualBase();
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"wpf.native-hover phase=clock-complete " +
+                $"paper={_options.DiagnosticId} target={_wpfNativeHoverTargetSurface} " +
+                $"widthDip={_wpfNativeHoverTargetWidthDip:F3} " +
+                $"closeDip={_wpfNativeHoverTargetCloseWidthDip:F3}");
+#endif
+        };
+
+        VisualSurface.BeginAnimation(
+            FrameworkElement.WidthProperty,
+            widthAnimation,
+            HandoffBehavior.SnapshotAndReplace);
+        closeColumn.BeginAnimation(
+            ColumnDefinition.MaxWidthProperty,
+            closeWidthAnimation,
+            HandoffBehavior.SnapshotAndReplace);
+        CloseArea.BeginAnimation(
+            UIElement.OpacityProperty,
+            closeOpacityAnimation,
+            HandoffBehavior.SnapshotAndReplace);
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"wpf.native-hover phase=start paper={_options.DiagnosticId} " +
+            $"from={previous.Surface} target={frame.Surface} retarget={retarget} " +
+            $"fromWidthDip={currentWidth:F3} targetWidthDip={targetWidth:F3} " +
+            $"fromCloseDip={currentCloseWidth:F3} targetCloseDip={targetCloseWidth:F3} " +
+            $"durationMs={EdgeCapsuleLayout.HorizontalResizeMilliseconds}");
+#endif
+    }
+
+    private void UpdateWpfNativeHoverLogicalSegmentState(
+        EdgeCapsulePresentationFrame frame)
+    {
+        var width = EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
+            frame.Bounds.Width,
+            frame.BodyWindowWidthDevice,
+            frame.DpiScaleX,
+            frame.MaximumCloseWidthDip);
+        _maximumCloseWidth = frame.MaximumCloseWidthDip;
+        _appliedCloseWidth = width;
+        CloseArea.IsHitTestVisible =
+            frame.IsHitTestVisible && _maximumCloseWidth > 0 &&
+            (frame.CloseSegmentActsAsContent
+                ? width > 0
+                : width >= _maximumCloseWidth - 0.5);
+    }
+
+    private bool WpfNativeHoverLogicalFrameReachedTarget(
+        EdgeCapsulePresentationFrame frame)
+    {
+        var targetWidthDevice = (int)Math.Round(
+            _wpfNativeHoverTargetWidthDip * Math.Max(1, frame.DpiScaleX),
+            MidpointRounding.AwayFromZero);
+        var closeWidth = EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
+            frame.Bounds.Width,
+            frame.BodyWindowWidthDevice,
+            frame.DpiScaleX,
+            frame.MaximumCloseWidthDip);
+        return Math.Abs(frame.Bounds.Width - targetWidthDevice) <= 1 &&
+            Math.Abs(closeWidth - _wpfNativeHoverTargetCloseWidthDip) <= 0.5;
+    }
+
+    private void SettleWpfNativeHoverGeometry(
+        EdgeCapsulePresentationFrame frame,
+        string reason)
+    {
+        ++_wpfNativeHoverAnimationGeneration;
+        ClearWpfNativeHoverAnimations(frame.Edge);
+        _wpfNativeHoverGeometryOwned = false;
+        _wpfNativeHoverAnimationRunning = false;
+        _wpfNativeHoverAnchorFrame = EdgeCapsulePresentationFrame.Hidden;
+        ApplyVisualSurface(frame);
+        var closeWidth = EdgeCapsuleGeometry.CloseWidthForAppliedDeviceWidth(
+            frame.Bounds.Width,
+            frame.BodyWindowWidthDevice,
+            frame.DpiScaleX,
+            frame.MaximumCloseWidthDip);
+        ApplySegmentWidths(
+            frame,
+            closeWidth,
+            frame.MaximumCloseWidthDip,
+            frame.IsHitTestVisible);
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"wpf.native-hover phase=settled paper={_options.DiagnosticId} " +
+            $"reason={reason} surface={frame.Surface} width={frame.Bounds.Width} " +
+            $"closeDip={closeWidth:F3}");
+#endif
+    }
+
+    private void SetWpfNativeHoverVisualBase()
+    {
+        var edge = _wpfNativeHoverAnchorFrame.Edge;
+        ClearWpfNativeHoverAnimations(edge);
+        VisualSurface.Width = _wpfNativeHoverTargetWidthDip;
+        var closeColumn = WpfNativeHoverCloseColumn(edge);
+        closeColumn.Width = new GridLength(_wpfNativeHoverTargetCloseWidthDip);
+        closeColumn.MaxWidth = double.PositiveInfinity;
+        CloseArea.Opacity = _wpfNativeHoverTargetCloseOpacity;
+    }
+
+    private void CancelWpfNativeHoverGeometry(string reason)
+    {
+        if (!_wpfNativeHoverGeometryOwned)
+        {
+            return;
+        }
+
+        var edge = _wpfNativeHoverAnchorFrame.Edge;
+        ++_wpfNativeHoverAnimationGeneration;
+        ClearWpfNativeHoverAnimations(edge);
+        _wpfNativeHoverGeometryOwned = false;
+        _wpfNativeHoverAnimationRunning = false;
+        _wpfNativeHoverAnchorFrame = EdgeCapsulePresentationFrame.Hidden;
+#if DEBUG
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"wpf.native-hover phase=cancel paper={_options.DiagnosticId} reason={reason}");
+#endif
+    }
+
+    private void ClearWpfNativeHoverAnimations(EdgeCapsuleEdge edge)
+    {
+        VisualSurface.BeginAnimation(FrameworkElement.WidthProperty, null);
+        WpfNativeHoverCloseColumn(edge).BeginAnimation(
+            ColumnDefinition.MaxWidthProperty,
+            null);
+        CloseArea.BeginAnimation(UIElement.OpacityProperty, null);
+    }
+
+    private ColumnDefinition WpfNativeHoverCloseColumn(EdgeCapsuleEdge edge) =>
+        Shell.ColumnDefinitions[edge == EdgeCapsuleEdge.Left ? 0 : 1];
+
+    private static bool IsWpfNativeHoverPair(
+        EdgeCapsuleSurfaceKind first,
+        EdgeCapsuleSurfaceKind second) =>
+        first == EdgeCapsuleSurfaceKind.DockedResting &&
+            second == EdgeCapsuleSurfaceKind.DockedHovered ||
+        first == EdgeCapsuleSurfaceKind.DockedHovered &&
+            second == EdgeCapsuleSurfaceKind.DockedResting;
+
+    private static bool IsWpfNativeHoverSurface(EdgeCapsuleSurfaceKind surface) =>
+        surface is EdgeCapsuleSurfaceKind.DockedResting or
+            EdgeCapsuleSurfaceKind.DockedHovered;
+
     public void Dispose()
     {
         if (_disposed)
@@ -1561,6 +1914,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             return;
         }
 
+        CancelWpfNativeHoverGeometry("dispose");
         DetachPreviewContent();
         _disposed = true;
         Window.Content = null;
