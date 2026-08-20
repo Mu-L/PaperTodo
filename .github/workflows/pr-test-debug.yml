@@ -1,6 +1,18 @@
 name: PR Test Debug
 
 on:
+  push:
+    branches-ignore:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/debug.yml"
+      - ".github/workflows/plugin-samples.yml"
+      - "plugin-samples/**"
+      - "plugins/**"
   workflow_dispatch:
 
 permissions:
@@ -13,6 +25,10 @@ concurrency:
 jobs:
   package:
     name: Package Debug test executable
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[debug]') ||
+      contains(github.event.head_commit.message, '[debug-ci]')
     runs-on: windows-latest
     timeout-minutes: 15
 
