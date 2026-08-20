@@ -10,64 +10,59 @@ namespace PaperTodo;
 internal sealed record EdgeCapsuleQueueCompositionProxyMember(
     PaperWindow Window,
     EdgeCapsuleQueueProxyMemberPlan Plan,
-    IntPtr SourceHandle,
-    EdgeCapsuleProxySnapshotHost? SnapshotHost);
-
-internal enum EdgeCapsuleQueueProxyVisualLayer
-{
-    MovingSource = 0,
-    RevealTarget = 1,
-    ConcealSource = 2,
-    StartSnapshot = 3
-}
+    IntPtr SourceHandle);
 
 /// <summary>
-/// Dispatcher-shared DirectComposition device, queue-scoped output hosts and generation-owned
-/// visual resources. A queue host may have one current generation and one staged successor.
+/// Dispatcher-shared DirectComposition device, queue-scoped output hosts and
+/// generation-owned translation visuals. A queue host may have one current
+/// generation and one staged successor.
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
 {
     private sealed class VisualState : IDisposable
     {
-        public required EdgeCapsuleQueueCompositionProxyMember Member { get; init; }
-        public required EdgeCapsuleQueueProxyVisualLayer Layer { get; init; }
+        public required EdgeCapsuleQueueCompositionProxyMember Member
+            { get; init; }
         public required IntPtr PresentedSourceHandle { get; init; }
         public required DeviceScreenRect SourceBounds { get; init; }
         public required IUnknown Surface { get; init; }
         public required IDCompositionVisual Visual { get; init; }
-        public required IDCompositionEffectGroup Effect { get; init; }
-        public required IDCompositionRectangleClip Clip { get; init; }
-        public required float StartOffsetX { get; init; }
-        public required float StartOffsetY { get; init; }
+        public required float StartOffsetX { get; set; }
+        public required float StartOffsetY { get; set; }
         public required float TargetOffsetX { get; init; }
         public required float TargetOffsetY { get; init; }
-        public required EdgeCapsuleProxyClipRect StartClip { get; init; }
-        public required EdgeCapsuleProxyClipRect TargetClip { get; init; }
-        public required float StartOpacity { get; init; }
-        public required float TargetOpacity { get; init; }
-        public required int OpacityDurationMilliseconds { get; init; }
 
         public IDCompositionAnimation? OffsetXAnimation { get; set; }
         public IDCompositionAnimation? OffsetYAnimation { get; set; }
-        public IDCompositionAnimation? ClipLeftAnimation { get; set; }
-        public IDCompositionAnimation? ClipTopAnimation { get; set; }
-        public IDCompositionAnimation? ClipRightAnimation { get; set; }
-        public IDCompositionAnimation? ClipBottomAnimation { get; set; }
-        public IDCompositionAnimation? OpacityAnimation { get; set; }
 
         public void Dispose()
         {
-            OpacityAnimation?.Dispose();
-            ClipBottomAnimation?.Dispose();
-            ClipRightAnimation?.Dispose();
-            ClipTopAnimation?.Dispose();
-            ClipLeftAnimation?.Dispose();
             OffsetYAnimation?.Dispose();
             OffsetXAnimation?.Dispose();
-            Clip.Dispose();
-            Effect.Dispose();
             Visual.Dispose();
             Surface.Dispose();
+        }
+    }
+
+    private sealed class StaticCoverResources : IDisposable
+    {
+        public required IDCompositionVisual Root { get; init; }
+        public List<IUnknown> Surfaces { get; } = new();
+        public List<IDCompositionVisual> Visuals { get; } = new();
+
+        public void Dispose()
+        {
+            for (var index = Visuals.Count - 1; index >= 0; index--)
+            {
+                try { Visuals[index].Dispose(); } catch { }
+            }
+            Visuals.Clear();
+            for (var index = Surfaces.Count - 1; index >= 0; index--)
+            {
+                try { Surfaces[index].Dispose(); } catch { }
+            }
+            Surfaces.Clear();
+            try { Root.Dispose(); } catch { }
         }
     }
 
@@ -93,10 +88,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         public IDCompositionTarget Target { get; }
         public EdgeCapsuleQueueCompositionProxy? Current { get; private set; }
         public EdgeCapsuleQueueCompositionProxy? Staged { get; private set; }
+        public bool HasOwner => Current != null || Staged != null;
         public bool IsAvailable =>
             !_disposed &&
-            Current == null &&
-            Staged == null &&
+            !HasOwner &&
             Window.Handle != IntPtr.Zero;
 
         public static QueueHost? TryCreate(
@@ -160,6 +155,16 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 return false;
             }
             QueueKey = queueKey;
+            return true;
+        }
+
+        public bool ReleaseQueue()
+        {
+            if (!IsAvailable)
+            {
+                return false;
+            }
+            QueueKey = string.Empty;
             return true;
         }
 
@@ -336,26 +341,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
                 initialBounds);
         }
 
-        internal void PrewarmQueue(
-            string queueKey,
-            bool topmost,
-            DeviceScreenRect initialBounds)
-        {
-            _dispatcher.VerifyAccess();
-            if (!IsUsable || _hosts.ContainsKey(queueKey))
-            {
-                return;
-            }
-            var host = TakeOrCreateHost(
-                queueKey,
-                topmost,
-                initialBounds);
-            if (host != null)
-            {
-                _hosts[queueKey] = host;
-            }
-        }
-
         internal QueueHost? TryAcquire(
             string queueKey,
             bool topmost,
@@ -393,24 +378,115 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy : IDisposable
         {
             _dispatcher.VerifyAccess();
             host.Detach(proxy);
-            if (!broken || _disposed)
+            if (_disposed)
             {
                 return;
             }
 
-            _invalid = true;
-            foreach (var cached in _hosts.Values.ToArray())
+            if (broken)
             {
-                try { cached.Dispose(); } catch { }
+                InvalidateAndDrain(host);
+                return;
             }
-            _hosts.Clear();
+
+            if (_invalid)
+            {
+                RetireInvalidHostIfIdle(host);
+                TryDisposeDrainedRuntime();
+                return;
+            }
+
+            ReturnIdleHost(host);
+        }
+
+        private void InvalidateAndDrain(QueueHost failedHost)
+        {
+            if (!_invalid)
+            {
+                _invalid = true;
+                SharedRuntimes.Remove(_dispatcher);
+            }
+
             while (_spareHosts.Count > 0)
             {
                 try { _spareHosts.Pop().Dispose(); } catch { }
             }
-            SharedRuntimes.Remove(_dispatcher);
-            try { Device.Dispose(); } catch { }
+
+            // A DComp device is shared by every monitor/edge queue on this dispatcher. Destroying
+            // their output HWNDs here would strand still-cloaked real sources. Retire only idle
+            // targets; active owners are told to reveal their own sources and drain themselves.
+            foreach (var cached in _hosts.Values.ToArray())
+            {
+                RetireInvalidHostIfIdle(cached);
+            }
+
+            var affected = _hosts.Values
+                .SelectMany(cached => new[] { cached.Current, cached.Staged })
+                .Where(proxy => proxy != null)
+                .Cast<EdgeCapsuleQueueCompositionProxy>()
+                .Distinct()
+                .ToArray();
+            foreach (var proxy in affected)
+            {
+                proxy.HandleSharedRuntimeLost();
+            }
+
+            RetireInvalidHostIfIdle(failedHost);
+            TryDisposeDrainedRuntime();
+        }
+
+        private void RetireInvalidHostIfIdle(QueueHost host)
+        {
+            if (!_invalid || host.HasOwner)
+            {
+                return;
+            }
+
+            foreach (var pair in _hosts
+                         .Where(pair => ReferenceEquals(pair.Value, host))
+                         .ToArray())
+            {
+                _hosts.Remove(pair.Key);
+            }
+            try { host.Dispose(); } catch { }
+        }
+
+        private void TryDisposeDrainedRuntime()
+        {
+            if (!_invalid || _disposed || _hosts.Count != 0)
+            {
+                return;
+            }
+
             _disposed = true;
+            _dispatcher.ShutdownStarted -= OnDispatcherShutdownStarted;
+            try { Device.Dispose(); } catch { }
+        }
+
+        internal void ReturnIdleHost(QueueHost host)
+        {
+            _dispatcher.VerifyAccess();
+            if (_disposed || !host.IsAvailable)
+            {
+                return;
+            }
+
+            // Queue identity is an active-session concern, not a permanent cache key. Retain at
+            // most one dispatcher-wide spare; this preserves a warm DComp target without growing
+            // one transparent output HWND per monitor/edge queue.
+            if (_hosts.TryGetValue(host.QueueKey, out var cached) &&
+                ReferenceEquals(cached, host))
+            {
+                _hosts.Remove(host.QueueKey);
+            }
+            if (_spareHosts.Count == 0 && host.ReleaseQueue())
+            {
+                _spareHosts.Push(host);
+            }
+            else
+            {
+                try { host.Dispose(); } catch { }
+            }
         }
 
         private void OnDispatcherShutdownStarted(

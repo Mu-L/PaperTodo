@@ -96,6 +96,10 @@ public sealed partial class PaperWindow
             return;
         }
         RefreshCapsuleLabel();
+        ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
+        QueueDeepCapsuleFloatingDragInfrastructurePrewarm(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            requireActiveInteraction: false);
         if (!TryStageEdgeCapsuleVisualTransaction(
                 animate,
                 EdgeCapsuleTransitionReason.Placement,
@@ -171,6 +175,10 @@ public sealed partial class PaperWindow
         }
         MarkEdgeCapsuleOpenedFromEdge();
         RefreshCapsuleLabel();
+        ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
+        QueueDeepCapsuleFloatingDragInfrastructurePrewarm(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            requireActiveInteraction: false);
         UpdateDeepCapsuleSlotHostTheme();
 
         RefreshDeepCapsuleSlotLabel();

@@ -2,11 +2,20 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private bool AllowsEdgeCapsuleQueueProxyOwnership(string queueKey) =>
+        !_windows.Values.Any(candidate =>
+            !candidate.IsClosed &&
+            !candidate.AllowsDeepCapsuleQueueProxyOwnership &&
+            string.Equals(
+                QueueKey(candidate.EdgeCapsulePreviewPaper),
+                queueKey,
+                StringComparison.Ordinal));
+
     /// <summary>
     /// Physical pointer authority for edge-preview input. Host/native input may prove that the
     /// pointer is inside a real applied rectangle even while the Presenter's cosmetic hover bit is
     /// stale. The first card may therefore open from a verified physical hit; an existing session
-    /// still uses the normal 50 ms / 2-DIP transfer contract.
+    /// still uses the normal 32 ms target-residence / 2-DIP stability contract.
     /// </summary>
     internal void NotifyEdgeCapsulePreviewPhysicalPointer(
         PaperWindow inputWindow,
@@ -17,13 +26,28 @@ public sealed partial class AppController
             return;
         }
 
+        // Once reorder starts, the drag gesture owns this queue's visible transition. Invalidate
+        // work queued before that gesture change and never start a preview underneath it.
+        if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                QueueKey(inputWindow.EdgeCapsulePreviewPaper)))
+        {
+            CancelEdgeCapsulePreviewActivationIntent();
+            return;
+        }
+
         var session = _edgeCapsulePreviewSession;
         if (session != null)
         {
-            // During continuous browsing, the candidate spends the transfer-intent interval in its
-            // compact hover shape. Prime that resize before the caller's Send reconcile so the real
-            // HWND never exposes intermediate width frames.
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
+            // WM_MOUSELEAVE confirmation reuses the existing corridor watcher. Passive WPF and
+            // reconcile samples that still resolve to the owner are wake noise, not fresh native
+            // re-entry, so they must not cancel that watcher. An outside-owner sample retires the
+            // confirmation marker here and then continues through the canonical owner arbiter.
+            if (PreserveEdgeCapsulePreviewHostBoundaryLeave(
+                    session,
+                    pointer))
+            {
+                return;
+            }
 
             // Physical host input is only the wake-up authority. Once a preview session exists,
             // the owner remains the single queue-wide arbiter for owner/target/corridor/outside
@@ -36,10 +60,10 @@ public sealed partial class AppController
             return;
         }
 
+        ClearEdgeCapsulePreviewHostBoundaryLeaveConfirmation();
         ResetEdgeCapsulePreviewCorridorExitIntent();
         if (!pointer.HasValue)
         {
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             return;
         }
 
@@ -51,7 +75,6 @@ public sealed partial class AppController
         {
             // With no preview transaction available, compact hover is the visible interaction and
             // therefore needs compositor ownership itself.
-            inputWindow.PrimeEdgeCapsulePointerComposition(pointer);
             CancelEdgeCapsulePreviewActivationIntent(
                 inputWindow.EdgeCapsulePreviewPaperId);
             return;

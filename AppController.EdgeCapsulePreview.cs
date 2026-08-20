@@ -5,7 +5,9 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
-    private const double EdgeCapsulePreviewTransferStableMilliseconds = 50;
+    // Two 60-Hz frames reject incidental pass-through without adding the visibly sluggish 50-ms
+    // floor to every A-to-B switch. The negative-only predictor can still extend or veto motion.
+    private const double EdgeCapsulePreviewTransferResidenceMilliseconds = 32;
     private const double EdgeCapsulePreviewPointerToleranceDip = 2;
     private const double EdgeCapsulePreviewCorridorTrackingIntervalMilliseconds = 24;
     private const double EdgeCapsulePreviewActivationIntentTrackingMilliseconds = 16;
@@ -442,9 +444,7 @@ public sealed partial class AppController
             session.OwnerPaperId,
             draggedWindow.EdgeCapsulePreviewPaperId,
             StringComparison.Ordinal);
-        _windows.TryGetValue(session.OwnerPaperId, out var owner);
-        CloseEdgeCapsulePreview(animate: false, arrange: true);
-        owner?.FlushEdgeCapsulePreviewCompactPresentation();
+        CloseEdgeCapsulePreview(animate: true, arrange: true);
         return draggedWindowWasOwner;
     }
 
@@ -587,7 +587,7 @@ public sealed partial class AppController
                 {
                     // A real target discovered during close revalidation is transfer authority,
                     // not merely a reason to swallow the close. Route it through the same owner
-                    // arbiter so the normal 50 ms stability rule still applies.
+                    // arbiter so the normal 32 ms target-residence rule still applies.
                     ForgetEdgeCapsulePreviewPointerResolution();
                     NotifyEdgeCapsulePreviewPointerSample(owner, pointer);
                     return;
@@ -634,6 +634,15 @@ public sealed partial class AppController
         EdgeCapsulePreviewStableAnchor? stableAnchor = null)
     {
         var paperId = window.EdgeCapsulePreviewPaperId;
+        if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                QueueKey(window.EdgeCapsulePreviewPaper)))
+        {
+            CancelEdgeCapsulePreviewActivationIntent();
+            TraceEdgeCapsulePreview(
+                $"transfer blocked target={EdgeCapsulePreviewTraceId(paperId)} " +
+                "reason=drag-authority");
+            return;
+        }
         if (string.Equals(
                 _edgeCapsulePreviewQueuedTransferPaperId,
                 paperId,
@@ -683,6 +692,15 @@ public sealed partial class AppController
                     _edgeCapsulePreviewQueuedTransferPaperId = null;
                     TraceEdgeCapsulePreview(
                         $"transfer dropped target={EdgeCapsulePreviewTraceId(paperId)} reason=window-changed");
+                    return;
+                }
+                if (!AllowsEdgeCapsuleQueueProxyOwnership(
+                        QueueKey(current.EdgeCapsulePreviewPaper)))
+                {
+                    CancelEdgeCapsulePreviewActivationIntent();
+                    TraceEdgeCapsulePreview(
+                        $"transfer dropped target={EdgeCapsulePreviewTraceId(paperId)} " +
+                        "reason=drag-authority");
                     return;
                 }
                 if (!current.CanEnterEdgeCapsulePreview)
@@ -1218,8 +1236,6 @@ public sealed partial class AppController
             State.ExperimentalEdgeCapsuleHoverIntent;
         if (session == null)
         {
-            // The first real physical hit has no dwell. Keep one sample only as history for a later
-            // transfer; prediction never delays the first card or authorizes opening on its own.
             if (predictiveIntentEnabled)
             {
                 _edgeCapsulePreviewIntentPredictor.Observe(
@@ -1252,11 +1268,13 @@ public sealed partial class AppController
                     now,
                     now);
             TraceEdgeCapsulePreview(
-                $"intent candidate target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
-                $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} pointer={pointer.X},{pointer.Y}");
+                $"intent candidate target=" +
+                $"{EdgeCapsulePreviewTraceId(targetPaperId)} " +
+                $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} " +
+                $"pointer={pointer.X},{pointer.Y}");
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
-                EdgeCapsulePreviewTransferStableMilliseconds);
+                EdgeCapsulePreviewTransferResidenceMilliseconds);
             return;
         }
 
@@ -1281,26 +1299,28 @@ public sealed partial class AppController
         var stableElapsed = Stopwatch.GetElapsedTime(
             currentIntent.StableSinceTimestamp,
             now).TotalMilliseconds;
-        // Fifty stable milliseconds inside a 2-DIP radius is the positive transfer authority in
-        // every mode. The predictor is negative-only and may add delay/veto after this baseline; it
-        // can never shorten it.
-        if (stableElapsed < EdgeCapsulePreviewTransferStableMilliseconds)
+        if (candidateElapsed <
+            EdgeCapsulePreviewTransferResidenceMilliseconds)
         {
             ScheduleEdgeCapsulePreviewActivationIntentCheck(
                 target,
-                EdgeCapsulePreviewTransferStableMilliseconds - stableElapsed);
+                EdgeCapsulePreviewTransferResidenceMilliseconds -
+                candidateElapsed);
             return;
         }
+
         if (predictiveIntentEnabled)
         {
-            var decision = _edgeCapsulePreviewIntentPredictor.Evaluate(
-                EdgeCapsuleHoverIntentMode.Transfer,
-                State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
-                targetGeometry.Bounds,
-                pointer,
-                candidateElapsed,
-                stableElapsed);
-            if (decision != EdgeCapsuleHoverIntentDecision.NoExtraDelay)
+            var decision =
+                _edgeCapsulePreviewIntentPredictor.Evaluate(
+                    EdgeCapsuleHoverIntentMode.Transfer,
+                    State.ExperimentalEdgeCapsuleHoverIntentSensitivity,
+                    targetGeometry.Bounds,
+                    pointer,
+                    candidateElapsed,
+                    stableElapsed);
+            if (decision !=
+                EdgeCapsuleHoverIntentDecision.NoExtraDelay)
             {
                 ScheduleEdgeCapsulePreviewActivationIntentCheck(
                     target,
@@ -1311,9 +1331,11 @@ public sealed partial class AppController
 
         ResetEdgeCapsulePreviewActivationIntent();
         TraceEdgeCapsulePreview(
-            $"intent accepted target={EdgeCapsulePreviewTraceId(targetPaperId)} " +
+            $"intent accepted target=" +
+            $"{EdgeCapsulePreviewTraceId(targetPaperId)} " +
             $"owner={EdgeCapsulePreviewTraceId(expectedOwnerPaperId)} " +
-            $"candidateMs={candidateElapsed:F1} stableMs={stableElapsed:F1}");
+            $"candidateMs={candidateElapsed:F1} " +
+            $"stableMs={stableElapsed:F1}");
         QueueEdgeCapsulePreviewTransfer(
             target,
             expectedOwnerPaperId,
@@ -1639,7 +1661,7 @@ public sealed partial class AppController
         }
 
         // Re-enter the one owner arbiter. This is important when the timer itself discovers a real
-        // target: that hit must start the normal 50 ms transfer rather than merely cancel closing.
+        // target: that hit must start the normal 32 ms transfer rather than merely cancel closing.
         ForgetEdgeCapsulePreviewPointerResolution();
         NotifyEdgeCapsulePreviewPointerSample(owner, pointer);
     }
@@ -1799,8 +1821,8 @@ public sealed partial class AppController
         if (!WindowNative.TryGetCursorScreenPosition(out var pointer))
         {
             // Do not leave a second retry loop alive after the target sample disappears. The shared
-            // pointer-recovery watcher will retry, recognize a real target again with a fresh 50 ms
-            // stability period, or close through the normal blank-region deadline.
+            // pointer-recovery watcher will retry, recognize a real target again with a fresh 32 ms
+            // residence period, or close through the normal blank-region deadline.
             TrackEdgeCapsulePreviewUnavailablePointer(owner, session);
             return;
         }
@@ -1867,7 +1889,7 @@ public sealed partial class AppController
         if (target == null)
         {
             // A physical hit in another monitor/edge queue is still a transfer from the current
-            // session. Let the old owner arbitrate it so the target keeps the same 50 ms stability
+            // session. Let the old owner arbitrate it so the target keeps the same 32 ms residence
             // contract instead of closing and reopening as a new first card.
             foreach (var paper in State.Papers)
             {

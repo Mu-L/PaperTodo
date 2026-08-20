@@ -47,9 +47,28 @@ internal sealed class EdgeCapsulePresenter
         bool Applied,
         bool NeedsNextFrame);
 
+    private sealed class RenderReconcileRegistration
+    {
+        private EdgeCapsuleFrameScheduler? _scheduler;
+
+        internal RenderReconcileRegistration(EdgeCapsuleFrameScheduler scheduler)
+        {
+            _scheduler = scheduler;
+            scheduler.RegisterRenderReconcile();
+        }
+
+        internal void Complete()
+        {
+            var scheduler = _scheduler;
+            _scheduler = null;
+            scheduler?.CompleteRenderReconcile();
+        }
+    }
+
     private EdgeCapsuleDirty _dirty;
     private bool _reconcileScheduled;
     private DispatcherOperation? _reconcileOperation;
+    private RenderReconcileRegistration? _reconcileRegistration;
     private int _reconcileGeneration;
     private EdgeCapsuleFrameScheduler? _frameScheduler;
     private bool _frameSchedulerActive;
@@ -139,6 +158,23 @@ internal sealed class EdgeCapsulePresenter
         {
             _pendingMotion = motion;
         }
+    }
+
+    internal void RebaseActiveTransitionStart(long startedAtTimestamp)
+    {
+        if (Transition is not { } active)
+        {
+            return;
+        }
+
+        // Queue endpoint settlement happens while compositor authority still covers the real
+        // HWND. No animation frame has been published yet, so the full WPF transition begins at
+        // the same post-endpoint QPC used by DirectComposition.
+        Transition = active with
+        {
+            Start = AppliedPresentation,
+            StartedAtTimestamp = startedAtTimestamp
+        };
     }
 
     public void ForceApplyCurrentPresentation()
@@ -407,8 +443,7 @@ internal sealed class EdgeCapsulePresenter
     {
         _dirty |= dirty;
         Configure(dispatcher, reconcile);
-        _reconcileGeneration++;
-        _reconcileScheduled = false;
+        CancelQueuedReconcile();
         RunReconcile(nowTimestamp);
     }
 
@@ -423,8 +458,7 @@ internal sealed class EdgeCapsulePresenter
         _nativeBatchDeferredRecoveryGeneration++;
         _nativeBatchRetryPending = false;
         _nativeBatchTransactionGroupId = 0;
-        _reconcileScheduled = false;
-        _reconcileGeneration++;
+        CancelQueuedReconcile();
         _presentationSettleCallback = null;
         ResetApplyRetryWindow();
         StopFrameScheduler();
@@ -560,12 +594,40 @@ internal sealed class EdgeCapsulePresenter
             wallDeviceX);
     }
 
+    private void CancelQueuedReconcile()
+    {
+        unchecked
+        {
+            _reconcileGeneration++;
+        }
+        _reconcileScheduled = false;
+
+        var operation = _reconcileOperation;
+        _reconcileOperation = null;
+        var registration = _reconcileRegistration;
+        _reconcileRegistration = null;
+
+        if (operation is { Status: DispatcherOperationStatus.Pending })
+        {
+            _ = operation.Abort();
+        }
+
+        // If a callback is already executing, its captured registration remains the
+        // exactly-once owner until its finally block. Pending/aborted/stale work is
+        // superseded now so it cannot keep the shared Render barrier alive.
+        if (operation is not { Status: DispatcherOperationStatus.Executing })
+        {
+            registration?.Complete();
+        }
+    }
+
     private void Configure(
         Dispatcher dispatcher,
         Func<EdgeCapsuleDirty, EdgeCapsuleDirty> reconcile)
     {
         if (_dispatcher != null && !ReferenceEquals(_dispatcher, dispatcher))
         {
+            CancelQueuedReconcile();
             StopFrameScheduler();
             _frameScheduler = null;
             _layoutSnapshot = null;
@@ -597,8 +659,8 @@ internal sealed class EdgeCapsulePresenter
                     { Status: DispatcherOperationStatus.Pending } pendingOperation &&
                 pendingOperation.Priority != DispatcherPriority.Send)
             {
-                // A real host input outranks an earlier passive Loaded invalidation. Promoting the
-                // same operation preserves its loaded-batch registration; it drains at Send and
+                // A real host input outranks an earlier passive Render invalidation. Promoting the
+                // same operation preserves its render-batch registration; it drains at Send and
                 // releases the shared render barrier before this composition pass.
                 pendingOperation.Priority = DispatcherPriority.Send;
             }
@@ -607,16 +669,17 @@ internal sealed class EdgeCapsulePresenter
 
         var priority = beforeNextRender
             ? DispatcherPriority.Send
-            : DispatcherPriority.Loaded;
+            : DispatcherPriority.Render;
         _reconcileScheduled = true;
         var generation = ++_reconcileGeneration;
-        EdgeCapsuleFrameScheduler? loadedBatchScheduler = null;
+        RenderReconcileRegistration? reconcileRegistration = null;
         if (!beforeNextRender)
         {
             _frameScheduler ??= EdgeCapsuleFrameScheduler.For(_dispatcher);
-            loadedBatchScheduler = _frameScheduler;
-            loadedBatchScheduler.RegisterLoadedReconcile();
+            reconcileRegistration =
+                new RenderReconcileRegistration(_frameScheduler);
         }
+        _reconcileRegistration = reconcileRegistration;
 
         DispatcherOperation? queuedOperation = null;
         queuedOperation = _dispatcher.BeginInvoke(
@@ -633,7 +696,13 @@ internal sealed class EdgeCapsulePresenter
                 }
                 finally
                 {
-                    loadedBatchScheduler?.CompleteLoadedReconcile();
+                    reconcileRegistration?.Complete();
+                    if (ReferenceEquals(
+                            _reconcileRegistration,
+                            reconcileRegistration))
+                    {
+                        _reconcileRegistration = null;
+                    }
                     if (ReferenceEquals(_reconcileOperation, queuedOperation))
                     {
                         _reconcileOperation = null;
@@ -646,14 +715,15 @@ internal sealed class EdgeCapsulePresenter
         if (beforeNextRender)
         {
             // This is one physical host's input wake-up, not a cross-window layout batch. Send
-            // runs after the current routed event and before Render; a Loaded barrier here would
-            // recreate the extra composition-frame delay this path exists to remove.
+            // runs after the current routed event and before Render; do not demote this wake-up
+            // behind the render-priority sibling batch.
             return;
         }
 
-        // Render runs above Loaded. The scheduler's pending-operation count keeps the shared frame
-        // behind every sibling in this batch. If input promotes this callback to Send, its same
-        // registration drains there instead of holding the next render for an obsolete priority.
+        // Passive reconciles share Render priority with CompositionTarget.Rendering. The pending
+        // count still keeps one shared frame behind every sibling already queued in this batch,
+        // but the callbacks can no longer be starved by a higher-priority Rendering callback.
+        // If input promotes one callback to Send, the same registration drains there.
     }
 
     private void RunReconcile(long? nowTimestamp = null)

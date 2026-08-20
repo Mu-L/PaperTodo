@@ -11,6 +11,7 @@ namespace PaperTodo;
 /// </summary>
 internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
+    private const int CompletionGuardMilliseconds = 1;
     private readonly EdgeCapsuleQueueProxyPlan _plan;
     private readonly IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> _members;
     private readonly EdgeCapsuleQueueCompositionProxy? _predecessor;
@@ -28,13 +29,14 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private readonly Action<DeviceScreenPoint, int> _interactionRequested;
     private readonly Action _environmentChanged;
     private readonly Func<EdgeCapsuleQueueCompositionProxy, bool> _coverReady;
+    private readonly Action<EdgeCapsuleQueueCompositionProxy> _coverRollback;
     private readonly Action<EdgeCapsuleQueueCompositionProxy, bool> _completed;
+    private readonly Func<long, bool> _endpointCommitRequested;
+    private readonly Func<long, bool> _animationStartRequested;
     private readonly long _sessionOrdinal;
     private long _animationStartedAtTimestamp;
-    private long _heldAtTimestamp;
     private bool _sourcesReleased;
     private bool _realEndpointMutationStarted;
-    private bool _abortQueued;
     private bool _completionRetrySuccess = true;
     private int _completionRetryCount;
     private bool _finishing;
@@ -47,7 +49,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
     private bool _completionPendingDuringSuccessorHold;
     private bool _pendingSuccessorCompletionSuccess = true;
     private bool _coverPublished;
+    private bool _controllerPublished;
     private bool _targetRootInstalled;
+    private bool _runtimeReleased;
+    private bool _visualResourcesRetired;
+    private bool _successfulRetireScheduled;
+    private StaticCoverResources? _successorAdmissionCover;
 
     private EdgeCapsuleQueueCompositionProxy(
         long sessionOrdinal,
@@ -58,9 +65,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         QueueHost host,
         IDCompositionVisual root,
         DeviceScreenRect outputBounds,
+        Func<long, bool> endpointCommitRequested,
+        Func<long, bool> animationStartRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
+        Action<EdgeCapsuleQueueCompositionProxy> coverRollback,
         Action<EdgeCapsuleQueueCompositionProxy, bool> completed)
     {
         _plan = plan;
@@ -73,9 +83,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         _target = host.Target;
         _root = root;
         _outputBounds = outputBounds;
+        _endpointCommitRequested = endpointCommitRequested;
+        _animationStartRequested = animationStartRequested;
         _interactionRequested = interactionRequested;
         _environmentChanged = environmentChanged;
         _coverReady = coverReady;
+        _coverRollback = coverRollback;
         _completed = completed;
         _sessionOrdinal = sessionOrdinal;
 
@@ -86,8 +99,9 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             OnSampleTimerTick,
             dispatcher);
         _completionTimer = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(plan.DurationMilliseconds + 34),
-            DispatcherPriority.Render,
+            TimeSpan.FromMilliseconds(
+                plan.DurationMilliseconds + CompletionGuardMilliseconds),
+            DispatcherPriority.Send,
             OnCompletionTimerTick,
             dispatcher)
         {
@@ -122,38 +136,6 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
     }
 
-    internal static void PrewarmQueue(
-        Dispatcher dispatcher,
-        string queueKey,
-        bool topmost,
-        DeviceScreenRect initialBounds)
-    {
-        if (dispatcher.HasShutdownStarted ||
-            string.IsNullOrWhiteSpace(queueKey) ||
-            initialBounds.IsEmpty)
-        {
-            return;
-        }
-        if (!dispatcher.CheckAccess())
-        {
-            _ = dispatcher.BeginInvoke(
-                DispatcherPriority.ApplicationIdle,
-                (Action)(() => PrewarmQueue(
-                    dispatcher,
-                    queueKey,
-                    topmost,
-                    initialBounds)));
-            return;
-        }
-        if (TryGetRuntime(dispatcher, out var runtime))
-        {
-            runtime.PrewarmQueue(
-                queueKey,
-                topmost,
-                initialBounds);
-        }
-    }
-
     private static bool TryGetRuntime(
         Dispatcher dispatcher,
         out SharedRuntime runtime)
@@ -183,9 +165,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         EdgeCapsuleQueueProxyPlan plan,
         IReadOnlyList<EdgeCapsuleQueueCompositionProxyMember> members,
         EdgeCapsuleQueueCompositionProxy? predecessor,
+        Func<long, bool> endpointCommitRequested,
+        Func<long, bool> animationStartRequested,
         Action<DeviceScreenPoint, int> interactionRequested,
         Action environmentChanged,
         Func<EdgeCapsuleQueueCompositionProxy, bool> coverReady,
+        Action<EdgeCapsuleQueueCompositionProxy> coverRollback,
         Action<EdgeCapsuleQueueCompositionProxy, bool> completed)
     {
         if (members.Count == 0 ||
@@ -256,9 +241,12 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 host,
                 root,
                 outputBounds,
+                endpointCommitRequested,
+                animationStartRequested,
                 interactionRequested,
                 environmentChanged,
                 coverReady,
+                coverRollback,
                 completed);
             if (!host.TryStage(proxy, predecessor))
             {

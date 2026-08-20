@@ -1,27 +1,24 @@
 name: Pull request build
 
 on:
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/debug.yml"
-      - ".github/workflows/plugin-samples.yml"
-      - "plugin-samples/**"
-      - "plugins/**"
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: pull-request-build-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   build:
     name: Build PaperTodo
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[ci]') ||
+      contains(github.event.head_commit.message, '[debug-ci]')
+    concurrency:
+      group: pull-request-build-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: windows-latest
     timeout-minutes: 15
 

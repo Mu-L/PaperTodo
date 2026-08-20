@@ -7,37 +7,28 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
 {
     private VisualState AddVisual(
         EdgeCapsuleQueueCompositionProxyMember member,
-        EdgeCapsuleQueueProxyVisualLayer layer,
         IntPtr sourceHandle,
         DeviceScreenRect sourceBounds,
         DeviceScreenRect startVisualBounds,
         DeviceScreenRect targetVisualBounds,
-        EdgeCapsuleProxyClipRect startClip,
-        EdgeCapsuleProxyClipRect targetClip,
-        float startOpacity,
-        float targetOpacity,
-        IDCompositionVisual? referenceVisual,
-        bool insertAbove = true,
-        IUnknown? existingSurface = null)
+        IDCompositionVisual? referenceVisual)
     {
-        IUnknown? surface = existingSurface;
+        IUnknown? surface = null;
         IDCompositionVisual? visual = null;
-        IDCompositionEffectGroup? effect = null;
-        IDCompositionRectangleClip? clip = null;
         try
         {
-            if (surface == null)
-            {
-                _device.CreateSurfaceFromHwnd(
-                    sourceHandle,
-                    out var createdSurface).CheckError();
-                surface = createdSurface;
-            }
+            _device.CreateSurfaceFromHwnd(
+                sourceHandle,
+                out var createdSurface).CheckError();
+            surface = createdSurface;
 
             _device.CreateVisual(
                 out IDCompositionVisual2 createdVisual).CheckError();
             visual = createdVisual;
             visual.SetContent(surface).CheckError();
+            visual.SetBitmapInterpolationMode(
+                BitmapInterpolationMode.Linear).CheckError();
+            visual.SetBorderMode(BorderMode.Soft).CheckError();
 
             var startOffsetX =
                 startVisualBounds.Left - _outputBounds.Left;
@@ -50,120 +41,264 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
             visual.SetOffsetX(startOffsetX).CheckError();
             visual.SetOffsetY(startOffsetY).CheckError();
 
-            clip = _device.CreateRectangleClip();
-            ApplyClip(clip, startClip);
-            ApplyClipRadii(
-                clip,
-                member,
-                layer,
-                startClip,
-                targetClip);
-            visual.SetClip(clip).CheckError();
-
-            effect = _device.CreateEffectGroup();
-            effect.SetOpacity(startOpacity).CheckError();
-            visual.SetEffect(effect).CheckError();
-
             _root.AddVisual(
                 visual,
-                insertAbove,
+                insertAbove: true,
                 referenceVisual!).CheckError();
 
             var state = new VisualState
             {
                 Member = member,
-                Layer = layer,
                 PresentedSourceHandle = sourceHandle,
                 SourceBounds = sourceBounds,
                 Surface = surface,
                 Visual = visual,
-                Effect = effect,
-                Clip = clip,
                 StartOffsetX = startOffsetX,
                 StartOffsetY = startOffsetY,
                 TargetOffsetX = targetOffsetX,
-                TargetOffsetY = targetOffsetY,
-                StartClip = startClip,
-                TargetClip = targetClip,
-                StartOpacity = startOpacity,
-                TargetOpacity = targetOpacity,
-                OpacityDurationMilliseconds =
-                    layer == EdgeCapsuleQueueProxyVisualLayer.StartSnapshot
-                        ? Math.Min(48, _plan.DurationMilliseconds)
-                        : _plan.DurationMilliseconds
+                TargetOffsetY = targetOffsetY
             };
             _visuals.Add(state);
             surface = null;
             visual = null;
-            effect = null;
-            clip = null;
             return state;
         }
         finally
         {
-            clip?.Dispose();
-            effect?.Dispose();
             visual?.Dispose();
             surface?.Dispose();
         }
     }
 
-    private void ConfigureAnimations()
+    private readonly record struct StaticCoverSource(
+        IntPtr Handle,
+        DeviceScreenRect PresentedBounds);
+
+    private IReadOnlyList<StaticCoverSource> SnapshotStaticCoverSources(
+        long timestamp)
     {
+        if (_disposed || _coverLost || _sourcesReleased)
+        {
+            throw new InvalidOperationException(
+                "A retired predecessor cannot seed a successor cover.");
+        }
+
+        var sources = new List<StaticCoverSource>(_visuals.Count);
         foreach (var state in _visuals)
         {
-            ConfigureAnimations(state);
+            var frame = EdgeCapsuleQueueProxyPolicy.SampleLogicalFrame(
+                state.Member.Plan,
+                AnimationStartedAtTimestamp,
+                _plan.DurationMilliseconds,
+                timestamp);
+            var bounds =
+                EdgeCapsuleQueueProxyPolicy.PresentedHostBounds(frame);
+            if (bounds.IsEmpty ||
+                bounds.Width != state.SourceBounds.Width ||
+                bounds.Height != state.SourceBounds.Height)
+            {
+                throw new InvalidOperationException(
+                    "A predecessor cover source changed live surface identity.");
+            }
+
+            sources.Add(new StaticCoverSource(
+                state.PresentedSourceHandle,
+                bounds));
+        }
+        return sources;
+    }
+
+    private StaticCoverResources CreateSuccessorAdmissionCover(
+        long timestamp,
+        IReadOnlySet<IntPtr> newHandles)
+    {
+        if (_predecessor == null || newHandles.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "A successor admission cover requires new real sources.");
+        }
+
+        IDCompositionVisual? root = null;
+        StaticCoverResources? resources = null;
+        try
+        {
+            _device.CreateVisual(
+                out IDCompositionVisual2 rootVisual).CheckError();
+            root = rootVisual;
+            resources = new StaticCoverResources
+            {
+                Root = rootVisual
+            };
+            root = null;
+
+            IDCompositionVisual? reference = null;
+            var coveredHandles = new HashSet<IntPtr>();
+            foreach (var source in
+                     _predecessor.SnapshotStaticCoverSources(timestamp))
+            {
+                if (source.Handle == IntPtr.Zero ||
+                    !coveredHandles.Add(source.Handle))
+                {
+                    continue;
+                }
+                AddStaticCoverVisual(
+                    resources,
+                    source.Handle,
+                    source.PresentedBounds,
+                    ref reference);
+            }
+
+            foreach (var member in _members)
+            {
+                if (!newHandles.Contains(member.SourceHandle) ||
+                    !coveredHandles.Add(member.SourceHandle))
+                {
+                    continue;
+                }
+                var bounds = EdgeCapsuleQueueProxyPolicy
+                    .PresentedHostBounds(member.Plan.Start);
+                if (bounds.IsEmpty ||
+                    bounds.Width != member.Plan.Source.HostBounds.Width ||
+                    bounds.Height != member.Plan.Source.HostBounds.Height)
+                {
+                    throw new InvalidOperationException(
+                        "A new successor source has no stable admission bounds.");
+                }
+                AddStaticCoverVisual(
+                    resources,
+                    member.SourceHandle,
+                    bounds,
+                    ref reference);
+            }
+
+            foreach (var handle in newHandles)
+            {
+                if (!coveredHandles.Contains(handle))
+                {
+                    throw new InvalidOperationException(
+                        "A new successor source is missing from the union cover.");
+                }
+            }
+
+            return resources;
+        }
+        catch
+        {
+            resources?.Dispose();
+            root?.Dispose();
+            throw;
         }
     }
 
-    private void ConfigureAnimations(VisualState state)
+    private void AddStaticCoverVisual(
+        StaticCoverResources resources,
+        IntPtr sourceHandle,
+        DeviceScreenRect presentedBounds,
+        ref IDCompositionVisual? reference)
     {
-        state.OffsetXAnimation = ApplyAnimatedValue(
-            state.StartOffsetX,
-            state.TargetOffsetX,
-            value => state.Visual.SetOffsetX(value),
-            animation => state.Visual.SetOffsetX(animation));
-        state.OffsetYAnimation = ApplyAnimatedValue(
-            state.StartOffsetY,
-            state.TargetOffsetY,
-            value => state.Visual.SetOffsetY(value),
-            animation => state.Visual.SetOffsetY(animation));
+        IUnknown? surface = null;
+        IDCompositionVisual? visual = null;
+        try
+        {
+            _device.CreateSurfaceFromHwnd(
+                sourceHandle,
+                out var createdSurface).CheckError();
+            surface = createdSurface;
+            _device.CreateVisual(
+                out IDCompositionVisual2 createdVisual).CheckError();
+            visual = createdVisual;
+            visual.SetContent(surface).CheckError();
+            visual.SetBitmapInterpolationMode(
+                BitmapInterpolationMode.Linear).CheckError();
+            visual.SetBorderMode(BorderMode.Soft).CheckError();
+            visual.SetOffsetX(
+                presentedBounds.Left - _outputBounds.Left).CheckError();
+            visual.SetOffsetY(
+                presentedBounds.Top - _outputBounds.Top).CheckError();
+            resources.Root.AddVisual(
+                visual,
+                insertAbove: true,
+                reference!).CheckError();
+            resources.Surfaces.Add(surface);
+            resources.Visuals.Add(visual);
+            reference = visual;
+            surface = null;
+            visual = null;
+        }
+        finally
+        {
+            visual?.Dispose();
+            surface?.Dispose();
+        }
+    }
 
-        state.ClipLeftAnimation = ApplyAnimatedValue(
-            state.StartClip.Left,
-            state.TargetClip.Left,
-            value => state.Clip.SetLeft(value),
-            animation => state.Clip.SetLeft(animation));
-        state.ClipTopAnimation = ApplyAnimatedValue(
-            state.StartClip.Top,
-            state.TargetClip.Top,
-            value => state.Clip.SetTop(value),
-            animation => state.Clip.SetTop(animation));
-        state.ClipRightAnimation = ApplyAnimatedValue(
-            state.StartClip.Right,
-            state.TargetClip.Right,
-            value => state.Clip.SetRight(value),
-            animation => state.Clip.SetRight(animation));
-        state.ClipBottomAnimation = ApplyAnimatedValue(
-            state.StartClip.Bottom,
-            state.TargetClip.Bottom,
-            value => state.Clip.SetBottom(value),
-            animation => state.Clip.SetBottom(animation));
+    private void ReleaseSuccessorAdmissionCover()
+    {
+        var cover = _successorAdmissionCover;
+        _successorAdmissionCover = null;
+        cover?.Dispose();
+    }
 
-        state.OpacityAnimation = ApplyAnimatedValue(
-            state.StartOpacity,
-            state.TargetOpacity,
-            value => state.Effect.SetOpacity(value),
-            animation => state.Effect.SetOpacity(animation),
-            state.OpacityDurationMilliseconds);
+    private void RebaseVisualStarts(long timestamp)
+    {
+        foreach (var state in _visuals)
+        {
+            var frame = state.Member.Plan.Start;
+            if (_predecessor?.TryGetPresentationAt(
+                    state.Member.Window,
+                    timestamp,
+                    out var sampled) == true)
+            {
+                frame = sampled;
+            }
+
+            var startBounds =
+                EdgeCapsuleQueueProxyPolicy.PresentedHostBounds(frame);
+            if (startBounds.IsEmpty ||
+                startBounds.Width != state.SourceBounds.Width ||
+                startBounds.Height != state.SourceBounds.Height)
+            {
+                throw new InvalidOperationException(
+                    "A successor cannot change live surface identity.");
+            }
+
+            state.StartOffsetX =
+                startBounds.Left - _outputBounds.Left;
+            state.StartOffsetY =
+                startBounds.Top - _outputBounds.Top;
+            state.Visual.SetOffsetX(
+                state.StartOffsetX).CheckError();
+            state.Visual.SetOffsetY(
+                state.StartOffsetY).CheckError();
+        }
+    }
+
+    private void ConfigureAnimations(long absoluteBeginTimestamp)
+    {
+        foreach (var state in _visuals)
+        {
+            state.OffsetXAnimation = ApplyAnimatedValue(
+                state.StartOffsetX,
+                state.TargetOffsetX,
+                value => state.Visual.SetOffsetX(value),
+                animation => state.Visual.SetOffsetX(animation),
+                absoluteBeginTimestamp);
+            state.OffsetYAnimation = ApplyAnimatedValue(
+                state.StartOffsetY,
+                state.TargetOffsetY,
+                value => state.Visual.SetOffsetY(value),
+                animation => state.Visual.SetOffsetY(animation),
+                absoluteBeginTimestamp);
+        }
     }
 
     private IDCompositionAnimation? ApplyAnimatedValue(
         float from,
         float to,
         Func<float, SharpGen.Runtime.Result> applyStatic,
-        Func<IDCompositionAnimation, SharpGen.Runtime.Result> applyAnimation,
-        int? durationMilliseconds = null)
+        Func<IDCompositionAnimation, SharpGen.Runtime.Result>
+            applyAnimation,
+        long absoluteBeginTimestamp)
     {
         if (Math.Abs(from - to) < 0.001f)
         {
@@ -174,7 +309,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var animation = CreateEaseOutCubicAnimation(
             from,
             to,
-            durationMilliseconds ?? _plan.DurationMilliseconds);
+            absoluteBeginTimestamp,
+            _plan.DurationMilliseconds);
         try
         {
             applyAnimation(animation).CheckError();
@@ -187,77 +323,10 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         }
     }
 
-    private static void ApplyClip(
-        IDCompositionRectangleClip clip,
-        EdgeCapsuleProxyClipRect value)
-    {
-        clip.SetLeft(value.Left).CheckError();
-        clip.SetTop(value.Top).CheckError();
-        clip.SetRight(value.Right).CheckError();
-        clip.SetBottom(value.Bottom).CheckError();
-    }
-
-    private static void ApplyClipRadii(
-        IDCompositionRectangleClip clip,
-        EdgeCapsuleQueueCompositionProxyMember member,
-        EdgeCapsuleQueueProxyVisualLayer layer,
-        EdgeCapsuleProxyClipRect start,
-        EdgeCapsuleProxyClipRect target)
-    {
-        // Moving and snapshot layers already carry their native WPF silhouette. Reveal/conceal
-        // clips create a new moving viewport edge, so only the screen-internal corners are rounded;
-        // the monitor-wall side remains square throughout the transition.
-        if (layer is EdgeCapsuleQueueProxyVisualLayer.MovingSource or
-            EdgeCapsuleQueueProxyVisualLayer.StartSnapshot)
-        {
-            return;
-        }
-
-        var smallestWidth = Math.Max(
-            1,
-            Math.Min(start.Width, target.Width));
-        var smallestHeight = Math.Max(
-            1,
-            Math.Min(start.Height, target.Height));
-        var radiusX = (float)Math.Min(
-            EdgeCapsuleLayout.CornerRadius *
-                member.Plan.Target.DpiScaleX,
-            smallestWidth / 2);
-        var radiusY = (float)Math.Min(
-            EdgeCapsuleLayout.CornerRadius *
-                member.Plan.Target.DpiScaleY,
-            smallestHeight / 2);
-
-        var leftRadiusX =
-            member.Plan.Target.Edge == EdgeCapsuleEdge.Right
-                ? radiusX
-                : 0;
-        var leftRadiusY =
-            member.Plan.Target.Edge == EdgeCapsuleEdge.Right
-                ? radiusY
-                : 0;
-        var rightRadiusX =
-            member.Plan.Target.Edge == EdgeCapsuleEdge.Left
-                ? radiusX
-                : 0;
-        var rightRadiusY =
-            member.Plan.Target.Edge == EdgeCapsuleEdge.Left
-                ? radiusY
-                : 0;
-
-        clip.SetTopLeftRadiusX(leftRadiusX).CheckError();
-        clip.SetTopLeftRadiusY(leftRadiusY).CheckError();
-        clip.SetBottomLeftRadiusX(leftRadiusX).CheckError();
-        clip.SetBottomLeftRadiusY(leftRadiusY).CheckError();
-        clip.SetTopRightRadiusX(rightRadiusX).CheckError();
-        clip.SetTopRightRadiusY(rightRadiusY).CheckError();
-        clip.SetBottomRightRadiusX(rightRadiusX).CheckError();
-        clip.SetBottomRightRadiusY(rightRadiusY).CheckError();
-    }
-
     private IDCompositionAnimation CreateEaseOutCubicAnimation(
         float from,
         float to,
+        long absoluteBeginTimestamp,
         int durationMilliseconds)
     {
         var durationSeconds =
@@ -266,6 +335,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
         var animation = _device.CreateAnimation();
         try
         {
+            animation.SetAbsoluteBeginTime(
+                absoluteBeginTimestamp).CheckError();
             animation.AddCubic(
                 0,
                 from,
@@ -273,8 +344,8 @@ internal sealed partial class EdgeCapsuleQueueCompositionProxy
                 (float)(-3 * delta /
                     (durationSeconds * durationSeconds)),
                 (float)(delta /
-                    (durationSeconds * durationSeconds * durationSeconds)))
-                .CheckError();
+                    (durationSeconds * durationSeconds *
+                     durationSeconds))).CheckError();
             animation.End(durationSeconds, to).CheckError();
             return animation;
         }

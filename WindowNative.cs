@@ -7,7 +7,7 @@ namespace PaperTodo;
 // Shared Win32 window-style / z-order helpers for the app's borderless top-level windows
 // (paper windows, the deep-capsule slot host, the master capsule). Previously duplicated
 // verbatim across PaperWindow.Native and MasterCapsuleWindow.
-internal static class WindowNative
+internal static partial class WindowNative
 {
     [ThreadStatic]
     private static WindowDeviceBoundsBatch? _currentDeviceBoundsBatch;

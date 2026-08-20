@@ -58,8 +58,21 @@ internal static class EdgeCapsuleTransitionPolicy
             1);
         if (rawProgress >= 1)
         {
+            var targetFrame = transition.Target.ToFrame();
+#if DEBUG
+            if (transition.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+                transition.Target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
+            {
+                TracePreviewTerminalSample(
+                    "transition-complete",
+                    transition,
+                    rawProgress,
+                    1,
+                    targetFrame);
+            }
+#endif
             return new EdgeCapsuleTransitionSample(
-                transition.Target.ToFrame(),
+                targetFrame,
                 true);
         }
 
@@ -76,12 +89,28 @@ internal static class EdgeCapsuleTransitionPolicy
             ? target.WallDeviceX + width
             : target.WallDeviceX;
         var bounds = new DeviceScreenRect(left, top, right, top + height);
-        // The old preview tree remains visible while its height shrinks, but it must stop owning
-        // input as soon as the logical preview closes. Keep the outgoing surface identity through
-        // retargets so a compact layout update cannot re-enable the tall card midway through.
+        var bodyWindowWidthDevice =
+            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress);
+
+        // An outgoing preview stays authoritative while any visible device-pixel geometry is still
+        // shrinking. Once Bounds and body width have both quantized to the compact endpoint, the
+        // preview viewport is already visually collapsed. Release the Preview surface identity on
+        // that same frame instead of keeping an invisible preview tree/compact anchor alive until
+        // raw progress reaches 1; that delayed structural flip produced the isolated terminal nudge.
         var outgoingPreview =
             start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
             target.Surface != EdgeCapsuleSurfaceKind.DockedPreview;
+        var outgoingPreviewGeometrySettled =
+            outgoingPreview &&
+            bounds == target.Bounds &&
+            bodyWindowWidthDevice == target.BodyWindowWidthDevice;
+        var surface = outgoingPreview && !outgoingPreviewGeometrySettled
+            ? start.Surface
+            : target.Surface;
+
+        // Input remains suppressed for the whole outgoing transition. Surface identity may be
+        // released as soon as compact geometry is pixel-identical, but pointer authority is not
+        // re-enabled until the transition itself completes.
         var hitTestVisible = target.IsHitTestVisible && !outgoingPreview;
         var interactiveBounds = hitTestVisible
             ? EdgeCapsuleGeometry.InteractiveBoundsForAppliedBounds(
@@ -93,12 +122,12 @@ internal static class EdgeCapsuleTransitionPolicy
             : default;
         var frame = new EdgeCapsulePresentationFrame(
             true,
-            outgoingPreview ? start.Surface : target.Surface,
+            surface,
             bounds,
-            bounds,
+            target.HostBounds,
             interactiveBounds,
             target.Edge,
-            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress),
+            bodyWindowWidthDevice,
             target.WallDeviceX,
             target.DpiScaleX,
             target.DpiScaleY,
@@ -108,6 +137,21 @@ internal static class EdgeCapsuleTransitionPolicy
             target.OutlineVisible,
             hitTestVisible,
             target.CloseSegmentActsAsContent);
+#if DEBUG
+        if (outgoingPreview &&
+            Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
+            Math.Abs(bounds.Height - target.Bounds.Height) <= 2 &&
+            Math.Abs(bounds.Top - target.Bounds.Top) <= 2 &&
+            Math.Abs(bodyWindowWidthDevice - target.BodyWindowWidthDevice) <= 2)
+        {
+            TracePreviewTerminalSample(
+                outgoingPreviewGeometrySettled ? "geometry-release" : "tail-sample",
+                transition,
+                rawProgress,
+                progress,
+                frame);
+        }
+#endif
         return new EdgeCapsuleTransitionSample(frame, false);
     }
 
@@ -142,6 +186,46 @@ internal static class EdgeCapsuleTransitionPolicy
         applied.OutlineVisible == target.OutlineVisible &&
         applied.IsHitTestVisible == target.IsHitTestVisible &&
         applied.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent;
+
+#if DEBUG
+    private static void TracePreviewTerminalSample(
+        string phase,
+        EdgeCapsuleTransition transition,
+        double rawProgress,
+        double easedProgress,
+        EdgeCapsulePresentationFrame frame)
+    {
+        var target = transition.Target;
+        var targetFrame = target.ToFrame();
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"preview.terminal phase={phase} reason={transition.Reason} " +
+            $"raw={rawProgress:F6} eased={easedProgress:F6} " +
+            $"surface={frame.Surface} targetSurface={targetFrame.Surface} " +
+            $"bounds={FormatRect(frame.Bounds)} target={FormatRect(targetFrame.Bounds)} " +
+            $"deltaTop={frame.Bounds.Top - targetFrame.Bounds.Top} " +
+            $"deltaWidth={frame.Bounds.Width - targetFrame.Bounds.Width} " +
+            $"deltaHeight={frame.Bounds.Height - targetFrame.Bounds.Height} " +
+            $"body={frame.BodyWindowWidthDevice} " +
+            $"targetBody={targetFrame.BodyWindowWidthDevice} " +
+            $"deltaBody={frame.BodyWindowWidthDevice - targetFrame.BodyWindowWidthDevice} " +
+            $"interactive={FormatRect(frame.InteractiveBounds)} " +
+            $"targetInteractive={FormatRect(targetFrame.InteractiveBounds)} " +
+            $"hitTest={frame.IsHitTestVisible} targetHitTest={targetFrame.IsHitTestVisible} " +
+            $"opacity={frame.Opacity:F6} targetOpacity={targetFrame.Opacity:F6} " +
+            $"deltaOpacity={frame.Opacity - targetFrame.Opacity:F6} " +
+            $"contentOpacity={frame.ContentOpacity:F6} " +
+            $"targetContentOpacity={targetFrame.ContentOpacity:F6} " +
+            $"deltaContentOpacity={frame.ContentOpacity - targetFrame.ContentOpacity:F6} " +
+            $"outline={frame.OutlineVisible} targetOutline={targetFrame.OutlineVisible} " +
+            $"closeSegment={frame.CloseSegmentActsAsContent} " +
+            $"targetCloseSegment={targetFrame.CloseSegmentActsAsContent} " +
+            $"frameMatch={frame == targetFrame} " +
+            $"host={FormatRect(target.HostBounds)} edge={target.Edge}");
+    }
+
+    private static string FormatRect(DeviceScreenRect rect) =>
+        $"{rect.Left},{rect.Top},{rect.Width}x{rect.Height}";
+#endif
 
     private static int LerpDevice(int from, int to, double progress) =>
         (int)Math.Round(Lerp(from, to, progress), MidpointRounding.AwayFromZero);

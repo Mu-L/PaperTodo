@@ -4,7 +4,6 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
-using System.Windows.Media.Imaging;
 using System.Windows.Input;
 using System.Windows.Threading;
 using System.Windows.Interop;
@@ -79,6 +78,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
     private EdgeCapsuleCaptureLossReason _contentCaptureLossReason;
     private int _nativeMetricsVersion;
     private int _appliedNativeMetricsVersion;
+    private bool _zOrderStateInitialized;
+    private bool _appliedTopmost;
+    private IntPtr _appliedTopmostInsertAfter;
     private bool _experimentalPassive;
     private bool _interactionLocked;
     private bool _disposed;
@@ -115,6 +117,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         TextBlock label)
     {
         _options = options;
+        _zOrderStateInitialized = true;
+        _appliedTopmost = options.Topmost;
+        _appliedTopmostInsertAfter = IntPtr.Zero;
 #if DEBUG
         _diagnosticResourceId =
             EdgeCapsulePerformanceDiagnostics.RegisterTransparentHost(
@@ -159,44 +164,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             adapter.TryMoveWindowToDesktop(handle, desktopId);
     }
 
-    internal BitmapSource? CaptureProxySnapshot(
-        EdgeCapsulePresentationFrame frame)
-    {
-        if (_disposed ||
-            !frame.Visible ||
-            frame.Bounds.IsEmpty ||
-            !Window.IsVisible)
-        {
-            return null;
-        }
-
-        try
-        {
-            // Opening a preview changes this same host into the endpoint tree. Capture only the
-            // current small surface before that mutation so DirectComposition can cross-fade the
-            // compact shell without attempting to snapshot WebView2 or another preview control.
-            VisualSurface.UpdateLayout();
-            var width = Math.Max(1, frame.Bounds.Width);
-            var height = Math.Max(1, frame.Bounds.Height);
-            var bitmap = new RenderTargetBitmap(
-                width,
-                height,
-                Math.Max(1, frame.DpiScaleX) * 96,
-                Math.Max(1, frame.DpiScaleY) * 96,
-                PixelFormats.Pbgra32);
-            bitmap.Render(VisualSurface);
-            bitmap.Freeze();
-            return bitmap;
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceWarning(
-                "Edge capsule proxy compact snapshot failed. Paper={0}; Exception={1}",
-                _options.DiagnosticId,
-                ex);
-            return null;
-        }
-    }
 
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
     {
@@ -251,7 +218,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
 
     /// <summary>
     /// The only per-paper docked-surface effect entry. HostBounds is the real endpoint HWND and
-    /// Bounds is its wall-aligned visual surface; production frames make them equal.
+    /// Bounds is its wall-aligned visual surface; HostBounds may be larger than Bounds and remains the stable capacity.
     /// </summary>
     public bool Apply(EdgeCapsulePresentationFrame frame)
     {
@@ -292,7 +259,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                 $"showMs={showMilliseconds:F3} verifyMs={verifyMilliseconds:F3} " +
                 $"surface={frame.Surface} visible={frame.Visible} " +
                 $"bounds={frame.Bounds.Width}x{frame.Bounds.Height} " +
-                $"nativeSet={nativeSetRequested} hostMode=compact " +
+                $"nativeSet={nativeSetRequested} hostMode=bounded-live " +
                 $"offsetYDevice={visualOffsetYDevice} " +
                 $"nativeBounds={nativeHostBounds.Left},{nativeHostBounds.Top}," +
                 $"{nativeHostBounds.Width}x{nativeHostBounds.Height}");
@@ -345,17 +312,27 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             frame.Surface != EdgeCapsuleSurfaceKind.FloatingFree,
             "FloatingFree is rendered by EdgeCapsuleDragWindow, never the docked host.");
         Debug.Assert(
-            nativeHostBounds == frame.Bounds &&
+            frame.Bounds.Width <= nativeHostBounds.Width &&
+            frame.Bounds.Height <= nativeHostBounds.Height &&
             (frame.Edge == EdgeCapsuleEdge.Left
-                ? nativeHostBounds.Left == frame.WallDeviceX
-                : nativeHostBounds.Right == frame.WallDeviceX),
-            "The visible capsule must fit inside its native endpoint host.");
+                ? frame.Bounds.Left == frame.WallDeviceX &&
+                  nativeHostBounds.Left == frame.WallDeviceX
+                : frame.Bounds.Right == frame.WallDeviceX &&
+                  nativeHostBounds.Right == frame.WallDeviceX),
+            "The visible capsule must fit inside its bounded, wall-pinned native host.");
         var previousFrame = _appliedFrame;
         var previousNativeHostBounds = previousFrame.HostBounds;
         var nativeMetricsVersion = _nativeMetricsVersion;
         var nativeMetricsChanged = _appliedNativeMetricsVersion != nativeMetricsVersion;
         var firstShow = !window.IsVisible;
-        var refreshNativeLayout = firstShow || nativeMetricsChanged || !previousFrame.Visible;
+        var nativeHostSizeChanged = firstShow ||
+            !previousFrame.Visible ||
+            previousNativeHostBounds.Width != nativeHostBounds.Width ||
+            previousNativeHostBounds.Height != nativeHostBounds.Height;
+        var refreshNativeLayout = firstShow ||
+            nativeMetricsChanged ||
+            !previousFrame.Visible ||
+            nativeHostSizeChanged;
         var edgeChanged = firstShow ||
             !previousFrame.Visible ||
             previousFrame.Edge != frame.Edge;
@@ -626,6 +603,28 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
             MatchesNativePresentationLayout(frame);
     }
 
+    internal bool MatchesQueueTranslationSurface(
+        EdgeCapsulePresentationFrame expected)
+    {
+        if (_disposed ||
+            !Window.IsVisible ||
+            _appliedNativeMetricsVersion != _nativeMetricsVersion ||
+            !EdgeCapsuleQueueProxyPolicy.HasStableLiveSurfaceIdentity(
+                _appliedFrame,
+                expected) ||
+            !WindowNative.TryGetWindowDeviceBounds(
+                Window,
+                out var actualBounds) ||
+            actualBounds != expected.HostBounds)
+        {
+            return false;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(Window);
+        return Math.Abs(dpi.DpiScaleX - expected.DpiScaleX) < 0.001 &&
+            Math.Abs(dpi.DpiScaleY - expected.DpiScaleY) < 0.001;
+    }
+
     internal bool PrepareCompositionSourceForHandoff()
     {
         if (_disposed || !Window.IsVisible)
@@ -709,12 +708,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         var surfaceHeight = (int)Math.Round(
             VisualSurface.ActualHeight * dpi.DpiScaleY,
             MidpointRounding.AwayFromZero);
-        var expectedOffsetY =
-            (frame.Bounds.Top - nativeHostBounds.Top) /
-            Math.Max(1, frame.DpiScaleY);
         return Math.Abs(surfaceWidth - frame.Bounds.Width) <= 1 &&
             Math.Abs(surfaceHeight - frame.Bounds.Height) <= 1 &&
-            Math.Abs(VisualSurfaceOffset.Y - expectedOffsetY) <= 0.5;
+            Math.Abs(VisualSurfaceOffset.Y) <= 0.5;
     }
 
     private void ResetForFreshApply()
@@ -1221,6 +1217,19 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         CloseGlyph.FontSize = closeGlyphFontSize;
     }
 
+    public bool WouldChangeZOrder(bool topmost, IntPtr insertAfter)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var effectiveTopmost = topmost && !_experimentalPassive;
+        return !_zOrderStateInitialized ||
+            _appliedTopmost != effectiveTopmost ||
+            _appliedTopmostInsertAfter != insertAfter;
+    }
+
     public void SetTopmost(bool topmost, IntPtr insertAfter)
     {
         if (_disposed)
@@ -1243,6 +1252,9 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
                     insertAfter);
             }
         }
+        _zOrderStateInitialized = true;
+        _appliedTopmost = effectiveTopmost;
+        _appliedTopmostInsertAfter = insertAfter;
     }
 
     public void SetInteractionLocked(bool enabled)
@@ -1264,6 +1276,7 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         }
 
         _experimentalPassive = enabled;
+        _zOrderStateInitialized = false;
         WindowNative.SetInputPassthrough(Window, enabled || _interactionLocked);
         if (enabled)
         {
@@ -1440,9 +1453,10 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         surface.Width = frame.Bounds.Width / Math.Max(1, frame.DpiScaleX);
         surface.Height = frame.Bounds.Height / Math.Max(1, frame.DpiScaleY);
         VisualSurfaceOffset.X = 0;
-        VisualSurfaceOffset.Y =
-            (frame.Bounds.Top - frame.HostBounds.Top) /
-            Math.Max(1, frame.DpiScaleY);
+        // Global queue translation belongs exclusively to the DComp visual. The live WPF shape is
+        // always rendered at the local origin of its endpoint host, so translation is never applied
+        // twice while the HWND is cloaked under the compositor cover.
+        VisualSurfaceOffset.Y = 0;
     }
 
     private void ApplyCloseSegmentMode(EdgeCapsulePresentationFrame frame)

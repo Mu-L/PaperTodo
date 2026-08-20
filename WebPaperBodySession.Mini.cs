@@ -86,6 +86,13 @@ internal sealed partial class WebPaperBodySession
 
     private sealed class WebPluginMiniViewHost : Grid, IDisposable
     {
+        // CoreWebView2 can front-load tens of milliseconds of UI-thread work the first time a
+        // mini surface is initialized. Keep that cold bootstrap out of the same 200 ms window in
+        // which the fallback card is morphing/moving; the already-rendered fallback remains the
+        // visible authority until the WebView is ready.
+        private const int ColdInitializationDeferralMilliseconds =
+            EdgeCapsuleLayout.SlotMoveMilliseconds + 20;
+
         private readonly WebPaperBodySession _owner;
         private readonly EdgeCapsulePreviewSize _size;
         private readonly WebView2CompositionControl _webView;
@@ -93,7 +100,12 @@ internal sealed partial class WebPaperBodySession
         private FrameworkElement _fallback;
         private string _expectedOrigin = "";
         private bool _visible;
+        private bool _initializationQueued;
+        private int _initializationDeferralGeneration;
         private bool _initializationStarted;
+#if DEBUG
+        private long _initializationQueuedAtTimestamp;
+#endif
         private bool _documentReady;
         private bool _pluginReportedReady;
         private bool _pluginReady;
@@ -169,7 +181,7 @@ internal sealed partial class WebPaperBodySession
             _visible = visible;
             if (visible)
             {
-                TryStartInitialization();
+                QueueInitialization();
                 if (_pluginReportedReady)
                 {
                     QueueShowPlugin();
@@ -177,6 +189,8 @@ internal sealed partial class WebPaperBodySession
             }
             else
             {
+                _initializationQueued = false;
+                _initializationDeferralGeneration++;
                 Send(new { type = "commitRequested" });
             }
             Send(new { type = "miniVisibilityChanged", visible });
@@ -203,10 +217,82 @@ internal sealed partial class WebPaperBodySession
         });
 
         private void OnLoaded(object sender, RoutedEventArgs e) =>
-            TryStartInitialization();
+            QueueInitialization();
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e) =>
-            TryStartInitialization();
+            QueueInitialization();
+
+        private void QueueInitialization()
+        {
+            if (_initializationQueued ||
+                _initializationStarted ||
+                _disposed ||
+                !_visible)
+            {
+                return;
+            }
+
+            _initializationQueued = true;
+            var generation = ++_initializationDeferralGeneration;
+#if DEBUG
+            _initializationQueuedAtTimestamp =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.webmini phase=init-deferred " +
+                $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                $"delayMs={ColdInitializationDeferralMilliseconds}");
+#endif
+            _ = StartInitializationAfterTransitionAsync(
+                generation,
+                _lifetime.Token);
+        }
+
+        private async Task StartInitializationAfterTransitionAsync(
+            int generation,
+            CancellationToken token)
+        {
+            try
+            {
+                await Task.Delay(
+                        ColdInitializationDeferralMilliseconds,
+                        token)
+                    .ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+
+                // The delay protects the current queue transition; ApplicationIdle then keeps the
+                // cold CoreWebView2 bootstrap behind any newer Render/Input work. If browsing has
+                // already moved elsewhere, the visibility generation makes this callback a no-op.
+                _ = Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    (Action)(() =>
+                    {
+                        if (_disposed ||
+                            generation != _initializationDeferralGeneration ||
+                            !_visible)
+                        {
+                            return;
+                        }
+                        _initializationQueued = false;
+#if DEBUG
+                        EdgeCapsulePerformanceDiagnostics.Trace(
+                            $"preview.webmini phase=init-dispatch " +
+                            $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                            $"waitMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_initializationQueuedAtTimestamp):F3}");
+                        _initializationQueuedAtTimestamp = 0;
+#endif
+                        TryStartInitialization();
+                    }));
+            }
+            catch (OperationCanceledException)
+                when (token.IsCancellationRequested)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+                // Dispatcher shutdown can race a delayed cold bootstrap. The fallback needs no
+                // cleanup beyond the host/session lifetime that is already ending.
+            }
+        }
 
         private void TryStartInitialization()
         {
@@ -236,7 +322,17 @@ internal sealed partial class WebPaperBodySession
                     return;
                 }
 
+#if DEBUG
+                var coreInitializationStartedAt =
+                    EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
                 await _webView.EnsureCoreWebView2Async(environment);
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.webmini phase=core-ready " +
+                    $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                    $"coreMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(coreInitializationStartedAt):F3}");
+#endif
                 token.ThrowIfCancellationRequested();
                 if (_disposed)
                 {

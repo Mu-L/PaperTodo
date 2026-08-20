@@ -1,50 +1,65 @@
 extern alias PaperTodoApp;
 
-using System.Runtime.CompilerServices;
-using AppEdge = PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
-using AppGeometry = PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyGeometry;
-using AppRect = PaperTodoApp::PaperTodo.DeviceScreenRect;
+using AppEdge =
+    PaperTodoApp::PaperTodo.EdgeCapsuleEdge;
+using AppFrame =
+    PaperTodoApp::PaperTodo.EdgeCapsulePresentationFrame;
+using AppGeometry =
+    PaperTodoApp::PaperTodo.EdgeCapsuleQueueProxyPolicy;
+using AppRect =
+    PaperTodoApp::PaperTodo.DeviceScreenRect;
+using AppSurface =
+    PaperTodoApp::PaperTodo.EdgeCapsuleSurfaceKind;
 
 namespace PaperTodo;
 
 internal static class QueueProxyWallAnchorRegression
 {
-    [ModuleInitializer]
-    internal static void Run()
+    public static void Run()
     {
-        var envelope = new AppRect(100, 100, 500, 300);
-        var output = AppGeometry.OutputBounds(envelope);
-        Assert(output.Left < envelope.Left && output.Top < envelope.Top &&
-               output.Right > envelope.Right && output.Bottom > envelope.Bottom,
-            "queue proxy output must overscan every animation edge");
-
-        CheckWallAnchor(AppEdge.Right, 500, 80, output);
-        CheckWallAnchor(AppEdge.Right, 500, 320, output);
-        CheckWallAnchor(AppEdge.Left, 100, 80, output);
-        CheckWallAnchor(AppEdge.Left, 100, 320, output);
+        CheckWall(AppEdge.Right, 5120);
+        CheckWall(AppEdge.Left, -2560);
     }
 
-    private static void CheckWallAnchor(
+    private static void CheckWall(
         AppEdge edge,
-        int wall,
-        int sourceWidth,
-        AppRect output)
+        int wall)
     {
-        var offset = AppGeometry.WallPinnedOffsetX(edge, wall, sourceWidth, output);
-        foreach (var scale in new[] { 0.25, 0.5, 1.0, 2.0, 4.0 })
-        {
-            var presentedWall = AppGeometry.PresentedWallDeviceX(
-                edge,
-                output.Left,
-                offset,
-                sourceWidth,
-                scale);
-            Assert(Math.Abs(presentedWall - wall) < 0.001,
-                $"{edge} wall moved at scale {scale}");
-        }
+        var bounds = edge == AppEdge.Right
+            ? new AppRect(wall - 86, 100, wall, 158)
+            : new AppRect(wall, 100, wall + 86, 158);
+        var host = edge == AppEdge.Right
+            ? new AppRect(wall - 260, 100, wall, 280)
+            : new AppRect(wall, 100, wall + 260, 280);
+        var frame = new AppFrame(
+            true,
+            AppSurface.DockedResting,
+            bounds,
+            host,
+            bounds,
+            edge,
+            68,
+            wall,
+            1,
+            1,
+            18,
+            1,
+            1,
+            false,
+            true,
+            false);
+        var presented =
+            AppGeometry.PresentedHostBounds(frame);
+        Assert(
+            edge == AppEdge.Right
+                ? presented.Right == wall
+                : presented.Left == wall,
+            $"{edge} host moved away from wall");
     }
 
-    private static void Assert(bool condition, string message)
+    private static void Assert(
+        bool condition,
+        string message)
     {
         if (!condition)
         {

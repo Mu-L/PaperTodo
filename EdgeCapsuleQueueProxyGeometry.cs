@@ -1,32 +1,21 @@
 namespace PaperTodo;
 
-internal readonly record struct EdgeCapsuleProxyClipRect(
-    float Left,
-    float Top,
-    float Right,
-    float Bottom)
-{
-    public float Width => Math.Max(0, Right - Left);
-    public float Height => Math.Max(0, Bottom - Top);
-    public bool IsEmpty => Width <= 0 || Height <= 0;
-}
-
 /// <summary>
-/// Pure physical-pixel geometry for the queue compositor. A morph reveals or conceals a
-/// native-resolution HWND surface with a rectangle clip; no bitmap or live HWND surface is scaled
-/// to simulate another window size.
+/// Physical-pixel geometry for the translation-only queue compositor. The
+/// output HWND has no redirection bitmap, so it may reserve a bounded queue
+/// envelope without allocating another full RGBA WPF surface.
 /// </summary>
 internal static class EdgeCapsuleQueueProxyGeometry
 {
     internal const int OutputOverscanPixels = 4;
 
-    internal static DeviceScreenRect OutputBounds(DeviceScreenRect envelope)
+    internal static DeviceScreenRect OutputBounds(
+        DeviceScreenRect envelope)
     {
         if (envelope.IsEmpty)
         {
             return default;
         }
-
         return new DeviceScreenRect(
             envelope.Left - OutputOverscanPixels,
             envelope.Top - OutputOverscanPixels,
@@ -56,7 +45,6 @@ internal static class EdgeCapsuleQueueProxyGeometry
         {
             return first;
         }
-
         return new DeviceScreenRect(
             Math.Min(first.Left, second.Left),
             Math.Min(first.Top, second.Top),
@@ -85,54 +73,4 @@ internal static class EdgeCapsuleQueueProxyGeometry
                 requestedBottom,
                 workAreaBottomDevice));
     }
-
-    internal static EdgeCapsuleProxyClipRect ClipForVisibleBounds(
-        DeviceScreenRect sourceBounds,
-        DeviceScreenRect visibleBounds)
-    {
-        if (sourceBounds.IsEmpty || visibleBounds.IsEmpty)
-        {
-            return default;
-        }
-
-        var left = Math.Clamp(
-            visibleBounds.Left - sourceBounds.Left,
-            0,
-            sourceBounds.Width);
-        var top = Math.Clamp(
-            visibleBounds.Top - sourceBounds.Top,
-            0,
-            sourceBounds.Height);
-        var right = Math.Clamp(
-            visibleBounds.Right - sourceBounds.Left,
-            0,
-            sourceBounds.Width);
-        var bottom = Math.Clamp(
-            visibleBounds.Bottom - sourceBounds.Top,
-            0,
-            sourceBounds.Height);
-        return new EdgeCapsuleProxyClipRect(left, top, right, bottom);
-    }
-
-    internal static EdgeCapsuleProxyClipRect FullClip(
-        DeviceScreenRect sourceBounds) =>
-        sourceBounds.IsEmpty
-            ? default
-            : new EdgeCapsuleProxyClipRect(
-                0,
-                0,
-                sourceBounds.Width,
-                sourceBounds.Height);
-
-    internal static EdgeCapsuleProxyClipRect Interpolate(
-        EdgeCapsuleProxyClipRect start,
-        EdgeCapsuleProxyClipRect target,
-        double progress) => new(
-        Lerp(start.Left, target.Left, progress),
-        Lerp(start.Top, target.Top, progress),
-        Lerp(start.Right, target.Right, progress),
-        Lerp(start.Bottom, target.Bottom, progress));
-
-    private static float Lerp(float from, float to, double progress) =>
-        (float)(from + (to - from) * progress);
 }

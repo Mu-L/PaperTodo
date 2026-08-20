@@ -37,7 +37,11 @@ internal static class EdgeCapsuleTargetPlanner
         var preview = !retracted &&
             !dockedSuppressed &&
             model.Preview == EdgeCapsulePreviewState.Open;
-        var expanded = !preview &&
+        // The detached floating HWND owns every visible drag pixel. Keep the suppressed permanent
+        // docked endpoint compact so Hovered/Active cannot continue hidden width mutations behind
+        // that cover.
+        var expanded = !ownsFloatingHost &&
+            !preview &&
             !retracted &&
             (model.State.Visual is
                 EdgeCapsuleVisualState.Hovered or
@@ -61,6 +65,33 @@ internal static class EdgeCapsuleTargetPlanner
             bodyWidth,
             closeWidth,
             visibleHeight));
+        // V3 Lite keeps one stable local capacity per paper. The
+        // PaperWindow grows it to the largest real preview requested on the
+        // current monitor/DPI/edge and never shrinks it during that host
+        // generation.
+        var hostVisibleWidth = Math.Max(
+            layout.RestingWidthDip +
+                layout.MaximumCloseWidthDip,
+            Math.Max(
+                layout.PreviewWidthDip,
+                layout.HostCapacityWidthDip));
+        var hostVisibleHeight = Math.Max(
+            layout.HeightDip,
+            Math.Max(
+                layout.PreviewHeightDip,
+                layout.HostCapacityHeightDip));
+        var hostBodyWidth = Math.Max(
+            layout.RestingWidthDip,
+            hostVisibleWidth -
+                layout.MaximumCloseWidthDip);
+        var hostGeometry = EdgeCapsuleGeometry.Calculate(
+            new EdgeCapsuleGeometryInput(
+                layout.Monitor,
+                layout.Edge,
+                top,
+                hostBodyWidth,
+                layout.MaximumCloseWidthDip,
+                hostVisibleHeight));
         var surface = SurfaceFor(
             model,
             preview,
@@ -78,7 +109,7 @@ internal static class EdgeCapsuleTargetPlanner
             true,
             surface,
             geometry.Bounds,
-            geometry.Bounds,
+            hostGeometry.Bounds,
             interactiveBounds,
             layout.Edge,
             geometry.RestingWidthDevice,
@@ -130,7 +161,7 @@ internal static class EdgeCapsuleTargetPlanner
         };
     }
 
-    private static EdgeCapsuleFloatingShape CreateFloatingShape(
+    internal static EdgeCapsuleFloatingShape CreateFloatingShape(
         EdgeCapsuleLayoutSnapshot layout,
         bool outlineVisible)
     {

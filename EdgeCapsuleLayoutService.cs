@@ -13,7 +13,9 @@ internal readonly record struct EdgeCapsuleLayoutFacts(
     double PreviewHeightDip,
     bool CloseSegmentActsAsContent,
     double RestingContentOpacity,
-    double? ForcedContentOpacity);
+    double? ForcedContentOpacity,
+    double HostCapacityWidthDip = 0,
+    double HostCapacityHeightDip = 0);
 
 /// <summary>
 /// Converts measured/environment facts into the planner snapshot. PaperWindow supplies target
@@ -54,7 +56,9 @@ internal static class EdgeCapsuleLayoutService
             facts.PreviewHeightDip,
             facts.CloseSegmentActsAsContent,
             facts.RestingContentOpacity,
-            facts.ForcedContentOpacity);
+            facts.ForcedContentOpacity,
+            facts.HostCapacityWidthDip,
+            facts.HostCapacityHeightDip);
     }
 
     public static double TopForVisualIndex(

@@ -1,10 +1,20 @@
-using System.Windows.Media.Imaging;
-
 namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
-    private int? _edgeCapsuleProxyPreviewContentReleaseGeneration;
+    internal EdgeCapsuleVisualAuthority CurrentEdgeCapsuleVisualAuthority
+    {
+        get
+        {
+            var floatingCoverActive =
+                _deepCapsuleFloatingDragHost is { IsVisible: true };
+            return EdgeCapsuleQueueProxyPolicy.ResolveVisualAuthority(
+                _edgeCapsule.State.Gesture,
+                floatingCoverActive,
+                _controller.IsEdgeCapsuleQueueProxyRetainingSource(
+                    this));
+        }
+    }
 
     internal EdgeCapsuleQueueProxyCandidate?
         CaptureEdgeCapsuleQueueProxyCandidate(
@@ -28,19 +38,9 @@ public sealed partial class PaperWindow
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        if (EdgeCapsuleQueueProxyPolicy.IsEnabled &&
-            !source.Bounds.IsEmpty)
-        {
-            // Consume the dispatcher-prewarmed output and bind it to this queue before any optional
-            // snapshot capture. Subsequent generations reuse the same HWND and DComp target.
-            EdgeCapsuleQueueCompositionProxy.PrewarmQueue(
-                host.Dispatcher,
-                queueKey,
-                host.IsTopmost,
-                EdgeCapsuleQueueProxyGeometry.OutputBounds(
-                    source.Bounds));
-        }
-
+        var sourceReady = retainedByCurrentProxy
+            ? host.MatchesQueueTranslationSurface(source)
+            : host.MatchesPresentation(source);
         return new EdgeCapsuleQueueProxyCandidate(
             _paper.Id,
             queueKey,
@@ -49,15 +49,15 @@ public sealed partial class PaperWindow
             target,
             motion,
             host.Handle != IntPtr.Zero &&
-                host.MatchesPresentation(source) &&
+                sourceReady &&
                 !IsExperimentalPassive &&
                 !_advancedInteractionLocked &&
-                !_controller.State
-                    .ExperimentalDockedCapsulesNonTopmost &&
+                !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
                 _controller.FullscreenAvoidanceWindowForQueue(
                     _paper.CapsuleMonitorDeviceName) == IntPtr.Zero,
             host.IsTopmost,
-            retainedByCurrentProxy);
+            retainedByCurrentProxy,
+            CurrentEdgeCapsuleVisualAuthority);
     }
 
     internal (
@@ -78,9 +78,23 @@ public sealed partial class PaperWindow
             return default;
         }
 
+        // This is output-HWND capacity, not a WPF backing surface.
+        // Reserve the legal queue envelope so different plugin card sizes
+        // can replace one another without moving an active DComp target.
+        var workAreaDip = layout.Monitor.LocalWorkAreaDip;
+        var maximumPreview = new EdgeCapsulePreviewSize(
+            EdgeCapsulePreviewSize.MaximumWidthDip,
+            EdgeCapsulePreviewSize.MaximumHeightDip)
+            .Normalize(
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumWidthDip,
+                    workAreaDip.Width - 16),
+                Math.Max(
+                    EdgeCapsulePreviewSize.MinimumHeightDip,
+                    workAreaDip.Height - 16));
         var previewBodyWidth = Math.Max(
             1,
-            layout.PreviewWidthDip -
+            maximumPreview.WidthDip -
             layout.MaximumCloseWidthDip);
         var preview = EdgeCapsuleGeometry.Calculate(
             new EdgeCapsuleGeometryInput(
@@ -89,7 +103,7 @@ public sealed partial class PaperWindow
                 layout.NormalTopDip,
                 previewBodyWidth,
                 layout.MaximumCloseWidthDip,
-                layout.PreviewHeightDip));
+                maximumPreview.HeightDip));
         var compact = EdgeCapsuleGeometry.Calculate(
             new EdgeCapsuleGeometryInput(
                 layout.Monitor,
@@ -113,10 +127,6 @@ public sealed partial class PaperWindow
     internal bool CanRouteEdgeCapsuleQueueProxyInput =>
         CanEnterEdgeCapsulePreview;
 
-    internal BitmapSource? CaptureEdgeCapsuleQueueProxySnapshot(
-        EdgeCapsulePresentationFrame source) =>
-        _edgeCapsuleHost?.CaptureProxySnapshot(source);
-
     internal bool ApplyEdgeCapsuleQueueProxyEndpoint(
         EdgeCapsulePresentationFrame endpoint)
     {
@@ -132,13 +142,34 @@ public sealed partial class PaperWindow
         return EnsureDeepCapsuleSlotHost().Apply(endpoint);
     }
 
-    internal bool PrepareEdgeCapsuleQueueProxyEndpointForHandoff() =>
+    internal bool
+        PrepareEdgeCapsuleQueueProxyEndpointLayoutForHandoff() =>
         _windowLifecycle == PaperWindowLifecycleState.Alive &&
         !IsClosed &&
         (_edgeCapsuleHost?
-            .PrepareCompositionSourceForHandoff() ?? false);
+            .PrepareCompositionSourceLayoutForBatchHandoff() ??
+         false);
 
-    internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint()
+    internal bool TryApplyLatestEdgeCapsuleQueueProxyEndpoint(
+        out EdgeCapsulePresentationFrame endpoint)
+    {
+        endpoint = EdgeCapsulePresentationFrame.Hidden;
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
+        {
+            return _edgeCapsuleHost?.Handle is not { } handle ||
+                !WindowNative.IsWindowHandleAlive(handle);
+        }
+
+        endpoint = _edgeCapsule
+            .PlanTargetPresentation(
+                CaptureEdgeCapsuleLayoutSnapshot())
+            .ToFrame();
+        return ApplyEdgeCapsuleQueueProxyEndpoint(endpoint);
+    }
+
+    internal bool VerifyEdgeCapsuleQueueProxyEndpoint(
+        EdgeCapsulePresentationFrame endpoint)
     {
         if (_windowLifecycle != PaperWindowLifecycleState.Alive ||
             IsClosed)
@@ -147,45 +178,37 @@ public sealed partial class PaperWindow
                 !WindowNative.IsWindowHandleAlive(handle);
         }
 
-        var endpoint = _edgeCapsule
+        var latestEndpoint = _edgeCapsule
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
             .ToFrame();
-        if (!ApplyEdgeCapsuleQueueProxyEndpoint(endpoint))
+        var presenterSettled =
+            !_edgeCapsule.HasActiveTransition &&
+            _edgeCapsule.AppliedPresentation == endpoint &&
+            latestEndpoint == endpoint;
+#if DEBUG
+        if (!presenterSettled)
+        {
+            var applied = _edgeCapsule.AppliedPresentation;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.endpoint phase=presenter-mismatch " +
+                $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"transition={_edgeCapsule.HasActiveTransition} " +
+                $"applied={applied.Surface}:{applied.Bounds.Width}x{applied.Bounds.Height} " +
+                $"endpoint={endpoint.Surface}:{endpoint.Bounds.Width}x{endpoint.Bounds.Height} " +
+                $"latest={latestEndpoint.Surface}:{latestEndpoint.Bounds.Width}x{latestEndpoint.Bounds.Height}");
+        }
+#endif
+        if (!presenterSettled)
         {
             return false;
         }
-        if (endpoint.Visible &&
-            !PrepareEdgeCapsuleQueueProxyEndpointForHandoff())
-        {
-            return false;
-        }
+
         return endpoint.Visible
             ? _edgeCapsuleHost?.MatchesPresentation(endpoint) == true
             : _edgeCapsuleHost == null ||
               _edgeCapsuleHost.MatchesPresentation(endpoint);
     }
-
-    internal void ReleaseDeferredEdgeCapsuleQueueProxyPreviewContent()
-    {
-        if (_edgeCapsuleProxyPreviewContentReleaseGeneration is not
-            { } generation)
-        {
-            return;
-        }
-        _edgeCapsuleProxyPreviewContentReleaseGeneration = null;
-        if (generation != _edgeCapsulePreviewContentGeneration ||
-            _edgeCapsulePreviewRequest != null ||
-            IsEdgeCapsulePreviewOpen)
-        {
-            return;
-        }
-        _edgeCapsuleHost?.ClearPreviewContent();
-    }
-
-    internal void MarkEdgeCapsuleQueueProxyPreviewContentReleasePending() =>
-        _edgeCapsuleProxyPreviewContentReleaseGeneration =
-            _edgeCapsulePreviewContentGeneration;
 
     internal void InvalidateEdgeCapsuleQueueProxyPointer()
     {
@@ -196,7 +219,6 @@ public sealed partial class PaperWindow
         }
 
         var pointer = CaptureEdgeCapsulePointerPosition();
-        // While real source HWNDs are cloaked, this timer is the physical-pointer wake-up path.
         _controller.NotifyEdgeCapsulePreviewPhysicalPointer(
             this,
             pointer);
@@ -210,6 +232,11 @@ public sealed partial class PaperWindow
         {
             return;
         }
+
+        // This is a real synchronous settlement barrier, not a best-effort equality shortcut.
+        // Pending Measure/Pointer/Presentation work can exist even when the currently applied
+        // frame and host already equal the old target; Flush cancels that queued reconcile and
+        // consumes the latest model/layout before the DComp cover is allowed to disappear.
         _edgeCapsule.CancelTransition();
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.Preview,

@@ -185,8 +185,10 @@ public sealed partial class PaperWindow : Window
     private const double TopBarCollisionGap = 2.0;
     private const double TitleBarDragThreshold = 1.0;
     private const double CapsuleCloseGlyphNormalOffset = -1;
-    private const double DeepCapsuleSlotOutlineThickness = 2;
-    private const double DeepCapsuleSlotOutlineOverlap = 1;
+    private const double DeepCapsuleSlotOutlineThickness =
+        EdgeCapsuleLayout.OutlineThickness;
+    private const double DeepCapsuleSlotOutlineOverlap =
+        EdgeCapsuleLayout.OutlineOverlap;
     private const double DeepCapsuleReorderDragExtraThreshold = 4;
     private const double DeepCapsuleCrossQueueDragUnlockDistance = 56;
     private const double DeepCapsuleCrossQueueDragScaleFrom = 0.97;
@@ -2672,15 +2674,23 @@ public sealed partial class PaperWindow : Window
 
     internal void RefreshDeepCapsuleSlotTopmost()
     {
-        // The transient queue proxy captures the queue's z-order at creation. Settle it before a
-        // fullscreen, passive-mode or context-menu change moves the real host to another layer.
-        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this, success: true);
         var queueAvoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(
             _paper.CapsuleMonitorDeviceName);
         var slotShouldBeTopmost =
             !_controller.State.ExperimentalDockedCapsulesNonTopmost &&
             !_controller.SuppressDeepCapsuleTopmostForContextMenu &&
             queueAvoidanceWindow == IntPtr.Zero;
+        // The transient proxy captures z-order at creation. Settle it only when that contract is
+        // actually changing; ordinary placement refreshes run during A-to-B staging and must leave
+        // the current cover available for successor promotion.
+        if (_edgeCapsuleHost?.WouldChangeZOrder(
+                slotShouldBeTopmost,
+                queueAvoidanceWindow) == true)
+        {
+            _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(
+                this,
+                success: true);
+        }
         _edgeCapsuleHost?.SetTopmost(
             slotShouldBeTopmost,
             queueAvoidanceWindow);

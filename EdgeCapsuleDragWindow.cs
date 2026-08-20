@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -50,51 +51,41 @@ internal readonly record struct EdgeCapsuleNativeDragOutcome(
 
 // A detached capsule is a complete, real-size pill in its own HWND. It never reuses the docked
 // one-sided tag or any of its edge-specific columns, margins, corners, or width animation state.
-internal sealed class EdgeCapsuleDragWindow : Window
+internal sealed partial class EdgeCapsuleDragWindow : Window
 {
-    private enum DockingHandoffAnimationPhase
-    {
-        Flight,
-        Reveal
-    }
+    private const double PooledParkCoordinate = -32000;
 
-    private sealed record DockingHandoffAnimation(
-        DockingHandoffAnimationPhase Phase,
-        EdgeCapsuleFloatingHandoffGeometry Geometry,
-        EdgeCapsuleEdge Edge,
-        double SurfaceStartWidthDip,
-        double SurfaceTargetWidthDip,
-        double StartOpacity,
-        long StartedAtTimestamp,
-        long DurationTimestampTicks,
-        Action<bool> Completed);
+    // A detached drag surface is process-global: the controller serializes capsule reorders, so
+    // one cached HWND is sufficient. Its HWND and WPF visual tree stay alive for the application
+    // lifetime; leases only bind paper-specific text, brushes and geometry onto the existing tree.
+    // The host is destroyed only when it becomes unusable or the dispatcher shuts down.
+    private static EdgeCapsuleDragWindow? s_pooledHost;
+    private static bool s_pooledHostLeased;
 
     private readonly ScaleTransform _entranceScale = new(1, 1);
 #if DEBUG
     private static long _nextDiagnosticHostId;
     private readonly long _diagnosticHostId;
-    private readonly string _diagnosticId;
+    private string _diagnosticId;
     private bool _diagnosticNativeDragTracking;
     private long _diagnosticNativeDragStartedAt;
     private long _diagnosticLastLocationAt;
     private int _diagnosticLocationEvents;
-    private bool _diagnosticHandoffTracking;
-    private string _diagnosticHandoffPhase = "<none>";
-    private long _diagnosticHandoffStartedAt;
-    private long _diagnosticLastHandoffFrameAt;
-    private int _diagnosticHandoffFrames;
-    private int _diagnosticHandoffNativeMoves;
 #endif
-    private readonly double _widthDip;
-    private readonly double _heightDip;
-    private readonly Grid _root;
-    private readonly Grid _surface;
-    private readonly Border _outline;
-    private DockingHandoffAnimation? _dockingHandoffAnimation;
-    private double _currentSurfaceWidthDip;
-    private EdgeCapsuleEdge _currentDockingEdge;
-    private bool _dockingPresentationActive;
+    private double _widthDip;
+    private double _heightDip;
+    private Grid _root = null!;
+    private Grid _surface = null!;
+    private Border _paperBackground = null!;
+    private Grid _shell = null!;
+    private Grid _content = null!;
+    private TextBlock _icon = null!;
+    private TextBlock _label = null!;
+    private Border _contentArea = null!;
+    private Border _outline = null!;
+    private EdgeCapsuleDragWindowOptions? _configuredOptions;
     private bool _closingByOwner;
+    private bool _hasBeenShown;
     private bool _nativeDragAttemptActive;
     private bool _isClosed;
 
@@ -113,28 +104,199 @@ internal sealed class EdgeCapsuleDragWindow : Window
         ResizeMode = ResizeMode.NoResize;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
-        FontFamily = options.UiFontFamily;
-        Language = options.Language;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
         AppTypography.ApplyTextRendering(this);
-        Topmost = options.Topmost;
         Opacity = 0;
-        Debug.Assert(
-            options.Shape.Visible && options.Shape.Kind == EdgeCapsuleSurfaceKind.FloatingFree,
-            "EdgeCapsuleDragWindow only renders the FloatingFree shape.");
-        _widthDip = options.Shape.WindowWidthDip;
-        _heightDip = options.Shape.WindowHeightDip;
-        Width = _widthDip;
-        Height = _heightDip;
-        _currentSurfaceWidthDip = _widthDip;
-        (_root, _surface, _outline) = BuildContent(options);
-        Content = _root;
+        BuildContent();
+        ConfigureForReuse(options);
 
         SourceInitialized += (_, _) => WindowNative.ApplyNoActivateStyle(this);
+        Dispatcher.ShutdownStarted += OnDispatcherShutdownStarted;
     }
 
     public event EventHandler? UnexpectedlyClosed;
+
+    public static bool NeedsInfrastructurePrewarm
+    {
+        get
+        {
+            VerifyPoolThreadAccess();
+            return s_pooledHost == null || !s_pooledHost._hasBeenShown;
+        }
+    }
+
+    public static bool TryPrewarmInfrastructure(
+        EdgeCapsuleDragWindowOptions seedOptions)
+    {
+        VerifyPoolThreadAccess();
+        if (s_pooledHostLeased)
+        {
+            return false;
+        }
+
+#if DEBUG
+        var startedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        var host = s_pooledHost;
+        try
+        {
+            host ??= CreatePooledHost(seedOptions);
+            if (host._hasBeenShown && !host.IsVisible)
+            {
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"drag.host phase=infrastructure-hit " +
+                    $"dragHost={host._diagnosticHostId}");
+#endif
+                return true;
+            }
+
+            var warmedShow = host.PrewarmInfrastructureAndPark();
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.host phase=infrastructure-prewarmed " +
+                $"dragHost={host._diagnosticHostId} warmedShow={warmedShow} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(startedAt):F3}");
+#endif
+            return true;
+        }
+        catch
+        {
+            DiscardPooledHost(host);
+            return false;
+        }
+    }
+
+    public static EdgeCapsuleDragWindow Rent(EdgeCapsuleDragWindowOptions options)
+    {
+        VerifyPoolThreadAccess();
+        if (s_pooledHostLeased)
+        {
+            throw new InvalidOperationException(
+                "Only one detached edge-capsule drag window can be leased at a time.");
+        }
+
+        var host = s_pooledHost;
+        if (host == null)
+        {
+            host = CreatePooledHost(options);
+            s_pooledHostLeased = true;
+            return host;
+        }
+
+        s_pooledHostLeased = true;
+        try
+        {
+#if DEBUG
+            var bindStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+            var rebound = host.ConfigureForReuse(options);
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.host phase=bound paper={host._diagnosticId} " +
+                $"dragHost={host._diagnosticHostId} rebound={rebound} " +
+                "treeRebuilt=false " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(bindStartedAt):F3}");
+#endif
+            return host;
+        }
+        catch
+        {
+            // A hidden WPF Window can normally accept all label/theme/shape updates in place. If
+            // a stale visual or HWND rejects that rebind, discard it and retry once with a clean
+            // host rather than carrying the bad lease into the drag transaction.
+            DiscardPooledHost(host);
+            var replacement = CreatePooledHost(options);
+            s_pooledHostLeased = true;
+            return replacement;
+        }
+    }
+
+    public void ReturnToPool()
+    {
+        VerifyAccess();
+        if (_isClosed)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(this, s_pooledHost))
+        {
+            CloseFromOwner();
+            return;
+        }
+        if (!s_pooledHostLeased)
+        {
+            return;
+        }
+
+#if DEBUG
+        var startedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
+#endif
+        try
+        {
+            ParkHidden();
+            ResetTransientPresentation();
+            s_pooledHostLeased = false;
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"drag.host phase=pooled paper={_diagnosticId} " +
+                $"dragHost={_diagnosticHostId} " +
+                $"totalMs={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(startedAt):F3}");
+#endif
+        }
+        catch
+        {
+            DiscardPooledHost(this);
+        }
+    }
+
+    private static EdgeCapsuleDragWindow CreatePooledHost(
+        EdgeCapsuleDragWindowOptions options)
+    {
+        var host = new EdgeCapsuleDragWindow(options);
+        s_pooledHost = host;
+        return host;
+    }
+
+    private static void DiscardPooledHost(EdgeCapsuleDragWindow? host)
+    {
+        if (host == null)
+        {
+            return;
+        }
+        if (ReferenceEquals(host, s_pooledHost))
+        {
+            s_pooledHost = null;
+            s_pooledHostLeased = false;
+        }
+
+        try
+        {
+            host.CloseFromOwner();
+        }
+        catch
+        {
+            // The dispatcher may already be tearing down. Its native window will be destroyed by
+            // shutdown; most importantly, it is no longer eligible for another pool lease.
+        }
+    }
+
+    private static void VerifyPoolThreadAccess()
+    {
+        var applicationDispatcher = Application.Current?.Dispatcher;
+        if (applicationDispatcher != null && !applicationDispatcher.CheckAccess())
+        {
+            throw new InvalidOperationException(
+                "The detached edge-capsule drag pool is UI-thread only.");
+        }
+        if (s_pooledHost != null && !s_pooledHost.Dispatcher.CheckAccess())
+        {
+            throw new InvalidOperationException(
+                "The detached edge-capsule drag pool belongs to another dispatcher.");
+        }
+    }
 
     public void ShowWithEntrance(
         DeviceScreenPoint pointer,
@@ -153,7 +315,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
         var placeMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
         stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-        WindowNative.CreateSystemAwareTopLevelWindowHandle(this);
+        var reusedHandle = EnsureSystemAwareHandle();
 #if DEBUG
         var createHandleMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
 #endif
@@ -166,7 +328,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #if DEBUG
             stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-            Show();
+            if (!IsVisible)
+            {
+                Show();
+            }
+            _hasBeenShown = true;
 #if DEBUG
             var showMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
             stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
@@ -184,6 +350,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #if DEBUG
             TraceShowDiagnostics(
                 animate,
+                reusedHandle,
                 placeMs,
                 createHandleMs,
                 showMs,
@@ -199,7 +366,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #if DEBUG
         stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
 #endif
-        Show();
+        if (!IsVisible)
+        {
+            Show();
+        }
+        _hasBeenShown = true;
 #if DEBUG
         var animatedShowMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(stageStartedAt);
         stageStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
@@ -226,6 +397,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #if DEBUG
         TraceShowDiagnostics(
             animate,
+            reusedHandle,
             placeMs,
             createHandleMs,
             animatedShowMs,
@@ -238,6 +410,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #if DEBUG
     private void TraceShowDiagnostics(
         bool animate,
+        bool reusedHandle,
         double placeMs,
         double createHandleMs,
         double showMs,
@@ -250,7 +423,8 @@ internal sealed class EdgeCapsuleDragWindow : Window
             : "<unavailable>";
         EdgeCapsulePerformanceDiagnostics.Trace(
             $"drag.host phase=shown paper={_diagnosticId} dragHost={_diagnosticHostId} " +
-            $"animate={animate} totalMs={totalMs:F3} placeMs={placeMs:F3} " +
+            $"animate={animate} reusedHandle={reusedHandle} " +
+            $"totalMs={totalMs:F3} placeMs={placeMs:F3} " +
             $"createHandleMs={createHandleMs:F3} showMs={showMs:F3} " +
             $"metricsMs={metricsMs:F3} centerMs={centerMs:F3} bounds={boundsText}");
     }
@@ -406,446 +580,189 @@ internal sealed class EdgeCapsuleDragWindow : Window
 #endif
     }
 
-    public void AnimateDockingHandoff(
-        DeviceScreenRect dockingAnchorBounds,
-        EdgeCapsuleEdge targetEdge,
-        int durationMilliseconds,
-        Action<bool> completed)
+    private bool ConfigureForReuse(EdgeCapsuleDragWindowOptions options)
     {
-        if (_dockingPresentationActive && targetEdge != _currentDockingEdge)
+        if (_isClosed)
+        {
+            throw new InvalidOperationException(
+                "A closed detached edge-capsule drag window cannot be reused.");
+        }
+        ValidateOptions(options);
+
+#if DEBUG
+        _diagnosticId = options.DiagnosticId;
+#endif
+        var reconfigured = !Equals(_configuredOptions, options);
+        if (reconfigured)
         {
             CancelDockingHandoffAnimation();
-            completed(false);
-            return;
-        }
-        CancelDockingHandoffAnimation();
-        if (_isClosed || dockingAnchorBounds.IsEmpty)
-        {
-            completed(false);
-            return;
+            _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            BindOptions(options);
         }
 
-        // A very quick release can overlap the entrance scale. The docking surface starts from the
-        // real full-size pill, so remove that transform before sampling its physical rectangle.
+        ResetTransientPresentation();
+        return reconfigured;
+    }
+
+    private static void ValidateOptions(EdgeCapsuleDragWindowOptions options)
+    {
+        if (!options.Shape.Visible ||
+            options.Shape.Kind != EdgeCapsuleSurfaceKind.FloatingFree ||
+            !double.IsFinite(options.Shape.WindowWidthDip) ||
+            !double.IsFinite(options.Shape.WindowHeightDip) ||
+            !double.IsFinite(options.Shape.BodyHeightDip) ||
+            !double.IsFinite(options.Shape.CornerRadiusDip) ||
+            options.Shape.WindowWidthDip <= 0 ||
+            options.Shape.WindowHeightDip <= 0 ||
+            options.Shape.BodyHeightDip <= 0 ||
+            options.Shape.CornerRadiusDip < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The detached drag host requires a finite FloatingFree shape.");
+        }
+    }
+
+    private void BindOptions(EdgeCapsuleDragWindowOptions options)
+    {
+        // The expensive Window, HWND, DropShadowEffect and WPF tree are permanent. Switching papers
+        // is intentionally a property bind; never clear Content or rebuild controls on the input path.
+        _widthDip = options.Shape.WindowWidthDip;
+        _heightDip = options.Shape.WindowHeightDip;
+        Width = _widthDip;
+        Height = _heightDip;
+        FontFamily = options.UiFontFamily;
+        Language = options.Language;
+        Topmost = options.Topmost;
+
+        _paperBackground.Margin = new Thickness(options.WindowChromeMargin);
+        _paperBackground.Background = options.PaperBrush;
+        _paperBackground.BorderBrush = options.PaperBorderBrush;
+        _paperBackground.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip);
+
+        _shell.Margin = new Thickness(options.WindowChromeMargin);
+        _shell.Height = options.Shape.BodyHeightDip;
+        _content.Margin = new Thickness(
+            options.LeftPadding,
+            0,
+            options.RightPadding,
+            0);
+
+        _icon.Text = options.Icon;
+        _icon.Foreground = options.IconBrush;
+        _icon.FontFamily = options.SymbolFontFamily;
+        _icon.FontSize = options.IconFontSize;
+
+        _label.Text = options.Label;
+        _label.Foreground = options.LabelBrush;
+        _label.FontFamily = options.UiFontFamily;
+        _label.FontSize = options.LabelFontSize;
+        _label.FontWeight = options.LabelFontWeight;
+        _label.Margin = new Thickness(options.IconGap, 0, 0, 0);
+
+        _contentArea.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip);
+        _outline.Margin = new Thickness(options.OutlineMargin);
+        _outline.BorderBrush = options.OutlineBrush;
+        _outline.BorderThickness = new Thickness(options.OutlineThickness);
+        _outline.CornerRadius = new CornerRadius(
+            options.Shape.CornerRadiusDip +
+            options.OutlineThickness -
+            options.OutlineOverlap);
+        _outline.Visibility = options.Shape.OutlineVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _configuredOptions = options;
+    }
+
+    private void ResetTransientPresentation()
+    {
+        CancelDockingHandoffAnimation();
         _entranceScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         _entranceScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         _entranceScale.ScaleX = 1;
         _entranceScale.ScaleY = 1;
+        _surface.BeginAnimation(OpacityProperty, null);
+        _outline.BeginAnimation(OpacityProperty, null);
         _surface.Opacity = 1;
         _outline.Opacity = 1;
-        if (!WindowNative.TryGetWindowDeviceBounds(this, out var startHostBounds) ||
-            startHostBounds.IsEmpty)
-        {
-            completed(false);
-            return;
-        }
-
-        var targetCenter = new DeviceScreenPoint(
-            dockingAnchorBounds.Left + dockingAnchorBounds.Width / 2.0,
-            dockingAnchorBounds.Top + dockingAnchorBounds.Height / 2.0);
-        if (!WindowWorkAreaHelper.TryGetMonitorGeometryAtDeviceScreenPoint(
-                targetCenter,
-                out var targetMonitor))
-        {
-            completed(false);
-            return;
-        }
-
-        var geometry = EdgeCapsuleGeometry.FloatingHandoffGeometry(
-            startHostBounds,
-            dockingAnchorBounds,
-            targetEdge,
-            _widthDip,
-            _heightDip,
-            targetMonitor.DpiScaleX,
-            targetMonitor.DpiScaleY);
-        if (!geometry.IsUsable)
-        {
-            completed(false);
-            return;
-        }
-
-        var startSurfaceWidthDip = Math.Clamp(_currentSurfaceWidthDip, 1, _widthDip);
-        var targetSurfaceWidthDip = geometry.SurfaceTargetWidthDip;
-        _dockingPresentationActive = true;
-        _currentDockingEdge = targetEdge;
-#if DEBUG
-        BeginHandoffDiagnostics("flight");
-#endif
-
-        // The WPF Window keeps its fixed logical Width/Height. Each frame moves only the HWND and
-        // changes only the child width, so there is no second native size owner to fight WPF.
-        if (!ApplyDockingFrame(
-                new DeviceScreenPoint(startHostBounds.Left, startHostBounds.Top),
-                startSurfaceWidthDip,
-                targetEdge))
-        {
-#if DEBUG
-            CompleteHandoffDiagnostics("initial-apply-failed");
-#endif
-            completed(false);
-            return;
-        }
-
-        _dockingHandoffAnimation = new DockingHandoffAnimation(
-            DockingHandoffAnimationPhase.Flight,
-            geometry,
-            targetEdge,
-            startSurfaceWidthDip,
-            targetSurfaceWidthDip,
-            1,
-            Stopwatch.GetTimestamp(),
-            AnimationDurationTicks(durationMilliseconds),
-            completed);
-        CompositionTarget.Rendering += OnDockingHandoffFrame;
-        AdvanceDockingHandoffFrame();
+        _surface.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _surface.VerticalAlignment = VerticalAlignment.Stretch;
+        _surface.Width = double.NaN;
+        _surface.Height = double.NaN;
+        _currentSurfaceWidthDip = _widthDip;
+        _currentDockingEdge = default;
+        _lastDockingDeviceLeft = int.MinValue;
+        _lastDockingDeviceTop = int.MinValue;
+        _lastDockingSurfaceWidthDip = double.NaN;
+        _lastDockingEdge = null;
+        _dockingPresentationActive = false;
+        _nativeDragAttemptActive = false;
     }
 
-    public void AnimateDockingReveal(int durationMilliseconds, Action<bool> completed)
-    {
-        CancelDockingHandoffAnimation();
-        if (_isClosed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-        {
-            completed(false);
-            return;
-        }
-
-        // The confirmed docked host owns the final outline. Keep the floating body as the
-        // anti-flash cover, but do not cross-fade two outlines with different edge geometry.
-        _outline.Opacity = 0;
-        var startOpacity = Math.Clamp(_surface.Opacity, 0, 1);
-        if (startOpacity <= 0.001)
-        {
-            _surface.Opacity = 0;
-            completed(true);
-            return;
-        }
-#if DEBUG
-        BeginHandoffDiagnostics("reveal");
-#endif
-
-        _dockingHandoffAnimation = new DockingHandoffAnimation(
-            DockingHandoffAnimationPhase.Reveal,
-            default,
-            default,
-            0,
-            0,
-            startOpacity,
-            Stopwatch.GetTimestamp(),
-            AnimationDurationTicks(durationMilliseconds),
-            completed);
-        CompositionTarget.Rendering += OnDockingHandoffFrame;
-        AdvanceDockingHandoffFrame();
-    }
-
-    public void RestoreDockingCover()
+    private bool EnsureSystemAwareHandle()
     {
         if (_isClosed)
         {
-            return;
+            throw new InvalidOperationException(
+                "A closed detached edge-capsule drag window has no reusable HWND.");
         }
 
-        _outline.Opacity = 1;
-        _surface.Opacity = 1;
-        WindowNative.BringToFrontNoActivate(this);
-    }
-
-    private void OnDockingHandoffFrame(object? sender, EventArgs e) =>
-        AdvanceDockingHandoffFrame();
-
-    private void AdvanceDockingHandoffFrame()
-    {
-        var animation = _dockingHandoffAnimation;
-        if (animation == null || _isClosed)
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != IntPtr.Zero)
         {
-            return;
-        }
-#if DEBUG
-        RecordHandoffFrameDiagnostics();
-#endif
-
-        var elapsed = Math.Max(0, Stopwatch.GetTimestamp() - animation.StartedAtTimestamp);
-        var rawProgress = Math.Clamp(
-            elapsed / (double)animation.DurationTimestampTicks,
-            0,
-            1);
-        var progress = 1.0 - Math.Pow(1.0 - rawProgress, 3.0);
-        if (animation.Phase == DockingHandoffAnimationPhase.Flight)
-        {
-            var hostPosition = EdgeCapsuleGeometry.InterpolateDevicePosition(
-                animation.Geometry.HostStartBounds,
-                animation.Geometry.HostTargetBounds,
-                progress);
-            var surfaceWidthDip = animation.SurfaceStartWidthDip +
-                (animation.SurfaceTargetWidthDip - animation.SurfaceStartWidthDip) * progress;
-            if (!ApplyDockingFrame(
-                    hostPosition,
-                    surfaceWidthDip,
-                    animation.Edge))
+            if (!WindowNative.IsWindowHandleAlive(handle))
             {
-                CompleteDockingHandoffAnimation(reachedTarget: false);
-                return;
+                throw new InvalidOperationException(
+                    "The cached detached edge-capsule HWND is no longer alive.");
             }
-        }
-        else
-        {
-            _surface.Opacity = Math.Clamp(
-                animation.StartOpacity * (1.0 - progress),
-                0,
-                1);
+            return true;
         }
 
-        if (rawProgress >= 1)
-        {
-            CompleteDockingHandoffAnimation(reachedTarget: true);
-        }
+        WindowNative.CreateSystemAwareTopLevelWindowHandle(this);
+        return false;
     }
 
-    private void CompleteDockingHandoffAnimation(bool reachedTarget)
+    private bool PrewarmInfrastructureAndPark()
     {
-        var animation = _dockingHandoffAnimation;
-        if (animation == null)
+        Opacity = 0;
+        Left = PooledParkCoordinate;
+        Top = PooledParkCoordinate;
+        EnsureSystemAwareHandle();
+
+        var warmShow = !_hasBeenShown;
+        if (warmShow)
         {
-            return;
+            if (!IsVisible)
+            {
+                Show();
+            }
+            _hasBeenShown = true;
+            RefreshNativeMetricsLayout();
         }
 
-        CompositionTarget.Rendering -= OnDockingHandoffFrame;
-        if (!reachedTarget ||
-            _isClosed ||
-            Dispatcher.HasShutdownStarted ||
-            Dispatcher.HasShutdownFinished)
-        {
-            _dockingHandoffAnimation = null;
-#if DEBUG
-            CompleteHandoffDiagnostics("interrupted");
-#endif
-            animation.Completed(false);
-            return;
-        }
-
-        if (animation.Phase == DockingHandoffAnimationPhase.Reveal)
-        {
-            _surface.Opacity = 0;
-            _dockingHandoffAnimation = null;
-#if DEBUG
-            CompleteHandoffDiagnostics("completed");
-#endif
-            animation.Completed(true);
-            return;
-        }
-
-        if (!ApplyDockingFrame(
-                new DeviceScreenPoint(
-                    animation.Geometry.HostTargetBounds.Left,
-                    animation.Geometry.HostTargetBounds.Top),
-                animation.SurfaceTargetWidthDip,
-                animation.Edge))
-        {
-            _dockingHandoffAnimation = null;
-#if DEBUG
-            CompleteHandoffDiagnostics("endpoint-apply-failed");
-#endif
-            animation.Completed(false);
-            return;
-        }
-
-        // Let WPF render the child-width endpoint, then verify the single native position/size
-        // result. No replay is needed: a failed endpoint takes the existing terminal snap path.
-        Dispatcher.BeginInvoke(
-            (Action)(() => CompleteDockingHandoffEndpointSettle(animation)),
-            System.Windows.Threading.DispatcherPriority.ContextIdle);
+        ParkHidden();
+        return warmShow;
     }
 
-    private void CompleteDockingHandoffEndpointSettle(DockingHandoffAnimation animation)
+    private void ParkHidden()
     {
-        if (!ReferenceEquals(animation, _dockingHandoffAnimation) || _isClosed)
+        if (IsVisible)
         {
-            return;
+            Hide();
         }
-
-        var settled = ApplyDockingFrame(
-                new DeviceScreenPoint(
-                    animation.Geometry.HostTargetBounds.Left,
-                    animation.Geometry.HostTargetBounds.Top),
-                animation.SurfaceTargetWidthDip,
-                animation.Edge) &&
-            WindowNative.TryGetWindowDeviceBounds(this, out var actualHostBounds) &&
-            EdgeCapsuleGeometry.DeviceBoundsMatch(
-                actualHostBounds,
-                animation.Geometry.HostTargetBounds,
-                tolerance: 2) &&
-            MatchesDockingSurfaceLayout(animation.SurfaceTargetWidthDip);
-        _dockingHandoffAnimation = null;
-#if DEBUG
-        CompleteHandoffDiagnostics(settled ? "completed" : "endpoint-verify-failed");
-#endif
-        animation.Completed(settled);
-    }
-
-    private bool MatchesDockingSurfaceLayout(double targetWidthDip)
-    {
-        if (!double.IsFinite(targetWidthDip) ||
-            targetWidthDip <= 0 ||
-            !double.IsFinite(_surface.ActualWidth) ||
-            !double.IsFinite(_surface.ActualHeight) ||
-            _surface.ActualWidth <= 0 ||
-            _surface.ActualHeight <= 0)
+        Opacity = 0;
+        Left = PooledParkCoordinate;
+        Top = PooledParkCoordinate;
+        if (new WindowInteropHelper(this).Handle != IntPtr.Zero)
         {
-            return false;
+            _ = WindowNative.TryMoveWindowDevicePosition(
+                this,
+                new DeviceScreenPoint(PooledParkCoordinate, PooledParkCoordinate));
         }
-
-        var dpi = VisualTreeHelper.GetDpi(_surface);
-        var actualWidth = (int)Math.Round(
-            _surface.ActualWidth * dpi.DpiScaleX,
-            MidpointRounding.AwayFromZero);
-        var actualHeight = (int)Math.Round(
-            _surface.ActualHeight * dpi.DpiScaleY,
-            MidpointRounding.AwayFromZero);
-        var targetWidth = (int)Math.Round(
-            targetWidthDip * dpi.DpiScaleX,
-            MidpointRounding.AwayFromZero);
-        var targetHeight = (int)Math.Round(
-            _heightDip * dpi.DpiScaleY,
-            MidpointRounding.AwayFromZero);
-        return Math.Abs(actualWidth - targetWidth) <= 1 &&
-            Math.Abs(actualHeight - targetHeight) <= 1;
     }
-
-    private void CancelDockingHandoffAnimation()
-    {
-        if (_dockingHandoffAnimation == null)
-        {
-            return;
-        }
-
-        var animation = _dockingHandoffAnimation;
-        _dockingHandoffAnimation = null;
-        CompositionTarget.Rendering -= OnDockingHandoffFrame;
-#if DEBUG
-        CompleteHandoffDiagnostics("cancelled");
-#endif
-        animation.Completed(false);
-    }
-
-    private bool ApplyDockingFrame(
-        DeviceScreenPoint hostPosition,
-        double surfaceWidthDip,
-        EdgeCapsuleEdge edge)
-    {
-        if (_isClosed ||
-            !double.IsFinite(hostPosition.X) ||
-            !double.IsFinite(hostPosition.Y) ||
-            !double.IsFinite(surfaceWidthDip) ||
-            surfaceWidthDip <= 0)
-        {
-            return false;
-        }
-
-        _surface.HorizontalAlignment = edge == EdgeCapsuleEdge.Left
-            ? HorizontalAlignment.Left
-            : HorizontalAlignment.Right;
-        _surface.VerticalAlignment = VerticalAlignment.Center;
-        _surface.Width = Math.Clamp(surfaceWidthDip, 1, _widthDip);
-        _surface.Height = _heightDip;
-        _currentSurfaceWidthDip = _surface.Width;
-        _currentDockingEdge = edge;
-
-        // Position is committed last. Width/Height remain owned by the fixed WPF Window and are
-        // never included in this native operation.
-#if DEBUG
-        var nativeStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
-#endif
-        var moved = WindowNative.TryMoveWindowDevicePosition(this, hostPosition);
-#if DEBUG
-        RecordHandoffNativeMoveDiagnostics(
-            EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(nativeStartedAt),
-            hostPosition,
-            moved);
-#endif
-        return moved;
-    }
-
-#if DEBUG
-    private void BeginHandoffDiagnostics(string phase)
-    {
-        if (_diagnosticHandoffTracking)
-        {
-            CompleteHandoffDiagnostics("restarted");
-        }
-        _diagnosticHandoffTracking = true;
-        _diagnosticHandoffPhase = phase;
-        _diagnosticHandoffStartedAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
-        _diagnosticLastHandoffFrameAt = 0;
-        _diagnosticHandoffFrames = 0;
-        _diagnosticHandoffNativeMoves = 0;
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"drag.handoff phase={phase} event=begin paper={_diagnosticId} " +
-            $"dragHost={_diagnosticHostId}");
-    }
-
-    private void RecordHandoffFrameDiagnostics()
-    {
-        if (!_diagnosticHandoffTracking)
-        {
-            return;
-        }
-        var frameAt = EdgeCapsulePerformanceDiagnostics.Timestamp();
-        var totalMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-            _diagnosticHandoffStartedAt,
-            frameAt);
-        var gapMs = _diagnosticLastHandoffFrameAt == 0
-            ? totalMs
-            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-                _diagnosticLastHandoffFrameAt,
-                frameAt);
-        _diagnosticLastHandoffFrameAt = frameAt;
-        _diagnosticHandoffFrames++;
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"drag.handoff phase={_diagnosticHandoffPhase} event=frame " +
-            $"paper={_diagnosticId} dragHost={_diagnosticHostId} " +
-            $"sequence={_diagnosticHandoffFrames} totalMs={totalMs:F3} " +
-            $"gapMs={gapMs:F3}");
-    }
-
-    private void RecordHandoffNativeMoveDiagnostics(
-        double nativeMs,
-        DeviceScreenPoint hostPosition,
-        bool moved)
-    {
-        if (!_diagnosticHandoffTracking)
-        {
-            return;
-        }
-        _diagnosticHandoffNativeMoves++;
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"drag.handoff phase={_diagnosticHandoffPhase} event=native-move " +
-            $"paper={_diagnosticId} dragHost={_diagnosticHostId} " +
-            $"sequence={_diagnosticHandoffNativeMoves} outcome={(moved ? "success" : "failed")} " +
-            $"nativeMs={nativeMs:F3} target={hostPosition.X:F0},{hostPosition.Y:F0}");
-    }
-
-    private void CompleteHandoffDiagnostics(string outcome)
-    {
-        if (!_diagnosticHandoffTracking)
-        {
-            return;
-        }
-        var durationMs = EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
-            _diagnosticHandoffStartedAt);
-        _diagnosticHandoffTracking = false;
-        EdgeCapsulePerformanceDiagnostics.Trace(
-            $"drag.handoff phase={_diagnosticHandoffPhase} event=summary " +
-            $"paper={_diagnosticId} dragHost={_diagnosticHostId} outcome={outcome} " +
-            $"totalMs={durationMs:F3} frames={_diagnosticHandoffFrames} " +
-            $"nativeMoves={_diagnosticHandoffNativeMoves}");
-    }
-#endif
-
-    private static long AnimationDurationTicks(int durationMilliseconds) =>
-        Math.Max(
-            1,
-            (long)Math.Round(
-                Stopwatch.Frequency * Math.Max(1, durationMilliseconds) / 1000.0));
 
     private void RefreshNativeMetricsLayout()
     {
@@ -860,7 +777,7 @@ internal sealed class EdgeCapsuleDragWindow : Window
 
     public void CloseFromOwner()
     {
-        if (_closingByOwner)
+        if (_closingByOwner || _isClosed)
         {
             return;
         }
@@ -871,9 +788,25 @@ internal sealed class EdgeCapsuleDragWindow : Window
         Close();
     }
 
+    private void OnDispatcherShutdownStarted(object? sender, EventArgs e)
+    {
+        if (ReferenceEquals(this, s_pooledHost))
+        {
+            s_pooledHost = null;
+            s_pooledHostLeased = false;
+        }
+        CloseFromOwner();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _isClosed = true;
+        Dispatcher.ShutdownStarted -= OnDispatcherShutdownStarted;
+        if (ReferenceEquals(this, s_pooledHost))
+        {
+            s_pooledHost = null;
+            s_pooledHostLeased = false;
+        }
         base.OnClosed(e);
         if (!_closingByOwner)
         {
@@ -885,15 +818,14 @@ internal sealed class EdgeCapsuleDragWindow : Window
         CancelDockingHandoffAnimation();
     }
 
-    private (Grid Root, Grid Surface, Border Outline) BuildContent(
-        EdgeCapsuleDragWindowOptions options)
+    private void BuildContent()
     {
-        var root = new Grid
+        _root = new Grid
         {
             Background = null,
             IsHitTestVisible = false
         };
-        var surface = new Grid
+        _surface = new Grid
         {
             Background = null,
             IsHitTestVisible = false,
@@ -904,15 +836,11 @@ internal sealed class EdgeCapsuleDragWindow : Window
             SnapsToDevicePixels = true,
             UseLayoutRounding = true
         };
-        root.Children.Add(surface);
+        _root.Children.Add(_surface);
 
-        surface.Children.Add(new Border
+        _paperBackground = new Border
         {
-            Margin = new Thickness(options.WindowChromeMargin),
-            Background = options.PaperBrush,
-            BorderBrush = options.PaperBorderBrush,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
             SnapsToDevicePixels = true,
             Effect = new DropShadowEffect
             {
@@ -920,76 +848,63 @@ internal sealed class EdgeCapsuleDragWindow : Window
                 ShadowDepth = 1,
                 Opacity = 0.12
             }
-        });
+        };
+        _surface.Children.Add(_paperBackground);
 
-        var shell = new Grid
+        _shell = new Grid
         {
-            Margin = new Thickness(options.WindowChromeMargin),
-            Height = options.Shape.BodyHeightDip,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center,
             Background = Brushes.Transparent
         };
-        var content = new Grid
+        _content = new Grid
         {
-            Margin = new Thickness(options.LeftPadding, 0, options.RightPadding, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _content.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = GridLength.Auto });
+        _content.ColumnDefinitions.Add(
+            new ColumnDefinition
+            {
+                Width = new GridLength(1, GridUnitType.Star)
+            });
 
-        var icon = new TextBlock
+        _icon = new TextBlock
         {
-            Text = options.Icon,
-            Foreground = options.IconBrush,
-            FontFamily = options.SymbolFontFamily,
-            FontSize = options.IconFontSize,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(icon, 0);
-        content.Children.Add(icon);
+        Grid.SetColumn(_icon, 0);
+        _content.Children.Add(_icon);
 
-        var label = new TextBlock
+        _label = new TextBlock
         {
-            Text = options.Label,
-            Foreground = options.LabelBrush,
-            FontFamily = options.UiFontFamily,
-            FontSize = options.LabelFontSize,
-            FontWeight = options.LabelFontWeight,
-            Margin = new Thickness(options.IconGap, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
-        AppTypography.ApplyTextRendering(label);
-        Grid.SetColumn(label, 1);
-        content.Children.Add(label);
+        AppTypography.ApplyTextRendering(_label);
+        Grid.SetColumn(_label, 1);
+        _content.Children.Add(_label);
 
-        var contentArea = new Border
+        _contentArea = new Border
         {
             Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip),
-            Child = content
+            Child = _content
         };
-        shell.Children.Add(contentArea);
-        Panel.SetZIndex(shell, 10);
-        surface.Children.Add(shell);
+        _shell.Children.Add(_contentArea);
+        Panel.SetZIndex(_shell, 10);
+        _surface.Children.Add(_shell);
 
-        var outline = new Border
+        _outline = new Border
         {
-            Margin = new Thickness(options.OutlineMargin),
-            BorderBrush = options.OutlineBrush,
-            BorderThickness = new Thickness(options.OutlineThickness),
-            CornerRadius = new CornerRadius(options.Shape.CornerRadiusDip + options.OutlineThickness - options.OutlineOverlap),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
-            Visibility = options.Shape.OutlineVisible ? Visibility.Visible : Visibility.Collapsed,
             SnapsToDevicePixels = true
         };
-        Panel.SetZIndex(outline, 20);
-        surface.Children.Add(outline);
-        return (root, surface, outline);
+        Panel.SetZIndex(_outline, 20);
+        _surface.Children.Add(_outline);
+        Content = _root;
     }
 }
