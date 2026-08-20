@@ -274,9 +274,3 @@ Local packaging only builds the no-runtime single file; cloud Releases publish b
 ## Other
 
 Thanks to the [linux.do](https://linux.do/) community.
-
----
-
-## Star History
-
-[![PaperTodo Star History Chart](https://api.star-history.com/svg?repos=snownico0722/PaperTodo&type=Date)](https://star-history.com/#snownico0722/PaperTodo&Date)
