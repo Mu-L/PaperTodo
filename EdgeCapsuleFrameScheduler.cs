@@ -34,10 +34,15 @@ internal sealed class EdgeCapsuleFrameScheduler
     private TimeSpan? _lastRenderingTime;
 #if DEBUG
     private long _pendingRenderReconcileStartedAtTimestamp;
+    private long _lastRawRenderingCallbackTimestamp;
     private long _lastRenderingTimestamp;
     private long _lastWpfPresentationChangeTimestamp;
-    private readonly List<(EdgeCapsulePresenter Presenter, int Version)>
-        _debugWpfPresentationSamples = new();
+    private ulong _lastWpfTransitionFingerprint;
+    private readonly List<(
+        EdgeCapsulePresenter Presenter,
+        int Version,
+        bool ActiveBefore)> _debugWpfPresentationSamples = new();
+    private long _debugRenderingCallbackSequence;
     private long _debugFrameSequence;
     private int _suppressedDuplicateRenderingCallbacks;
     private int _suppressedPendingReconcileRenderingCallbacks;
@@ -176,10 +181,30 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
             return;
         }
+
+        var renderingTime = e is RenderingEventArgs renderingArgs
+            ? renderingArgs.RenderingTime
+            : (TimeSpan?)null;
+#if DEBUG
+        var rawCallbackTimestamp = EdgeCapsulePerformanceDiagnostics.Timestamp();
+        var rawRenderingSequence = ++_debugRenderingCallbackSequence;
+        var rawGapMilliseconds = _lastRawRenderingCallbackTimestamp == 0
+            ? 0
+            : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
+                _lastRawRenderingCallbackTimestamp,
+                rawCallbackTimestamp);
+        _lastRawRenderingCallbackTimestamp = rawCallbackTimestamp;
+#endif
         if (_isTicking)
         {
 #if DEBUG
             RecordSuppressedRenderingCallback(ref _suppressedReentrantRenderingCallbacks);
+            TraceRenderingCallback(
+                rawRenderingSequence,
+                rawGapMilliseconds,
+                renderingTime,
+                "suppressed",
+                "reentrant");
 #endif
             return;
         }
@@ -187,6 +212,12 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
 #if DEBUG
             RecordSuppressedRenderingCallback(ref _suppressedPendingReconcileRenderingCallbacks);
+            TraceRenderingCallback(
+                rawRenderingSequence,
+                rawGapMilliseconds,
+                renderingTime,
+                "suppressed",
+                "pending-reconcile");
 #endif
             return;
         }
@@ -194,23 +225,40 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
 #if DEBUG
             RecordSuppressedRenderingCallback(ref _suppressedExternalNativeBatchRenderingCallbacks);
+            TraceRenderingCallback(
+                rawRenderingSequence,
+                rawGapMilliseconds,
+                renderingTime,
+                "suppressed",
+                "external-native-batch");
 #endif
             return;
         }
 
-        var renderingTime = e is RenderingEventArgs renderingArgs
-            ? renderingArgs.RenderingTime
-            : (TimeSpan?)null;
         if (renderingTime.HasValue &&
             _lastRenderingTime.HasValue &&
             renderingTime.Value == _lastRenderingTime.Value)
         {
 #if DEBUG
             _suppressedDuplicateRenderingCallbacks++;
+            TraceRenderingCallback(
+                rawRenderingSequence,
+                rawGapMilliseconds,
+                renderingTime,
+                "suppressed",
+                "duplicate");
 #endif
             return;
         }
         _lastRenderingTime = renderingTime;
+#if DEBUG
+        TraceRenderingCallback(
+            rawRenderingSequence,
+            rawGapMilliseconds,
+            renderingTime,
+            "accepted",
+            "accepted");
+#endif
 
         // A genuine composition callback arrived before the one-shot rescue. Cancel it first;
         // this keeps the watchdog demand-driven rather than turning it into a second frame clock.
@@ -335,6 +383,8 @@ internal sealed class EdgeCapsuleFrameScheduler
         _suppressedRenderingStartedAtTimestamp = 0;
         var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
         var debugHadActiveTransitionBefore = HasActiveTransitionPresenter();
+        var debugTransitionFingerprintBefore =
+            GetDebugActiveTransitionFingerprint();
 #endif
         var anyCommittedApply = false;
         _isTicking = true;
@@ -354,8 +404,10 @@ internal sealed class EdgeCapsuleFrameScheduler
             for (var index = 0; index < initialCount; index++)
             {
                 var presenter = _presenters[index];
-                _debugWpfPresentationSamples.Add(
-                    (presenter, presenter.AppliedPresentationVersion));
+                _debugWpfPresentationSamples.Add((
+                    presenter,
+                    presenter.AppliedPresentationVersion,
+                    presenter.HasActiveTransition));
             }
 #endif
             var frameTimestamp = Stopwatch.GetTimestamp();
@@ -387,34 +439,68 @@ internal sealed class EdgeCapsuleFrameScheduler
         {
 #if DEBUG
             var debugWpfPresentationVersionDelta = 0;
+            var debugWpfSampleChanged = 0;
+            var debugWpfSampleEqual = 0;
+            var debugWpfCompleteEqual = 0;
+            var debugWpfSettledEqual = 0;
+            var debugWpfApplyFailed = 0;
             for (var index = 0; index < _debugWpfPresentationSamples.Count; index++)
             {
                 var sample = _debugWpfPresentationSamples[index];
                 var debugDelta =
                     sample.Presenter.AppliedPresentationVersion - sample.Version;
+                var activeAfter = sample.Presenter.HasActiveTransition;
                 if (debugDelta > 0)
                 {
                     debugWpfPresentationVersionDelta += debugDelta;
+                    debugWpfSampleChanged++;
+                }
+                else if (sample.Presenter.NativeBatchRetryPending)
+                {
+                    debugWpfApplyFailed++;
+                }
+                else if (sample.ActiveBefore && !activeAfter)
+                {
+                    debugWpfCompleteEqual++;
+                }
+                else if (sample.ActiveBefore || activeAfter)
+                {
+                    debugWpfSampleEqual++;
+                }
+                else
+                {
+                    debugWpfSettledEqual++;
                 }
             }
             var debugWpfPresentationChanged =
                 debugWpfPresentationVersionDelta > 0;
             var debugActiveTransitionAfter = HasActiveTransitionPresenter();
+            var debugTransitionFingerprintAfter =
+                GetDebugActiveTransitionFingerprint();
+            var debugWpfTransitionFingerprint =
+                debugTransitionFingerprintAfter != 0
+                    ? debugTransitionFingerprintAfter
+                    : debugTransitionFingerprintBefore;
             var debugWpfPresentationGapMilliseconds = -1.0;
             if (debugWpfPresentationChanged)
             {
                 debugWpfPresentationGapMilliseconds =
-                    _lastWpfPresentationChangeTimestamp == 0
+                    _lastWpfPresentationChangeTimestamp == 0 ||
+                    _lastWpfTransitionFingerprint == 0 ||
+                    debugWpfTransitionFingerprint == 0 ||
+                    _lastWpfTransitionFingerprint != debugWpfTransitionFingerprint
                         ? 0
                         : EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(
                             _lastWpfPresentationChangeTimestamp,
                             callbackStartedAt);
                 _lastWpfPresentationChangeTimestamp = callbackStartedAt;
+                _lastWpfTransitionFingerprint = debugWpfTransitionFingerprint;
             }
             if (!debugActiveTransitionAfter)
             {
                 // Idle time between independent interactions is not a dropped WPF frame.
                 _lastWpfPresentationChangeTimestamp = 0;
+                _lastWpfTransitionFingerprint = 0;
             }
 
             EdgeCapsulePerformanceDiagnostics.Trace(
@@ -426,6 +512,12 @@ internal sealed class EdgeCapsuleFrameScheduler
                 $"wpfChanged={debugWpfPresentationChanged} " +
                 $"wpfDelta={debugWpfPresentationVersionDelta} " +
                 $"wpfGapMs={debugWpfPresentationGapMilliseconds:F3} " +
+                $"wpfTransitionId={debugWpfTransitionFingerprint:X16} " +
+                $"wpfSampleChanged={debugWpfSampleChanged} " +
+                $"wpfSampleEqual={debugWpfSampleEqual} " +
+                $"wpfCompleteEqual={debugWpfCompleteEqual} " +
+                $"wpfSettledEqual={debugWpfSettledEqual} " +
+                $"wpfApplyFailed={debugWpfApplyFailed} " +
                 $"duplicateCallbacks={duplicateRenderingCallbacks} presenters={debugInitialCount} " +
                 $"groups={debugGroupCount} renderPending={_pendingRenderReconciles} " +
                 $"skippedPending={suppressedPendingCallbacks} " +
@@ -668,6 +760,64 @@ internal sealed class EdgeCapsuleFrameScheduler
     }
 
 #if DEBUG
+    private void TraceRenderingCallback(
+        long sequence,
+        double rawGapMilliseconds,
+        TimeSpan? renderingTime,
+        string outcome,
+        string reason)
+    {
+        var renderingTimeMilliseconds = renderingTime?.TotalMilliseconds ?? -1;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"scheduler.rendering sequence={sequence} " +
+            $"rawGapMs={rawGapMilliseconds:F3} " +
+            $"renderMs={renderingTimeMilliseconds:F3} " +
+            $"outcome={outcome} reason={reason} " +
+            $"activeTransition={HasActiveTransitionPresenter()} " +
+            $"renderPending={_pendingRenderReconciles}");
+    }
+
+    private ulong GetDebugActiveTransitionFingerprint()
+    {
+        const ulong offsetBasis = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        var hash = offsetBasis;
+        var activeCount = 0;
+        unchecked
+        {
+            for (var index = 0; index < _presenters.Count; index++)
+            {
+                var presenter = _presenters[index];
+                if (!presenter.HasActiveTransition)
+                {
+                    continue;
+                }
+
+                activeCount++;
+                var frame = presenter.AppliedPresentation;
+                hash ^= (uint)RuntimeHelpers.GetHashCode(presenter);
+                hash *= prime;
+                hash ^= (uint)frame.Surface;
+                hash *= prime;
+                hash ^= (uint)frame.Edge;
+                hash *= prime;
+                hash ^= (uint)frame.HostBounds.GetHashCode();
+                hash *= prime;
+                hash ^= (uint)frame.WallDeviceX;
+                hash *= prime;
+            }
+
+            if (activeCount == 0)
+            {
+                return 0;
+            }
+
+            hash ^= (uint)activeCount;
+            hash *= prime;
+        }
+        return hash == 0 ? 1UL : hash;
+    }
+
     private void RecordSuppressedRenderingCallback(ref int counter)
     {
         if (_suppressedRenderingStartedAtTimestamp == 0)
@@ -980,7 +1130,11 @@ internal sealed class EdgeCapsuleFrameScheduler
             _renderingSubscribed = false;
             _lastRenderingTime = null;
 #if DEBUG
+            _lastRawRenderingCallbackTimestamp = 0;
             _lastRenderingTimestamp = 0;
+            _lastWpfPresentationChangeTimestamp = 0;
+            _lastWpfTransitionFingerprint = 0;
+            _debugWpfPresentationSamples.Clear();
             _suppressedDuplicateRenderingCallbacks = 0;
             _suppressedPendingReconcileRenderingCallbacks = 0;
             _suppressedExternalNativeBatchRenderingCallbacks = 0;
