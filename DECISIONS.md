@@ -1,24 +1,32 @@
 # PaperTodo 架构决策
 
-> 本文记录 **已经做出的技术选择、明确取舍、被淘汰的路线，以及值得防止重复踩坑的结论**。
+> 本文记录 **PaperTodo 重要技术选择的历史背景、取舍、被淘汰的路线和值得防止重复踩坑的结论**。
 >
-> 它不是 changelog，也不是验收清单。只要一次变更形成了会影响后续实现判断的明确选择、取舍或可复用踩坑结论，就应在同一变更中更新这里；没有新取舍的机械 bugfix、文案或参数调整不需要为了“留痕”新增条目。
+> 它不是当前架构说明、changelog 或验收清单。当前技术选型与架构方向见 [`ARCHITECTURE.md`](ARCHITECTURE.md)；Agent 的任务路由和执行规则见 [`AGENTS.md`](AGENTS.md)。
 >
-> - 当前系统“现在是什么”见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
-> - Agent 工作时必须遵守的硬约束见 [`AGENTS.md`](AGENTS.md)。
-> - 当前代码和可观察行为描述实现事实；提交号是决策证据，不是替代代码阅读的规范文本。
+> - 当前代码和可观察行为描述实现事实；commit/PR 是历史证据，不替代代码阅读。
 > - 本文首次建立时以 `main@626fe60d` 为代码基线，并独立回读 PR #94 / V3 Lite 及其后续收敛提交。
 
 ## 维护规则
 
-每条记录尽量回答四个问题：
+Decisions 的核心问题是：**“为什么今天会这样设计，以及哪些已经付过代价的路不要轻易重走？”**
 
-1. **选择了什么。**
-2. **为什么这样选、当时取舍了什么。**
-3. **哪些路线已经被证明不应该重新引入。**
-4. **从哪里可以看到这个选择真正进入了代码。**
+新条目优先回答：
 
-决定是否记录的标准不是“改动大不大”，而是“这次改动是否产生了以后仍需要知道的 why”。如果后来证明某条 decision 已经不成立，应把状态改为 `Superseded` 并指向新条目，不让旧结论继续伪装成当前规则。
+1. **Context**：当时面对什么问题/约束，为什么需要做选择。
+2. **Decision**：最终选择了什么。
+3. **Why**：核心 trade-off 和判断依据。
+4. **Rejected / Pitfalls**：哪些路线已经试过、证明危险或不符合当前目标。
+5. **Consequences**：这个选择长期带来什么约束或成本。
+6. **Evidence**：当前代码入口、关键 commit / PR。
+
+维护时遵守：
+
+- Decisions 是**历史记录**，不是当前状态镜像。已 Accepted 的条目可以修正事实错误、补证据或澄清原意，但不要为了让它“看起来一直正确”而抹掉当时的背景。
+- 如果一个旧选择真正失效，优先新增下一条 D-xxx，并把旧条目标为 `Superseded by D-xxx`；不要直接把旧 Decision 改写成后来完全不同的路线。
+- 普通 bugfix、参数调整、UI 调整、测试结果和 PR 逐步试错不自动产生 Decision；只有最终形成可复用的技术取舍/踩坑结论时才提炼。
+- `Rejected / Pitfalls` 只记录有证据的失败/高风险路线，不把所有“没选中”的想法升级成永久禁令。
+- Evidence 优先指向当前代码文件/类型，并在历史因果重要时补关键 commit/PR；聊天记录不作为长期证据。
 
 ---
 
@@ -45,7 +53,7 @@ PaperTodo 当前的主要交互单元仍是一张可独立存在、独立显示�
 ### Evidence
 
 - 当前 `AppState -> PaperData[] -> PaperWindow` 主结构。
-- 当前 Architecture 的 ownership 表。
+- `ARCHITECTURE.md` 的 ownership/边界说明。
 
 ---
 
@@ -55,13 +63,15 @@ PaperTodo 当前的主要交互单元仍是一张可独立存在、独立显示�
 
 ### Decision
 
-`data.json` 是 PaperTodo 的主业务状态协议；图片二进制不进入 JSON，而由 `NoteImageStore` / LMDB 独立保存。
+`data.json` 是 PaperTodo 的核心业务状态协议；图片二进制不进入 JSON，而由 `NoteImageStore` / LMDB 独立保存。
 
 恢复和图片 GC 均采用保守策略：无法证明恢复源或图片引用扫描可信时，宁可保留旧数据/禁用 GC，也不猜测删除。
 
+后来加入的插件 settings/per-paper state 没有反向塞回这两个域，而是形成独立插件持久化域，见 D-020。
+
 ### Why
 
-JSON 适合可迁移、可恢复的结构化 paper 状态；图片二进制会放大写入、备份和恢复成本。将两者分开后，可以对 JSON 做版本化 snapshot 保存，对图片做引用 reachability 和独立容量管理。
+JSON 适合可迁移、可恢复的结构化 paper 状态；图片二进制会放大写入、备份和恢复成本。将二者分开后，可以对 JSON 做版本化 snapshot 保存，对图片做引用 reachability 和独立容量管理。
 
 ### Rejected / Do not reintroduce
 
@@ -72,8 +82,8 @@ JSON 适合可迁移、可恢复的结构化 paper 状态；图片二进制会�
 
 ### Evidence
 
-- `StateStore.cs` 的 primary/backup/recovery-preservation、版本化写入和 `PrepareForSave`。
-- `NoteImageStore.cs` 与 `AppController` 的图片库初始化、保护引用扫描和回收流程。
+- `src/StateStore.cs`。
+- `src/NoteImageStore.cs` / `src/LmdbImageDatabase.cs`。
 
 ---
 
@@ -98,7 +108,7 @@ JSON 适合可迁移、可恢复的结构化 paper 状态；图片二进制会�
 ### Evidence
 
 - `App.xaml.cs` 当前异常处理路径。
-- `StateStore` 的正常恢复/backup 机制。
+- `src/StateStore.cs` 的正常恢复/backup 机制。
 
 ---
 
@@ -127,8 +137,9 @@ Native plugin 是 fully trusted / unsandboxed，并且已载入版本不能在�
 
 ### Evidence
 
-- `PaperBodyHost.cs`。
-- `PaperBodyPluginRegistry.cs`。
+- `src/PaperBodyHost.cs`。
+- `src/PaperBodyPluginRegistry.cs`。
+- `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — `feat: implement paper body plugin system v2`。
 
 ---
 
@@ -155,10 +166,10 @@ Edge capsule 同时存在单纸片状态与跨纸片会话。若 `PaperWindow`�
 
 ### Evidence
 
-- `EdgeCapsuleModel.cs`。
-- `EdgeCapsuleReducer.cs`。
-- `EdgeCapsulePresenter.cs`。
-- `AppController.EdgeCapsulePreview*.cs` 与 `AppController.EdgeCapsuleVisualTransaction.cs`。
+- `src/EdgeCapsuleModel.cs`。
+- `src/EdgeCapsuleReducer.cs`。
+- `src/EdgeCapsulePresenter.cs`。
+- `src/AppController.EdgeCapsulePreview*.cs` 与 `src/AppController.EdgeCapsuleVisualTransaction.cs`。
 
 ---
 
@@ -186,8 +197,8 @@ Edge capsule 同时存在单纸片状态与跨纸片会话。若 `PaperWindow`�
 
 ### Evidence
 
-- `EdgeCapsuleQueueCoordinator.cs`。
-- `EdgeCapsuleGeometry.cs`。
+- `src/EdgeCapsuleQueueCoordinator.cs`。
+- `src/EdgeCapsuleGeometry.cs`。
 
 ---
 
@@ -215,7 +226,7 @@ endpoint-sized HWND 会让 Hover/Preview 每轮改变 native surface identity，
 
 - `32866e9085c2002c3411d4a2c93a96903fe6c9ee` — `refactor(edge): establish V3 Lite bounded live hosts`。
 - `ca70631d2c3b77a883a5c78f5a912cfe2ccc9294` — late-bound plugin preview capacity。
-- 当前 `EdgeCapsuleTargetPlanner.cs` / `EdgeCapsuleHost.cs`。
+- 当前 `src/EdgeCapsuleTargetPlanner.cs` / `src/EdgeCapsuleHost.cs`。
 
 ---
 
@@ -252,7 +263,7 @@ V3 Lite production translation backend 明确不包含：
 - `32866e9085c2002c3411d4a2c93a96903fe6c9ee`。
 - `d4af6affc0d5b704e20e020ae9e9621170613c8c` — 删除 snapshot/pointer-proxy 路径并收紧 backend 能力。
 - `849c9bb044550a7c267078e0a6bfe1f8af56b1bb` — closeout 验证 live-surface bridge 且拒绝 clip/scale/effect/snapshot。
-- 当前 `EdgeCapsuleQueueCompositionProxy.Visuals.cs` / `Routing.cs`。
+- 当前 `src/EdgeCapsuleQueueCompositionProxy.Visuals.cs` / `Routing.cs`。
 
 ---
 
@@ -280,8 +291,7 @@ DComp root replacement 与 DWM cloak/uncloak 通过可验证 transaction boundar
 
 - `f444f2897d1a741d2478a5d9af15744ed6a99716`。
 - `bb45739d49b16b4e609333476888f65f402fb17b`。
-- 当前 `EdgeCapsuleQueueCompositionProxy.Handoff.cs`。
-- 当前 `FinishEdgeCapsuleQueueCompositionProxy` 的 cover-loss 恢复顺序。
+- 当前 `src/EdgeCapsuleQueueCompositionProxy.Handoff.cs`。
 
 ---
 
@@ -332,7 +342,7 @@ Docked capsule 有 wall-side straight edge、close segment、bounded capacity �
 ### Evidence
 
 - `cc9906ab940bc0e11905401fb079fdedc1f05427` — `fix(edge): keep one persistent drag host`。
-- 当前 `EdgeCapsuleDragWindow.cs`。
+- 当前 `src/EdgeCapsuleDragWindow.cs`。
 
 ---
 
@@ -361,7 +371,7 @@ Docked capsule 有 wall-side straight edge、close segment、bounded capacity �
 - `e5e07526da0d9b6178975e5c7e90debf4d4a6241`。
 - `ce406c10507418c67b32bd17b9c7b99819201145`。
 - `a3c8b62962178ca5d6a63f5c555c7c0a847eee56`。
-- 当前 `EdgeCapsuleFrameScheduler.cs`。
+- 当前 `src/EdgeCapsuleFrameScheduler.cs`。
 
 ---
 
@@ -391,7 +401,7 @@ DComp 动画结束和 WPF 最后一帧真正进入 DWM 并非天然同一个调�
 - `bcc6740e992af048cc28f8b810168301434f9555`。
 - `4200162d363dc4f22bacc198e599ba917da3f36f`。
 - `9f7a04ba4c1d01103fb53679f3b939b9e16083d0`。
-- 当前 `FinishEdgeCapsuleQueueCompositionProxy`。
+- 当前 `FinishEdgeCapsuleQueueCompositionProxy` 路径。
 
 ---
 
@@ -416,41 +426,40 @@ Hover、Preview 和 preview corridor 的物理命中，以当前用户实际看�
 ### Evidence
 
 - 当前 `EdgeCapsulePresenter.Reconcile`。
-- 当前 `EdgeCapsuleQueueCompositionProxy.Routing.cs`。
+- 当前 `src/EdgeCapsuleQueueCompositionProxy.Routing.cs`。
 - `dcf2033d41b3b52c3036eb6a3d4204b2b3441cd9` / `e15796d57f6126e242445c54a8813fd022c35978`。
 
 ---
 
-## D-015 — 四类知识分工；不维护第二套完整架构或长期验收矩阵
+## D-015 — 四类知识分工：AGENTS 路由与执行，Architecture 当前方向，Decisions 历史取舍
 
 **Status:** Accepted
+
+### Context
+
+同一个架构事实如果同时被复制进 AGENTS、专题文档、Architecture 和手工验收矩阵，会快速漂移；但把 AGENTS 过度瘦成几行目录，又会丢掉已经验证有价值的详细 Agent 执行规则。
 
 ### Decision
 
 PaperTodo 长期维护四类互补知识：
 
-- `ARCHITECTURE.md`：当前架构事实、数据流和 ownership。
-- `DECISIONS.md`：明确取舍、失败路线和可复用踩坑结论。
-- `AGENTS.md`：Agent 执行规则、真正的硬约束、提交/发布/维护规则。
+- `AGENTS.md`：**任务路由 + Agent 执行规则**。告诉 Agent 什么任务先读哪里，同时保留项目专用、可执行、容易踩错的详细规则。
+- `ARCHITECTURE.md`：**当前技术选型、架构结构和已确立技术方向**。回答“现在应该按什么原则设计”。
+- `DECISIONS.md`：**历史取舍、失败路线、踩坑和 why**。回答“为什么会走到这里”。
 - 关键代码注释：局部 why、不变量和危险边界。
 
-`AGENTS.md` 不再重复完整 Edge 实现链、插件 mini fallback、持久化结构等当前架构事实；需要执行层禁令时只保留最短规则并指向 Architecture / D-xxx。易变数值和普通实现参数只留代码。
-
-不建立需要人工长期同步的场景矩阵/验收清单。可执行正确性优先进入编译、测试、probe、诊断日志或任务当次验证记录。
+不建立需要人工长期同步的第二套完整架构说明或长期场景验收矩阵。可执行正确性优先进入编译、行为测试、probe、诊断日志或任务当次验证记录。
 
 ### Why
 
-同一架构事实复制到多份说明会让文档之间出现漂移；验收矩阵又会重复产品状态、代码路径和测试意图。知识按“现在是什么 / 为什么 / Agent 怎么做 / 局部 why”分层后，每种信息只有一个自然 owner。
+这四类信息的读取时机不同：AGENTS 是常驻执行上下文，Architecture 用于建立当前技术 mental model，Decisions 用于防止重复走历史弯路，代码注释服务局部修改。让每种知识有自然 owner，才能减少漂移而不牺牲 Agent 执行细节。
 
 ### Consequences
 
-- 架构事实变化同步 Architecture。
-- 产生或推翻取舍同步 Decisions。
-- Agent 执行约束变化同步 Agents。
-- 局部隐藏不变量变化同步附近关键注释。
-- AGENTS 中发现成段的“当前实现说明”时，优先迁移到 Architecture/Decisions，而不是继续扩写。
-- 一次性验收过程不独立沉淀为长期手工矩阵。
-- `docs/edge-presentation-v3-lite.md` 不再作为并行当前架构文档保留；历史演进由 git/PR 保存。
+- 把知识迁入 Architecture/Decisions **不等于机械删除 AGENTS 的详细规则**；凡是 Agent 执行任务时仍需直接遵守的规则可以继续留在 AGENTS。
+- AGENTS 可以用一句硬规则重复 Decisions 的结论，但历史原因、失败过程和证据放 Decisions。
+- Architecture 不记录未确认未来方案，也不复述 PR 历史。
+- `docs/edge-presentation-v3-lite.md` 不再作为并行当前架构文档保留；历史演进由 Decisions + git/PR 保存。
 
 ---
 
@@ -473,61 +482,76 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 
 ---
 
-## D-017 — Hardcodet 托盘继续使用 WPF `IconSource`，不回退到 `System.Drawing.Icon`/手动 popup 修补
+## D-017 — 托盘沿用 Hardcodet WPF `IconSource` + 本地 popup lifecycle
 
 **Status:** Accepted
 
+### Context
+
+托盘菜单曾集中暴露首次右键定位、跨 DPI 坐标、Popup HWND 建立时机和 focus 归还问题。单独在 PaperTodo 外层加 popup/预热/轮询补丁会绕开 Hardcodet 自己的生命周期，修一个时序又制造另一个时序。
+
 ### Decision
 
-Hardcodet 托盘图标使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`；外部 `PaperTodo.ico` 保持用户覆盖入口。托盘菜单按当前状态在打开时重建，不用手动弹菜单、预热菜单或全局鼠标轮询绕过控件本身生命周期。
+托盘继续使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`；外部 `PaperTodo.ico` 保持用户覆盖入口。跨 DPI popup activation/focus 由仓库固定的 `vendor/wpf-notifyicon` 路线承担，菜单仍在打开时按当前状态重建。
 
 ### Why
 
-曾经把托盘恢复成 `System.Drawing.Icon` / 非标准 popup 修补时，会重新引入首次右键菜单定位异常、首次点击纸片被吞以及 focus/menu-mode 时序问题。问题本质不是“菜单没预热”，而是宿主控件的 icon/menu/focus 生命周期被绕开。
+当前 `IconSource + 本地 wpf-notifyicon fork + 真实 Popup HWND` 是已经共同解决 DPI/focus 问题的一整套路径。这里保留的是“不要绕开这套控件生命周期”的结论，而不是声称某一个 API 单独解释所有托盘 bug。
 
 ### Rejected / Do not reintroduce
 
-- 不把 Hardcodet `IconSource` 换回 `System.Drawing.Icon` 作为默认路径。
-- 不用手动 popup、预热菜单或全局鼠标轮询修首次菜单问题。
-- edge context-menu 的 focus 清理不能无条件前移到 WPF menu mode 尚未退出的时点。
+- 不把默认托盘路径换回 `System.Drawing.Icon`。
+- 不用手动 popup、菜单预热或全局鼠标轮询修首次菜单问题。
+- edge context-menu focus 清理不无条件提前到 WPF menu mode 尚未退出时。
 
 ### Evidence
 
-- 当前 `AppController` 托盘创建/重建路径。
-- `DeepCapsuleContextMenuSession` 及 edge menu focus cleanup。
-- 相关托盘回归修复提交历史。
+- `src/AppController.Tray.cs`。
+- `vendor/wpf-notifyicon`。
+- `200b23e0826632dae630bc565b41328421381b63` — 接入本地 fork 处理 DPI/focus。
+- `5da90e5428e8f68a29b777227454556f862b8e5c` — 托盘打开前清理遗留激活状态。
 
 ---
 
-## D-018 — Edge plugin mini 由宿主持有 presentation/queue authority，并按能力安全降级
+## D-018 — Edge plugin mini 由宿主持有 window/queue/input authority；不同能力走各自安全路径
 
 **Status:** Accepted
 
+### Context
+
+插件协议从结构化 capsule 发展到 1.8 mini 后，Native mini、Web `miniEntry`、真实 WPF 正文迁移和旧 capsule fallback 的生命周期并不相同。把它们强行做成一条“先显示旧 fallback、稍后替换”的统一流水线，会重新制造 surface ownership、冷启动和 publication 时序问题。
+
 ### Decision
 
-插件可以提供专属 mini、可迁移纯 WPF View、自定义 capsule、标准结构化 capsule 和 plain-text 等不同能力，但 edge preview 的窗口、队列、尺寸会话和输入 authority 始终属于宿主。
+插件可以提供 Native 专属 mini、Web `miniEntry`、允许迁移的纯 WPF 正文 View、自定义/标准 capsule 或 plain text，但 Edge preview 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主。
 
-宿主从能力最强且安全的 presentation 向结构化/plain-text fallback 降级；Web mini 在显式 ready 前保留宿主 fallback；真实 WPF View 迁移只对 provider 明确声明且宿主可安全接管的纯 WPF 内容启用。
+当前能力路径分别处理：
+
+- Native 专属 mini：只接纳 fresh、unparented、pure-WPF tree；创建失败可以降级到 capsule fallback。
+- Web `miniEntry`：使用专属 Web mini host；当前实现不先画旧 1.6/1.7 capsule，准备期间使用透明占位，只有当前文档完成、`mini.ready()` challenge 通过并跨过真实 Rendering publication boundary 后才显示 Web surface。
+- Native 正文迁移：依据预热、真实 View 和 snapshot 状态安全切换，不维护第二份业务 UI。
+- 没有专属 1.8 preview 能力时：才进入 custom/standard capsule/plain-text fallback。
 
 ### Why
 
-如果插件自己拥有 preview HWND、队列 placement 或另一份 authoritative state，Edge 会重新出现多套 geometry/visibility/input ownership。直接搬运 `HwndHost`、WebView2、已挂载控件等 foreign/attached tree 也会把独立 native 生命周期带入 bounded host，破坏 V3 Lite 的 surface 边界。
-
-对真实 WPF View 使用受控迁移 + snapshot handoff，可以避免维护第二份业务 UI，同时不在每一帧持续截图。
+如果插件自己拥有 preview HWND、queue placement 或第二份 authoritative state，Edge 会重新出现多套 geometry/visibility/input ownership。直接搬运 `HwndHost`、WebView2、已挂载 tree 等 foreign/native 生命周期也会破坏 bounded-host 边界。
 
 ### Rejected / Do not reintroduce
 
-- 不让插件创建/拥有 edge queue HWND 或 placement authority。
-- 不把 `Window`、`HwndHost`、WindowsFormsHost、WebView2 或已挂载控件当作可直接迁移的 Native mini tree。
-- 不在 Web mini 未 ready 时清空结构化 fallback。
-- 不为 mini preview 维护持续截图循环或第二份 authoritative plugin state。
-- 不让插件各自复制宿主的自动宽度/队列测量算法。
+- 不让插件拥有 edge queue HWND 或 placement authority。
+- 不把 `Window`、`HwndHost`、WindowsFormsHost、WebView2 或已挂载控件当作可迁移 Native mini tree。
+- 不让旧 same-origin Web document 仅凭 queued `miniReady` 获得新 generation publication authority。
+- 不为正文迁移维护持续截图循环或第二份 authoritative plugin state。
+- 不让插件复制宿主的自动宽度/queue placement 算法。
 
 ### Evidence
 
-- 当前 plugin contract / `PaperBodyPluginRegistry`。
-- 当前 edge mini presentation / WPF migration / Web mini host 代码。
-- Architecture 5.3。
+- `51ca6393e96c8c40a73332aea50aac5440f28907` — protocol 1.8 edge mini views。
+- `0d972264c581970e9a9a762ce07f7131653e5f2b` — harden protocol 1.8 mini previews。
+- `18c65047f7651d1d697b1fad21611ee65e99b940` — defer cold Web mini initialization。
+- `src/PaperWindow.PluginMiniView.cs`。
+- `src/WebPaperBodySession.Mini.cs`。
+- `src/PaperWindow.PluginBodyMigration.cs`。
 
 ---
 
@@ -541,14 +565,47 @@ Hardcodet 托盘图标使用 `TaskbarIcon.IconSource = LoadTrayIconSource()`；�
 
 ### Why
 
-两套文本 surface 会产生滚动位置、换行测量、selection、caret、图片布局和编辑提交时序的双向同步问题。对桌面纸片这种持续存在的轻量编辑 surface，单控件切状态的 ownership 更简单，也能避免“浏览显示”和“真实编辑内容”短暂不一致。
+两套文本 surface 会产生滚动位置、换行测量、selection、caret、图片布局和编辑提交时序的双向同步问题。单控件切状态保持一份真实文本 surface，避免浏览态和编辑态短暂分叉。
 
 ### Rejected / Do not reintroduce
 
-- 不为了浏览态视觉方便复制第二个 Markdown 编辑/显示控件并做双向同步。
-- 不无依据删除 `MarkdownTextBox` 的长度/布局保护；若保护策略需要改变，应以真实 WPF 性能证据重新决策。
+不为了浏览态视觉方便复制第二个 Markdown 编辑/显示控件并做双向同步。
 
 ### Evidence
 
-- 当前 `PaperWindow` / Markdown note UI 实现。
-- `MarkdownTextBox` 的浏览/编辑状态与布局保护代码。
+- `src/PaperWindow.Note.cs`。
+- `src/MarkdownTextBox.cs`。
+
+---
+
+## D-020 — 插件状态与核心 `data.json` 分域持久化
+
+**Status:** Accepted
+
+### Context
+
+Paper body plugin 引入后，provider settings、stateVersion 和 per-paper plugin state 具有独立版本迁移、独立失败和独立删除清理语义。如果把 opaque plugin state 塞进核心 `AppState`，插件损坏/迁移会直接扩大核心数据恢复面的风险。
+
+### Decision
+
+宿主管理的插件 settings 与 per-paper state 由 `PaperBodyPluginDataStore` 独立保存在 `plugins/data/*.json`；核心 `data.json` 只保留 PaperTodo 自己需要理解的 paper/provider 关系和轻量 presentation cache。
+
+插件状态读失败时保留问题源，并使用独立 recovery 路径继续；插件状态故障不能阻断核心 `data.json` 的正常读取。删除 paper 后的插件状态清理也独立重试，不把附属清理失败升级成核心 save failure。
+
+### Why
+
+插件数据和核心业务状态的 ownership、版本节奏和可靠性边界不同。分域后，宿主仍控制插件数据协议，但单个插件的数据问题不会污染整个 PaperTodo 恢复路径。
+
+### Rejected / Do not reintroduce
+
+- 不把任意插件 JSON/blob 重新并入 `PaperData` / `data.json` 主协议。
+- 不让插件绕过宿主 DataStore 自己建立一份会与宿主状态竞争的 authoritative per-paper state。
+- 不因为插件附属清理失败而回滚已经成功提交的核心 paper 删除。
+
+### Evidence
+
+- `src/PaperBodyPluginDataStore.cs`。
+- `src/PaperBodyPluginRegistry.Settings.cs`。
+- `src/AppController.PluginApi.cs` 的 deferred plugin-state cleanup。
+- `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — plugin system v2 建立独立 plugin runtime/state 边界。
+- `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin/MCP hardening，强化失败/恢复边界。
