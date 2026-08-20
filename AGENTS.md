@@ -116,7 +116,7 @@ Hardcodet 托盘必须走 `TaskbarIcon.IconSource = LoadTrayIconSource()`。不�
 
 `plugin-samples/` 只保存插件源码和构建说明，`plugins/` 只保存可直接加载的最终插件产物。普通开发构建可以复制 `plugins/` 方便调试，但本地 `dotnet publish` 和 GitHub Release 都不携带插件；插件单独构建和分发。最终插件目录不保留 PDB、XML 文档、重复原生库、宿主已提供的共享程序集或其他中间产物。
 
-PR 分支按提交信息按需触发 CI：`[debug]` 运行 `PR Test Debug` 并生成 Debug 测试包，`[ci]` 运行 `Pull request build`，`[debug-ci]` 两者都运行；普通提交不执行这两个 Windows 构建。两者仍保留 `workflow_dispatch` 作为手动兜底。Agent 需要对应检查时把标记直接放进真实提交信息，不要为了触发单独制造空提交。`PR Test Debug` Artifact 只保留 1 天。
+PR 分支按本次 push 的 HEAD 提交信息按需触发 Windows CI：`[debug]` 只运行 `PR Test Debug` 并生成 Debug 测试包，`[ci]` 只运行 `Pull request build`，`[debug-ci]` 两者都运行；没有这些标记时两个 Windows job 都必须直接跳过。Agent 需要用户真机验证时使用 `[debug]`，需要完整编译与 edge refinement checks 时使用 `[ci]`，两者都需要时使用 `[debug-ci]`。标记必须放在本次 push 的最后一个 HEAD 提交；多提交一起 push 时不要指望更早提交里的标记生效，也不要为了触发单独制造空提交。两者保留 `workflow_dispatch` 手动兜底，但 GitHub 只允许 dispatch 已存在于默认分支的 workflow；`PR Test Debug` 尚未合入默认分支前以提交标记触发为准。Debug Artifact 只保留 1 天。
 
 普通编译：
 
@@ -137,3 +137,5 @@ dotnet build PaperTodo.csproj -c Release
 ## 更新本文
 
 只有产品边界、持久化兼容、保存 / 单实例 / 托盘 / 胶囊 / 发布流程发生变化时才更新本文。普通 UI 微调、文案、颜色、间距、动画参数不需要同步。
+
+- DComp translation backend 的类型层不得暴露 clip、scale、effect、snapshot、Reveal/Conceal 或 deferred resize；这些能力不是“暂时不用”，而是 V3 Lite 中禁止存在。
