@@ -18,7 +18,7 @@
 | Edge Capsule / 胶囊流畅性 | Architecture「Edge Capsule V3 Lite」→ Decisions D-005～D-014；涉及插件 mini 再读 D-018 |
 | 持久化 / 恢复 / 图片 | Architecture「状态与持久化架构」→ D-002、D-003；插件状态再读 D-020 |
 | paper-body 插件 | `plugin-samples/README.md`（当前插件 API / 示例）→ Architecture「Paper 与 paper-body 插件」→ D-004；Edge mini 看 D-018，插件数据看 D-020 |
-| MCP / 插件外部写入 | Architecture「进程与运行时边界」「外部读写」→ `PaperCommandService` / MCP 当前代码 |
+| MCP / 插件外部写入 | Architecture「进程与运行时边界」「外部读写」→ D-021 → `PaperCommandService` / transport adapter 当前代码 |
 | 托盘 / Hardcodet | Architecture「OS 与全局集成」→ D-017 → 当前 tray / vendored fork 代码 |
 | Note / Markdown | Architecture 的 Paper/Note 边界；涉及单正文 surface 看 D-019，再读当前 Markdown 代码 |
 | 架构重构 / 恢复旧方案 | Architecture + 相关 Decisions + 相关 git/PR 历史，全部核对后再改 |
@@ -109,6 +109,7 @@ Markdown 当前保持轻量。若要扩展到网络图片、表格、附件、�
 - WPF/bounded host 拥有 shape；DComp queue proxy 只做同尺寸 live-surface translation。不要重新引入 snapshot、clip/scale/effect resize、Reveal/Conceal 或 deferred-resize backend。
 - proxy、real HWND、floating cover 的 visual authority 必须显式交接；任何失败路径不能出现 all-hidden gap，也不能用固定 delay 当作 terminal-frame 正确性的证明。
 - pointer/preview 命中以当前 presented/applied `InteractiveBounds` 为 truth；透明 `HostBounds`、proxy envelope 和 WPF enter/leave 本身不能扩大或替代真实 hit geometry。
+- preview session 建立后，owner 是 queue-wide 的 owner/target/corridor/outside arbiter；transfer corridor 只用于跨空白连续移动，不是新的 hit area。不要在 host/WPF 输入层复制第二套 preview 状态机，也不要让预测逻辑否决已经真实离开合法 transfer region 的事实；pointer capture 期间应让当前交互继续持有退出判断。
 - `MasterCapsuleWindow` 只拥有 slot 0、自身 pill/手势和队列纵向锚点，不持有真实纸片的第二套 presenter 状态。
 - 拖拽期间收到的全局 arrange 不能静默丢弃；display/DPI/z-order/drag 等环境边界必须先安全结束或恢复当前 visual authority，再进入下一状态。
 - 插件 edge mini 由宿主拥有窗口/队列/输入 authority；当前技术边界见 Architecture「Edge mini」，历史演进见 D-018。不要把任意 child HWND/WebView2/已挂载控件直接塞进可迁移 WPF mini，也不要在插件侧复制宿主的队列/尺寸 authority。
