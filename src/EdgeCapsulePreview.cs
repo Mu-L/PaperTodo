@@ -6,12 +6,12 @@ internal readonly record struct EdgeCapsulePreviewSize(
     double WidthDip,
     double HeightDip)
 {
-    // Protocol 1.8 does not impose a product-level mini-card size. Keep these compatibility
-    // constants at the finite numeric envelope so existing capacity code still has one source of
-    // truth; the actual presentation limit is supplied by the current monitor work area.
-    public const double MinimumWidthDip = double.Epsilon;
+    // Protocol 1.8 does not impose a product-level mini-card minimum or maximum. These legacy
+    // minimum constants remain only as built-in presentation defaults; Normalize deliberately
+    // accepts any positive finite plugin size and clamps only to the current monitor work area.
+    public const double MinimumWidthDip = 120;
     public const double MaximumWidthDip = double.MaxValue;
-    public const double MinimumHeightDip = double.Epsilon;
+    public const double MinimumHeightDip = 90;
     public const double MaximumHeightDip = double.MaxValue;
 
     public EdgeCapsulePreviewSize Normalize(double maximumWidthDip, double maximumHeightDip)
@@ -128,7 +128,7 @@ internal sealed class DefaultEdgeCapsulePreviewProvider : IEdgeCapsulePreviewPro
         var width = EdgeCapsulePreviewMeasure.MeasureWidth(
             title,
             status,
-            minimum: 120,
+            minimum: EdgeCapsulePreviewSize.MinimumWidthDip,
             maximum: 440);
         var height = Math.Clamp(
             150 + EdgeCapsulePreviewMeasure.EstimateWrappedLines(
