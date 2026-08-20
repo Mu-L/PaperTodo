@@ -2,55 +2,56 @@
 
 本文件只记录 **Agent 执行规则、隐藏硬约束和容易误改的禁区**。它不是 PaperTodo 的第三份架构说明。
 
-当前代码描述“现在实际怎么跑”，但不天然代表正确设计；代码、文档、决策或注释冲突时，结合当前实现、提交历史和可观察行为核对后再统一修正。
+当前代码描述“现在实际怎么跑”，但不天然代表正确设计；代码、文档、决策或注释冲突时，先结合当前实现、提交历史和可观察行为核对，再统一修正。
 
 ## 项目知识入口
 
 涉及架构、ownership、跨子系统行为或历史方案时，按职责读取：
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)：**项目地图——这块是谁负责、先去看哪些文件**。
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)：**当前实际架构、数据流、ownership**。
 - [`DECISIONS.md`](DECISIONS.md)：**为什么这样选、哪些路线已被否决、关键踩坑**。
 - `AGENTS.md`：Agent 的工作方法、硬禁令、提交/发布/文档维护规则。
 - 关键代码注释：局部 why、不变量和危险边界。
 
-不要只依赖当前对话、PR 描述或旧 Agent 记忆。需要找实现入口时先看 Architecture；需要判断旧方案能否恢复时先查 Decisions；不要把两者的正文复制回本文件。
+不要只依赖当前对话、PR 描述或旧 Agent 记忆。需要理解“系统现在是什么”时优先读 Architecture；需要判断“某条旧方案能不能重新做”时优先查 Decisions；不要把两者的正文复制回本文件。
 
 ## 文档与代码同步
 
-每次代码变更在提交前做一次**知识影响判断**：是否改变了项目地图/ownership、已有技术取舍、Agent 硬约束或局部隐藏不变量。只有受影响的知识源需要修改，但一旦受影响，必须与代码在同一变更中同步。
+每次代码变更在提交前做一次**知识影响判断**：是否改变了架构事实、已有技术取舍、Agent 硬约束或局部隐藏不变量。只有受影响的知识源需要修改，但一旦受影响，必须和代码在同一变更中同步。
 
-涉及架构、ownership、历史方案或文档整理时，先检查现有文档，再读相关代码和 git 提交记录；事实核对完成后再统一修订，不要边发现边写出随后又被推翻的说明。
+涉及架构、ownership、历史方案或文档整理时，先完整检查现有文档，再读相关代码和 git 提交记录；事实核对完成后再统一修订，不要边发现边写出一套随后又被推翻的说明。
 
-不要新增并行描述“当前完整架构”的专题文档。一次性验证、PR 过程和临时手工场景不升级成长期验收矩阵；长期可证明的正确性优先进入编译、行为测试、诊断日志和可执行检查。
+不要新增并行描述“当前完整架构”的专题文档。专题文档只能补充根文档没有承载的局部材料，并明确链接当前 Source of Truth。一次性验证、PR 过程和临时手工场景不升级成长期验收矩阵；长期可证明的正确性优先进入编译、测试、诊断日志和可执行检查。
 
 ### `ARCHITECTURE.md` 写入规则
 
-- Architecture 是**当前项目地图**，核心回答“谁负责什么、改这里先看哪里”，不是完整设计规格或历史日志。
-- ownership、主要数据域、关键入口、跨子系统边界、进程模式或仓库结构变化时更新；普通 UI、常量、算法细节和内部时序通常不写。
-- 写入前核对当前代码入口和 authority。无法从代码确认的计划、猜测和候选方案不写。
-- 优先使用文件/类型导航和简短职责说明；实现细节留代码，取舍原因和失败路线留 Decisions。
-- 不复制普通毫秒数、重试次数、尺寸和诊断阈值；只有数值本身构成稳定协议/兼容边界时才记录。
-- 被替代的当前结构直接从地图中移除；历史演进留 git/PR/Decisions。
+- 它是**当前状态文档**，不是历史日志。优先修改/重写已有章节，使正文只保留变更后的最终架构；被替代机制从当前正文删除。
+- ownership、主要数据流、状态/持久化协议、paper/window/plugin 生命周期边界、关键 runtime 职责、重要 OS/进程集成和仓库主结构变化通常需要更新；颜色、文案、普通常量和不改变职责边界的局部实现通常不写。
+- 写入前重新核对当前代码入口、owner 和调用链。无法从当前代码确认的计划、猜测和候选方案不写进 Architecture。
+- Architecture 写“选择后的结构结果”；取舍原因、失败路线和禁止回退的历史放到 Decisions。
+- 不复制易变实现参数，例如普通毫秒数、重试次数、诊断阈值；只有数值本身构成稳定协议/兼容边界时才记录。
+- 新增 subsystem 时先尝试纳入现有 ownership 表、数据流和章节；只有形成新的一级边界才扩章节。
+- 若只是纠正文档与既有代码的偏差，可单独做事实校准提交；不要把文档校准伪装成架构变更。
 
 ### `DECISIONS.md` 写入规则
 
 - Decisions 记录**以后仍需要知道的 why**。形成明确技术/产品取舍、否决一条看似可行的路线、确认可复用的结构性踩坑、改变兼容/ownership 原则，或未来 Agent 很可能再次提出同一方案时更新。
-- 普通 bugfix、参数微调、UI 调整、测试结果、临时诊断和 PR 逐步试错不自动新增 decision；只有最终形成可复用选择或教训时才提炼。
-- 写新条目前先搜索已有 D-xxx。同一决策的澄清、证据补充或边界收紧直接更新原条目；只有独立新选择或真正替代旧选择时新增编号。
+- 普通 bugfix、参数微调、UI 调整、测试结果、临时诊断和 PR 逐步试错不自动新增 decision；只有最终产生可复用选择或教训时才提炼。
+- 写新条目前先搜索现有 D-xxx。同一决策的澄清、证据补充或边界收紧直接更新原条目；只有独立新选择或真正替代旧选择时新增编号。
 - 新条目使用下一个连续 `D-xxx`，至少包含 `Status`、`Decision`、`Why`、`Evidence`；确有危险旧路线时再写 `Rejected / Do not reintroduce`，需要时加 `Consequences`。
 - `Rejected` 只记录已有证据证明危险、复杂或不符合当前路线的方案，不把“没选中”自动升级成永久禁令。
-- `Evidence` 优先指向当前代码文件/类型/关键入口；历史因果确实重要时再补关键 commit/PR。聊天记录不作为长期证据。
-- 旧决策真正失效时标记 `Superseded` 并指向新 D-xxx；只是措辞或证据修正则维护原条目。
+- `Evidence` 优先指向当前代码中的文件/类型/关键入口；历史因果确实重要时再补关键 commit/PR。聊天记录不作为长期证据。
+- 旧决策真正失效时标记 `Superseded` 并指向新 D-xxx；只是措辞/证据修正则维护原条目。
 - Decisions 不是 changelog。把试错压缩成最终选择、关键失败原因和以后不能忘的边界；完整过程留在 git/PR。
 - 检查后确认没有新取舍、也没有改变已有 decision 适用范围时，不修改 Decisions。
 
 ## 工作方式
 
-不要把临时最简原型、止血式局部假模型或明显偏离产品形态的替代实现作为最终交付。快速诊断、实验和可回退验证可以使用，但完成后必须清理或明确隔离；若改动大到需要重新选择路线，先与用户确认，否则按真实产品结构解决。
+不要用临时最简原型、止血式局部假模型或明显偏离产品形态的替代实现交付改动。除非改动巨大到需要重新定路线，应按真实产品结构解决。
 
 避免两个极端：不要为缺乏证据的少数极端场景把系统膨胀成过重框架，也不要用一次性补丁不断叠加并行状态。优先修清 ownership、数据流和真实高风险边界。
 
-需要提交时，只有当改动能按功能边界无损拆分，并且**每个提交都保持可构建、可理解、可独立回滚**时才拆分；否则保持原子提交。不要混入无关文档、备份文件或用户的其他改动。
+需要提交时，如果改动能按功能边界无损拆分，并且每个提交都保持可理解、可独立回滚，应拆成独立提交；不要混入无关文档、备份文件或用户的其他改动。
 
 ## 产品边界
 
@@ -62,47 +63,40 @@ Markdown 当前保持轻量。若要扩展到网络图片、表格、附件、�
 
 ## 数据与持久化硬约束
 
-当前数据域和入口见 Architecture 的“状态与持久化地图”；数据安全取舍见 D-002、D-003。
+当前数据结构、保存流程和图片资产 ownership 见 Architecture 第 4 节；数据安全取舍见 D-002、D-003。
 
-- `data.json` 是核心用户数据协议，不是缓存。字段删除/改名必须考虑旧数据兼容。
-- 不绕过 `StateStore` 建立第二套核心状态写入；保留版本化写入和退出同步保存语义。
+- `data.json` 是用户数据协议，不是缓存。字段删除/改名必须考虑旧数据兼容。
+- 不绕过 `StateStore` 建立第二套主状态写入；保留版本化写入和退出同步保存语义。
 - 不绕过 `NoteImageStore` 直接开启 LMDB transaction；图片 GC / id reuse 不能在保护引用扫描不可信时继续执行。
-- provider settings / per-paper plugin state 由 `PaperBodyPluginDataStore` 管理；不要塞回 `data.json`，也不要让插件自行建立另一套宿主不管理的 authoritative state 文件。
 - 启动解析失败时不能用默认空状态覆盖旧数据；crash handler 不走普通“最后强存一次”流程。
 - 普通纸片几何与 edge slot/expanded 恢复几何不能互相覆盖。
 - 外部打开笔记的临时文件后缀只做文件名合法性校验；不要擅自收窄成固定白名单。
 
-## 外部 Paper/Todo/Note 写入
+## 单实例与托盘
 
-插件 Host API 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务操作必须经过 `PaperCommandService` 及现有 commit/rollback/event 边界；不要各自在 transport 或 surface 层直接修改 `AppState` 后自行保存、回滚或刷新 UI。
-
-权限判断、transport 和 surface 生命周期仍属于各自上层；`PaperCommandService` 不应反向吸收 MCP/WebView/Native plugin 的传输或 UI ownership。
-
-## GUI 单实例与托盘
-
-- **正常 GUI 模式**下，只有主 GUI 实例拥有并释放 single-instance Mutex；后续 GUI 启动只转发命令并退出。`--mcp` bridge 在进入 GUI 单实例协议前分流，不受这条 Mutex 规则约束。
-- `exit` / `quit` 在没有现成 GUI 主实例时也不能为了执行命令恢复窗口或创建默认纸片。
-- 托盘当前入口见 Architecture 的“OS 与全局运行时”；历史原因见 D-017。不要把 Hardcodet `TaskbarIcon.IconSource` 改回 `System.Drawing.Icon`，也不要用手动 popup、预热菜单或全局鼠标轮询重新修同一首次菜单问题。
+- 只有主实例释放 single-instance Mutex；后续进程只转发命令并退出。
+- `exit` / `quit` 在没有现成主实例时也不能为了执行命令恢复窗口或创建默认纸片。
+- 托盘当前实现见 Architecture 7.1，历史原因见 D-017。不要把 Hardcodet `TaskbarIcon.IconSource` 改回 `System.Drawing.Icon`，也不要用手动 popup、预热菜单或全局鼠标轮询重新修同一首次菜单问题。
 
 ## Edge Capsule 硬约束
 
-先读 Architecture 的“Edge Capsule 地图”以及 D-005～D-014、D-018。这里仅保留不能靠“实现方便”突破的边界：
+先读 Architecture 第 6 节以及 D-005～D-014、D-018。这里仅保留不能靠“实现方便”突破的边界：
 
 - 单纸片 desired model / target / transition / applied frame 只有一个 `EdgeCapsulePresenter` authority；队列级 preview/transaction 由 controller 协调，但不能形成第二份 per-paper model。
 - 队列 index/master offset/slot count 只由 `EdgeCapsuleQueueCoordinator` 计算；docked 物理像素几何只由 `EdgeCapsuleGeometry` 计算。**队列不分页。**
 - `EdgeCapsuleHost` 只拥有 docked bounded host；`EdgeCapsuleDragWindow` 只拥有 floating surface。不要把同一 HWND/visual tree 在两种外形之间复用。
 - WPF/bounded host 拥有 shape；DComp queue proxy 只做同尺寸 live-surface translation。不要重新引入 snapshot、clip/scale/effect resize、Reveal/Conceal 或 deferred-resize backend。
-- proxy、real HWND、floating cover 的 visual authority 必须显式交接；失败路径不能出现 all-hidden gap，也不能用固定 delay 当作 terminal-frame 正确性的证明。
+- proxy、real HWND、floating cover 的 visual authority 必须显式交接；任何失败路径不能出现 all-hidden gap，也不能用固定 delay 当作 terminal-frame 正确性的证明。
 - pointer/preview 命中以当前 presented/applied `InteractiveBounds` 为 truth；透明 `HostBounds`、proxy envelope 和 WPF enter/leave 本身不能扩大或替代真实 hit geometry。
 - `MasterCapsuleWindow` 只拥有 slot 0、自身 pill/手势和队列纵向锚点，不持有真实纸片的第二套 presenter 状态。
 - 拖拽期间收到的全局 arrange 不能静默丢弃；display/DPI/z-order/drag 等环境边界必须先安全结束或恢复当前 visual authority，再进入下一状态。
-- 插件 edge mini 由宿主拥有窗口/队列/输入 authority；实现入口见 Architecture 的插件/Edge mini 导航，长期取舍见 D-018。不要把 child HWND/WebView2/已挂载控件当作可迁移纯 WPF mini，也不要在插件侧复制宿主 queue/size authority。
+- 插件 edge mini 由宿主拥有窗口/队列/输入 authority；能力链和 View 迁移边界见 Architecture 5.3 与 D-018。不要把任意 child HWND/WebView2/已挂载控件直接塞进可迁移 WPF mini，也不要在插件侧复制宿主的队列/尺寸 authority。
 
 ## 待办、笔记、主题与资源
 
 - 多行粘贴待办形成一次用户操作时，只形成一次撤销快照。
-- `PaperItem.LinkedPaperId` 是跨纸片关系，不要只在单个 UI 路径里清理。
-- 内置 Note 编辑/浏览共享一个 `MarkdownTextBox`；不要拆成两套独立文本 surface（见 D-019）。`MarkdownTextBox` 长度上限属于 WPF 布局/渲染保护，修改前先用真实性能证据验证影响。
+- `PaperItem.LinkedPaperId` 是跨纸片关系，不要只在单个 UI 路径里清理；其当前影响范围见 Architecture 4.1。
+- 内置 Note 编辑/浏览共享一个 `MarkdownTextBox`；不要拆成两套独立文本 surface（见 D-019）。`MarkdownTextBox` 长度上限属于 WPF 布局/渲染保护，不要无依据删除。
 - 用户可见文本同步中文、英文、日文、韩文资源；`ResourceTextVersion` 只是人工检查标记，不参与运行时逻辑。
 - 主题变化要主动刷新动态生成控件、托盘菜单、AvalonEdit 背景/文本/光标/覆盖层；不要假设所有动态 UI 都会自动响应资源变化。
 - `EnableToolTips` 只控制普通操作提示，不关闭设置页说明图标和扩展说明。
@@ -123,7 +117,7 @@ Markdown 当前保持轻量。若要扩展到网络图片、表格、附件、�
 - 版本号显式维护在 `PaperTodo.csproj`；不要恢复自动递增。
 - `plugin-samples/` 保存插件源码/说明，`plugins/` 保存可直接加载的最终产物；主程序 publish/Release 不捆绑插件。最终插件目录不保留无必要的 PDB/XML/重复 native/shared assemblies。
 - PR 分支 Windows CI 由 HEAD commit marker 控制：`[debug]` → Debug 测试包，`[ci]` → Release build，`[debug-ci]` → 两者。标记必须在本次 push 的最后一个 HEAD；不要为了触发制造空提交。
-- 不重新引入已删除的 `scripts/edge-refinement-tests/` 或依赖源码字符串、文件路径、方法排列的 **source-shape test**。允许并鼓励不依赖源码排布、能够执行真实 reducer/geometry/policy/transaction 行为的语义测试；Edge 集成回归仍需要真实编译、诊断日志和必要的真机验证。
+- 不重新引入已删除的 `scripts/edge-refinement-tests/` 或依赖源码字符串/文件路径/方法排列的 source-shape test；Edge 回归依赖真实编译、诊断日志和真机验证。
 - 普通编译：`dotnet build PaperTodo.csproj -c Release`。
 - `vendor/wpf-notifyicon` 使用父仓库记录的固定 submodule commit；更新 fork 时显式更新 gitlink，并完成构建和真实托盘手测。构建过程不自动拉取最新分支。
 - 云端 Release 发布 Windows x64 self-contained 与 no-runtime 两个单文件；本地打包只生成 no-runtime。WPF 版本不启用 `PublishTrimmed` 或 Native AOT。
@@ -132,4 +126,4 @@ Markdown 当前保持轻量。若要扩展到网络图片、表格、附件、�
 
 ## 更新本文
 
-只有 Agent 执行方式、产品默认边界、数据安全禁令、关键不可破坏 invariant、CHANGELOG/CI/发布规则等发生变化时才修改 `AGENTS.md`。系统入口/ownership 导航应更新 Architecture；“为什么这样选”应更新 Decisions；普通 UI/参数变化不为了制造同步痕迹修改本文件。
+只有 Agent 执行方式、产品默认边界、数据安全禁令、关键不可破坏 invariant、CHANGELOG/CI/发布规则等发生变化时才修改 `AGENTS.md`。系统“现在怎么实现”的细节应更新 Architecture；“为什么这样选”的内容应更新 Decisions；普通 UI/参数变化不为了制造同步痕迹修改本文件。
