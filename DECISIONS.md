@@ -7,6 +7,33 @@
 > - 当前代码和可观察行为描述实现事实；commit/PR 是历史证据，不替代代码阅读。
 > - 本文首次建立时以 `main@626fe60d` 为代码基线，并独立回读 PR #94 / V3 Lite 及其后续收敛提交。
 
+## 决策索引
+
+索引只用于定位，不替代各条目的 Context / Why / Rejected / Evidence。
+
+| ID | 主题 | Status | 领域 |
+| --- | --- | --- | --- |
+| D-001 | “桌面纸片”作为主要交互和对象边界 | Accepted | 产品边界 |
+| D-002 | `data.json` 与 LMDB 分域 | Accepted | 持久化 |
+| D-003 | Crash boundary 不做强制最终保存 | Accepted | 持久化 / 恢复 |
+| D-004 | Paper body 通过 session 边界接入 | Accepted | 插件 |
+| D-005 | Edge typed Intent → Reducer → Presenter | Accepted | Edge 状态 |
+| D-006 | Queue placement 与物理几何单一 authority | Accepted | Edge 几何 |
+| D-007 | per-paper bounded live host | Accepted | Edge surface |
+| D-008 | WPF owns shape；DComp translation-only | Accepted | Edge composition |
+| D-009 | Visual authority 显式交接 | Accepted | Edge handoff |
+| D-010 | Successor 继承 predecessor live authority | Accepted | Edge transaction |
+| D-011 | Floating drag 使用独立持久 HWND | Accepted | Edge drag |
+| D-012 | Rendering cadence + rescue-only watchdog | Accepted | Edge animation |
+| D-013 | Proxy handoff 等待真实 WPF terminal presentation | Accepted | Edge handoff |
+| D-014 | Pointer truth 来自 `InteractiveBounds` | Accepted | Edge input |
+| D-015 | AGENTS / Architecture / Decisions / 注释分工 | Accepted | 文档体系 |
+| D-016 | V3 Lite 收敛后删除一次性验证脚手架 | Accepted | 验证 / 工具 |
+| D-017 | Hardcodet WPF `IconSource` + 本地 popup lifecycle | Accepted | 托盘 |
+| D-018 | Edge plugin mini 由宿主持有关键 authority | Accepted | 插件 / Edge |
+| D-019 | Note 编辑与浏览共享 `MarkdownTextBox` | Accepted | Note |
+| D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
+
 ## 维护规则
 
 Decisions 的核心问题是：**“为什么今天会这样设计，以及哪些已经付过代价的路不要轻易重走？”**
