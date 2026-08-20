@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: pr-test-debug-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   package:
     name: Package Debug test executable
@@ -20,6 +16,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[debug]') ||
       contains(github.event.head_commit.message, '[debug-ci]')
+    concurrency:
+      group: pr-test-debug-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: windows-latest
     timeout-minutes: 15
 
