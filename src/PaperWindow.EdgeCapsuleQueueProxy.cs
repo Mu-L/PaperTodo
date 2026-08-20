@@ -72,6 +72,18 @@ public sealed partial class PaperWindow
             return default;
         }
 
+        // Collapse-all/release is a queue-wide visual-only translation. During collapse the model
+        // has already entered RetractedCollapsed; during release the real applied frame is still
+        // DockedRetracted until the shared transaction commits. Neither path can open Preview while
+        // it is moving, so reserving the future full-work-area Preview envelope here only creates a
+        // giant transparent proxy HWND with no visual purpose.
+        if (IsDeepCapsuleRetractedIntoMaster ||
+            _edgeCapsule.AppliedPresentation.Surface ==
+                EdgeCapsuleSurfaceKind.DockedRetracted)
+        {
+            return default;
+        }
+
         var layout = CaptureEdgeCapsuleLayoutSnapshot();
         if (!layout.IsUsable)
         {
