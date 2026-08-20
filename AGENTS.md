@@ -24,6 +24,8 @@
 | 架构重构 / 恢复旧方案 | Architecture + 相关 Decisions + 相关 git/PR 历史，全部核对后再改 |
 | CI / 发布 / CHANGELOG | 本文件对应章节 + `.github/workflows/` / 当前脚本 |
 
+**按需读取：**默认只加载当前任务相关的 Architecture 章节和 Decisions 条目；除非任务本身是架构重构、全局审查或恢复旧路线，不默认全文加载所有历史。
+
 不要只依赖当前对话、PR 描述或旧 Agent 记忆。判断**当前技术方向**先看 Architecture；判断**旧方案为什么被否决、能否恢复**先看 Decisions；决定**这次具体怎么改**必须回到当前代码。
 
 ## 文档与代码同步
