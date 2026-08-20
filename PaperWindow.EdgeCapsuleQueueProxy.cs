@@ -161,6 +161,11 @@ public sealed partial class PaperWindow
                 !WindowNative.IsWindowHandleAlive(handle);
         }
 
+        // Settle Measure/Pointer/Presentation while the queue cover is still authoritative. The
+        // controller calls this method before real HWNDs are revealed, so any final text-width or
+        // device-pixel correction remains hidden instead of becoming a one-pixel post-handoff nudge.
+        FlushEdgeCapsuleQueueProxyEndpoint();
+
         endpoint = _edgeCapsule
             .PlanTargetPresentation(
                 CaptureEdgeCapsuleLayoutSnapshot())
@@ -177,6 +182,33 @@ public sealed partial class PaperWindow
             return _edgeCapsuleHost?.Handle is not { } handle ||
                 !WindowNative.IsWindowHandleAlive(handle);
         }
+
+        var latestEndpoint = _edgeCapsule
+            .PlanTargetPresentation(
+                CaptureEdgeCapsuleLayoutSnapshot())
+            .ToFrame();
+        var presenterSettled =
+            !_edgeCapsule.HasActiveTransition &&
+            _edgeCapsule.AppliedPresentation == endpoint &&
+            latestEndpoint == endpoint;
+#if DEBUG
+        if (!presenterSettled)
+        {
+            var applied = _edgeCapsule.AppliedPresentation;
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"proxy.endpoint phase=presenter-mismatch " +
+                $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
+                $"transition={_edgeCapsule.HasActiveTransition} " +
+                $"applied={applied.Surface}:{applied.Bounds.Width}x{applied.Bounds.Height} " +
+                $"endpoint={endpoint.Surface}:{endpoint.Bounds.Width}x{endpoint.Bounds.Height} " +
+                $"latest={latestEndpoint.Surface}:{latestEndpoint.Bounds.Width}x{latestEndpoint.Bounds.Height}");
+        }
+#endif
+        if (!presenterSettled)
+        {
+            return false;
+        }
+
         return endpoint.Visible
             ? _edgeCapsuleHost?.MatchesPresentation(endpoint) == true
             : _edgeCapsuleHost == null ||
@@ -205,6 +237,25 @@ public sealed partial class PaperWindow
         {
             return;
         }
+
+        var latestEndpoint = _edgeCapsule
+            .PlanTargetPresentation(
+                CaptureEdgeCapsuleLayoutSnapshot())
+            .ToFrame();
+        var hostAlreadyMatches = latestEndpoint.Visible
+            ? _edgeCapsuleHost?.MatchesPresentation(latestEndpoint) == true
+            : _edgeCapsuleHost == null ||
+              _edgeCapsuleHost.MatchesPresentation(latestEndpoint);
+        if (!_edgeCapsule.HasActiveTransition &&
+            _edgeCapsule.AppliedPresentation == latestEndpoint &&
+            hostAlreadyMatches)
+        {
+            // The successful handoff path calls this once more after releasing the DComp cover.
+            // A verified settled endpoint must be a no-op there; recomputing layout after reveal is
+            // exactly the visible final-pixel correction this barrier is intended to eliminate.
+            return;
+        }
+
         _edgeCapsule.CancelTransition();
         FlushEdgeCapsulePresentation(
             EdgeCapsuleTransitionReason.Preview,
