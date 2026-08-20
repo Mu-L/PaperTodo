@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="RepositoryFile.cs" />
     <Compile Include="HoverIntentSensitivityTestShim.cs" />
     <Compile Include="PreviewTransferLayoutRegression.cs" />
     <Compile Include="NativeBatchReentrancyRegression.cs" />
@@ -22,10 +23,10 @@
     <Compile Include="QueueProxyAdmissionRegression.cs" />
     <Compile Include="QueueProxyBarrierRegression.cs" />
     <Compile Include="QueueProxyConcealHandoffRegression.cs" />
-    <Compile Include="..\..\ScreenGeometry.cs" Link="ScreenGeometry.cs" />
-    <Compile Include="..\..\EdgeCapsulePreviewCorridor.cs" Link="EdgeCapsulePreviewCorridor.cs" />
-    <Compile Include="..\..\EdgeCapsulePreviewExitPolicy.cs" Link="EdgeCapsulePreviewExitPolicy.cs" />
-    <Compile Include="..\..\EdgeCapsuleHoverIntent.cs" Link="EdgeCapsuleHoverIntent.cs" />
-    <Compile Include="..\..\EdgeCapsuleNativeTransactionPolicy.cs" Link="EdgeCapsuleNativeTransactionPolicy.cs" />
+    <Compile Include="..\..\src\ScreenGeometry.cs" Link="ScreenGeometry.cs" />
+    <Compile Include="..\..\src\EdgeCapsulePreviewCorridor.cs" Link="EdgeCapsulePreviewCorridor.cs" />
+    <Compile Include="..\..\src\EdgeCapsulePreviewExitPolicy.cs" Link="EdgeCapsulePreviewExitPolicy.cs" />
+    <Compile Include="..\..\src\EdgeCapsuleHoverIntent.cs" Link="EdgeCapsuleHoverIntent.cs" />
+    <Compile Include="..\..\src\EdgeCapsuleNativeTransactionPolicy.cs" Link="EdgeCapsuleNativeTransactionPolicy.cs" />
   </ItemGroup>
 </Project>
