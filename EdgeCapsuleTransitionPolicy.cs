@@ -58,6 +58,19 @@ internal static class EdgeCapsuleTransitionPolicy
             1);
         if (rawProgress >= 1)
         {
+#if DEBUG
+            if (transition.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
+                transition.Target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
+            {
+                TracePreviewTerminalSample(
+                    "surface-flip",
+                    transition,
+                    rawProgress,
+                    1,
+                    transition.Target.Bounds,
+                    transition.Target.BodyWindowWidthDevice);
+            }
+#endif
             return new EdgeCapsuleTransitionSample(
                 transition.Target.ToFrame(),
                 true);
@@ -91,6 +104,27 @@ internal static class EdgeCapsuleTransitionPolicy
                 target.DpiScaleY,
                 EdgeCapsuleLayout.WindowChromeMargin)
             : default;
+        var bodyWindowWidthDevice =
+            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress);
+#if DEBUG
+        if (outgoingPreview &&
+            Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
+            Math.Abs(bounds.Height - target.Bounds.Height) <= 2 &&
+            Math.Abs(bounds.Top - target.Bounds.Top) <= 2 &&
+            Math.Abs(bodyWindowWidthDevice - target.BodyWindowWidthDevice) <= 2)
+        {
+            var geometrySettled =
+                bounds == target.Bounds &&
+                bodyWindowWidthDevice == target.BodyWindowWidthDevice;
+            TracePreviewTerminalSample(
+                geometrySettled ? "quantized-settled" : "tail-sample",
+                transition,
+                rawProgress,
+                progress,
+                bounds,
+                bodyWindowWidthDevice);
+        }
+#endif
         var frame = new EdgeCapsulePresentationFrame(
             true,
             outgoingPreview ? start.Surface : target.Surface,
@@ -98,7 +132,7 @@ internal static class EdgeCapsuleTransitionPolicy
             target.HostBounds,
             interactiveBounds,
             target.Edge,
-            LerpDevice(start.BodyWindowWidthDevice, target.BodyWindowWidthDevice, progress),
+            bodyWindowWidthDevice,
             target.WallDeviceX,
             target.DpiScaleX,
             target.DpiScaleY,
@@ -142,6 +176,33 @@ internal static class EdgeCapsuleTransitionPolicy
         applied.OutlineVisible == target.OutlineVisible &&
         applied.IsHitTestVisible == target.IsHitTestVisible &&
         applied.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent;
+
+#if DEBUG
+    private static void TracePreviewTerminalSample(
+        string phase,
+        EdgeCapsuleTransition transition,
+        double rawProgress,
+        double easedProgress,
+        DeviceScreenRect bounds,
+        int bodyWindowWidthDevice)
+    {
+        var target = transition.Target;
+        EdgeCapsulePerformanceDiagnostics.Trace(
+            $"preview.terminal phase={phase} reason={transition.Reason} " +
+            $"raw={rawProgress:F6} eased={easedProgress:F6} " +
+            $"surface={transition.Start.Surface}->{target.Surface} " +
+            $"bounds={bounds.Left},{bounds.Top},{bounds.Width}x{bounds.Height} " +
+            $"target={target.Bounds.Left},{target.Bounds.Top}," +
+            $"{target.Bounds.Width}x{target.Bounds.Height} " +
+            $"deltaTop={bounds.Top - target.Bounds.Top} " +
+            $"deltaWidth={bounds.Width - target.Bounds.Width} " +
+            $"deltaHeight={bounds.Height - target.Bounds.Height} " +
+            $"body={bodyWindowWidthDevice} targetBody={target.BodyWindowWidthDevice} " +
+            $"deltaBody={bodyWindowWidthDevice - target.BodyWindowWidthDevice} " +
+            $"host={target.HostBounds.Left},{target.HostBounds.Top}," +
+            $"{target.HostBounds.Width}x{target.HostBounds.Height} edge={target.Edge}");
+    }
+#endif
 
     private static int LerpDevice(int from, int to, double progress) =>
         (int)Math.Round(Lerp(from, to, progress), MidpointRounding.AwayFromZero);
