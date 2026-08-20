@@ -47,5 +47,15 @@ public sealed partial class AppController
             "master-suppression",
             $"queue={queueKey} target={EdgeCapsulePerformanceDiagnostics.ShortId(target.EdgeCapsulePreviewPaperId)}");
         RecordEdgeCapsulePreviewTransferPointer(target, queueKey);
+
+        // Collapse-all is one queue-wide visual operation, just like Preview transfer. Open the
+        // controller-owned transaction before ToggleCapsuleCollapseAllActive mutates the queue and
+        // synchronously calls ArrangeDeepCapsules. Every RetractIntoMaster/ApplyDeepCapsulePlacement
+        // in that arrange can then stage into the same Send-priority commit and start from one QPC
+        // timestamp instead of seven independent per-paper clocks.
+        BeginEdgeCapsuleVisualTransaction(target);
+        EdgeCapsuleRetractionDiagnostics.Trace(
+            "master-visual-transaction-begin",
+            $"queue={queueKey} initiator={EdgeCapsulePerformanceDiagnostics.ShortId(target.EdgeCapsulePreviewPaperId)}");
     }
 }
