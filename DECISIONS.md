@@ -33,6 +33,7 @@
 | D-018 | Edge plugin mini 由宿主持有关键 authority | Accepted | 插件 / Edge |
 | D-019 | Note 编辑与浏览共享 `MarkdownTextBox` | Accepted | Note |
 | D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
+| D-021 | 插件与 MCP 共用 `PaperCommandService` | Accepted | 外部命令 / 一致性 |
 
 ## 维护规则
 
@@ -636,3 +637,50 @@ Paper body plugin 引入后，provider settings、stateVersion 和 per-paper plu
 - `src/AppController.PluginApi.cs` 的 deferred plugin-state cleanup。
 - `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — plugin system v2 建立独立 plugin runtime/state 边界。
 - `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin/MCP hardening，强化失败/恢复边界。
+
+---
+
+## D-021 — 插件与 MCP 共用 `PaperCommandService` 作为外部业务命令边界
+
+**Status:** Accepted
+
+### Context
+
+MCP 和 paper-body plugin 是两种不同的外部入口，但都需要读取和修改同一份 Paper/Todo/Note 业务状态。早期 MCP 路径曾拥有自己的 commit、rollback 和 UI reconcile 辅助逻辑；插件 workspace API 加入后，如果继续让每种 transport 各复制一份业务 mutation，会产生参数约束、保存失败回滚、待提交 UI flush 和事件发布语义逐渐分叉的问题。
+
+### Decision
+
+所有供插件 Host API 与 GUI 侧 MCP 共用的 Paper/Todo/Note 读取和业务 mutation 统一进入 `PaperCommandService`。该 service 拥有跨 transport 一致的业务边界，包括：
+
+- 在外部操作前提交仍停留在 UI/provider session 的待提交内容；
+- 统一参数、类型和业务约束；
+- 对一次 mutation 做同步持久化提交；
+- 保存失败时恢复内存 snapshot / 新建对象等可回滚状态；
+- 持久化成功后再做必要的 UI reconcile；
+- 以 `PaperOperationContext` 区分来源并在成功后发布外部事件。
+
+MCP transport 继续拥有 JSON/MCP 参数映射和 MCP 授权；plugin host 继续拥有 manifest permission、session validity 与事件裁剪。Transport、权限和 surface 生命周期不下沉进 `PaperCommandService`。
+
+### Why
+
+同一项业务操作不应因为来自 MCP 还是插件就拥有两套 transaction 语义。把可复用业务命令集中后，新增外部入口只需要做 transport/permission 适配，保存、rollback、UI/event 顺序仍由一个 authority 保证；同时避免把 `PaperCommandService` 扩成了解 WebView、MCP protocol 或插件生命周期的万能层。
+
+### Rejected / Do not reintroduce
+
+- 不让 MCP、Web bridge 或 Native plugin adapter 直接修改 `AppState` 后自行保存、回滚和刷新 UI。
+- 不为不同外部 transport 各维护一套近似的 Paper/Todo/Note command service。
+- 不把 transport authorization、plugin permission 或 surface lifecycle 吸收到共享业务 service。
+- 不因为 post-commit UI 刷新失败而把已经成功持久化的 mutation 伪装成“业务未提交”，从而诱发调用方重放。
+
+### Consequences
+
+- 新增外部 Paper/Todo/Note 能力时，先判断能否扩展 `PaperCommandService` 的共享业务合同，再由各 transport 做适配。
+- GUI 内部直接交互不因此强制全部改走这层；这条 Decision 约束的是**外部命令边界的共享业务语义**。
+
+### Evidence
+
+- `src/PaperCommandService.cs`。
+- `src/McpCommandService.cs`：只做 MCP transport/authorization，并把业务读写委托给 `PaperCommandService`。
+- `src/PaperBodyPluginHostApi.cs`：只做 plugin permission/session 边界，并把业务读写委托给同一 service。
+- `16cfdb76672390df28a8445937f994af0a0cdc2f` — `feat: add reviewed MCP architecture`，形成最初外部命令事务边界。
+- `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin v2 / MCP hardening，收敛外部写入失败与恢复语义。
