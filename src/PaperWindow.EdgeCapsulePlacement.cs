@@ -43,22 +43,11 @@ public sealed partial class PaperWindow
     // window at Opacity 0, it is fully click-through and never blocks the master pill.
     internal void RetractIntoMaster(EdgeCapsulePlacement placement, bool animate)
     {
-        TraceCollapseAllPaper(
-            "paper-retract-enter",
-            placement,
-            animate,
-            "route=unresolved");
-
         if (!_controller.State.UseCapsuleMode ||
             !_controller.State.UseDeepCapsuleMode ||
             !_paper.IsVisible ||
             !_controller.CanPaperDisplayAsCapsule(_paper))
         {
-            TraceCollapseAllPaper(
-                "paper-retract-abort",
-                placement,
-                animate,
-                "reason=eligibility");
             ClearDeepCapsulePlacement();
             return;
         }
@@ -68,82 +57,33 @@ public sealed partial class PaperWindow
                 _paper.IsCollapsed ? EdgeCapsulePaperForm.Collapsed : EdgeCapsulePaperForm.Expanded,
                 retracted: true))
         {
-            TraceCollapseAllPaper(
-                "paper-retract-abort",
-                placement,
-                animate,
-                "reason=attach-rejected");
             return;
         }
-        TraceCollapseAllPaper(
-            "paper-retract-attached",
-            placement,
-            animate,
-            "modelTarget=retracted");
         UpdateDeepCapsuleSlotHostTheme();
         RefreshEffectiveTopmost();
 
-        var staged = TryStageEdgeCapsuleVisualTransaction(
-            animate,
-            EdgeCapsuleTransitionReason.Retraction,
-            EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
-            refreshLayout: true);
-        TraceCollapseAllPaper(
-            "paper-retract-route",
-            placement,
-            animate,
-            $"staged={staged} durationMs={EdgeCapsuleLayout.SlotRetractMoveMilliseconds}");
-        if (!staged)
+        if (!TryStageEdgeCapsuleVisualTransaction(
+                animate,
+                EdgeCapsuleTransitionReason.Retraction,
+                EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
+                refreshLayout: true))
         {
             RequestEdgeCapsulePresentation(
                 animate,
                 EdgeCapsuleTransitionReason.Retraction,
                 EdgeCapsuleLayout.SlotRetractMoveMilliseconds,
                 refreshLayout: true);
-            TraceCollapseAllPaper(
-                "paper-retract-requested",
-                placement,
-                animate,
-                "route=direct-presenter");
         }
         if (_paper.IsCollapsed)
         {
             HideMainWindowForDeepCapsuleRest();
         }
-        TraceCollapseAllPaper(
-            "paper-retract-exit",
-            placement,
-            animate,
-            $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
     }
 
     internal void ApplyDeepCapsulePlacement(EdgeCapsulePlacement placement, bool animate = false)
     {
-        var releasingFromMaster =
-            IsDeepCapsuleRetractedIntoMaster ||
-            IsDeepCapsuleSlotRetracting ||
-            _edgeCapsule.AppliedPresentation.Surface is
-                EdgeCapsuleSurfaceKind.DockedRetracted or
-                EdgeCapsuleSurfaceKind.DockedRetracting;
-        if (releasingFromMaster)
-        {
-            TraceCollapseAllPaper(
-                "paper-release-enter",
-                placement,
-                animate,
-                "route=unresolved");
-        }
-
         if (!_paper.IsCollapsed || !_paper.IsVisible || !_controller.State.UseCapsuleMode || !_controller.State.UseDeepCapsuleMode)
         {
-            if (releasingFromMaster)
-            {
-                TraceCollapseAllPaper(
-                    "paper-release-abort",
-                    placement,
-                    animate,
-                    "reason=eligibility");
-            }
             ClearDeepCapsulePlacement();
             return;
         }
@@ -153,57 +93,24 @@ public sealed partial class PaperWindow
                 EdgeCapsulePaperForm.Collapsed,
                 retracted: false))
         {
-            if (releasingFromMaster)
-            {
-                TraceCollapseAllPaper(
-                    "paper-release-abort",
-                    placement,
-                    animate,
-                    "reason=attach-rejected");
-            }
             return;
-        }
-        if (releasingFromMaster)
-        {
-            TraceCollapseAllPaper(
-                "paper-release-attached",
-                placement,
-                animate,
-                "modelTarget=docked");
         }
         RefreshCapsuleLabel();
         ReserveEdgeCapsulePreviewCapacityBeforeFirstShow();
         QueueDeepCapsuleFloatingDragInfrastructurePrewarm(
             System.Windows.Threading.DispatcherPriority.ApplicationIdle,
             requireActiveInteraction: false);
-        var staged = TryStageEdgeCapsuleVisualTransaction(
-            animate,
-            EdgeCapsuleTransitionReason.Placement,
-            EdgeCapsuleLayout.SlotMoveMilliseconds,
-            refreshLayout: true);
-        if (releasingFromMaster)
-        {
-            TraceCollapseAllPaper(
-                "paper-release-route",
-                placement,
+        if (!TryStageEdgeCapsuleVisualTransaction(
                 animate,
-                $"staged={staged} durationMs={EdgeCapsuleLayout.SlotMoveMilliseconds}");
-        }
-        if (!staged)
+                EdgeCapsuleTransitionReason.Placement,
+                EdgeCapsuleLayout.SlotMoveMilliseconds,
+                refreshLayout: true))
         {
             RequestEdgeCapsulePresentation(
                 animate,
                 EdgeCapsuleTransitionReason.Placement,
                 EdgeCapsuleLayout.SlotMoveMilliseconds,
                 refreshLayout: true);
-            if (releasingFromMaster)
-            {
-                TraceCollapseAllPaper(
-                    "paper-release-requested",
-                    placement,
-                    animate,
-                    "route=direct-presenter");
-            }
         }
         if (!IsPaperFormTransitioning)
         {
@@ -211,14 +118,6 @@ public sealed partial class PaperWindow
         }
         RefreshEffectiveTopmost();
         ScheduleMigratedPluginBodyPreviewWarmup();
-        if (releasingFromMaster)
-        {
-            TraceCollapseAllPaper(
-                "paper-release-exit",
-                placement,
-                animate,
-                $"hostVisible={_edgeCapsuleHost?.IsVisible == true}");
-        }
     }
 
     internal void PreviewDeepCapsulePlacement(EdgeCapsulePlacement placement)
@@ -462,35 +361,5 @@ public sealed partial class PaperWindow
         {
             ClearDeepCapsulePlacement(animate: _controller.State.EnableAnimations);
         }
-    }
-
-    private void TraceCollapseAllPaper(
-        string phase,
-        EdgeCapsulePlacement placement,
-        bool animate,
-        string extra)
-    {
-#if DEBUG
-        if (!EdgeCapsuleRetractionDiagnostics.IsActive)
-        {
-            return;
-        }
-        var applied = _edgeCapsule.AppliedPresentation;
-        var modelPlacement = _edgeCapsule.Placement;
-        EdgeCapsuleRetractionDiagnostics.Trace(
-            phase,
-            $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
-            $"monitor={_paper.CapsuleMonitorDeviceName} side={_paper.CapsuleSide} " +
-            $"animateRequested={animate} animationsEnabled={_controller.State.EnableAnimations} " +
-            $"slot={EdgeCapsuleSlot} visual={EdgeCapsuleVisual} gesture={EdgeCapsuleGesture} " +
-            $"preview={_edgeCapsule.Preview} pointerOver={_edgeCapsule.PointerOverSurface} " +
-            $"placement={placement.Index}/{placement.VisualOffset}/{placement.SlotCount}/" +
-            $"{placement.TopOffsetDip:F1} modelPlacement={modelPlacement.Index}/" +
-            $"{modelPlacement.VisualOffset}/{modelPlacement.SlotCount}/{modelPlacement.TopOffsetDip:F1} " +
-            $"appliedSurface={applied.Surface} appliedTop={applied.Bounds.Top} " +
-            $"appliedHostTop={applied.HostBounds.Top} opacity={applied.Opacity:F4} " +
-            $"contentOpacity={applied.ContentOpacity:F4} hit={applied.IsHitTestVisible} " +
-            $"activeTransition={_edgeCapsule.HasActiveTransition} {extra}");
-#endif
     }
 }

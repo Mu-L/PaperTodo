@@ -11,10 +11,6 @@ public sealed partial class AppController
             return;
         }
 
-        EdgeCapsuleRetractionDiagnostics.BeginMasterToggle(
-            monitorDeviceName,
-            edge);
-
         var side = edge == EdgeCapsuleEdge.Left
             ? DeepCapsuleSides.Left
             : DeepCapsuleSides.Right;
@@ -35,17 +31,11 @@ public sealed partial class AppController
                 StringComparison.Ordinal));
         if (target == null)
         {
-            EdgeCapsuleRetractionDiagnostics.Trace(
-                "master-suppression",
-                $"queue={queueKey} target=<none>");
             _edgeCapsulePreviewLayoutSuppressionAnchor = null;
             _edgeCapsulePreviewIntentPredictor.Reset();
             return;
         }
 
-        EdgeCapsuleRetractionDiagnostics.Trace(
-            "master-suppression",
-            $"queue={queueKey} target={EdgeCapsulePerformanceDiagnostics.ShortId(target.EdgeCapsulePreviewPaperId)}");
         RecordEdgeCapsulePreviewTransferPointer(target, queueKey);
 
         // Collapse-all is one queue-wide visual operation, just like Preview transfer. Open the
@@ -54,8 +44,5 @@ public sealed partial class AppController
         // in that arrange can then stage into the same Send-priority commit and start from one QPC
         // timestamp instead of seven independent per-paper clocks.
         BeginEdgeCapsuleVisualTransaction(target);
-        EdgeCapsuleRetractionDiagnostics.Trace(
-            "master-visual-transaction-begin",
-            $"queue={queueKey} initiator={EdgeCapsulePerformanceDiagnostics.ShortId(target.EdgeCapsulePreviewPaperId)}");
     }
 }

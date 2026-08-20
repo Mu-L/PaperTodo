@@ -25,41 +25,11 @@ internal static class EdgeCapsuleTransitionPolicy
             Math.Abs(applied.DpiScaleX - target.DpiScaleX) > 0.001 ||
             Math.Abs(applied.DpiScaleY - target.DpiScaleY) > 0.001)
         {
-#if DEBUG
-            if (ShouldTraceRetraction(applied, target, motion))
-            {
-                TraceRetractionCreate(
-                    "rejected",
-                    applied,
-                    target,
-                    motion,
-                    transitionAlreadyActive,
-                    ExplainCreateRejection(
-                        applied,
-                        target,
-                        motion,
-                        transitionAlreadyActive),
-                    durationMilliseconds: 0);
-            }
-#endif
             return null;
         }
 
         if (FramesMatch(applied, target))
         {
-#if DEBUG
-            if (ShouldTraceRetraction(applied, target, motion))
-            {
-                TraceRetractionCreate(
-                    "rejected",
-                    applied,
-                    target,
-                    motion,
-                    transitionAlreadyActive,
-                    "frames-match",
-                    durationMilliseconds: 0);
-            }
-#endif
             return null;
         }
 
@@ -69,26 +39,12 @@ internal static class EdgeCapsuleTransitionPolicy
         var durationTicks = Math.Max(
             1,
             (long)Math.Round(timestampFrequency * durationMilliseconds / 1000.0));
-        var transition = new EdgeCapsuleTransition(
+        return new EdgeCapsuleTransition(
             applied,
             target,
             nowTimestamp,
             durationTicks,
             motion.Reason);
-#if DEBUG
-        if (ShouldTraceRetraction(applied, target, motion))
-        {
-            TraceRetractionCreate(
-                "created",
-                applied,
-                target,
-                motion,
-                transitionAlreadyActive,
-                "accepted",
-                durationMilliseconds);
-        }
-#endif
-        return transition;
     }
 
     public static EdgeCapsuleTransitionSample Sample(
@@ -104,15 +60,6 @@ internal static class EdgeCapsuleTransitionPolicy
         {
             var targetFrame = transition.Target.ToFrame();
 #if DEBUG
-            if (ShouldTraceRetraction(transition))
-            {
-                TraceRetractionSample(
-                    transition,
-                    rawProgress,
-                    1,
-                    targetFrame,
-                    isComplete: true);
-            }
             if (transition.Start.Surface == EdgeCapsuleSurfaceKind.DockedPreview &&
                 transition.Target.Surface != EdgeCapsuleSurfaceKind.DockedPreview)
             {
@@ -191,15 +138,6 @@ internal static class EdgeCapsuleTransitionPolicy
             hitTestVisible,
             target.CloseSegmentActsAsContent);
 #if DEBUG
-        if (ShouldTraceRetraction(transition))
-        {
-            TraceRetractionSample(
-                transition,
-                rawProgress,
-                progress,
-                frame,
-                isComplete: false);
-        }
         if (outgoingPreview &&
             Math.Abs(bounds.Width - target.Bounds.Width) <= 2 &&
             Math.Abs(bounds.Height - target.Bounds.Height) <= 2 &&
@@ -250,116 +188,6 @@ internal static class EdgeCapsuleTransitionPolicy
         applied.CloseSegmentActsAsContent == target.CloseSegmentActsAsContent;
 
 #if DEBUG
-    private static bool ShouldTraceRetraction(
-        EdgeCapsulePresentationFrame applied,
-        EdgeCapsuleTargetPresentation target,
-        EdgeCapsuleMotion motion) =>
-        EdgeCapsuleRetractionDiagnostics.IsActive &&
-        (motion.Reason == EdgeCapsuleTransitionReason.Retraction ||
-         IsRetractionSurface(applied.Surface) ||
-         IsRetractionSurface(target.Surface));
-
-    private static bool ShouldTraceRetraction(
-        EdgeCapsuleTransition transition) =>
-        EdgeCapsuleRetractionDiagnostics.IsActive &&
-        (transition.Reason == EdgeCapsuleTransitionReason.Retraction ||
-         IsRetractionSurface(transition.Start.Surface) ||
-         IsRetractionSurface(transition.Target.Surface));
-
-    private static bool IsRetractionSurface(EdgeCapsuleSurfaceKind surface) =>
-        surface is
-            EdgeCapsuleSurfaceKind.DockedRetracted or
-            EdgeCapsuleSurfaceKind.DockedRetracting;
-
-    private static string ExplainCreateRejection(
-        EdgeCapsulePresentationFrame applied,
-        EdgeCapsuleTargetPresentation target,
-        EdgeCapsuleMotion motion,
-        bool transitionAlreadyActive)
-    {
-        if (!target.Visible)
-        {
-            return "target-hidden";
-        }
-        if (!applied.Visible)
-        {
-            return "applied-hidden";
-        }
-        if (applied.Bounds.IsEmpty)
-        {
-            return "applied-bounds-empty";
-        }
-        if (applied.HostBounds.IsEmpty)
-        {
-            return "applied-host-empty";
-        }
-        if (motion.Kind == EdgeCapsuleMotionKind.Snap)
-        {
-            return $"motion-snap:{motion.Reason}";
-        }
-        if (motion.Kind == EdgeCapsuleMotionKind.Preserve && !transitionAlreadyActive)
-        {
-            return $"preserve-without-active:{motion.Reason}";
-        }
-        if (applied.Edge != target.Edge)
-        {
-            return "edge-change";
-        }
-        if (applied.WallDeviceX != target.WallDeviceX)
-        {
-            return "wall-change";
-        }
-        if (Math.Abs(applied.DpiScaleX - target.DpiScaleX) > 0.001)
-        {
-            return "dpi-x-change";
-        }
-        if (Math.Abs(applied.DpiScaleY - target.DpiScaleY) > 0.001)
-        {
-            return "dpi-y-change";
-        }
-        return "unknown";
-    }
-
-    private static void TraceRetractionCreate(
-        string phase,
-        EdgeCapsulePresentationFrame applied,
-        EdgeCapsuleTargetPresentation target,
-        EdgeCapsuleMotion motion,
-        bool transitionAlreadyActive,
-        string outcome,
-        int durationMilliseconds)
-    {
-        EdgeCapsuleRetractionDiagnostics.Trace(
-            $"transition-{phase}",
-            $"motion={motion.Kind}/{motion.Reason}/{motion.DurationMilliseconds}ms " +
-            $"activeBefore={transitionAlreadyActive} outcome={outcome} durationMs={durationMilliseconds} " +
-            $"startSurface={applied.Surface} targetSurface={target.Surface} " +
-            $"start={FormatRect(applied.Bounds)} target={FormatRect(target.Bounds)} " +
-            $"startHost={FormatRect(applied.HostBounds)} targetHost={FormatRect(target.HostBounds)} " +
-            $"startOpacity={applied.Opacity:F4} targetOpacity={target.Opacity:F4} " +
-            $"startContentOpacity={applied.ContentOpacity:F4} targetContentOpacity={target.ContentOpacity:F4} " +
-            $"hitStart={applied.IsHitTestVisible} hitTarget={target.IsHitTestVisible} " +
-            $"edge={target.Edge} wall={target.WallDeviceX}");
-    }
-
-    private static void TraceRetractionSample(
-        EdgeCapsuleTransition transition,
-        double rawProgress,
-        double easedProgress,
-        EdgeCapsulePresentationFrame frame,
-        bool isComplete)
-    {
-        EdgeCapsuleRetractionDiagnostics.Trace(
-            "transition-sample",
-            $"reason={transition.Reason} raw={rawProgress:F5} eased={easedProgress:F5} " +
-            $"complete={isComplete} surface={frame.Surface} " +
-            $"frame={FormatRect(frame.Bounds)} host={FormatRect(frame.HostBounds)} " +
-            $"target={FormatRect(transition.Target.Bounds)} " +
-            $"opacity={frame.Opacity:F4} targetOpacity={transition.Target.Opacity:F4} " +
-            $"contentOpacity={frame.ContentOpacity:F4} " +
-            $"hit={frame.IsHitTestVisible}");
-    }
-
     private static void TracePreviewTerminalSample(
         string phase,
         EdgeCapsuleTransition transition,
