@@ -123,11 +123,12 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
     private const int MaximumRenderedCharacters = 4096;
     private const int MaximumBlockCharacters = 512;
     private const int MaximumCodeCharacters = 2048;
+    private const int MaximumInlineDepth = 6;
 
     private readonly record struct PreviewLine(string Text, bool Truncated);
 
     private static readonly Regex InlinePattern = new(
-        @"!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|~~(.+?)~~|`([^`]+)`|\*(.+?)\*|_([^_]+)_",
+        @"!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*\*(.+?)\*\*\*|___(.+?)___|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|`([^`]+)`|\*(.+?)\*|_([^_]+)_",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex HeadingPattern = new(
         @"^(#{1,6})\s+(.+)$",
@@ -152,7 +153,7 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
             NormalizeLines(markdown)
                 .Where(line => !string.IsNullOrWhiteSpace(line.Text))
                 .Take(MaximumMeasuredLines)
-                .Select(line => CompactText(StripBlockPrefix(line.Text))));
+                .Select(line => CompactText(MarkdownInlineSyntax.Unescape(StripBlockPrefix(line.Text)))));
     }
 
     public static int EstimateVisualLines(string? markdown, double widthDip)
@@ -188,7 +189,7 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
             else
             {
                 var lines = EdgeCapsulePreviewMeasure.EstimateWrappedLines(
-                    StripBlockPrefix(trimmed),
+                    MarkdownInlineSyntax.Unescape(StripBlockPrefix(trimmed)),
                     widthDip);
                 estimate += wasInsideFence ? Math.Min(3, lines) : Math.Min(4, lines);
             }
@@ -476,44 +477,73 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
         InlineCollection target,
         string text,
         Action<string> openExternal)
+        => AddInlineContent(target, text, openExternal, depth: 0);
+
+    private static void AddInlineContent(
+        InlineCollection target,
+        string text,
+        Action<string> openExternal,
+        int depth)
     {
+        if (depth >= MaximumInlineDepth)
+        {
+            target.Add(new Run(MarkdownInlineSyntax.Unescape(text)));
+            return;
+        }
+
+        var scan = MarkdownInlineSyntax.MaskEscapedPunctuation(text);
         var cursor = 0;
-        foreach (Match match in InlinePattern.Matches(text))
+        foreach (Match match in InlinePattern.Matches(scan))
         {
             if (match.Index > cursor)
             {
-                target.Add(new Run(text[cursor..match.Index]));
+                target.Add(new Run(MarkdownInlineSyntax.Unescape(text[cursor..match.Index])));
+            }
+
+            string Group(int index)
+            {
+                var group = match.Groups[index];
+                return text.Substring(group.Index, group.Length);
             }
 
             if (match.Groups[1].Success)
             {
-                var image = new Span(new Run(string.IsNullOrWhiteSpace(match.Groups[1].Value)
-                    ? "▧"
-                    : $"▧ {match.Groups[1].Value}"));
+                var label = MarkdownInlineSyntax.Unescape(Group(1));
+                var image = new Span(new Run(string.IsNullOrWhiteSpace(label) ? "▧" : $"▧ {label}"));
                 image.SetResourceReference(TextElement.ForegroundProperty, "WeakTextBrushKey");
                 target.Add(image);
             }
             else if (match.Groups[3].Success)
             {
-                target.Add(CreateLink(
-                    match.Groups[3].Value,
-                    match.Groups[4].Value,
-                    openExternal));
+                target.Add(CreateLink(Group(3), Group(4), openExternal, depth));
             }
-            else if (match.Groups[5].Success)
+            else if (match.Groups[5].Success || match.Groups[6].Success)
             {
-                target.Add(new Bold(new Run(match.Groups[5].Value)));
-            }
-            else if (match.Groups[6].Success)
-            {
-                target.Add(new Span(new Run(match.Groups[6].Value))
+                var group = match.Groups[5].Success ? 5 : 6;
+                var span = new Span
                 {
-                    TextDecorations = TextDecorations.Strikethrough
-                });
+                    FontWeight = FontWeights.Bold,
+                    FontStyle = FontStyles.Italic
+                };
+                AddInlineContent(span.Inlines, Group(group), openExternal, depth + 1);
+                target.Add(span);
             }
-            else if (match.Groups[7].Success)
+            else if (match.Groups[7].Success || match.Groups[8].Success)
             {
-                var code = new Span(new Run(match.Groups[7].Value))
+                var group = match.Groups[7].Success ? 7 : 8;
+                var bold = new Bold();
+                AddInlineContent(bold.Inlines, Group(group), openExternal, depth + 1);
+                target.Add(bold);
+            }
+            else if (match.Groups[9].Success)
+            {
+                var strike = new Span { TextDecorations = TextDecorations.Strikethrough };
+                AddInlineContent(strike.Inlines, Group(9), openExternal, depth + 1);
+                target.Add(strike);
+            }
+            else if (match.Groups[10].Success)
+            {
+                var code = new Span(new Run(Group(10)))
                 {
                     FontFamily = new FontFamily("Cascadia Mono, Consolas"),
                     FontSize = AppTypography.Scale(10.8)
@@ -523,36 +553,42 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
             }
             else
             {
-                var italic = match.Groups[8].Success
-                    ? match.Groups[8].Value
-                    : match.Groups[9].Value;
-                target.Add(new Italic(new Run(italic)));
+                var group = match.Groups[11].Success ? 11 : 12;
+                var italic = new Italic();
+                AddInlineContent(italic.Inlines, Group(group), openExternal, depth + 1);
+                target.Add(italic);
             }
+
             cursor = match.Index + match.Length;
         }
 
         if (cursor < text.Length)
         {
-            target.Add(new Run(text[cursor..]));
+            target.Add(new Run(MarkdownInlineSyntax.Unescape(text[cursor..])));
         }
     }
 
     private static Inline CreateLink(
         string label,
         string value,
-        Action<string> openExternal)
+        Action<string> openExternal,
+        int depth)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+        var normalizedValue = MarkdownInlineSyntax.Unescape(value);
+        if (!Uri.TryCreate(normalizedValue, UriKind.Absolute, out var uri) ||
             uri.Scheme is not ("http" or "https" or "mailto"))
         {
-            return new Run(label);
+            var fallback = new Span();
+            AddInlineContent(fallback.Inlines, label, openExternal, depth + 1);
+            return fallback;
         }
 
-        var link = new Hyperlink(new Run(label))
+        var link = new Hyperlink
         {
             NavigateUri = uri,
             Cursor = Cursors.Hand
         };
+        AddInlineContent(link.Inlines, label, openExternal, depth + 1);
         link.SetResourceReference(TextElement.ForegroundProperty, "LinkBrushKey");
         EdgeCapsulePreviewInteraction.SetConsumesPointer(link, true);
         link.RequestNavigate += (_, e) =>
