@@ -19,9 +19,11 @@ internal sealed partial class PaperBodyPluginRegistry
     private static void ValidateSettings(PaperBodyPluginManifest manifest)
     {
         manifest.Settings ??= [];
-        manifest.Capabilities ??= [];
-        var hasAppRuntime = manifest.Capabilities.Any(value =>
-            string.Equals(value?.Trim(), "appRuntime", StringComparison.Ordinal));
+        // Settings may depend on provider-level capabilities (for example custom shortcut actions
+        // require appRuntime). Normalize and validate the capability list before reading it here so
+        // every feature consumes one canonical manifest representation.
+        NormalizeProtocolFeatures(manifest);
+        var hasAppRuntime = manifest.Capabilities.Contains("appRuntime", StringComparer.Ordinal);
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var quickCount = 0;
         foreach (var setting in manifest.Settings)
