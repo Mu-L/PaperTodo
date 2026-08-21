@@ -26,7 +26,6 @@
 
     async function registerTopBar() {
       await papertodo.request('topbar.paper.set', {
-        surface: papertodo.surface,
         actions: [
           {
             id: 'paper-info',
@@ -38,7 +37,6 @@
       });
 
       await papertodo.request('topbar.global.set', {
-        surface: papertodo.surface,
         actions: [
           {
             id: 'inspect-current',
