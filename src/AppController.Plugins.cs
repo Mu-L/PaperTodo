@@ -19,10 +19,34 @@ public sealed partial class AppController
 
     private UIElement BuildPluginsSettingsPage()
     {
-        RefreshPluginShortcuts();
+        // Rebuilding the settings tree is also a recording boundary. Never let a stale recorder
+        // survive into a fresh visual tree with only one of the two hotkey managers restored.
+        if (_pluginShortcutRecordingCommandId != null)
+        {
+            _pluginShortcutRecordingCommandId = null;
+            RestoreAllHotkeysAfterPluginRecording();
+        }
+        else
+        {
+            RefreshPluginShortcuts();
+        }
+
         var root = new StackPanel
         {
             Margin = new Thickness(2, 4, 4, 0)
+        };
+        root.Unloaded += (_, _) =>
+        {
+            if (_pluginShortcutRecordingCommandId == null)
+            {
+                return;
+            }
+
+            _pluginShortcutRecordingCommandId = null;
+            if (!IsExiting)
+            {
+                RestoreAllHotkeysAfterPluginRecording();
+            }
         };
 
         var header = new Grid();
