@@ -47,15 +47,40 @@ jobs:
         run: dotnet restore .\PaperTodo.csproj
 
       - name: Build
-        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+        id: build
+        run: |
+          $output = @(& dotnet build .\PaperTodo.csproj -c Release --no-restore 2>&1)
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          $firstError = $output |
+            ForEach-Object { "$_" } |
+            Where-Object { $_ -match ': error ' -or $_ -match ' error [A-Z]+[0-9]+:' } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($firstError)) {
+            $firstError = if ($exitCode -eq 0) { "Build succeeded" } else { "dotnet build failed with exit code $exitCode" }
+          }
+          $firstError = ($firstError -replace '[\r\n]+', ' ').Trim()
+          "first_error=$firstError" >> $env:GITHUB_OUTPUT
+          if ($exitCode -ne 0) {
+            exit $exitCode
+          }
 
       - name: Expose diagnostic run
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_ERROR: ${{ steps.build.outputs.first_error }}
         run: |
           $state = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
           $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $description = if ([string]::IsNullOrWhiteSpace($env:BUILD_ERROR)) {
+            "Build failed before compiler diagnostics"
+          } else {
+            $env:BUILD_ERROR
+          }
+          if ($description.Length -gt 140) {
+            $description = $description.Substring(0, 140)
+          }
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = "application/vnd.github+json"
@@ -65,7 +90,7 @@ jobs:
             state = $state
             context = "diagnostic/pull-request-build"
             target_url = $runUrl
-            description = "Build run ${{ github.run_id }}"
+            description = $description
           } | ConvertTo-Json
           Invoke-RestMethod `
             -Method Post `
