@@ -147,8 +147,9 @@ public sealed partial class AppController
             }
         }
 
-        // Existing PaperTodo commands have priority over plugin reservations. A plugin configuration
-        // remains stored/reserved but is marked duplicate and cannot claim the native registration.
+        // Existing PaperTodo commands have priority over plugin reservations. A conflicting legacy
+        // plugin value stays persisted and visible as Duplicate, but cannot become an effective
+        // reservation that would invalidate the rest of the broker plan.
         var builtInGestures = ConfiguredBuiltInRegistrationGestures();
         foreach (var pair in registrationsByCommand)
         {
@@ -156,12 +157,13 @@ public sealed partial class AppController
             {
                 _pluginShortcutStatuses[pair.Key] = ShortcutUiStatus.Duplicate;
                 activeCommandIds.Remove(pair.Key);
+                reservedCommandIds.Remove(pair.Key);
             }
         }
 
-        // Plugin-to-plugin conflicts are checked against configured reservations, not just commands
-        // that happen to be executable today. This prevents A from going idle, B stealing its key,
-        // and A becoming conflicting the next time a paper/runtime appears.
+        // Plugin-to-plugin conflicts are checked against configured values, not just commands that
+        // happen to be executable today. Conflicting legacy values are reported but neither side is
+        // allowed to poison the effective reservation plan.
         var commandsByGesture = new Dictionary<ShortcutGesture, HashSet<string>>();
         foreach (var pair in registrationsByCommand)
         {
@@ -181,6 +183,7 @@ public sealed partial class AppController
             {
                 _pluginShortcutStatuses[commandId] = ShortcutUiStatus.Duplicate;
                 activeCommandIds.Remove(commandId);
+                reservedCommandIds.Remove(commandId);
             }
         }
 
