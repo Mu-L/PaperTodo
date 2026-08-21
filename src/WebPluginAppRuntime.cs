@@ -1,6 +1,5 @@
 using System.IO;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -11,13 +10,6 @@ namespace PaperTodo;
 
 internal sealed class WebPluginAppRuntime : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
-
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
     private readonly PaperAppRuntimeGlobalTopBarApi _globalTopBar;
@@ -57,7 +49,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
             IsHitTestVisible = false
         };
         _webView.SetValue(UIElement.OpacityProperty, 0.0);
-        if (!WebPaperBodySession.AttachSharedBackgroundWebView(_webView))
+        if (!WebPluginRuntimeInfrastructure.AttachBackground(_webView))
         {
             throw new InvalidOperationException(
                 "PaperTodo could not attach the Web plugin app runtime to its background host.");
@@ -79,7 +71,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
                 runtimePath);
         }
 
-        var environment = await WebPaperBodySession.SharedPluginEnvironmentAsync(
+        var environment = await WebPluginRuntimeInfrastructure.EnvironmentAsync(
             manifest.DirectoryPath);
         _lifetime.Token.ThrowIfCancellationRequested();
         ThrowIfInactive();
@@ -90,17 +82,14 @@ internal sealed class WebPluginAppRuntime : IDisposable
         var core = _webView.CoreWebView2
             ?? throw new InvalidOperationException(
                 "WebView2 initialization returned no CoreWebView2 instance.");
-        core.Settings.AreDefaultContextMenusEnabled = false;
-        core.Settings.AreDevToolsEnabled = false;
-        core.Settings.IsStatusBarEnabled = false;
-        core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+        WebPluginRuntimeInfrastructure.ConfigureBackgroundCore(core);
 
-        var hostName = WebPaperBodySession.SharedWebHostName(_descriptor.Id);
-        _expectedOrigin = $"https://{hostName}";
-        var relativeRuntime = Path.GetRelativePath(webRoot, runtimePath)
-            .Replace('\\', '/');
-        var runtimeUri = new Uri(
-            $"{_expectedOrigin}/{Uri.EscapeDataString(relativeRuntime).Replace("%2F", "/", StringComparison.OrdinalIgnoreCase)}");
+        var hostName = WebPluginRuntimeInfrastructure.HostName(_descriptor.Id);
+        _expectedOrigin = WebPluginRuntimeInfrastructure.Origin(_descriptor.Id);
+        var runtimeUri = WebPluginRuntimeInfrastructure.LocalEntryUri(
+            _expectedOrigin,
+            webRoot,
+            runtimePath);
 
         core.WebMessageReceived += OnWebMessageReceived;
         core.NavigationStarting += OnNavigationStarting;
@@ -368,14 +357,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
 
     private void HandleHostRequest(JsonElement payload)
     {
-        var requestId = RequiredString(payload, "requestId");
+        var requestId = WebPluginRuntimeInfrastructure.RequiredString(payload, "requestId");
         try
         {
-            var method = RequiredString(payload, "method");
-            var parameters = payload.ValueKind == JsonValueKind.Object &&
-                             payload.TryGetProperty("params", out var paramsValue)
-                ? paramsValue
-                : JsonSerializer.SerializeToElement(new { });
+            var method = WebPluginRuntimeInfrastructure.RequiredString(payload, "method");
+            var parameters = WebPluginRuntimeInfrastructure.ParametersOrEmpty(payload);
             object? result;
             if (string.Equals(method, "topbar.global.set", StringComparison.Ordinal))
             {
@@ -424,7 +410,8 @@ internal sealed class WebPluginAppRuntime : IDisposable
             actions = parameters.ValueKind == JsonValueKind.Object &&
                       parameters.TryGetProperty("actions", out var actionsValue) &&
                       actionsValue.ValueKind != JsonValueKind.Null
-                ? actionsValue.Deserialize<PaperTopBarAction[]>(JsonOptions) ?? []
+                ? actionsValue.Deserialize<PaperTopBarAction[]>(
+                    WebPluginRuntimeInfrastructure.JsonOptions) ?? []
                 : [];
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
@@ -451,24 +438,8 @@ internal sealed class WebPluginAppRuntime : IDisposable
             }));
     }
 
-    private static string RequiredString(JsonElement payload, string name)
-    {
-        if (payload.ValueKind != JsonValueKind.Object ||
-            !payload.TryGetProperty(name, out var value) ||
-            value.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(value.GetString()))
-        {
-            throw new PaperTodoPluginException("invalid_params", $"{name} is required.");
-        }
-        return value.GetString()!;
-    }
-
     private bool IsAllowedSource(string? value) =>
-        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-        string.Equals(
-            uri.GetLeftPart(UriPartial.Authority),
-            _expectedOrigin,
-            StringComparison.OrdinalIgnoreCase);
+        WebPluginRuntimeInfrastructure.IsSameOrigin(value, _expectedOrigin);
 
     private void Send(object value)
     {
@@ -479,7 +450,9 @@ internal sealed class WebPluginAppRuntime : IDisposable
         try
         {
             _webView.CoreWebView2.PostWebMessageAsJson(
-                JsonSerializer.Serialize(value, JsonOptions));
+                JsonSerializer.Serialize(
+                    value,
+                    WebPluginRuntimeInfrastructure.JsonOptions));
         }
         catch
         {
@@ -522,7 +495,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
             core.NavigationCompleted -= OnNavigationCompleted;
             core.ProcessFailed -= OnProcessFailed;
         }
-        WebPaperBodySession.DetachSharedBackgroundWebView(_webView);
+        WebPluginRuntimeInfrastructure.DetachBackground(_webView);
         try { _webView.Dispose(); } catch { }
         _lifetime.Dispose();
     }
