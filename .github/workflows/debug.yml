@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - agent/plugin-protocol-2.0
     paths-ignore:
       - "docs/**"
       - "**/*.md"
