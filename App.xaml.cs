@@ -137,7 +137,7 @@ public partial class App : Application
         // interactive. No plugin paper or body session is required for Global Top Bar registration.
         _ = Dispatcher.BeginInvoke(
             System.Windows.Threading.DispatcherPriority.Background,
-            (Action)(() => _ = _controller.StartPluginAppRuntimesAsync()));
+            (Action)_controller.StartPluginAppRuntimes);
 
         if (!handlesInitialVisibility)
         {
