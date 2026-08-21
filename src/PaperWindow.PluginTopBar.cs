@@ -70,7 +70,9 @@ public sealed partial class PaperWindow
                     binding,
                     _paper.Id,
                     _paper.Type,
-                    NormalizeBodyProviderId(_paper.BodyProviderId));
+                    _paper.Type == PaperTypes.Note
+                        ? NormalizeBodyProviderId(_paper.BodyProviderId)
+                        : string.Empty);
             _pluginTopBarButtonsHost.Children.Add(button);
         }
 
