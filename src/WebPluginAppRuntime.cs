@@ -46,9 +46,9 @@ internal sealed class WebPluginAppRuntime : IDisposable
             Height = 1,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            IsHitTestVisible = false,
-            Opacity = 0
+            IsHitTestVisible = false
         };
+        _webView.SetValue(UIElement.OpacityProperty, 0.0);
         if (!WebPaperBodySession.AttachSharedBackgroundWebView(_webView))
         {
             throw new InvalidOperationException(
