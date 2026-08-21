@@ -84,7 +84,7 @@ public enum PaperHostTopBarActions
 /// A small host-rendered top-bar icon. Character renders short text/glyph content; SvgPath accepts
 /// SVG/WPF path-data syntax only, not a complete SVG document. PaperTodo owns the button size,
 /// theme, hover/focus behavior and clipping. SvgPath can be rendered as either a filled silhouette
-/// or a stroked outline; StrokeWidth is interpreted in the icon's normalized path coordinate space.
+/// or a stroked outline; StrokeWidth controls the host-rendered outline thickness.
 /// </summary>
 public sealed record PaperTopBarIcon
 {
@@ -125,7 +125,7 @@ public sealed record PaperTopBarAction
 /// <summary>
 /// Describes a top-bar click. Global actions are rendered on other papers while their owning plugin
 /// session is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
-/// clicked rather than the plugin's host paper.
+/// clicked rather than the plugin's host paper. TargetBodyProviderId is empty for non-Note papers.
 /// </summary>
 public sealed record PaperTopBarActionInvocation(
     string ActionId,
@@ -334,9 +334,6 @@ public sealed class PaperBodySurfaceContext
 /// </summary>
 public sealed class PaperBodyContext
 {
-    private IPaperTodoHostApi _workspace = null!;
-    private IPaperTopBarApi _topBar = null!;
-
     public required string ProviderId { get; init; }
     public required string ApiVersion { get; init; }
     public required string StateJson { get; init; }
@@ -348,22 +345,10 @@ public sealed class PaperBodyContext
 
     public required PaperBodyPaperContext Paper { get; init; }
     public required PaperBodySurfaceContext Body { get; init; }
-    public required IPaperTodoHostApi Workspace
-    {
-        get => _workspace;
-        init
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            if (value is not IPaperTopBarApi topBar)
-            {
-                throw new InvalidOperationException(
-                    "The PaperTodo plugin host must expose the protocol 2.0 top-bar capability.");
-            }
-            _workspace = value;
-            _topBar = topBar;
-        }
-    }
-    public IPaperTopBarApi TopBar => _topBar;
+    public required IPaperTodoHostApi Workspace { get; init; }
+    public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
+        ?? throw new InvalidOperationException(
+            "This PaperTodo host does not expose the protocol 2.0 top-bar capability.");
     public required Action<string> SaveStateJson { get; init; }
 
     // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
