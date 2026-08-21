@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -536,7 +535,90 @@ internal enum GlobalShortcutRegistrationFailure
     RegistrationFailed
 }
 
+/// <summary>
+/// One logical shortcut owner. All instances share <see cref="GlobalHotkeyBroker"/>, which is the
+/// only process-level RegisterHotKey authority. A manager can reserve configured gestures without
+/// activating them, allowing an unavailable plugin command to keep its PaperTodo-internal ownership
+/// while releasing the actual Windows hotkey until it becomes executable again.
+/// </summary>
 internal sealed class GlobalHotkeyManager : IDisposable
+{
+    private readonly Guid _ownerId = Guid.NewGuid();
+    private bool _disposed;
+
+    public GlobalHotkeyManager()
+    {
+        GlobalHotkeyBroker.AddOwner(_ownerId, commandId => Invoked?.Invoke(commandId));
+    }
+
+    public event Action<string>? Invoked;
+
+    public IReadOnlyDictionary<string, string> ActiveBindings =>
+        GlobalHotkeyBroker.ActiveBindings(_ownerId);
+
+    public bool TryApply(
+        IReadOnlyDictionary<string, string> desiredBindings,
+        IReadOnlyCollection<string> activeCommandIds,
+        bool distinguishNumpadDigits,
+        out string? failedCommandId,
+        out GlobalShortcutRegistrationFailure failure) =>
+        TryApply(
+            desiredBindings,
+            activeCommandIds,
+            activeCommandIds,
+            distinguishNumpadDigits,
+            out failedCommandId,
+            out failure);
+
+    public bool TryApply(
+        IReadOnlyDictionary<string, string> desiredBindings,
+        IReadOnlyCollection<string> activeCommandIds,
+        IReadOnlyCollection<string> reservedCommandIds,
+        bool distinguishNumpadDigits,
+        out string? failedCommandId,
+        out GlobalShortcutRegistrationFailure failure)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return GlobalHotkeyBroker.TryApply(
+            _ownerId,
+            desiredBindings,
+            activeCommandIds,
+            reservedCommandIds,
+            distinguishNumpadDigits,
+            out failedCommandId,
+            out failure);
+    }
+
+    /// <summary>
+    /// Releases this owner's native registrations but keeps its configured reservations in the
+    /// broker. Used while another shortcut recorder/transaction needs the key events themselves.
+    /// </summary>
+    public void Suspend()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        GlobalHotkeyBroker.SuspendOwner(_ownerId);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        GlobalHotkeyBroker.RemoveOwner(_ownerId);
+    }
+}
+
+/// <summary>
+/// Process-global native hotkey authority. Owner states are combined transactionally before any
+/// RegisterHotKey mutation, so host and plugin shortcuts cannot temporarily steal each other's
+/// configured gestures. One global numpad mode is applied to every owner during each transaction.
+/// </summary>
+internal static class GlobalHotkeyBroker
 {
     private const int WmHotkey = 0x0312;
     private const uint ModAlt = 0x0001;
@@ -546,114 +628,291 @@ internal sealed class GlobalHotkeyManager : IDisposable
     private const uint ModNoRepeat = 0x4000;
     private const int ErrorHotkeyAlreadyRegistered = 1409;
 
-    private readonly HwndSource _source;
-    private readonly Dictionary<int, string> _commandByNativeId = new();
-    private readonly Dictionary<ShortcutGesture, int> _nativeIdByGesture = new();
-    private Dictionary<string, string> _activeBindings = new(StringComparer.Ordinal);
-    private int _nextNativeId = 1;
-
-    public GlobalHotkeyManager()
+    private sealed class OwnerState
     {
-        var parameters = new HwndSourceParameters("PaperTodo.GlobalHotkeys")
+        public required Action<string> Dispatch { get; init; }
+        public Dictionary<string, string> Bindings { get; set; } = new(StringComparer.Ordinal);
+        public HashSet<string> ActiveCommandIds { get; set; } = new(StringComparer.Ordinal);
+        public HashSet<string> ReservedCommandIds { get; set; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed record NativeBinding(Guid OwnerId, string CommandId, int NativeId);
+
+    private static readonly HwndSource Source;
+    private static readonly Dictionary<Guid, OwnerState> Owners = new();
+    private static readonly Dictionary<ShortcutGesture, NativeBinding> NativeByGesture = new();
+    private static readonly Dictionary<int, NativeBinding> NativeById = new();
+    private static int _nextNativeId = 1;
+    private static bool _distinguishNumpadDigits;
+
+    static GlobalHotkeyBroker()
+    {
+        var parameters = new HwndSourceParameters("PaperTodo.GlobalHotkeyBroker")
         {
             Width = 0,
             Height = 0,
             WindowStyle = 0,
             ExtendedWindowStyle = 0x00000080
         };
-        _source = new HwndSource(parameters);
-        _source.AddHook(WindowHook);
+        Source = new HwndSource(parameters);
+        Source.AddHook(WindowHook);
     }
 
-    public event Action<string>? Invoked;
+    public static void AddOwner(Guid ownerId, Action<string> dispatch)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+        if (!Owners.TryAdd(ownerId, new OwnerState { Dispatch = dispatch }))
+        {
+            throw new InvalidOperationException("A global hotkey owner with the same id already exists.");
+        }
+    }
 
-    public IReadOnlyDictionary<string, string> ActiveBindings => _activeBindings;
+    public static IReadOnlyDictionary<string, string> ActiveBindings(Guid ownerId)
+    {
+        if (!Owners.TryGetValue(ownerId, out var owner))
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
 
-    public bool TryApply(
+        var active = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var commandId in owner.ActiveCommandIds)
+        {
+            if (owner.Bindings.TryGetValue(commandId, out var binding) &&
+                NativeByGesture.Values.Any(item =>
+                    item.OwnerId == ownerId &&
+                    string.Equals(item.CommandId, commandId, StringComparison.Ordinal)))
+            {
+                active[commandId] = binding;
+            }
+        }
+        return active;
+    }
+
+    public static bool TryApply(
+        Guid ownerId,
         IReadOnlyDictionary<string, string> desiredBindings,
         IReadOnlyCollection<string> activeCommandIds,
+        IReadOnlyCollection<string> reservedCommandIds,
         bool distinguishNumpadDigits,
         out string? failedCommandId,
         out GlobalShortcutRegistrationFailure failure)
     {
         failedCommandId = null;
         failure = GlobalShortcutRegistrationFailure.None;
-        var activeIds = activeCommandIds.ToHashSet(StringComparer.Ordinal);
-        var desiredCommands = new List<(string CommandId, string Text, ShortcutGesture Gesture)>();
-        var desiredRegistrations = new List<(string CommandId, ShortcutGesture Gesture)>();
-        var commandByGesture = new Dictionary<ShortcutGesture, string>();
-        foreach (var pair in desiredBindings)
+        if (!Owners.ContainsKey(ownerId))
         {
-            if (!activeIds.Contains(pair.Key) ||
-                string.IsNullOrWhiteSpace(pair.Value) ||
-                !ShortcutGesture.TryParse(pair.Value, out var gesture) ||
-                gesture.Key == Key.None)
-            {
-                continue;
-            }
+            failure = GlobalShortcutRegistrationFailure.RegistrationFailed;
+            return false;
+        }
 
-            var definition = GlobalShortcutCatalog.Find(pair.Key);
-            var includeDigitAlias =
-                !distinguishNumpadDigits &&
-                definition?.IsEdgeCapsule != true &&
-                gesture.IsDigitKey;
-            foreach (var registrationGesture in gesture.RegistrationGestures(includeDigitAlias))
-            {
-                if (!commandByGesture.TryAdd(registrationGesture, pair.Key))
-                {
-                    failedCommandId = pair.Key;
-                    failure = GlobalShortcutRegistrationFailure.RegistrationFailed;
-                    return false;
-                }
-                desiredRegistrations.Add((pair.Key, registrationGesture));
-            }
+        var candidateBindings = new Dictionary<string, string>(desiredBindings, StringComparer.Ordinal);
+        var candidateActive = activeCommandIds.ToHashSet(StringComparer.Ordinal);
+        var candidateReserved = reservedCommandIds.ToHashSet(StringComparer.Ordinal);
+        candidateReserved.UnionWith(candidateActive);
 
-            desiredCommands.Add((pair.Key, pair.Value, gesture));
+        if (!TryBuildCombinedPlan(
+                ownerId,
+                candidateBindings,
+                candidateActive,
+                candidateReserved,
+                distinguishNumpadDigits,
+                out var desiredNative,
+                out failedCommandId))
+        {
+            failure = GlobalShortcutRegistrationFailure.RegistrationFailed;
+            return false;
         }
 
         var newlyRegistered = new List<ShortcutGesture>();
-        foreach (var binding in desiredRegistrations)
+        foreach (var pair in desiredNative)
         {
-            if (_nativeIdByGesture.ContainsKey(binding.Gesture))
+            if (NativeByGesture.ContainsKey(pair.Key))
             {
                 continue;
             }
 
-            if (!TryRegisterGesture(binding.Gesture, out var nativeId, out failure))
+            if (!TryRegisterGesture(pair.Key, out var nativeId, out failure))
             {
-                failedCommandId = binding.CommandId;
-                foreach (var registeredGesture in newlyRegistered)
+                failedCommandId = pair.Value.CommandId;
+                foreach (var gesture in newlyRegistered)
                 {
-                    TryUnregisterGesture(registeredGesture);
+                    TryUnregisterGesture(gesture);
                 }
                 return false;
             }
 
-            _nativeIdByGesture[binding.Gesture] = nativeId;
-            _commandByNativeId[nativeId] = "";
-            newlyRegistered.Add(binding.Gesture);
+            var native = new NativeBinding(pair.Value.OwnerId, pair.Value.CommandId, nativeId);
+            NativeByGesture[pair.Key] = native;
+            NativeById[nativeId] = native;
+            newlyRegistered.Add(pair.Key);
         }
 
-        var activeByGesture = desiredRegistrations
-            .ToDictionary(binding => binding.Gesture, binding => binding.CommandId);
-
-        foreach (var pair in _nativeIdByGesture.ToArray())
+        foreach (var pair in NativeByGesture.ToArray())
         {
-            if (activeByGesture.TryGetValue(pair.Key, out var commandId))
+            if (!desiredNative.ContainsKey(pair.Key))
             {
-                _commandByNativeId[pair.Value] = commandId;
+                TryUnregisterGesture(pair.Key);
+            }
+        }
+
+        foreach (var pair in desiredNative)
+        {
+            if (!NativeByGesture.TryGetValue(pair.Key, out var current))
+            {
+                continue;
+            }
+            if (current.OwnerId == pair.Value.OwnerId &&
+                string.Equals(current.CommandId, pair.Value.CommandId, StringComparison.Ordinal))
+            {
                 continue;
             }
 
-            TryUnregisterGesture(pair.Key);
+            var updated = new NativeBinding(
+                pair.Value.OwnerId,
+                pair.Value.CommandId,
+                current.NativeId);
+            NativeByGesture[pair.Key] = updated;
+            NativeById[current.NativeId] = updated;
         }
 
-        _activeBindings = desiredCommands
-            .ToDictionary(binding => binding.CommandId, binding => binding.Text, StringComparer.Ordinal);
+        var owner = Owners[ownerId];
+        owner.Bindings = candidateBindings;
+        owner.ActiveCommandIds = candidateActive;
+        owner.ReservedCommandIds = candidateReserved;
+        _distinguishNumpadDigits = distinguishNumpadDigits;
         return true;
     }
 
-    private bool TryRegisterGesture(
+    public static void SuspendOwner(Guid ownerId)
+    {
+        if (!Owners.TryGetValue(ownerId, out var owner))
+        {
+            return;
+        }
+
+        _ = TryApply(
+            ownerId,
+            owner.Bindings,
+            Array.Empty<string>(),
+            owner.ReservedCommandIds,
+            _distinguishNumpadDigits,
+            out _,
+            out _);
+    }
+
+    public static void RemoveOwner(Guid ownerId)
+    {
+        if (!Owners.TryGetValue(ownerId, out var owner))
+        {
+            return;
+        }
+
+        _ = TryApply(
+            ownerId,
+            owner.Bindings,
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            _distinguishNumpadDigits,
+            out _,
+            out _);
+        Owners.Remove(ownerId);
+    }
+
+    private static bool TryBuildCombinedPlan(
+        Guid candidateOwnerId,
+        IReadOnlyDictionary<string, string> candidateBindings,
+        IReadOnlySet<string> candidateActive,
+        IReadOnlySet<string> candidateReserved,
+        bool distinguishNumpadDigits,
+        out Dictionary<ShortcutGesture, (Guid OwnerId, string CommandId)> desiredNative,
+        out string? failedCommandId)
+    {
+        desiredNative = new Dictionary<ShortcutGesture, (Guid OwnerId, string CommandId)>();
+        failedCommandId = null;
+        var reservations = new Dictionary<ShortcutGesture, (Guid OwnerId, string CommandId)>();
+
+        foreach (var ownerPair in Owners)
+        {
+            var ownerId = ownerPair.Key;
+            var owner = ownerPair.Value;
+            var bindings = ownerId == candidateOwnerId ? candidateBindings : owner.Bindings;
+            var reserved = ownerId == candidateOwnerId ? candidateReserved : owner.ReservedCommandIds;
+
+            foreach (var commandId in reserved)
+            {
+                if (!bindings.TryGetValue(commandId, out var text) ||
+                    string.IsNullOrWhiteSpace(text) ||
+                    !ShortcutGesture.TryParse(text, out var gesture) ||
+                    gesture.Key == Key.None)
+                {
+                    continue;
+                }
+
+                foreach (var registrationGesture in RegistrationGesturesFor(
+                             commandId,
+                             gesture,
+                             distinguishNumpadDigits))
+                {
+                    if (reservations.TryGetValue(registrationGesture, out var existing))
+                    {
+                        if (ownerId == candidateOwnerId)
+                        {
+                            failedCommandId = commandId;
+                        }
+                        else if (existing.OwnerId == candidateOwnerId)
+                        {
+                            failedCommandId = existing.CommandId;
+                        }
+                        return false;
+                    }
+                    reservations[registrationGesture] = (ownerId, commandId);
+                }
+            }
+        }
+
+        foreach (var ownerPair in Owners)
+        {
+            var ownerId = ownerPair.Key;
+            var owner = ownerPair.Value;
+            var bindings = ownerId == candidateOwnerId ? candidateBindings : owner.Bindings;
+            var active = ownerId == candidateOwnerId ? candidateActive : owner.ActiveCommandIds;
+            foreach (var commandId in active)
+            {
+                if (!bindings.TryGetValue(commandId, out var text) ||
+                    string.IsNullOrWhiteSpace(text) ||
+                    !ShortcutGesture.TryParse(text, out var gesture) ||
+                    gesture.Key == Key.None)
+                {
+                    continue;
+                }
+
+                foreach (var registrationGesture in RegistrationGesturesFor(
+                             commandId,
+                             gesture,
+                             distinguishNumpadDigits))
+                {
+                    desiredNative[registrationGesture] = (ownerId, commandId);
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static IEnumerable<ShortcutGesture> RegistrationGesturesFor(
+        string commandId,
+        ShortcutGesture gesture,
+        bool distinguishNumpadDigits)
+    {
+        var definition = GlobalShortcutCatalog.Find(commandId);
+        var includeDigitAlias =
+            !distinguishNumpadDigits &&
+            definition?.IsEdgeCapsule != true &&
+            gesture.IsDigitKey;
+        return gesture.RegistrationGestures(includeDigitAlias);
+    }
+
+    private static bool TryRegisterGesture(
         ShortcutGesture gesture,
         out int nativeId,
         out GlobalShortcutRegistrationFailure failure)
@@ -661,7 +920,7 @@ internal sealed class GlobalHotkeyManager : IDisposable
         nativeId = _nextNativeId++;
         failure = GlobalShortcutRegistrationFailure.None;
         if (RegisterHotKey(
-                _source.Handle,
+                Source.Handle,
                 nativeId,
                 NativeModifiers(gesture.Modifiers) | ModNoRepeat,
                 (uint)KeyInterop.VirtualKeyFromKey(gesture.Key)))
@@ -675,38 +934,35 @@ internal sealed class GlobalHotkeyManager : IDisposable
         return false;
     }
 
-    private bool TryUnregisterGesture(ShortcutGesture gesture)
+    private static bool TryUnregisterGesture(ShortcutGesture gesture)
     {
-        if (!_nativeIdByGesture.TryGetValue(gesture, out var nativeId))
+        if (!NativeByGesture.TryGetValue(gesture, out var native))
         {
             return true;
         }
 
-        _commandByNativeId[nativeId] = "";
-        if (!UnregisterHotKey(_source.Handle, nativeId))
+        if (!UnregisterHotKey(Source.Handle, native.NativeId))
         {
             return false;
         }
 
-        _nativeIdByGesture.Remove(gesture);
-        _commandByNativeId.Remove(nativeId);
+        NativeByGesture.Remove(gesture);
+        NativeById.Remove(native.NativeId);
         return true;
     }
 
-    private void UnregisterAll()
+    private static IntPtr WindowHook(
+        IntPtr hwnd,
+        int msg,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
     {
-        foreach (var gesture in _nativeIdByGesture.Keys.ToArray())
+        if (msg == WmHotkey && NativeById.TryGetValue(wParam.ToInt32(), out var native))
         {
-            TryUnregisterGesture(gesture);
-        }
-    }
-    private IntPtr WindowHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg == WmHotkey && _commandByNativeId.TryGetValue(wParam.ToInt32(), out var commandId))
-        {
-            if (!string.IsNullOrEmpty(commandId))
+            if (Owners.TryGetValue(native.OwnerId, out var owner))
             {
-                Invoked?.Invoke(commandId);
+                owner.Dispatch(native.CommandId);
             }
             handled = true;
         }
@@ -722,13 +978,6 @@ internal sealed class GlobalHotkeyManager : IDisposable
         if (modifiers.HasFlag(ModifierKeys.Shift)) result |= ModShift;
         if (modifiers.HasFlag(ModifierKeys.Windows)) result |= ModWin;
         return result;
-    }
-
-    public void Dispose()
-    {
-        UnregisterAll();
-        _source.RemoveHook(WindowHook);
-        _source.Dispose();
     }
 
     [DllImport("user32.dll", SetLastError = true)]
