@@ -61,6 +61,7 @@ public sealed partial class PaperWindow
 
             var button = IconButton("", binding.Action.ToolTip);
             button.IsEnabled = binding.Action.Enabled;
+            button.Opacity = binding.Action.Enabled ? 1.0 : 0.5;
             button.Width = 23;
             button.HorizontalAlignment = HorizontalAlignment.Center;
             button.VerticalAlignment = VerticalAlignment.Center;
