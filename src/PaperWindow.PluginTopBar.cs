@@ -77,6 +77,13 @@ public sealed partial class PaperWindow
             _pluginTopBarButtonsHost.Children.Add(button);
         }
 
+        // The host responsive algorithm can run while the entire right action group is Collapsed,
+        // when a child's ActualWidth is no longer useful. Keep this aggregate width explicit so the
+        // same TopBarOuterWidth calculation stays truthful in both visible and collapsed states.
+        _pluginTopBarButtonsHost.Width = _pluginTopBarButtonsHost.Children
+            .OfType<FrameworkElement>()
+            .Sum(TopBarOuterWidth);
+
         _pluginTopBarAppliedScale = AppTypography.ScaleFactor;
         _pluginTopBarAppliedFontFamily = AppTypography.UiFontFamily.Source;
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
@@ -91,16 +98,11 @@ public sealed partial class PaperWindow
             return;
         }
 
-        if (_pluginTopBarButtonsHost == null)
+        _pluginTopBarButtonsHost ??= new StackPanel
         {
-            _pluginTopBarButtonsHost = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            _pluginTopBarButtonsHost.SizeChanged += (_, _) =>
-                UpdateTopBarResponsiveLayout();
-        }
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         if (_pluginTopBarButtonsHost.Parent == null)
         {
             _topBarActionButtonsHost.Children.Insert(0, _pluginTopBarButtonsHost);
