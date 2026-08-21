@@ -5,50 +5,43 @@ namespace PaperTodo;
 
 internal sealed partial class PaperBodyPluginHostApi
 {
-    public string PaperId
-    {
-        get
-        {
-            EnsureUsable();
-            return _hostPaperId;
-        }
-    }
+    public string PaperId => RequireHostPaperId();
 
     public void Show(bool activate = true) =>
-        QueuePresentation(() =>
-            _controller.TryShowPluginHostPaper(_hostPaperId, _providerId, activate));
+        QueuePresentation((paperId) =>
+            _controller.TryShowPluginHostPaper(paperId, _providerId, activate));
 
     public void Hide() =>
-        QueuePresentation(() =>
-            _controller.TryHidePluginHostPaper(_hostPaperId, _providerId));
+        QueuePresentation((paperId) =>
+            _controller.TryHidePluginHostPaper(paperId, _providerId));
 
     public void ToggleVisibility(bool activate = true) =>
-        QueuePresentation(() =>
+        QueuePresentation((paperId) =>
             _controller.TryTogglePluginHostPaperVisibility(
-                _hostPaperId,
+                paperId,
                 _providerId,
                 activate));
 
     public void Expand(bool activate = true) =>
-        QueuePresentation(() =>
-            _controller.TryExpandPluginHostPaper(_hostPaperId, _providerId, activate));
+        QueuePresentation((paperId) =>
+            _controller.TryExpandPluginHostPaper(paperId, _providerId, activate));
 
     public void Collapse() =>
-        QueuePresentation(() =>
-            _controller.TryCollapsePluginHostPaper(_hostPaperId, _providerId));
+        QueuePresentation((paperId) =>
+            _controller.TryCollapsePluginHostPaper(paperId, _providerId));
 
     public void ToggleCollapsed(bool activate = true) =>
-        QueuePresentation(() =>
+        QueuePresentation((paperId) =>
             _controller.TryTogglePluginHostPaperCollapsed(
-                _hostPaperId,
+                paperId,
                 _providerId,
                 activate));
 
     public void Activate() =>
-        QueuePresentation(() =>
-            _controller.TryActivatePluginHostPaper(_hostPaperId, _providerId));
+        QueuePresentation((paperId) =>
+            _controller.TryActivatePluginHostPaper(paperId, _providerId));
 
-    private void QueuePresentation(Func<bool> action)
+    private string RequireHostPaperId()
     {
         EnsureUsable();
         if (string.IsNullOrEmpty(_hostPaperId))
@@ -57,7 +50,13 @@ internal sealed partial class PaperBodyPluginHostApi
                 "host_paper_unavailable",
                 "This plugin context is not attached to a paper.");
         }
+        return _hostPaperId;
+    }
 
+    private void QueuePresentation(Func<string, bool> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var paperId = RequireHostPaperId();
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
@@ -73,7 +72,7 @@ internal sealed partial class PaperBodyPluginHostApi
                 {
                     return;
                 }
-                _ = action();
+                _ = action(paperId);
             }),
             DispatcherPriority.Background);
     }
