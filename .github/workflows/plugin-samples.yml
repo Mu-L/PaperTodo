@@ -97,7 +97,9 @@ jobs:
             "targetPaperId",
             "papertodo\.workspace\.request\('papers\.get'",
             "renderMode\s*:\s*'stroke'",
-            "strokeWidth\s*:\s*1\.5"
+            "strokeWidth\s*:\s*1\.5",
+            "shortcutInvoked",
+            "runtime\.ping"
           )
           foreach ($pattern in $runtimePatterns) {
             if ($runtimeSource -notmatch $pattern) {
@@ -105,17 +107,36 @@ jobs:
             }
           }
 
+          $shortcutSettings = @($manifest.settings | Where-Object { $_.type -eq "shortcut" })
+          if ($shortcutSettings.Count -lt 2) {
+            throw "TopBarWeb must cover both host-owned and custom plugin shortcuts."
+          }
+          if (-not ($shortcutSettings | Where-Object { $_.shortcutAction -eq "paper.toggle" })) {
+            throw "TopBarWeb must cover the host-owned paper.toggle shortcut action."
+          }
+          if (-not ($shortcutSettings | Where-Object { $_.shortcutAction -eq "runtime.ping" })) {
+            throw "TopBarWeb must cover a custom app-runtime shortcut action."
+          }
+          if ($bodySource -notmatch "papertodo\.paper\.toggleCollapsed" -or
+              $bodySource -notmatch "papertodo\.paper\.hide") {
+            throw "TopBarWeb body must exercise own-paper presentation controls."
+          }
+
           $workspaceContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperTodoHostContracts.cs" -Raw -Encoding UTF8
           $paperContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs" -Raw -Encoding UTF8
+          $presentationContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperPresentationContracts.cs" -Raw -Encoding UTF8
           $appContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperAppRuntimeContracts.cs" -Raw -Encoding UTF8
           if ($workspaceContract -match 'TopBar') {
             throw "Top Bar must not be exposed through IPaperTodoHostApi/Workspace."
           }
           if ($paperContract -notmatch 'interface\s+IPaperTopBarApi' -or
               $paperContract -notmatch 'PaperTopBarSvgRenderMode' -or
+              $paperContract -notmatch 'IPaperPresentationApi' -or
+              $presentationContract -notmatch 'interface\s+IPaperPresentationApi' -or
               $appContract -notmatch 'interface\s+IPaperGlobalTopBarApi' -or
+              $appContract -notmatch 'interface\s+IPaperGlobalShortcutApi' -or
               $appContract -notmatch 'interface\s+IPaperAppRuntimeProvider') {
-            throw "Protocol 2.0 top-bar/app-runtime contracts are incomplete."
+            throw "Protocol 2.0 top-bar/app-runtime/shortcut/presentation contracts are incomplete."
           }
 
       - name: Validate Web source and runtime copies
