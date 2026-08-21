@@ -28,17 +28,51 @@ internal sealed partial class PaperBodyPluginRegistry
         return result.ToFrozenSet(StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// Canonicalizes manifest capability names exactly once before any feature-specific validator
+    /// consumes them. Unknown values are rejected instead of being silently ignored, so a typo
+    /// cannot produce a plugin that loads successfully with a missing feature.
+    /// </summary>
+    private static void NormalizeProtocolFeatures(PaperBodyPluginManifest manifest)
+    {
+        manifest.Capabilities ??= [];
+        var normalized = new List<string>(manifest.Capabilities.Length);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in manifest.Capabilities)
+        {
+            var value = raw?.Trim() ?? "";
+            if (value.Length == 0)
+            {
+                continue;
+            }
+
+            var canonical = value.ToLowerInvariant() switch
+            {
+                "textzoom" => "textZoom",
+                "notelinks" => "noteLinks",
+                "appruntime" => "appRuntime",
+                _ => throw new InvalidDataException(
+                    $"Unknown plugin capability '{value}'.")
+            };
+            if (seen.Add(canonical))
+            {
+                normalized.Add(canonical);
+            }
+        }
+
+        manifest.Capabilities = normalized.ToArray();
+    }
+
     private static void ValidateProtocolFeatures(PaperBodyPluginManifest manifest)
     {
         manifest.Permissions ??= [];
-        manifest.Capabilities ??= [];
+        NormalizeProtocolFeatures(manifest);
         if (manifest.Permissions.Length > 0 && !ApiAtLeast(manifest.ApiVersion, 1, 3))
         {
             throw new InvalidDataException(
                 "Plugin permissions require apiVersion 1.3 or newer.");
         }
-        if (manifest.Capabilities.Any(value =>
-                string.Equals(value?.Trim(), "appRuntime", StringComparison.Ordinal)) &&
+        if (manifest.Capabilities.Contains("appRuntime", StringComparer.Ordinal) &&
             !ApiAtLeast(manifest.ApiVersion, 2, 0))
         {
             throw new InvalidDataException(
