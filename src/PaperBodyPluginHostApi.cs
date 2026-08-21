@@ -14,6 +14,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
     private readonly Func<bool> _isSessionCurrent;
     private readonly Func<bool> _canReceiveEvents;
     private readonly List<IDisposable> _subscriptions = [];
+    private Action<PaperTopBarActionInvocation>? _topBarActionHandler;
     private bool _disposed;
 
     public PaperBodyPluginHostApi(
@@ -154,6 +155,72 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         return Invoke(() => _commands.DeletePaper(
             normalized,
             PaperOperationContext.Plugin(_providerId)));
+    }
+
+    public void SetTopBarActionHandler(
+        Action<PaperTopBarActionInvocation>? handler)
+    {
+        EnsureUsable();
+        _topBarActionHandler = handler;
+        if (handler == null)
+        {
+            _controller.RemovePluginTopBarSession(_sessionId);
+        }
+    }
+
+    public void SetPaperTopBarActions(
+        IReadOnlyList<PaperTopBarAction> actions,
+        PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        EnsureUsable();
+        EnsureTopBarHandlerForActions(actions);
+        _controller.SetPluginPaperTopBarActions(
+            _sessionId,
+            _providerId,
+            _hostPaperId,
+            actions,
+            hiddenHostActions,
+            () => !_disposed && _isSessionCurrent(),
+            DispatchTopBarAction);
+    }
+
+    public void SetGlobalTopBarActions(IReadOnlyList<PaperTopBarAction> actions)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        EnsureUsable();
+        EnsureTopBarHandlerForActions(actions);
+        _controller.SetPluginGlobalTopBarActions(
+            _sessionId,
+            _providerId,
+            _hostPaperId,
+            actions,
+            () => !_disposed && _isSessionCurrent(),
+            DispatchTopBarAction);
+    }
+
+    private void EnsureTopBarHandlerForActions(IReadOnlyList<PaperTopBarAction> actions)
+    {
+        if (actions.Count > 0 && _topBarActionHandler == null)
+        {
+            throw Error(
+                "topbar_handler_missing",
+                "Register a top-bar action handler before contributing top-bar actions.");
+        }
+    }
+
+    private void DispatchTopBarAction(PaperTopBarActionInvocation invocation)
+    {
+        if (_disposed || !_isSessionCurrent())
+        {
+            return;
+        }
+        var handler = _topBarActionHandler;
+        if (handler == null)
+        {
+            return;
+        }
+        handler(invocation);
     }
 
     public IDisposable Subscribe(
@@ -340,6 +407,8 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _topBarActionHandler = null;
+        try { _controller.RemovePluginTopBarSession(_sessionId); } catch { }
         IDisposable[] subscriptions;
         lock (_subscriptions)
         {
