@@ -305,17 +305,13 @@ public sealed partial class PaperWindow
         return false;
     }
 
-    // Descriptor sizing is presentation capacity, not preview content. Resolve it while
-    // the capsule is being attached so the very first docked HWND owns a bounded useful capacity.
-    // Built-ins use their renderer envelope, Web uses declared/fallback bounds, and a loaded Native
-    // session reserves its current Preferred Size. A later Native growth is constrained to the
-    // current host generation and remembered for the next safe first-show generation.
+    // Descriptor sizing is presentation capacity, not preview content. Resolve an initial useful
+    // capacity while the capsule is being attached. Later title/plugin/mini growth may resize the
+    // live host; only an active queue-proxy transaction temporarily holds its source capacity stable.
     private void ReserveEdgeCapsulePreviewCapacityBeforeFirstShow()
     {
-        // This method owns only the immutable first-show capacity generation. Hot queue
-        // placement must not repeatedly Describe every visible paper just to rediscover that
-        // its already-bounded Host cannot grow. Preview open still validates the requested
-        // descriptor through PrepareEdgeCapsuleHostCapacity.
+        // This warmup avoids repeatedly describing every visible paper during hot queue placement.
+        // Preview open still validates the fresh descriptor and may grow the host when no proxy owns it.
         if (_edgeCapsuleHost?.IsVisible == true)
         {
             return;
@@ -330,6 +326,8 @@ public sealed partial class PaperWindow
         {
             return;
         }
+
+        ScheduleEdgeCapsuleCompositionPrewarm();
 
         var generation = _bodySessionGeneration;
         IEdgeCapsulePreviewProvider? provider = null;
@@ -419,8 +417,8 @@ public sealed partial class PaperWindow
         catch (Exception ex)
         {
             // Capacity warmup is opportunistic. Opening still performs a fresh descriptor read;
-            // an oversized late Native request degrades to current Host capacity instead of
-            // disabling preview and is remembered for a future safe Host generation.
+            // a larger request may resize the live host, or temporarily use the current capacity
+            // when a queue proxy is already retaining that HWND as its live source.
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"preview.capacity.reserve-fail paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
                 $"provider={provider?.GetType().Name ?? "<unresolved>"} " +
@@ -463,7 +461,7 @@ public sealed partial class PaperWindow
         {
             EdgeCapsulePerformanceDiagnostics.Trace(
                 $"preview.open.reject paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
-                "reason=visible-host-capacity-growth");
+                "reason=active-proxy-capacity-growth");
             return false;
         }
 
@@ -967,10 +965,33 @@ public sealed partial class PaperWindow
             !frame.InteractiveBounds.IsEmpty;
     }
 
+    private void ScheduleEdgeCapsuleCompositionPrewarm()
+    {
+        if (!_controller.State.ExperimentalEdgeCapsuleHoverPreview ||
+            _windowLifecycle != PaperWindowLifecycleState.Alive ||
+            IsClosed)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            (Action)(() =>
+            {
+                if (_controller.State.ExperimentalEdgeCapsuleHoverPreview &&
+                    _windowLifecycle == PaperWindowLifecycleState.Alive &&
+                    !IsClosed)
+                {
+                    EdgeCapsuleQueueCompositionProxy.PrewarmLightweight(Dispatcher);
+                }
+            }));
+    }
+
     internal void RefreshEdgeCapsuleHoverIntentSettings()
     {
         if (_controller.State.ExperimentalEdgeCapsuleHoverPreview)
         {
+            ScheduleEdgeCapsuleCompositionPrewarm();
             ScheduleMigratedPluginBodyPreviewWarmup();
         }
         else

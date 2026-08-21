@@ -693,7 +693,7 @@ Edge Mini 是快速浏览 surface。**插件贡献内容，PaperTodo 始终拥�
 320 × 220 DIP
 ```
 
-内置 Todo / Markdown 可以继续使用自己的 renderer envelope 和视觉默认尺寸；这些值不是插件协议限制。Native 插件若在一个已经可见的 bounded host generation 中临时请求更大的 Preferred Size，宿主可能先约束到当前安全 capacity，并把更大的请求留到下一次安全 host generation。插件应把 Preferred Size 当作稳定布局偏好，而不是持续动画参数。
+内置 Todo / Markdown 可以继续使用自己的 renderer envelope 和视觉默认尺寸；这些值不是插件协议限制。Native `PreferredMiniViewSize` 可以随会话状态变化；宿主在没有活动 queue-proxy 事务时可以直接调整 bounded host，如果尺寸变化正好发生在 queue translation 中，增长可能短暂延后到该事务结束。**不推荐在 Mini 已显示时高频改变尺寸，也不要把 Preferred Size 当作动画参数**，因为尺寸变化可能触发宿主/native 重新布局并造成短暂卡顿。
 
 ### 8.2 Native dedicated mini
 

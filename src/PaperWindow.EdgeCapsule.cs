@@ -69,8 +69,11 @@ public sealed partial class PaperWindow
         return host;
     }
 
-    private void RejectEdgeCapsuleNativeBatchApply() =>
+    private void RejectEdgeCapsuleNativeBatchApply()
+    {
         _edgeCapsuleHost?.RejectNativeBatchApply();
+        ScheduleEdgeCapsuleApplyFailureRecovery();
+    }
 
     private void RecoverDeferredEdgeCapsuleNativeBatchApply()
     {
@@ -366,10 +369,11 @@ public sealed partial class PaperWindow
             return false;
         }
 
-        // Host capacity is immutable for the lifetime of a visible monitor/edge/DPI
-        // generation. A larger late descriptor waits for a future hidden/generation
-        // rebuild instead of resizing the live HWND under the user's pointer.
-        if (_edgeCapsuleHost?.IsVisible == true &&
+        // Live capacity may grow between compositor transactions. While a queue proxy retains this
+        // HWND as a live source, however, its native surface identity/size is part of the active
+        // translation contract; defer a larger request until that authority has been released.
+        if (_controller.IsEdgeCapsuleQueueProxyRetainingSource(this) &&
+            _edgeCapsuleHost?.IsVisible == true &&
             !CurrentEdgeCapsuleHostCapacityContains(size))
         {
             return false;
@@ -391,7 +395,7 @@ public sealed partial class PaperWindow
 
 #if DEBUG
         EdgeCapsulePerformanceDiagnostics.Trace(
-            $"preview.capacity phase=visible-growth-rejected " +
+            $"preview.capacity phase=active-proxy-growth-deferred " +
             $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_paper.Id)} " +
             $"requested={size.WidthDip:F1}x{size.HeightDip:F1} " +
             $"reserved={_edgeCapsuleHostCapacityWidthDip:F1}x" +
@@ -413,15 +417,21 @@ public sealed partial class PaperWindow
         var previewHeight = previewSize?.HeightDip ??
             PaperLayoutDefaults.CapsuleHeight;
 
-        _ = GrowEdgeCapsuleHostCapacity(
-            monitor,
-            edge,
-            Math.Max(
-                restingWidth + CapsuleCloseWidth,
-                previewWidth),
-            Math.Max(
-                PaperLayoutDefaults.CapsuleHeight,
-                previewHeight));
+        // Outside compositor ownership the live bounded HWND may resize to new title/plugin/mini
+        // requirements. During an active queue proxy transaction the proxy owns a live surface from
+        // this HWND, so keep that source capacity stable until the proxy releases it.
+        if (!_controller.IsEdgeCapsuleQueueProxyRetainingSource(this))
+        {
+            _ = GrowEdgeCapsuleHostCapacity(
+                monitor,
+                edge,
+                Math.Max(
+                    restingWidth + CapsuleCloseWidth,
+                    previewWidth),
+                Math.Max(
+                    PaperLayoutDefaults.CapsuleHeight,
+                    previewHeight));
+        }
 
         var restingOpacity =
             _controller.State.ExperimentalRestingCapsuleOpacity

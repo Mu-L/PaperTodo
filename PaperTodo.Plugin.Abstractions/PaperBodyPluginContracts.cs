@@ -120,7 +120,10 @@ public interface IPaperCapsuleViewProvider
 /// <summary>
 /// Preferred complete edge mini-card size in device-independent pixels. The size includes the
 /// host-owned chrome and close segment. Width and Height must be positive finite numbers; PaperTodo
-/// clamps the requested size only to the usable area of the current monitor.
+/// clamps the requested size only to the usable area of the current monitor. Runtime size changes
+/// are supported, but repeatedly changing the preferred size while a mini is visible is discouraged
+/// because it can force host/native relayout; keep one browsing session geometrically stable when
+/// practical.
 /// </summary>
 public readonly record struct PaperMiniViewSize(double Width, double Height)
 {
