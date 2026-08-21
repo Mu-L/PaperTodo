@@ -1,6 +1,3 @@
-using System.IO;
-using System.Text.Json;
-
 namespace PaperTodo;
 
 public sealed partial class PaperWindow
@@ -15,17 +12,6 @@ public sealed partial class PaperWindow
     private EdgeCapsulePreviewSize? _pluginMiniDeclaredMaximum;
     private bool _pluginMiniEffectiveMaximumLocked;
     private EdgeCapsulePreviewSize _pluginMiniEffectiveMaximum;
-
-    private sealed class MiniMaximumManifestView
-    {
-        public MiniMaximumSizeView? MiniMaxSize { get; set; }
-    }
-
-    private sealed class MiniMaximumSizeView
-    {
-        public double Width { get; set; }
-        public double Height { get; set; }
-    }
 
     private EdgeCapsulePreviewSize ResolveEdgeCapsulePreviewMaximumCapacity()
     {
@@ -51,16 +37,7 @@ public sealed partial class PaperWindow
                 PluginFallbackMiniHeight);
         }
 
-        try
-        {
-            EnsurePluginMiniMaximumSession(descriptor);
-        }
-        catch
-        {
-            // Capacity planning must not let a broken plugin manifest break queue layout. Opening
-            // the plugin preview reads the same contract again and rejects the bad declaration.
-            return DefaultPluginMiniMaximum();
-        }
+        EnsurePluginMiniMaximumSession(descriptor);
 
         if (_pluginMiniDeclaredMaximum is { } declared)
         {
@@ -178,30 +155,13 @@ public sealed partial class PaperWindow
     private static EdgeCapsulePreviewSize? ReadDeclaredPluginMiniMaximum(
         PaperBodyPluginDescriptor descriptor)
     {
-        var view = JsonSerializer.Deserialize<MiniMaximumManifestView>(
-            File.ReadAllText(descriptor.SourcePath),
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                ReadCommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true
-            });
-        if (view?.MiniMaxSize is not { } maximum)
+        if (descriptor.Manifest?.MiniMaxSize is not { } maximum)
         {
             return null;
         }
-        if (!string.Equals(descriptor.ApiVersion, "2.0", StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("miniMaxSize requires apiVersion 2.0.");
-        }
-        if (!double.IsFinite(maximum.Width) ||
-            !double.IsFinite(maximum.Height) ||
-            maximum.Width <= 0 ||
-            maximum.Height <= 0)
-        {
-            throw new InvalidDataException(
-                "miniMaxSize width and height must be positive finite numbers.");
-        }
+
+        // Registry discovery already validates the protocol version and finite positive values.
+        // Capacity planning consumes the canonical parsed manifest instead of re-reading plugin.json.
         return new EdgeCapsulePreviewSize(maximum.Width, maximum.Height);
     }
 

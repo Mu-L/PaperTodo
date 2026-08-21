@@ -12,6 +12,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
 {
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
+    private readonly IPaperAppRuntimeSettings _settings;
     private readonly PaperAppRuntimeGlobalTopBarApi _globalTopBar;
     private readonly PaperAppRuntimeGlobalShortcutApi _globalShortcuts;
     private readonly Func<bool> _isActive;
@@ -29,6 +30,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
     public WebPluginAppRuntime(
         PaperBodyPluginDescriptor descriptor,
         IPaperTodoHostApi workspace,
+        IPaperAppRuntimeSettings settings,
         PaperAppRuntimeGlobalTopBarApi globalTopBar,
         PaperAppRuntimeGlobalShortcutApi globalShortcuts,
         Func<bool> isActive,
@@ -36,6 +38,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
     {
         _descriptor = descriptor;
         _workspace = workspace;
+        _settings = settings;
         _globalTopBar = globalTopBar;
         _globalShortcuts = globalShortcuts;
         _isActive = isActive;
@@ -63,12 +66,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
             ?? throw new InvalidOperationException("Web app runtime manifest is unavailable.");
         var webRoot = Path.GetDirectoryName(manifest.EntryPath)
             ?? throw new InvalidOperationException("Web plugin entry has no containing directory.");
-        var runtimePath = Path.Combine(webRoot, "runtime.html");
-        if (!File.Exists(runtimePath))
+        var runtimePath = manifest.RuntimePath;
+        if (string.IsNullOrWhiteSpace(runtimePath))
         {
-            throw new FileNotFoundException(
-                "A Web plugin declaring appRuntime must provide runtime.html beside its body entry.",
-                runtimePath);
+            throw new InvalidOperationException(
+                "The Web app runtime entry was not resolved during plugin discovery.");
         }
 
         var environment = await WebPluginRuntimeInfrastructure.EnvironmentAsync(
@@ -123,6 +125,9 @@ internal sealed class WebPluginAppRuntime : IDisposable
                 });
               };
               const workspace = Object.freeze({ request });
+              const settings = Object.freeze({
+                get() { return request('settings.get'); }
+              });
               const globalTopBar = Object.freeze({
                 setActions(actions) {
                   return request('topbar.global.set', {
@@ -133,6 +138,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
               window.papertodo = Object.freeze({
                 surface: 'app',
                 workspace,
+                settings,
                 globalTopBar,
                 request,
                 onEvent(listener) {
@@ -223,7 +229,8 @@ internal sealed class WebPluginAppRuntime : IDisposable
             surface = "app",
             providerId = _descriptor.Id,
             apiVersion = _descriptor.ApiVersion,
-            permissions = _workspace.GrantedPermissions.OrderBy(value => value).ToArray()
+            permissions = _workspace.GrantedPermissions.OrderBy(value => value).ToArray(),
+            settings = ReadSettings()
         });
     }
 
@@ -363,7 +370,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
             var method = WebPluginRuntimeInfrastructure.RequiredString(payload, "method");
             var parameters = WebPluginRuntimeInfrastructure.ParametersOrEmpty(payload);
             object? result;
-            if (string.Equals(method, "topbar.global.set", StringComparison.Ordinal))
+            if (string.Equals(method, "settings.get", StringComparison.Ordinal))
+            {
+                result = ReadSettings();
+            }
+            else if (string.Equals(method, "topbar.global.set", StringComparison.Ordinal))
             {
                 result = SetGlobalActions(parameters);
             }
@@ -400,6 +411,12 @@ internal sealed class WebPluginAppRuntime : IDisposable
                 }
             });
         }
+    }
+
+    private JsonElement ReadSettings()
+    {
+        using var document = JsonDocument.Parse(_settings.Json);
+        return document.RootElement.Clone();
     }
 
     private object SetGlobalActions(JsonElement parameters)

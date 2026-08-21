@@ -112,12 +112,15 @@ public sealed record PaperTopBarIcon
 /// <summary>
 /// One host-rendered plugin action in a PaperTodo top bar. Plugins contribute intent only; they do
 /// not provide Button/FrameworkElement instances or control placement, sizing, theme or hover UI.
+/// Priority is an ordering hint for Global plugin actions: higher values are placed first. Host
+/// actions do not participate in this numeric priority space and always retain host precedence.
 /// </summary>
 public sealed record PaperTopBarAction
 {
     public string Id { get; init; } = string.Empty;
     public PaperTopBarIcon Icon { get; init; } = new();
     public string ToolTip { get; init; } = string.Empty;
+    public int Priority { get; init; }
     public bool Enabled { get; init; } = true;
     public bool Visible { get; init; } = true;
 }

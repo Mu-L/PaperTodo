@@ -13,6 +13,16 @@ public interface IPaperGlobalTopBarApi
 }
 
 /// <summary>
+/// Read-only view of the current host-managed settings for one provider app runtime. Json is read
+/// on demand, so a long-lived runtime sees the latest normalized values without borrowing state
+/// from any paper/body session.
+/// </summary>
+public interface IPaperAppRuntimeSettings
+{
+    string Json { get; }
+}
+
+/// <summary>
 /// One host-managed shortcut invocation routed to the plugin app runtime. SettingId names the
 /// manifest setting and ActionId is that setting's shortcutAction value.
 /// </summary>
@@ -36,12 +46,13 @@ public interface IPaperGlobalShortcutApi
 /// Note paper whose BodyProviderId is this plugin. It does not depend on that paper being visible,
 /// expanded, or having a live body session.
 ///
-/// Native app runtimes may call Workspace / GlobalTopBar / GlobalShortcuts from worker threads;
-/// PaperTodo marshals those host operations to its UI dispatcher when required. Those calls are
-/// synchronous from the plugin's point of view. A runtime therefore must not block its Dispose
-/// implementation waiting for a worker that can itself be blocked inside one of these host calls,
-/// otherwise the UI thread and worker can deadlock during shutdown. Keep host calls short and make
-/// worker shutdown cancellation-based rather than UI-thread join-based.
+/// Native app runtimes may call Workspace / Settings / GlobalTopBar / GlobalShortcuts from worker
+/// threads; PaperTodo marshals host operations to its UI dispatcher when required and keeps the
+/// settings store internally synchronized. Those calls are synchronous from the plugin's point of
+/// view. A runtime therefore must not block its Dispose implementation waiting for a worker that can
+/// itself be blocked inside one of these host calls, otherwise the UI thread and worker can deadlock
+/// during shutdown. Keep host calls short and make worker shutdown cancellation-based rather than
+/// UI-thread join-based.
 /// </summary>
 public sealed class PaperAppRuntimeContext
 {
@@ -49,6 +60,7 @@ public sealed class PaperAppRuntimeContext
     public required string ApiVersion { get; init; }
     public required IReadOnlySet<string> GrantedPermissions { get; init; }
     public required IPaperTodoHostApi Workspace { get; init; }
+    public required IPaperAppRuntimeSettings Settings { get; init; }
     public required IPaperGlobalTopBarApi GlobalTopBar { get; init; }
     public required IPaperGlobalShortcutApi GlobalShortcuts { get; init; }
 }

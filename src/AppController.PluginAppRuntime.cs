@@ -285,6 +285,10 @@ public sealed partial class AppController
             descriptor.Id,
             descriptor.Permissions,
             IsActive);
+        var settings = new PaperAppRuntimeSettingsApi(
+            PaperBodyPlugins.DataStore,
+            descriptor,
+            IsActive);
         var globalTopBar = new PaperAppRuntimeGlobalTopBarApi(
             this,
             runtimeId,
@@ -316,6 +320,7 @@ public sealed partial class AppController
                     ApiVersion = descriptor.ApiVersion,
                     GrantedPermissions = descriptor.Permissions,
                     Workspace = workspace,
+                    Settings = settings,
                     GlobalTopBar = globalTopBar,
                     GlobalShortcuts = globalShortcuts
                 }) ?? throw new InvalidOperationException(
@@ -326,6 +331,7 @@ public sealed partial class AppController
                 var webRuntime = new WebPluginAppRuntime(
                     descriptor,
                     workspace,
+                    settings,
                     globalTopBar,
                     globalShortcuts,
                     IsActive,

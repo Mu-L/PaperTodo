@@ -9,11 +9,15 @@ internal static class Program
         try
         {
             var host = Assembly.Load("PaperTodo");
+            var abstractions = Assembly.Load("PaperTodo.Plugin.Abstractions");
             CheckSingleHotkeyAuthority(host);
             CheckRuntimeSlotAuthority(host);
             CheckCapabilityNormalization(host);
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
+            CheckManifestRuntimeAndMiniContracts(host);
+            CheckGlobalTopBarPriority(host, abstractions);
+            CheckAppRuntimeSettings(abstractions);
             Console.WriteLine("PaperTodo protocol policy checks passed.");
             return 0;
         }
@@ -185,6 +189,47 @@ internal static class Program
                 "JsonOptions",
                 BindingFlags.Static | BindingFlags.NonPublic) == null,
             "WebPluginAppRuntime still owns a duplicate JSON bridge policy.");
+    }
+
+    private static void CheckManifestRuntimeAndMiniContracts(Assembly host)
+    {
+        var manifest = RequireType(host, "PaperTodo.PaperBodyPluginManifest");
+        Assert(manifest.GetProperty("Runtime") != null,
+            "Web app runtime entry is not represented in the canonical parsed manifest.");
+        Assert(manifest.GetProperty("RuntimePath") != null,
+            "Web app runtime resolved path is not cached by plugin discovery.");
+        Assert(manifest.GetProperty("MiniMaxSize") != null,
+            "miniMaxSize is not represented in the canonical parsed manifest.");
+
+        var paperWindow = RequireType(host, "PaperTodo.PaperWindow");
+        Assert(
+            paperWindow.GetNestedType("MiniMaximumManifestView", BindingFlags.NonPublic) == null,
+            "PaperWindow still owns a second miniMaxSize manifest parser.");
+    }
+
+    private static void CheckGlobalTopBarPriority(Assembly host, Assembly abstractions)
+    {
+        var action = RequireType(abstractions, "PaperTodo.Plugin.PaperTopBarAction");
+        Assert(action.GetProperty("Priority")?.PropertyType == typeof(int),
+            "PaperTopBarAction.Priority was not found.");
+
+        var controller = RequireType(host, "PaperTodo.AppController");
+        Assert(
+            controller.GetField(
+                "MaximumGlobalTopBarActions",
+                BindingFlags.Static | BindingFlags.NonPublic) == null,
+            "Global Top Bar still has a hard action-count limit.");
+    }
+
+    private static void CheckAppRuntimeSettings(Assembly abstractions)
+    {
+        var settings = RequireType(abstractions, "PaperTodo.Plugin.IPaperAppRuntimeSettings");
+        Assert(settings.GetProperty("Json")?.PropertyType == typeof(string),
+            "App runtime settings must expose the current normalized JSON.");
+
+        var context = RequireType(abstractions, "PaperTodo.Plugin.PaperAppRuntimeContext");
+        Assert(context.GetProperty("Settings")?.PropertyType == settings,
+            "PaperAppRuntimeContext.Settings was not found.");
     }
 
     private static Type RequireType(Assembly assembly, string name) =>

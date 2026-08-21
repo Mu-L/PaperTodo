@@ -84,6 +84,42 @@ internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposab
     }
 }
 
+/// <summary>
+/// Provider-scoped read-only settings facade. PaperBodyPluginDataStore already serializes access,
+/// so worker-thread reads do not need an extra UI-dispatch hop. The active-runtime predicate keeps
+/// a retained facade from becoming an accidental post-Dispose settings handle.
+/// </summary>
+internal sealed class PaperAppRuntimeSettingsApi : IPaperAppRuntimeSettings
+{
+    private readonly PaperBodyPluginDataStore _dataStore;
+    private readonly PaperBodyPluginDescriptor _descriptor;
+    private readonly Func<bool> _isActive;
+
+    public PaperAppRuntimeSettingsApi(
+        PaperBodyPluginDataStore dataStore,
+        PaperBodyPluginDescriptor descriptor,
+        Func<bool> isActive)
+    {
+        _dataStore = dataStore;
+        _descriptor = descriptor;
+        _isActive = isActive;
+    }
+
+    public string Json
+    {
+        get
+        {
+            if (!_isActive())
+            {
+                throw new PaperTodoPluginException(
+                    "runtime_closed",
+                    "The plugin app runtime is no longer active.");
+            }
+            return _dataStore.GetSettingsJson(_descriptor);
+        }
+    }
+}
+
 internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, IDisposable
 {
     private readonly AppController _controller;

@@ -17,7 +17,6 @@ internal sealed record PluginTopBarRenderState(
 public sealed partial class AppController
 {
     private const int MaximumPaperTopBarActions = 4;
-    private const int MaximumGlobalTopBarActions = 2;
     private const int MaximumTopBarActionIdLength = 64;
     private const int MaximumTopBarToolTipLength = 160;
     private const int MaximumTopBarCharacterLength = 8;
@@ -113,9 +112,11 @@ public sealed partial class AppController
         // The app-runtime manager validates protocol 2.0 before creating this capability. Once a
         // runtime is alive, it owns its process-lifetime lease even if the user rescans plugin
         // manifests; ordinary plugin Reload does not silently replace a running app runtime.
+        // Global action count is intentionally unbounded at the protocol layer; host layout remains
+        // authoritative and plugin Priority only orders plugin actions, never host actions.
         var normalized = NormalizePluginTopBarActions(
             actions,
-            MaximumGlobalTopBarActions,
+            maximumCount: null,
             "global");
 
         if (_pluginGlobalTopBars.TryGetValue(providerId, out var current) &&
@@ -197,18 +198,25 @@ public sealed partial class AppController
                 IsActive(item.IsActive));
 
         var actions = new List<PluginTopBarActionBinding>();
-        foreach (var registration in _pluginGlobalTopBars.Values
-                     .Where(item => IsActive(item.IsActive))
-                     .OrderBy(item => item.Order))
+        var globalActions = _pluginGlobalTopBars.Values
+            .Where(item => IsActive(item.IsActive))
+            .SelectMany(registration =>
+                registration.Actions.Select((action, index) => new
+                {
+                    Registration = registration,
+                    Action = action,
+                    DeclarationOrder = index
+                }))
+            .OrderByDescending(item => item.Action.Priority)
+            .ThenBy(item => item.Registration.Order)
+            .ThenBy(item => item.DeclarationOrder);
+        foreach (var item in globalActions)
         {
-            foreach (var action in registration.Actions)
-            {
-                actions.Add(new PluginTopBarActionBinding(
-                    registration.RuntimeId,
-                    registration.ProviderId,
-                    PaperTopBarActionScope.Global,
-                    action));
-            }
+            actions.Add(new PluginTopBarActionBinding(
+                item.Registration.RuntimeId,
+                item.Registration.ProviderId,
+                PaperTopBarActionScope.Global,
+                item.Action));
         }
 
         if (paperRegistration != null)
@@ -290,15 +298,15 @@ public sealed partial class AppController
 
     private static PaperTopBarAction[] NormalizePluginTopBarActions(
         IReadOnlyList<PaperTopBarAction>? actions,
-        int maximumCount,
+        int? maximumCount,
         string scope)
     {
         actions ??= [];
-        if (actions.Count > maximumCount)
+        if (maximumCount is { } limit && actions.Count > limit)
         {
             throw new PaperTodoPluginException(
                 "too_many_topbar_actions",
-                $"A plugin can contribute at most {maximumCount} {scope} top-bar actions.");
+                $"A plugin can contribute at most {limit} {scope} top-bar actions.");
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
