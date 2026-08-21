@@ -83,8 +83,8 @@ internal sealed class PaperBodyPluginMiniSizeManifest
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    internal const string SupportedPluginApiVersion = "1.8";
-    internal const string MinimumPluginApiVersion = "1.8";
+    internal const string SupportedPluginApiVersion = "2.0";
+    internal const string MinimumPluginApiVersion = "2.0";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
