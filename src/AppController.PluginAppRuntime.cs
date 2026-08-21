@@ -18,6 +18,7 @@ public sealed partial class AppController
         public required PluginAppRuntimeLifetime Lifetime { get; init; }
         public required PaperAppRuntimeWorkspaceApi Workspace { get; init; }
         public required PaperAppRuntimeGlobalTopBarApi GlobalTopBar { get; init; }
+        public required PaperAppRuntimeGlobalShortcutApi GlobalShortcuts { get; init; }
         public IDisposable? Runtime { get; init; }
         public IPaperBodyPlugin? NativeFactory { get; init; }
 
@@ -29,6 +30,7 @@ public sealed partial class AppController
             }
             Lifetime.Active = false;
             try { Runtime?.Dispose(); } catch { }
+            try { GlobalShortcuts.Dispose(); } catch { }
             try { GlobalTopBar.Dispose(); } catch { }
             try { Workspace.Dispose(); } catch { }
             if (NativeFactory is IDisposable disposable)
@@ -97,6 +99,11 @@ public sealed partial class AppController
             runtimeId,
             descriptor.Id,
             IsActive);
+        var globalShortcuts = new PaperAppRuntimeGlobalShortcutApi(
+            this,
+            runtimeId,
+            descriptor.Id,
+            IsActive);
 
         IDisposable? runtime = null;
         IPaperBodyPlugin? nativeFactory = null;
@@ -117,7 +124,8 @@ public sealed partial class AppController
                     ApiVersion = descriptor.ApiVersion,
                     GrantedPermissions = descriptor.Permissions,
                     Workspace = workspace,
-                    GlobalTopBar = globalTopBar
+                    GlobalTopBar = globalTopBar,
+                    GlobalShortcuts = globalShortcuts
                 }) ?? throw new InvalidOperationException(
                     $"Native plugin '{descriptor.Id}' returned no app runtime.");
             }
@@ -127,6 +135,7 @@ public sealed partial class AppController
                     descriptor,
                     workspace,
                     globalTopBar,
+                    globalShortcuts,
                     IsActive);
                 runtime = webRuntime;
                 await webRuntime.StartAsync();
@@ -149,6 +158,7 @@ public sealed partial class AppController
                 Lifetime = lifetime,
                 Workspace = workspace,
                 GlobalTopBar = globalTopBar,
+                GlobalShortcuts = globalShortcuts,
                 Runtime = runtime,
                 NativeFactory = nativeFactory
             });
@@ -157,6 +167,7 @@ public sealed partial class AppController
         {
             lifetime.Active = false;
             try { runtime?.Dispose(); } catch { }
+            try { globalShortcuts.Dispose(); } catch { }
             try { globalTopBar.Dispose(); } catch { }
             try { workspace.Dispose(); } catch { }
             if (nativeFactory is IDisposable disposable)
