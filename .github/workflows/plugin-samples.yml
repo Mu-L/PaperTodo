@@ -6,6 +6,15 @@ on:
       - "PaperTodo.Plugin.Abstractions/**"
       - "plugin-samples/**"
       - "plugins/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "PaperTodo.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
       - ".github/workflows/plugin-samples.yml"
   push:
     branches:
@@ -14,6 +23,15 @@ on:
       - "PaperTodo.Plugin.Abstractions/**"
       - "plugin-samples/**"
       - "plugins/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "PaperTodo.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
       - ".github/workflows/plugin-samples.yml"
 
 permissions:
@@ -30,6 +48,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Build PaperTodo plugin host
+        shell: pwsh
+        run: dotnet build .\PaperTodo.csproj -c Release
+
+      - name: Run protocol policy checks
+        shell: pwsh
+        run: dotnet run --project .\tests\PaperTodo.ProtocolPolicyChecks\PaperTodo.ProtocolPolicyChecks.csproj -c Release
 
       - name: Validate plugin manifests
         shell: pwsh
