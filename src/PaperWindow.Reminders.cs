@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -306,7 +305,7 @@ public sealed partial class PaperWindow
                 "TodoReminderSetForFormat",
                 reminderAt.ToLocalTime().ToString(
                     "g",
-                    CultureInfo.CurrentCulture))
+                    UiLanguages.EffectiveCulture))
             : Strings.Get("TodoReminderSet");
     }
 
@@ -433,7 +432,7 @@ public sealed partial class PaperWindow
                     "TodoReminderPresetAtFormat",
                     evening.ToLocalTime().ToString(
                         "ddd HH:mm",
-                        CultureInfo.CurrentCulture)),
+                        UiLanguages.EffectiveCulture)),
                 (_, _) => QueueTodoReminderChange(itemId, evening)));
         }
 
@@ -448,7 +447,7 @@ public sealed partial class PaperWindow
                     "TodoReminderPresetAtFormat",
                     morning.ToLocalTime().ToString(
                         "ddd HH:mm",
-                        CultureInfo.CurrentCulture)),
+                        UiLanguages.EffectiveCulture)),
                 (_, _) => QueueTodoReminderChange(itemId, morning)));
         }
 

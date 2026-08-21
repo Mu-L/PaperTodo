@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using PaperTodo.Plugin;
@@ -18,6 +19,7 @@ internal sealed partial class EdgeCapsuleHost
     private bool _previewVisible;
     private double _previewGeometryProgress;
     private bool _previewInteractiveCaptureLease;
+    private HwndSource? _previewInteractivePopupSource;
     private bool _compactLabelSuppressedForPreview;
     private readonly TranslateTransform _compactContentAnchorTransform = new();
     private readonly TranslateTransform _compactPluginContentAnchorTransform = new();
@@ -49,22 +51,63 @@ internal sealed partial class EdgeCapsuleHost
                 return false;
             }
 
-            // ComboBox, ContextMenu and similar controls move capture into a separate Popup HWND,
-            // so it is no longer a visual descendant of the mini tree. A lease armed by the
-            // initiating pointer gesture lets that same-dispatcher capture keep the preview open.
-            if (captured != null && ReferenceEquals(captured.Dispatcher, Dispatcher))
+            var pointerButtonPressed =
+                Mouse.LeftButton == MouseButtonState.Pressed ||
+                Mouse.RightButton == MouseButtonState.Pressed;
+            var insideCaptureGrace =
+                Environment.TickCount64 <= _previewInteractiveCaptureGraceUntil;
+            if (captured == null)
             {
-                return true;
-            }
-            if (Mouse.LeftButton == MouseButtonState.Pressed ||
-                Mouse.RightButton == MouseButtonState.Pressed ||
-                Environment.TickCount64 <= _previewInteractiveCaptureGraceUntil)
-            {
-                return true;
+                if (pointerButtonPressed || insideCaptureGrace)
+                {
+                    return true;
+                }
+
+                ResetPreviewInteractiveCaptureLease();
+                return false;
             }
 
-            _previewInteractiveCaptureLease = false;
-            return false;
+            if (!ReferenceEquals(captured.Dispatcher, Dispatcher))
+            {
+                ResetPreviewInteractiveCaptureLease();
+                return false;
+            }
+
+            var captureSource = PreviewCaptureSource(captured);
+            if (_previewInteractivePopupSource != null)
+            {
+                if (ReferenceEquals(
+                        captureSource,
+                        _previewInteractivePopupSource))
+                {
+                    return true;
+                }
+
+                // Once the initiating preview gesture has handed capture to one Popup HWND, that
+                // exact HwndSource owns the lease. A later capture from another control or popup on
+                // the same Dispatcher is unrelated and must not keep this preview alive.
+                ResetPreviewInteractiveCaptureLease();
+                return false;
+            }
+
+            if (!pointerButtonPressed && !insideCaptureGrace)
+            {
+                ResetPreviewInteractiveCaptureLease();
+                return false;
+            }
+
+            // ComboBox, ContextMenu and similar controls move capture into a separate Popup HWND,
+            // so they are no longer visual descendants of the mini tree. Bind the lease to the
+            // first separate HwndSource reached directly from the initiating preview gesture;
+            // Dispatcher identity alone is deliberately too broad because unrelated controls share it.
+            if (captureSource == null || captureSource.Handle == Handle)
+            {
+                ResetPreviewInteractiveCaptureLease();
+                return false;
+            }
+
+            _previewInteractivePopupSource = captureSource;
+            return true;
         }
     }
 
@@ -76,8 +119,31 @@ internal sealed partial class EdgeCapsuleHost
         }
 
         _previewInteractiveCaptureLease = true;
+        _previewInteractivePopupSource = null;
         _previewInteractiveCaptureGraceUntil =
             Environment.TickCount64 + PreviewInteractiveCaptureGraceMilliseconds;
+    }
+
+    private void ResetPreviewInteractiveCaptureLease()
+    {
+        _previewInteractiveCaptureLease = false;
+        _previewInteractivePopupSource = null;
+        _previewInteractiveCaptureGraceUntil = 0;
+    }
+
+    private static HwndSource? PreviewCaptureSource(DependencyObject captured)
+    {
+        DependencyObject? current = captured;
+        while (current != null)
+        {
+            if (current is Visual visual &&
+                PresentationSource.FromVisual(visual) is HwndSource source)
+            {
+                return source;
+            }
+            current = PreviewVisualParent(current);
+        }
+        return null;
     }
 
     public bool OwnsPreviewContent(FrameworkElement content) =>
@@ -117,8 +183,7 @@ internal sealed partial class EdgeCapsuleHost
 
         if (!ReferenceEquals(_previewContent, content))
         {
-            _previewInteractiveCaptureLease = false;
-            _previewInteractiveCaptureGraceUntil = 0;
+            ResetPreviewInteractiveCaptureLease();
         }
 
         if (_previewContentLayer.Child != null &&
@@ -842,8 +907,7 @@ internal sealed partial class EdgeCapsuleHost
         _previewContent = null;
         _previewVisible = false;
         _previewGeometryProgress = 0;
-        _previewInteractiveCaptureLease = false;
-        _previewInteractiveCaptureGraceUntil = 0;
+        ResetPreviewInteractiveCaptureLease();
         RestoreCompactContentAnchor();
         if (_previewViewportLayer != null)
         {

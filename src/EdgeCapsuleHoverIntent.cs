@@ -38,6 +38,19 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     private const double AccelerationRatio = 1.15;
     private const double AccelerationDeltaDipPerMillisecond = 0.04;
 
+    // Empty-region browse intent deliberately fuses two independent signals. Geometry carries more
+    // weight because it remains reliable during slow diagonal travel; motion can independently save
+    // a fast transfer but cannot keep resetting the close clock on weak residual direction alone.
+    private const double CorridorGeometryWeight = 0.60;
+    private const double CorridorMotionWeight = 0.40;
+    private const double CorridorStrongEvidenceConfidence = 0.84;
+    private const double CorridorKeepEnterConfidence = 0.58;
+    private const double CorridorKeepExitConfidence = 0.42;
+    private const double CorridorMeaningfulMovementDip = 0.5;
+    private const double CorridorGeometryStationaryGraceMilliseconds = 160;
+    private const double CorridorMotionFullConfidenceHorizonMilliseconds = 250;
+    private const double CorridorMotionFadeHorizonMilliseconds = 900;
+
     private static readonly IntentSensitivityProfile VeryHighProfile = new(
         Initial: new IntentProfile(6, 4, 22, 55, 135),
         Transfer: new IntentProfile(10, 8, 38, 90, 190),
@@ -96,6 +109,10 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     private int _sampleCount;
     private double _dpiScaleX = 1;
     private double _dpiScaleY = 1;
+    private PointerSample? _corridorGeometryOrigin;
+    private bool _corridorKeepAliveLatched;
+    private long _lastMeaningfulPointerMovementTimestamp;
+    private DeviceScreenPoint? _lastMeaningfulPointerAnchor;
 
     private readonly record struct PointerSample(
         DeviceScreenPoint Point,
@@ -135,12 +152,20 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         double VerticalDominance,
         bool HasSpeedTrend);
 
+    private readonly record struct CorridorMotionEvidence(
+        double Confidence,
+        bool StronglyOpposed);
+
     public void Reset()
     {
         _sampleStart = 0;
         _sampleCount = 0;
         _dpiScaleX = 1;
         _dpiScaleY = 1;
+        _corridorGeometryOrigin = null;
+        _corridorKeepAliveLatched = false;
+        _lastMeaningfulPointerMovementTimestamp = 0;
+        _lastMeaningfulPointerAnchor = null;
     }
 
     public void Reset(
@@ -152,6 +177,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         Reset();
         _dpiScaleX = NormalizeDpiScale(dpiScaleX);
         _dpiScaleY = NormalizeDpiScale(dpiScaleY);
+        _lastMeaningfulPointerMovementTimestamp = timestamp;
+        _lastMeaningfulPointerAnchor = pointer;
         AddSample(new PointerSample(pointer, timestamp));
     }
 
@@ -174,6 +201,8 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
 
         if (_sampleCount == 0)
         {
+            _lastMeaningfulPointerMovementTimestamp = timestamp;
+            _lastMeaningfulPointerAnchor = pointer;
             AddSample(new PointerSample(pointer, timestamp));
             return;
         }
@@ -190,6 +219,18 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             return;
         }
 
+        // Accumulate slow travel against the last meaningful anchor instead of requiring one sample
+        // to exceed the threshold. A deliberate crawl through the safe corridor therefore keeps
+        // geometry fresh, while sub-threshold stationary jitter still expires normally.
+        var movementAnchor = _lastMeaningfulPointerAnchor ?? latest.Point;
+        var deltaX = (pointer.X - movementAnchor.X) / nextScaleX;
+        var deltaY = (pointer.Y - movementAnchor.Y) / nextScaleY;
+        if (Math.Sqrt(deltaX * deltaX + deltaY * deltaY) >=
+            CorridorMeaningfulMovementDip)
+        {
+            _lastMeaningfulPointerMovementTimestamp = timestamp;
+            _lastMeaningfulPointerAnchor = pointer;
+        }
         AddSample(new PointerSample(pointer, timestamp));
     }
 
@@ -297,10 +338,11 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
     }
 
     /// <summary>
-    /// Evaluates only the empty area inside the queue's outer corridor. The currently open card and
-    /// every eligible compact capsule are supplied as keep-alive bounds. A coherent movement ray
-    /// toward any of them keeps the session alive. Every other trajectory, including a settled
-    /// pointer, shares one sensitivity-dependent no-target-intent deadline.
+    /// Evaluates only empty pixels inside the queue transfer rectangle. Real applied capsule/card
+    /// bounds remain absolute authority. In the blank region, a menu-aim-style geometric corridor
+    /// and recent motion trend independently produce confidence; only strong or mutually supporting
+    /// evidence clears the close clock. Weak historical direction therefore cannot make browse mode
+    /// sticky, while a slow safe-polygon path or a fast coherent trajectory can each preserve it.
     /// </summary>
     public EdgeCapsuleCorridorExitDecision EvaluateCorridorExit(
         string sensitivity,
@@ -309,42 +351,67 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         double noTargetIntentElapsedMilliseconds)
     {
         var profile = ResolveSensitivityProfile(sensitivity).CorridorExit;
-        var motion = EstimateMotion();
-        if (motion.HasMotion &&
-            motion.RecentSpeedDipPerMillisecond >=
-                profile.MinimumSpeedDipPerMillisecond &&
-            motion.PathConsistency >= profile.MinimumPathConsistency)
+        RefreshCorridorGeometryOrigin(keepAliveBounds);
+
+        var horizontalPadding = profile.TargetPaddingDip * _dpiScaleX;
+        var verticalPadding = profile.TargetPaddingDip * _dpiScaleY;
+        var geometryConfidence = 0.0;
+        if (_corridorGeometryOrigin is { } origin)
         {
-            var directionX =
-                motion.SignedHorizontalSpeedDipPerMillisecond *
-                _dpiScaleX;
-            var directionY =
-                motion.SignedVerticalSpeedDipPerMillisecond *
-                _dpiScaleY;
-            var horizontalPadding =
-                profile.TargetPaddingDip * _dpiScaleX;
-            var verticalPadding =
-                profile.TargetPaddingDip * _dpiScaleY;
             foreach (var bounds in keepAliveBounds)
             {
-                if (RayHeadsTowardBounds(
+                geometryConfidence = Math.Max(
+                    geometryConfidence,
+                    GeometryCorridorConfidence(
+                        origin.Point,
                         pointer,
-                        directionX,
-                        directionY,
-                        bounds) &&
-                    RayIntersectsBounds(
-                        pointer,
-                        directionX,
-                        directionY,
                         bounds,
                         horizontalPadding,
-                        verticalPadding))
-                {
-                    return EdgeCapsuleCorridorExitDecision.KeepAlive;
-                }
+                        verticalPadding));
             }
         }
+        if (!HasRecentMeaningfulPointerMovement())
+        {
+            // A safe triangle is a path, not a parking zone. Once the pointer has actually stopped,
+            // geometry remains useful as supporting evidence but may no longer clear the close clock
+            // on its own. This removes the classic safe-polygon "stuck in the triangle" failure.
+            geometryConfidence = Math.Min(geometryConfidence, 0.55);
+        }
 
+        var motionEvidence = EvaluateCorridorMotionEvidence(
+            profile,
+            keepAliveBounds,
+            pointer,
+            horizontalPadding,
+            verticalPadding);
+        var strongestEvidence = Math.Max(
+            geometryConfidence,
+            motionEvidence.Confidence);
+        var fusedConfidence =
+            geometryConfidence * CorridorGeometryWeight +
+            motionEvidence.Confidence * CorridorMotionWeight;
+
+        // One genuinely strong signal may rescue a transfer. The exception is a safe polygon that
+        // is contradicted by coherent motion away from every real target: that becomes ambiguous
+        // instead of staying latched forever. Two medium signals can also enter keep-alive.
+        var strongEvidenceKeepsAlive =
+            strongestEvidence >= CorridorStrongEvidenceConfidence &&
+            !(geometryConfidence >= CorridorStrongEvidenceConfidence &&
+              motionEvidence.StronglyOpposed);
+        var enterKeepAlive =
+            strongEvidenceKeepsAlive ||
+            fusedConfidence >= CorridorKeepEnterConfidence;
+        var retainKeepAlive =
+            _corridorKeepAliveLatched &&
+            !motionEvidence.StronglyOpposed &&
+            fusedConfidence >= CorridorKeepExitConfidence;
+        if (enterKeepAlive || retainKeepAlive)
+        {
+            _corridorKeepAliveLatched = true;
+            return EdgeCapsuleCorridorExitDecision.KeepAlive;
+        }
+
+        _corridorKeepAliveLatched = false;
         return noTargetIntentElapsedMilliseconds >=
             profile.NoTargetIntentCloseMilliseconds
             ? EdgeCapsuleCorridorExitDecision.CloseForNoTargetIntent
@@ -355,6 +422,277 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
         ResolveSensitivityProfile(sensitivity)
             .CorridorExit
             .NoTargetIntentCloseMilliseconds;
+
+    private bool HasRecentMeaningfulPointerMovement()
+    {
+        if (_sampleCount == 0 ||
+            _lastMeaningfulPointerMovementTimestamp <= 0)
+        {
+            return false;
+        }
+
+        var latest = SampleAt(_sampleCount - 1);
+        var elapsed = ElapsedMilliseconds(
+            _lastMeaningfulPointerMovementTimestamp,
+            latest.Timestamp);
+        return elapsed >= 0 &&
+            elapsed <= CorridorGeometryStationaryGraceMilliseconds;
+    }
+
+    private void RefreshCorridorGeometryOrigin(
+        ReadOnlySpan<DeviceScreenRect> keepAliveBounds)
+    {
+        // Observe() runs before the physical queue resolver. Search backward for the newest sample
+        // that was actually inside a committed target. This gives the safe polygon a real departure
+        // point without teaching the predictor about paper IDs or queue ownership.
+        for (var sampleIndex = _sampleCount - 1;
+            sampleIndex >= 0;
+            sampleIndex--)
+        {
+            var sample = SampleAt(sampleIndex);
+            foreach (var bounds in keepAliveBounds)
+            {
+                if (!Contains(bounds, sample.Point))
+                {
+                    continue;
+                }
+
+                if (!_corridorGeometryOrigin.HasValue ||
+                    sample.Timestamp > _corridorGeometryOrigin.Value.Timestamp)
+                {
+                    _corridorGeometryOrigin = sample;
+                    _corridorKeepAliveLatched = false;
+                }
+                return;
+            }
+        }
+    }
+
+    private CorridorMotionEvidence EvaluateCorridorMotionEvidence(
+        CorridorExitProfile profile,
+        ReadOnlySpan<DeviceScreenRect> keepAliveBounds,
+        DeviceScreenPoint pointer,
+        double horizontalPadding,
+        double verticalPadding)
+    {
+        var motion = EstimateMotion();
+        if (!motion.HasMotion ||
+            motion.RecentSpeedDipPerMillisecond <
+                profile.MinimumSpeedDipPerMillisecond ||
+            motion.PathConsistency < profile.MinimumPathConsistency)
+        {
+            return default;
+        }
+
+        var directionX =
+            motion.SignedHorizontalSpeedDipPerMillisecond * _dpiScaleX;
+        var directionY =
+            motion.SignedVerticalSpeedDipPerMillisecond * _dpiScaleY;
+        var directionLength = Math.Sqrt(
+            directionX * directionX + directionY * directionY);
+        if (directionLength <= double.Epsilon)
+        {
+            return default;
+        }
+
+        var bestConfidence = 0.0;
+        var bestAlignment = -1.0;
+        foreach (var bounds in keepAliveBounds)
+        {
+            if (bounds.IsEmpty)
+            {
+                continue;
+            }
+
+            var minimumX = bounds.Left - Math.Max(0, horizontalPadding);
+            var maximumX = bounds.Right + Math.Max(0, horizontalPadding);
+            var minimumY = bounds.Top - Math.Max(0, verticalPadding);
+            var maximumY = bounds.Bottom + Math.Max(0, verticalPadding);
+            var targetX = Math.Clamp(pointer.X, minimumX, maximumX);
+            var targetY = Math.Clamp(pointer.Y, minimumY, maximumY);
+            var targetDeltaX = targetX - pointer.X;
+            var targetDeltaY = targetY - pointer.Y;
+            var targetDistance = Math.Sqrt(
+                targetDeltaX * targetDeltaX +
+                targetDeltaY * targetDeltaY);
+
+            if (targetDistance <= double.Epsilon)
+            {
+                bestConfidence = Math.Max(bestConfidence, 0.76);
+                bestAlignment = Math.Max(bestAlignment, 1.0);
+                continue;
+            }
+
+            var alignment =
+                (directionX * targetDeltaX + directionY * targetDeltaY) /
+                (directionLength * targetDistance);
+            bestAlignment = Math.Max(bestAlignment, alignment);
+            if (alignment <= 0.30)
+            {
+                continue;
+            }
+
+            var headingConfidence = Math.Clamp(
+                (alignment - 0.30) / 0.70,
+                0,
+                1);
+            var pathFloor = profile.MinimumPathConsistency * 0.70;
+            var pathConfidence = Math.Clamp(
+                (motion.PathConsistency - pathFloor) /
+                Math.Max(0.001, 1 - pathFloor),
+                0,
+                1);
+            var speedConfidence = Math.Clamp(
+                (motion.RecentSpeedDipPerMillisecond -
+                    profile.MinimumSpeedDipPerMillisecond) /
+                Math.Max(
+                    0.001,
+                    profile.MinimumSpeedDipPerMillisecond * 2),
+                0,
+                1);
+
+            var directionLengthSquared =
+                directionX * directionX + directionY * directionY;
+            var projectedMilliseconds =
+                (directionX * targetDeltaX + directionY * targetDeltaY) /
+                directionLengthSquared;
+            var horizonConfidence = projectedMilliseconds <=
+                CorridorMotionFullConfidenceHorizonMilliseconds
+                ? 1.0
+                : Math.Clamp(
+                    1 -
+                    (projectedMilliseconds -
+                        CorridorMotionFullConfidenceHorizonMilliseconds) /
+                    (CorridorMotionFadeHorizonMilliseconds -
+                        CorridorMotionFullConfidenceHorizonMilliseconds),
+                    0,
+                    1);
+
+            var confidence = headingConfidence *
+                (0.50 + 0.30 * pathConfidence + 0.20 * speedConfidence) *
+                (0.72 + 0.28 * horizonConfidence);
+            bestConfidence = Math.Max(bestConfidence, confidence);
+        }
+
+        var stronglyOpposed =
+            motion.RecentSpeedDipPerMillisecond >=
+                profile.MinimumSpeedDipPerMillisecond * 1.15 &&
+            motion.PathConsistency >= profile.MinimumPathConsistency &&
+            bestAlignment <= 0.05;
+        return new CorridorMotionEvidence(
+            Math.Clamp(bestConfidence, 0, 1),
+            stronglyOpposed);
+    }
+
+    private static double GeometryCorridorConfidence(
+        DeviceScreenPoint origin,
+        DeviceScreenPoint pointer,
+        DeviceScreenRect bounds,
+        double horizontalPadding,
+        double verticalPadding)
+    {
+        if (bounds.IsEmpty || Contains(bounds, origin))
+        {
+            return 0;
+        }
+
+        var minimumX = bounds.Left - Math.Max(0, horizontalPadding);
+        var maximumX = bounds.Right + Math.Max(0, horizontalPadding);
+        var minimumY = bounds.Top - Math.Max(0, verticalPadding);
+        var maximumY = bounds.Bottom + Math.Max(0, verticalPadding);
+        var centerX = (bounds.Left + bounds.Right) / 2.0;
+        var centerY = (bounds.Top + bounds.Bottom) / 2.0;
+        var targetDeltaX = centerX - origin.X;
+        var targetDeltaY = centerY - origin.Y;
+
+        double edgeAX;
+        double edgeAY;
+        double edgeBX;
+        double edgeBY;
+        if (Math.Abs(targetDeltaY) >= Math.Abs(targetDeltaX))
+        {
+            // Pad across the travel direction, but keep the triangle's target face on the real
+            // capsule edge. Padding larger than a physical inter-capsule gap must never move the
+            // face behind the departure point and invert the safe polygon.
+            var edgeY = targetDeltaY >= 0
+                ? bounds.Top
+                : bounds.Bottom - 1.0;
+            edgeAX = minimumX;
+            edgeAY = edgeY;
+            edgeBX = maximumX;
+            edgeBY = edgeY;
+        }
+        else
+        {
+            var edgeX = targetDeltaX >= 0
+                ? bounds.Left
+                : bounds.Right - 1.0;
+            edgeAX = edgeX;
+            edgeAY = minimumY;
+            edgeBX = edgeX;
+            edgeBY = maximumY;
+        }
+
+        if (PointInTriangle(
+                pointer.X,
+                pointer.Y,
+                origin.X,
+                origin.Y,
+                edgeAX,
+                edgeAY,
+                edgeBX,
+                edgeBY))
+        {
+            return 0.94;
+        }
+
+        // Outside the strict safe triangle, direction toward the target is only supporting evidence.
+        // It can combine with real motion evidence, but cannot keep the preview alive by itself.
+        var travelX = pointer.X - origin.X;
+        var travelY = pointer.Y - origin.Y;
+        var travelLength = Math.Sqrt(travelX * travelX + travelY * travelY);
+        var nearestX = Math.Clamp(origin.X, minimumX, maximumX);
+        var nearestY = Math.Clamp(origin.Y, minimumY, maximumY);
+        var desiredX = nearestX - origin.X;
+        var desiredY = nearestY - origin.Y;
+        var desiredLength = Math.Sqrt(desiredX * desiredX + desiredY * desiredY);
+        if (travelLength <= double.Epsilon ||
+            desiredLength <= double.Epsilon)
+        {
+            return 0;
+        }
+
+        var alignment = Math.Clamp(
+            (travelX * desiredX + travelY * desiredY) /
+            (travelLength * desiredLength),
+            -1,
+            1);
+        if (alignment <= 0)
+        {
+            return 0;
+        }
+
+        var originDistance = DistanceToBounds(
+            origin.X,
+            origin.Y,
+            minimumX,
+            maximumX,
+            minimumY,
+            maximumY);
+        var pointerDistance = DistanceToBounds(
+            pointer.X,
+            pointer.Y,
+            minimumX,
+            maximumX,
+            minimumY,
+            maximumY);
+        var progress = originDistance > double.Epsilon
+            ? Math.Clamp(1 - pointerDistance / originDistance, 0, 1)
+            : 0;
+        return Math.Min(
+            0.58,
+            0.18 + 0.28 * alignment + 0.12 * progress);
+    }
 
     private MotionEstimate EstimateMotion()
     {
@@ -474,94 +812,65 @@ internal sealed class EdgeCapsuleHoverIntentPredictor
             HasSpeedTrend: priorDuration > 0);
     }
 
-    private static bool RayHeadsTowardBounds(
-        DeviceScreenPoint start,
-        double directionX,
-        double directionY,
-        DeviceScreenRect bounds)
-    {
-        if (bounds.IsEmpty)
-        {
-            return false;
-        }
-
-        // Padding makes near-misses forgiving, but it must not make t=0 an automatic hit when the
-        // pointer has just left a real capsule. Require progress toward the closest point of the
-        // unpadded target. The blank-region caller normally excludes real hits; keep the center
-        // fallback only so this helper remains well-defined if it is given a point inside one.
-        // DeviceScreenRect is half-open and physical pointer coordinates are device pixels. Use
-        // the last hittable pixel rather than the exclusive Right/Bottom edge as the real target.
-        var closestX = Math.Clamp(start.X, bounds.Left, bounds.Right - 1.0);
-        var closestY = Math.Clamp(start.Y, bounds.Top, bounds.Bottom - 1.0);
-        var towardX = closestX - start.X;
-        var towardY = closestY - start.Y;
-        if (Math.Abs(towardX) <= double.Epsilon &&
-            Math.Abs(towardY) <= double.Epsilon)
-        {
-            towardX = (bounds.Left + bounds.Right) / 2.0 - start.X;
-            towardY = (bounds.Top + bounds.Bottom) / 2.0 - start.Y;
-        }
-        return directionX * towardX + directionY * towardY > 0;
-    }
-
-    private static bool RayIntersectsBounds(
-        DeviceScreenPoint start,
-        double directionX,
-        double directionY,
+    private static bool Contains(
         DeviceScreenRect bounds,
-        double horizontalPadding,
-        double verticalPadding)
-    {
-        if (bounds.IsEmpty)
-        {
-            return false;
-        }
+        DeviceScreenPoint point) =>
+        !bounds.IsEmpty &&
+        point.X >= bounds.Left &&
+        point.X < bounds.Right &&
+        point.Y >= bounds.Top &&
+        point.Y < bounds.Bottom;
 
-        var minimumX = bounds.Left - Math.Max(0, horizontalPadding);
-        var maximumX = bounds.Right + Math.Max(0, horizontalPadding);
-        var minimumY = bounds.Top - Math.Max(0, verticalPadding);
-        var maximumY = bounds.Bottom + Math.Max(0, verticalPadding);
-        var minimumTime = 0.0;
-        var maximumTime = double.PositiveInfinity;
-        return RayAxisIntersects(
-                start.X,
-                directionX,
-                minimumX,
-                maximumX,
-                ref minimumTime,
-                ref maximumTime) &&
-            RayAxisIntersects(
-                start.Y,
-                directionY,
-                minimumY,
-                maximumY,
-                ref minimumTime,
-                ref maximumTime);
+    private static bool PointInTriangle(
+        double pointX,
+        double pointY,
+        double firstX,
+        double firstY,
+        double secondX,
+        double secondY,
+        double thirdX,
+        double thirdY)
+    {
+        static double Cross(
+            double ax,
+            double ay,
+            double bx,
+            double by,
+            double cx,
+            double cy) =>
+            (bx - ax) * (cy - ay) -
+            (by - ay) * (cx - ax);
+
+        var first = Cross(
+            firstX, firstY, secondX, secondY, pointX, pointY);
+        var second = Cross(
+            secondX, secondY, thirdX, thirdY, pointX, pointY);
+        var third = Cross(
+            thirdX, thirdY, firstX, firstY, pointX, pointY);
+        var hasNegative = first < 0 || second < 0 || third < 0;
+        var hasPositive = first > 0 || second > 0 || third > 0;
+        return !(hasNegative && hasPositive);
     }
 
-    private static bool RayAxisIntersects(
-        double start,
-        double delta,
-        double minimum,
-        double maximum,
-        ref double minimumTime,
-        ref double maximumTime)
+    private static double DistanceToBounds(
+        double x,
+        double y,
+        double minimumX,
+        double maximumX,
+        double minimumY,
+        double maximumY)
     {
-        if (Math.Abs(delta) <= double.Epsilon)
-        {
-            return start >= minimum && start <= maximum;
-        }
-
-        var first = (minimum - start) / delta;
-        var second = (maximum - start) / delta;
-        if (first > second)
-        {
-            (first, second) = (second, first);
-        }
-
-        minimumTime = Math.Max(minimumTime, first);
-        maximumTime = Math.Min(maximumTime, second);
-        return minimumTime <= maximumTime;
+        var deltaX = x < minimumX
+            ? minimumX - x
+            : x > maximumX
+                ? x - maximumX
+                : 0;
+        var deltaY = y < minimumY
+            ? minimumY - y
+            : y > maximumY
+                ? y - maximumY
+                : 0;
+        return Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
     }
 
     private static IntentSensitivityProfile ResolveSensitivityProfile(

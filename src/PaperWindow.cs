@@ -3539,7 +3539,7 @@ public sealed partial class PaperWindow : Window
         {
             var formatted = new FormattedText(
                 text,
-                CultureInfo.CurrentUICulture,
+                UiLanguages.EffectiveUiCulture,
                 FlowDirection.LeftToRight,
                 new Typeface(fontFamily, FontStyles.Normal, weight, FontStretches.Normal),
                 fontSize,

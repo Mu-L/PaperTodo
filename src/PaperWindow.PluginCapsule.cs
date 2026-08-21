@@ -13,7 +13,7 @@ public sealed partial class PaperWindow
     private const double PluginCapsuleComponentGap = 5;
     private const double PluginCapsuleStatusDotSize = 7;
     private const double PluginCapsuleDefaultProgressRingSize = 18;
-    private const double PluginCapsuleDefaultProgressBarWidth = 28;
+    private const double PluginCapsuleDefaultProgressBarWidth = 30;
     private const double PluginCapsuleFillProgressBarMinWidth = 18;
     private PaperCapsulePresentation? _pluginCapsulePresentation;
     private Grid? _pluginCapsuleRegularHost;
@@ -431,12 +431,16 @@ public sealed partial class PaperWindow
             case PaperCapsuleComponentKind.ProgressBar:
                 return new CapsuleProgressBar
                 {
+                    // Non-fill Width is an exact plugin declaration. Only an omitted Width gets the
+                    // host default; a MinWidth must not silently override a smaller explicit value.
                     MinWidth = component.Fill
                         ? PluginCapsuleFillProgressBarMinWidth
-                        : PluginCapsuleDefaultProgressBarWidth,
-                    Width = component.Fill || component.Width <= 0
+                        : 0,
+                    Width = component.Fill
                         ? double.NaN
-                        : component.Width,
+                        : component.Width > 0
+                            ? component.Width
+                            : PluginCapsuleDefaultProgressBarWidth,
                     Height = 5,
                     Value = component.Value,
                     ForegroundBrush = brush,

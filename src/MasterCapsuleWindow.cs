@@ -450,7 +450,7 @@ public sealed class MasterCapsuleWindow : Window
     {
         _glyph.Text = _active ? "▸" : "▾";
         _label.Text = _active
-            ? string.Format(CultureInfo.CurrentUICulture, Strings.Get("CapsuleCollapseAllCountFormat"), _count)
+            ? string.Format(UiLanguages.EffectiveCulture, Strings.Get("CapsuleCollapseAllCountFormat"), _count)
             : Strings.Get("CapsuleCollapseAllLabel");
         _pill.ToolTip = _active
             ? Strings.Get("CapsuleCollapseAllCollapsedTip")
@@ -608,7 +608,7 @@ public sealed class MasterCapsuleWindow : Window
         {
             var formatted = new FormattedText(
                 text,
-                CultureInfo.CurrentUICulture,
+                UiLanguages.EffectiveUiCulture,
                 FlowDirection.LeftToRight,
                 new Typeface(fontFamily, FontStyles.Normal, weight, FontStretches.Normal),
                 fontSize,
