@@ -369,6 +369,8 @@ Native `IPaperBodySession` 可以实现：
 
 `OnVisibilityChanged` 表示这张 paper/plugin 是否仍作为运行对象存在；`OnPresentationChanged` 表示完整正文是否正在展示和交互。计时器、订阅、异步任务和外部资源必须在 `Dispose()` 中停止/释放。
 
+Native presentation/session API（`Paper`、`Body`、`TopBar`）沿用 WPF session 的 Dispatcher 线程模型；后台任务需要更新这些 presentation 能力时，应切回对应 View/Dispatcher 后再调用。
+
 `IPaperBodyPlugin` 应当是无 paper 实例状态的 factory。PaperTodo 为每个正文会话创建新的插件对象；未被任何纸片实际使用的 Native 插件启动时只扫描 manifest，不加载 DLL，也不执行构造函数。
 
 ## 5. 状态、设置与 `.runtime`
@@ -537,9 +539,9 @@ Top Bar 不提供另一套 `GetBodyText/SetBodyText`。需要读写目标纸片�
 - **Paper**：只显示在承载当前 session 的插件纸片；每个 session 最多 4 个；
 - **Global**：显示在所有 PaperTodo 纸片；每个 provider 当前最多 2 个；只有真实活跃 session 持有时才存在。
 
-同 provider 有多张插件纸片时，Global actions 按 **最后一次 Global 注册**选择 owner。更新某张纸自己的 Paper actions 或隐藏项不会改变 Global owner。
+同 provider 有多张插件纸片时，Global actions 按 **最后一次 Global 注册**选择 owner。更新某张纸自己的 Paper actions 或隐藏项不会改变 Global owner；最新 Global owner 用空数组 replace 时，该 provider 当前就是“无全局按钮”，不会让旧 live session 的旧按钮复活。只有这个 owner session 结束后，仍存活的旧 session 才可能重新成为 owner。
 
-Global 点击包含：`TargetPaperId`、`TargetPaperType`、`TargetBodyProviderId`。插件据此通过 Workspace 读取或修改目标 Markdown/Todo；Top Bar 自己不拥有业务数据接口。
+Global 点击包含：`TargetPaperId`、`TargetPaperType`、`TargetBodyProviderId`。`TargetBodyProviderId` 只对 Note 有意义；Todo 等非 Note 目标返回空字符串。插件据此通过 Workspace 读取或修改目标 Markdown/Todo；Top Bar 自己不拥有业务数据接口。
 
 ### 7.1 图标
 
@@ -607,11 +609,10 @@ NewNotePaper
 
 ### 7.3 Web
 
-Web 顶栏命令走 **root bridge request transport**，不是 `papertodo.workspace` 数据 API：
+Web 顶栏命令走 **body root bridge request transport**，不是 `papertodo.workspace` 数据 API：
 
 ```js
 await papertodo.request('topbar.paper.set', {
-  surface: papertodo.surface, // 当前必须是 'body'
   actions: [
     {
       id: 'refresh',
@@ -623,7 +624,6 @@ await papertodo.request('topbar.paper.set', {
 });
 
 await papertodo.request('topbar.global.set', {
-  surface: papertodo.surface,
   actions: [
     {
       id: 'inspect-current',
@@ -639,7 +639,7 @@ await papertodo.request('topbar.global.set', {
 });
 ```
 
-**只有当前 Web body document 可以注册 Top Bar。** `miniEntry` 不能注册；正常从 Mini 发起会得到 `topbar_body_only`。这是 presentation ownership 约束，不是 permission。
+**只有当前 ready 的 Web body document 可以注册 Top Bar。** 这由宿主根据实际 Web surface 决定，不信任页面自己上报的 `surface` 字段。`miniEntry` 的 host-request 入口只允许当前 Workspace 数据方法；从 Mini 请求 `topbar.*` 会得到 `method_not_found`。
 
 点击通过普通 bridge 事件回传：
 
@@ -656,7 +656,7 @@ papertodo.onEvent(message => {
 });
 ```
 
-Web contribution 绑定当前 body document generation。页面导航、renderer failure、body WebView 被宿主替换或 session Dispose 时，旧 contribution 会自动撤销；旧 document 的点击回调不会转交给新 document。
+Web contribution 绑定当前 body document generation。页面导航、renderer failure、body WebView 被宿主替换或 session Dispose 时，旧 contribution 会自动撤销；旧 document 的点击回调不会转交给新 document。当前 body document 尚未 ready 时请求 Top Bar 会得到 `topbar_body_unavailable`。
 
 完整可运行示例见 `PaperTodo.Plugin.TopBarWeb`。
 
@@ -812,7 +812,7 @@ papertodo.body.setInputClaims(['escapeKey', 'contextMenu']);
 papertodo.body.markDirty();
 papertodo.body.openExternal(url);
 papertodo.workspace.request(method, params); // 业务数据
-papertodo.request(method, params);           // root transport；Top Bar 2.0 使用这里
+papertodo.request(method, params);           // body root transport；Top Bar 2.0 使用这里
 papertodo.onHostEvent(types, listener, options);
 papertodo.onEvent(listener);
 ```
@@ -858,7 +858,7 @@ papertodo.workspace.request(method, params);
 papertodo.onEvent(listener);
 ```
 
-Mini 没有正文的 `setInputClaims`，也不能注册 Top Bar。键盘焦点始终不属于 Edge Mini；pointer 默认归宿主，只有 `data-papertodo-interactive` 局部区域交给网页。
+Mini 没有正文的 `setInputClaims`，也不能注册 Top Bar。键盘焦点始终不属于 Edge Mini；pointer 默认归宿主，只有 `data-papertodo-interactive` 局部区域交给网页。Mini 的 host-request 路由只接受当前列出的 Workspace 数据方法，不按方法名前缀自动继承未来宿主能力。
 
 ### 10.4 状态写入
 
@@ -965,7 +965,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - Web body 与 mini 的 state/settings 同步没有回声；
 - Web mini 只有真正需要 pointer 的局部元素声明 `data-papertodo-interactive`；
 - Top Bar 只提交 host-rendered descriptor；Global contribution 随 live session 自动撤销；
-- Web Top Bar 只由 body document 注册，并带 `surface: papertodo.surface`；
+- Web Top Bar 只由当前 ready body document 注册，surface provenance 由宿主判断；
 - capsule 提供合理 `plainText`；
 - custom WPF surface 均为 fresh / unparented / pure-WPF；
 - Edge Mini 不依赖键盘输入；
