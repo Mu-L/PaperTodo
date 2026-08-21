@@ -1,0 +1,11 @@
+{
+  "kind": "web",
+  "id": "sample.topbar.web",
+  "name": "Top Bar 2.0 示例",
+  "description": "演示 Paper/Global 顶栏动作、字符与描边 SVG 图标，以及点击后复用 Workspace 读取目标纸片。",
+  "version": "1.0.0",
+  "apiVersion": "2.0",
+  "stateVersion": 1,
+  "entry": "web/index.html",
+  "permissions": ["papers.read"]
+}
