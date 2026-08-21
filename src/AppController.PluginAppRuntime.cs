@@ -12,6 +12,9 @@ public sealed partial class AppController
         public bool Active { get; set; } = true;
     }
 
+    private sealed class PluginAppRuntimeOwnershipCanceledException(string message)
+        : Exception(message);
+
     private sealed class PluginAppRuntimeLease : IDisposable
     {
         public required string ProviderId { get; init; }
@@ -131,7 +134,7 @@ public sealed partial class AppController
             await StartPluginAppRuntimeAsync(descriptor);
             QueuePluginStatusUiRefresh();
         }
-        catch (OperationCanceledException)
+        catch (PluginAppRuntimeOwnershipCanceledException)
         {
             // The last entity paper disappeared or PaperTodo began shutting down while startup was
             // in flight. That is a normal ownership change, not a plugin failure.
@@ -162,7 +165,7 @@ public sealed partial class AppController
             IsExiting ||
             !HasEntityPluginPaper(descriptor.Id))
         {
-            throw new OperationCanceledException(
+            throw new PluginAppRuntimeOwnershipCanceledException(
                 "The plugin app runtime no longer has an entity-paper owner.");
         }
 
@@ -226,7 +229,7 @@ public sealed partial class AppController
 
             if (!IsActive())
             {
-                throw new OperationCanceledException(
+                throw new PluginAppRuntimeOwnershipCanceledException(
                     "The plugin app runtime lost its last entity paper while starting.");
             }
 
