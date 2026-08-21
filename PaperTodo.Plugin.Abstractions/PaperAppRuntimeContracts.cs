@@ -2,8 +2,8 @@ namespace PaperTodo.Plugin;
 
 /// <summary>
 /// App-scoped global top-bar capability. Unlike PaperBodyContext.TopBar, this lifetime belongs to
-/// the plugin runtime rather than any paper/body session. PaperTodo removes all actions when the
-/// owning app runtime ends.
+/// the provider runtime rather than any one paper/body session. PaperTodo removes all actions when
+/// that provider runtime ends.
 /// </summary>
 public interface IPaperGlobalTopBarApi
 {
@@ -32,8 +32,9 @@ public interface IPaperGlobalShortcutApi
 }
 
 /// <summary>
-/// Context for one plugin-level runtime. App runtimes start with PaperTodo and are independent of
-/// whether any paper using the provider is open, visible, expanded, or even exists.
+/// Context for one provider-level runtime. The runtime exists while PaperTodo has at least one real
+/// Note paper whose BodyProviderId is this plugin. It does not depend on that paper being visible,
+/// expanded, or having a live body session.
 /// </summary>
 public sealed class PaperAppRuntimeContext
 {
@@ -47,8 +48,9 @@ public sealed class PaperAppRuntimeContext
 
 /// <summary>
 /// Optional protocol-2.0 Native capability. A plugin declaring the manifest capability
-/// "appRuntime" must implement this interface; PaperTodo loads it during application startup and
-/// keeps the returned runtime alive until shutdown.
+/// "appRuntime" must implement this interface. After startupPaper handling, PaperTodo starts one
+/// provider runtime when at least one real paper uses the provider; a later 0 -> 1 transition starts
+/// it as well, and deleting/repurposing the last such paper ends it.
 /// </summary>
 public interface IPaperAppRuntimeProvider
 {
@@ -56,8 +58,8 @@ public interface IPaperAppRuntimeProvider
 }
 
 /// <summary>
-/// One application-level plugin runtime. It is not a hidden paper session and owns no Paper/Body/
-/// Mini presentation. Dispose ends the runtime and revokes its process-level contributions.
+/// One provider-level plugin runtime. It is not a hidden paper session and owns no Paper/Body/Mini
+/// presentation. Dispose ends the runtime and revokes its provider-level contributions.
 /// </summary>
 public interface IPaperAppRuntime : IDisposable
 {

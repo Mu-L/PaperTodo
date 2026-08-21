@@ -77,7 +77,7 @@ plugins/com.example.hello/
 </script>
 ```
 
-开发时把 `plugin.json` 和 `web/` 复制到对应 `plugins/<id>/` 即可。Web body/mini 文件变化可以通过插件重载重新扫描；**app runtime 是进程级生命周期，`runtime.html` 的运行实例不会在普通插件 Reload 中热替换，修改后重启 PaperTodo。**
+开发时把 `plugin.json` 和 `web/` 复制到对应 `plugins/<id>/`。**PaperTodo 不提供插件 Reload；安装、删除或修改插件文件后统一重启 PaperTodo 生效。**
 
 ### 1.2 最小 Native 插件
 
@@ -312,37 +312,40 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 
 ### 3.4 `appRuntime`（2.0）
 
-需要在 **PaperTodo 软件启动时**运行、而不是等待某张插件纸片创建 body session 的插件，声明：
+需要在**至少有一张真实纸片使用该 provider 时**维持 provider 级运行能力、而不是依赖某张纸片的 body session 是否启动，声明：
 
 ```json
 "capabilities": ["appRuntime"]
 ```
 
-它与 `startupPaper` 完全不同：
+它与 `startupPaper` 分工明确：
 
-- `appRuntime` 创建的是**无纸片 UI 的 provider 级 runtime**，用于 Global Top Bar / Workspace 等 app-scope 行为；
-- `startupPaper` 创建或恢复的是一张真实插件纸片；
-- 删除插件纸片不会结束 app runtime；
-- 未声明 `appRuntime` 的 Native 插件仍保持 manifest-only discovery，启动时不加载 DLL；
+- `startupPaper` 先按设置决定是否创建/恢复一张真实插件纸片；
+- startupPaper 处理完成后，宿主再根据最终 `State.Papers` 判断该 provider 是否至少有一张实体插件纸片；
+- 有至少一张时启动一个 provider 级 `appRuntime`；没有时不启动；
+- 运行中从 0→1 张实体插件纸片时启动，从 1→0 时 Dispose；
+- 隐藏、折叠、没有展开正文、没有 live body session 都不影响 runtime；只有实体 paper 是否存在/仍使用这个 provider 才影响它；
+- 未声明 `appRuntime` 的 Native 插件仍保持 manifest-only discovery，不会因为仅安装就加载 DLL；
 - Native 声明后必须实现 `IPaperAppRuntimeProvider`；
 - Web 声明后必须在 `entry` 同目录提供 `runtime.html`；
-- app runtime 在核心状态/纸片恢复稳定后、仍处于软件启动阶段时启动；宿主不等待第三方 runtime 完成才继续 PaperTodo 自身启动；
-- 当前 app runtime 是**进程级生命周期**，普通插件 Reload 不热替换已经运行的 app runtime，代码/`runtime.html` 变化下次启动生效。
+- PaperTodo 不等待第三方 runtime 完成才继续主程序自身启动；不同 provider 的 runtime 也独立启动；
+- 插件文件没有热重载入口；修改 `plugin.json`、DLL、Web body/mini/runtime 文件后统一重启 PaperTodo 生效。
 
 ## 4. 插件运行模型
 
-一个插件可以同时有 **provider app runtime** 与零到多张 **paper body session**，二者是不同生命周期：
+一个声明 `appRuntime` 的 provider 在**至少存在一张实体插件纸片**时可以同时拥有 provider app runtime；live paper body session 数量仍然可以是 0 到多张：
 
 ```text
 PaperTodo process
-├─ plugin app runtime (可选，provider 级)
-│   ├─ Global Top Bar
-│   └─ Workspace
-└─ paper body session[paperId]
-    ├─ Paper / Body
-    ├─ Paper Top Bar
-    ├─ Workspace
-    └─ Mini / capsule capability
+└─ provider with >=1 entity plugin paper
+    ├─ plugin app runtime (可选，provider 级)
+    │   ├─ Global Top Bar
+    │   └─ Workspace
+    └─ paper body session[paperId] (0..N live)
+        ├─ Paper / Body
+        ├─ Paper Top Bar
+        ├─ Workspace
+        └─ Mini / capsule capability
 ```
 
 PaperTodo 负责 paper/window/edge 外壳；插件负责正文内容与自己声明的能力。
@@ -441,6 +444,8 @@ public sealed class MyPlugin : IPaperBodyPlugin, IPaperAppRuntimeProvider
 ```
 
 `PaperAppRuntimeContext` 只提供 `Workspace` 与 `GlobalTopBar`，没有 Paper/Body/Mini presentation。app-runtime facade 会把 Native 后台线程发起的 Workspace / GlobalTopBar 调用 marshal 回 PaperTodo UI Dispatcher；按钮回调本身也从宿主 UI 线程进入，耗时工作不要直接阻塞回调。
+
+runtime 的 owner 是**该 provider 当前至少一张实体插件 paper 的存在性**，不是其中某一张 paper，也不是它们的可见性。删除/改造其中一张不会影响 runtime；删除或把 provider 切走最后一张时才 Dispose。
 
 ## 5. 状态、设置与 `.runtime`
 
@@ -602,9 +607,9 @@ Top Bar 不提供另一套 `GetBodyText/SetBodyText`。需要读写目标纸片�
 Top Bar 有两个明确 owner：
 
 - **Paper**：`PaperBodyContext.TopBar` / body session；只显示在承载当前 session 的插件纸片，每 session 最多 4 个；
-- **Global**：`PaperAppRuntimeContext.GlobalTopBar` / app runtime；显示在所有 PaperTodo 纸片，每 provider 最多 2 个；与插件纸片是否存在、可见、展开无关。
+- **Global**：`PaperAppRuntimeContext.GlobalTopBar` / provider app runtime；显示在所有 PaperTodo 纸片，每 provider 最多 2 个。Global runtime 要求该 provider 当前至少有一张实体插件 paper，但不要求任何 paper 可见、展开或拥有 live body session。
 
-Global app runtime 在软件启动时创建。删除、隐藏、折叠某张插件纸片不会撤销 Global action；只有 app runtime 结束、失败或主动清除才撤销它。
+启动时先处理 `startupPaper`。它可能先创建/恢复实体插件 paper；随后宿主按最终实体 paper 集合启动对应 Global runtime。运行中第一张实体 paper 出现会启动，最后一张被删除或切走 provider 会 Dispose；删除/隐藏/折叠非最后一张不会撤销 Global action。
 
 Global 点击包含：`TargetPaperId`、`TargetPaperType`、`TargetBodyProviderId`。`TargetBodyProviderId` 只对 Note 有意义；Todo 等非 Note 目标返回空字符串。插件据此通过 app-runtime Workspace 读取或修改目标 Markdown/Todo；Top Bar 自己不拥有业务数据接口。
 
@@ -682,7 +687,7 @@ public IPaperAppRuntime CreateAppRuntime(PaperAppRuntimeContext context)
 }
 ```
 
-`SetPaperActions(...)` / `GlobalTopBar.SetActions(...)` 都是 replace 语义；传空数组得到空 action set。Paper session Dispose 自动撤掉 Paper contribution；app runtime Dispose 自动撤掉 Global contribution。
+`SetPaperActions(...)` / `GlobalTopBar.SetActions(...)` 都是 replace 语义；传空数组得到空 action set。Paper session Dispose 自动撤掉 Paper contribution；provider app runtime Dispose 自动撤掉 Global contribution。
 
 ### 7.4 Web Paper action
 
@@ -715,7 +720,7 @@ manifest：
 }
 ```
 
-并在同目录提供 `web/runtime.html`。该页面获得：
+并在同目录提供 `web/runtime.html`。当 provider 至少有一张实体插件 paper 时，该页面获得：
 
 ```js
 papertodo.surface;                    // 'app'
@@ -748,7 +753,7 @@ papertodo.onEvent(async message => {
 });
 ```
 
-`runtime.html` 是独立 app surface，不获得 `paper`、`body`、`mini` presentation API。runtime document 导航、renderer failure 或 app runtime Dispose 会撤掉 Global action。Web Mini 也不能注册 Global Top Bar。
+`runtime.html` 是独立 app surface，不获得 `paper`、`body`、`mini` presentation API。runtime document 导航、renderer failure、最后一张实体插件 paper 消失或 app runtime Dispose 都会撤掉 Global action。Web Mini 也不能注册 Global Top Bar。
 
 完整可运行示例见 `PaperTodo.Plugin.TopBarWeb`。
 
@@ -954,7 +959,7 @@ Mini 没有正文的 `setInputClaims`，也不能注册 Top Bar。键盘焦点�
 
 ### 10.4 App runtime bridge
 
-声明 `appRuntime` 的 Web 插件在软件启动时还会创建独立 `runtime.html` surface：
+声明 `appRuntime` 的 Web 插件在 provider 至少有一张实体插件 paper 时创建独立 `runtime.html` surface：
 
 ```js
 papertodo.surface;                    // 'app'
@@ -977,11 +982,11 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 
 - `IPaperBodyPlugin` 是 factory，不保存某一张 paper 的 session state；
 - 每个 paper body session 使用新的 plugin object / `IPaperBodySession`；
-- 没有 `appRuntime` 时，manifest-only discovery 不会启动时加载 Native DLL；
-- 声明 `appRuntime` 时，宿主在软件启动阶段加载插件并要求同一 factory 类型实现 `IPaperAppRuntimeProvider`；
-- app runtime 与 paper session 是不同对象/lifetime，不能把某张 paper state 当作 Global runtime authority；
+- 没有 `appRuntime` 时，manifest-only discovery 不会仅因启动而加载 Native DLL；
+- 声明 `appRuntime` 时，只有 provider 当前至少有一张实体插件 paper 才会创建 provider runtime；
+- app runtime 与 paper session 是不同对象/lifetime，不能把某张具体 paper session 当作 Global runtime authority；
 - entry assembly 必须只有一个有效 `IPaperBodyPlugin` 实现；
-- 已载入 DLL 的文件变化/删除需要重启；
+- 插件文件变化/删除统一重启 PaperTodo 生效；
 - 私有依赖和 native library 放在插件自包含目录；
 - 不重复携带宿主共享程序集；
 - timer、task、subscription、Top Bar contribution、外部资源都必须跟随各自 session/runtime 生命周期结束。
@@ -1010,8 +1015,9 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - `id` 使用非法字符或保留 ID `data`；
 - Web 声明 `appRuntime` 却没有在 body entry 同目录提供 `runtime.html`；
 - Native 声明 `appRuntime` 却没有实现 `IPaperAppRuntimeProvider`；
-- 把 `appRuntime` 当成 `startupPaper`，为了 Global action 创建隐藏纸片；
-- 假设普通插件 Reload 会热替换已经运行的 app runtime；
+- 以为只安装插件、零实体插件 paper 时也会启动 app runtime；
+- 把 `appRuntime` 当成 `startupPaper`；前者不负责创建 paper，后者才负责自启动实体 paper；
+- 修改插件文件后期待当前进程自动重新扫描/热替换；当前规则是重启 PaperTodo；
 - `miniSize` 没有对应 `miniEntry`；
 - Web `miniEntry` 跑出 `entry` 静态目录；
 - Native manifest 与 DLL 的 id/version/API/state/runtime requirements 不一致；
@@ -1030,7 +1036,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - 想隐藏关闭/置顶/拖动等宿主生命线；
 - 为 Top Bar 另写正文 mutation，而不是复用 Workspace；
 - 从 paper body / Web Mini 注册 Global action，而不是 app runtime；
-- 把 Global contribution 绑到某张插件纸片生命周期；
+- 把 Global contribution 绑到某个具体 body session、paper 可见性或展开状态，而不是 provider 的实体 paper 存在性；
 - Web body reload 后仍假设上一 document 的 Paper contribution 有效。
 
 ### WPF surface
@@ -1071,7 +1077,8 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - `plugin.json` 使用当前目标 `apiVersion: "2.0"`；
 - Native manifest 与入口 DLL metadata/runtime requirements 一致；
 - 声明 `appRuntime` 时：Native 实现 `IPaperAppRuntimeProvider`；Web 提供 `runtime.html`；
-- Global Top Bar 只由 app runtime 注册，删除/关闭插件纸片不应让它消失；
+- startupPaper 先决定是否创建/恢复实体插件 paper；app runtime 再按最终实体 paper 数量启动；
+- Global Top Bar 只由 app runtime 注册：删除非最后一张不应消失，删除/改造最后一张必须撤销；
 - Native 使用统一 build/install 脚本跑通；
 - 最终 `plugins/<id>/` 不包含 PDB/XML/重复 shared assemblies；
 - `.runtime/` 不被构建脚本误删；
@@ -1082,4 +1089,4 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - custom WPF surface 均为 fresh / unparented / pure-WPF；
 - Edge Mini 不依赖键盘输入；
 - 只声明实际需要的 permissions / `backgroundUpdates` / `appRuntime`；
-- 切换 provider、Web body reload、折叠/展开、关闭 paper 后没有遗留 paper-session timer/task/subscription/Top Bar/input；退出 PaperTodo 后 app runtime 与 Global Top Bar 完整撤销。
+- 切换 provider、删除 paper 时 0↔1 app-runtime ownership 正确；退出 PaperTodo 后 app runtime 与 Global Top Bar 完整撤销。

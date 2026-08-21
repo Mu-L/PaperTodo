@@ -75,8 +75,7 @@ public sealed partial class PaperWindow
         // Collapse-all/release is a queue-wide visual-only translation. During collapse the model
         // has already entered RetractedCollapsed; during release the real applied frame is still
         // DockedRetracted until the shared transaction commits. Neither path can open Preview while
-        // it is moving, so reserving the future full-work-area Preview envelope here only creates a
-        // giant transparent proxy HWND with no visual purpose.
+        // it is moving, so reserving future Preview capacity here has no visual purpose.
         if (IsDeepCapsuleRetractedIntoMaster ||
             _edgeCapsule.AppliedPresentation.Surface ==
                 EdgeCapsuleSurfaceKind.DockedRetracted)
@@ -90,13 +89,12 @@ public sealed partial class PaperWindow
             return default;
         }
 
-        // This is output-HWND capacity, not a WPF backing surface.
-        // Reserve the legal queue envelope so different plugin card sizes
-        // can replace one another without moving an active DComp target.
+        // This is output-HWND capacity, not a WPF backing surface. A plugin may declare any finite
+        // miniMaxSize it needs; an omitted declaration gets the finite 800x600/initial-size fallback.
+        // The monitor work area remains the only host-imposed physical clamp, so the proxy no longer
+        // reserves a full-work-area envelope merely because the protocol had no finite maximum.
         var workAreaDip = layout.Monitor.LocalWorkAreaDip;
-        var maximumPreview = new EdgeCapsulePreviewSize(
-            EdgeCapsulePreviewSize.MaximumWidthDip,
-            EdgeCapsulePreviewSize.MaximumHeightDip)
+        var maximumPreview = ResolveEdgeCapsulePreviewMaximumCapacity()
             .Normalize(
                 Math.Max(
                     EdgeCapsulePreviewSize.MinimumWidthDip,

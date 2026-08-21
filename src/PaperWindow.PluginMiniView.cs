@@ -75,13 +75,14 @@ public sealed partial class PaperWindow
             // A declared 1.8 mini surface is itself the preview content. Do not paint an enlarged
             // 1.6/1.7 capsule while the WebView is becoming ready; that compatibility fallback is
             // only the final preview for plugins that did not declare a 1.8 mini surface.
-            return webSession.DescribeMiniView(
-                    context,
-                    static (_, _) => new Grid { Background = Brushes.Transparent })
-                with
-                {
-                    DeferContentCreation = false
-                };
+            var descriptor = webSession.DescribeMiniView(
+                context,
+                static (_, _) => new Grid { Background = Brushes.Transparent });
+            return descriptor with
+            {
+                Size = ValidatePluginMiniPreferredSize(descriptor.Size),
+                DeferContentCreation = false
+            };
         }
 
         if (_bodyDescriptor?.Kind == PaperBodyPluginKind.Native &&
@@ -105,7 +106,7 @@ public sealed partial class PaperWindow
         return DescribePluginCapsuleFallback(context);
     }
 
-    private static EdgeCapsulePreviewSize ReadPreferredMiniSize(
+    private EdgeCapsulePreviewSize ReadPreferredMiniSize(
         Func<PaperMiniViewSize> read,
         PaperMiniViewSize fallback)
     {
@@ -125,7 +126,8 @@ public sealed partial class PaperWindow
         var height = double.IsFinite(value.Height) && value.Height > 0
             ? value.Height
             : fallback.Height;
-        return new EdgeCapsulePreviewSize(width, height);
+        return ValidatePluginMiniPreferredSize(
+            new EdgeCapsulePreviewSize(width, height));
     }
 
     private EdgeCapsulePreviewSize NormalizePluginMiniSizeForCurrentMonitor(

@@ -19,22 +19,39 @@ public sealed partial class AppController
         _pluginStartupPaperTimer?.Stop();
         _pluginStartupPaperTimer = null;
         var generation = ++_pluginStartupPaperGeneration;
-        if (visibilityCommand == StartupCommandKind.Hide || IsExiting)
+        if (IsExiting)
         {
             return;
         }
 
+        // Explicit --hide keeps the existing startup-paper behavior (do not create/show one), but
+        // entity plugin papers already persisted in State still own their provider-level runtime.
+        if (visibilityCommand == StartupCommandKind.Hide)
+        {
+            EnablePluginAppRuntimeReconciliation();
+            return;
+        }
+
+        // Resolve the startup setting before deciding whether we need the deferred shell-ready
+        // creation pass. If no startup paper is enabled, existing entity papers can own runtimes
+        // immediately without waiting on the startup-paper timer.
         var candidates = PaperBodyPlugins.Descriptors
-            .Where(descriptor => descriptor.Manifest?.StartupPaper != null)
+            .Where(descriptor =>
+            {
+                var startup = descriptor.Manifest?.StartupPaper;
+                return startup != null && StartupSettingEnabled(descriptor, startup);
+            })
             .ToArray();
         if (candidates.Length == 0)
         {
+            EnablePluginAppRuntimeReconciliation();
             return;
         }
 
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null)
         {
+            EnablePluginAppRuntimeReconciliation();
             return;
         }
 
@@ -64,6 +81,9 @@ public sealed partial class AppController
 
             StopPluginStartupPaperTimer(timer);
             EnsurePluginStartupPapers(candidates);
+            // startupPaper has now had first chance to create/restore its real plugin paper. Only
+            // after that do we derive process-level app runtime ownership from final State.Papers.
+            EnablePluginAppRuntimeReconciliation();
         };
         _pluginStartupPaperTimer = timer;
         timer.Start();
