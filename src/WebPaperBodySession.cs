@@ -216,7 +216,6 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             {
                 return;
             }
-
             await webView.EnsureCoreWebView2Async(environment);
             token.ThrowIfCancellationRequested();
             if (!IsCurrentWebView(webView, generation))
@@ -329,7 +328,14 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                 setHeaderText(text) { post('setHeaderText', String(text ?? '')); },
                 setCapsulePresentation(presentation) {
                   post('setCapsulePresentation', presentation ?? null);
-                }
+                },
+                show(options = {}) { return request('paper.show', options); },
+                hide() { return request('paper.hide'); },
+                toggle(options = {}) { return request('paper.toggle', options); },
+                expand(options = {}) { return request('paper.expand', options); },
+                collapse() { return request('paper.collapse'); },
+                toggleCollapsed(options = {}) { return request('paper.toggleCollapsed', options); },
+                activate() { return request('paper.activate'); }
               });
               const body = Object.freeze({
                 setInputClaims(claims) {
@@ -790,6 +796,13 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             DeserializePayload<DeleteTodoRequest>(parameters)),
         "papers.delete" => _context.Host.DeletePaper(
             PayloadString(parameters, "paperId")),
+        "paper.show" or
+        "paper.hide" or
+        "paper.toggle" or
+        "paper.expand" or
+        "paper.collapse" or
+        "paper.toggleCollapsed" or
+        "paper.activate" => ExecutePaperPresentationHostRequest(method, parameters),
         "topbar.paper.set" => SetPaperTopBarActionsFromWeb(parameters),
         "topbar.global.set" => SetGlobalTopBarActionsFromWeb(parameters),
         _ => throw new PaperTodoPluginException(
