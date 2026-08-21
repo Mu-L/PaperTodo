@@ -22,6 +22,8 @@ public sealed partial class AppController
         Func<bool> IsActive,
         Action<PaperShortcutActionInvocation> Dispatch);
 
+    // Logical plugin owner only. All native RegisterHotKey ownership is centralized in the
+    // process-global GlobalHotkeyBroker shared with PaperTodo's built-in shortcut manager.
     private GlobalHotkeyManager? _pluginHotkeys;
     private readonly Dictionary<string, PluginShortcutRegistration> _pluginShortcutRegistrations =
         new(StringComparer.Ordinal);
@@ -64,9 +66,9 @@ public sealed partial class AppController
 
     private void RefreshPluginShortcutsAfterRuntimeChange()
     {
-        // Recording intentionally releases all WM_HOTKEY owners. Runtime navigation/startup may
-        // race that UI state, so defer rebuilding registrations until recording ends.
-        if (_pluginShortcutRecordingCommandId == null)
+        // Recording temporarily releases active native registrations. Runtime navigation/startup may
+        // race either recorder, so leave the current capture stable and rebuild when recording ends.
+        if (_pluginShortcutRecordingCommandId == null && _shortcutRecordingCommandId == null)
         {
             RefreshPluginShortcuts();
         }
@@ -85,8 +87,10 @@ public sealed partial class AppController
         _pluginShortcutStatuses.Clear();
 
         var desiredBindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        var reservedCommandIds = new HashSet<string>(StringComparer.Ordinal);
         var activeCommandIds = new HashSet<string>(StringComparer.Ordinal);
         var registrationsByCommand = new Dictionary<string, ShortcutGesture[]>(StringComparer.Ordinal);
+
         foreach (var descriptor in _paperBodyPlugins.Descriptors)
         {
             if (descriptor.Kind == PaperBodyPluginKind.BuiltIn || descriptor.Manifest == null)
@@ -97,11 +101,12 @@ public sealed partial class AppController
             foreach (var setting in descriptor.Manifest.Settings.Where(item => item.Type == "shortcut"))
             {
                 var commandId = PluginShortcutCommandId(descriptor.Id, setting.Id);
-                _pluginShortcutRegistrations[commandId] = new PluginShortcutRegistration(
+                var registration = new PluginShortcutRegistration(
                     commandId,
                     descriptor.Id,
                     setting.Id,
                     setting.ShortcutAction);
+                _pluginShortcutRegistrations[commandId] = registration;
 
                 var binding = bindingOverrides != null &&
                               bindingOverrides.TryGetValue(commandId, out var overridden)
@@ -122,21 +127,28 @@ public sealed partial class AppController
                     continue;
                 }
 
-                // Host-owned paper.* actions are always executable. Plugin-defined actions only
-                // claim a Windows hotkey while their appRuntime has a live handler; otherwise a
-                // failed/refreshing runtime would steal a key that can only no-op.
-                if (PluginShortcutActions.IsCustomAction(setting.ShortcutAction) &&
-                    !HasActivePluginShortcutRuntime(descriptor.Id))
-                {
-                    _pluginShortcutStatuses[commandId] = ShortcutUiStatus.RegistrationFailed;
-                    continue;
-                }
-
+                // Configuration ownership and runtime activation are intentionally separate:
+                // configured gestures always reserve their PaperTodo-internal slot, while only a
+                // command that can execute right now is actually registered with Windows.
+                reservedCommandIds.Add(commandId);
                 registrationsByCommand[commandId] = RegistrationGesturesForPlugin(gesture).ToArray();
-                activeCommandIds.Add(commandId);
+
+                var canExecute = PluginShortcutActions.IsCustomAction(setting.ShortcutAction)
+                    ? HasActivePluginShortcutRuntime(descriptor.Id)
+                    : HasEntityPluginPaper(descriptor.Id);
+                if (canExecute)
+                {
+                    activeCommandIds.Add(commandId);
+                }
+                else
+                {
+                    _pluginShortcutStatuses[commandId] = ShortcutUiStatus.Disabled;
+                }
             }
         }
 
+        // Existing PaperTodo commands have priority over plugin reservations. A plugin configuration
+        // remains stored/reserved but is marked duplicate and cannot claim the native registration.
         var builtInGestures = ConfiguredBuiltInRegistrationGestures();
         foreach (var pair in registrationsByCommand)
         {
@@ -147,6 +159,9 @@ public sealed partial class AppController
             }
         }
 
+        // Plugin-to-plugin conflicts are checked against configured reservations, not just commands
+        // that happen to be executable today. This prevents A from going idle, B stealing its key,
+        // and A becoming conflicting the next time a paper/runtime appears.
         var commandsByGesture = new Dictionary<ShortcutGesture, HashSet<string>>();
         foreach (var pair in registrationsByCommand)
         {
@@ -175,6 +190,7 @@ public sealed partial class AppController
             if (manager.TryApply(
                     desiredBindings,
                     activeCommandIds,
+                    reservedCommandIds,
                     State.DistinguishNumpadShortcutDigits,
                     out var failedCommandId,
                     out var failure))
@@ -182,6 +198,8 @@ public sealed partial class AppController
                 break;
             }
 
+            // System occupancy affects only commands that were about to become active. Preserve the
+            // configured reservation and keep the rest of the plugin/built-in native plan alive.
             if (string.IsNullOrEmpty(failedCommandId) ||
                 !activeCommandIds.Remove(failedCommandId))
             {
@@ -195,6 +213,7 @@ public sealed partial class AppController
                 _ = manager.TryApply(
                     desiredBindings,
                     activeCommandIds,
+                    reservedCommandIds,
                     State.DistinguishNumpadShortcutDigits,
                     out _,
                     out _);
@@ -219,7 +238,7 @@ public sealed partial class AppController
                 ? ShortcutUiStatus.Unassigned
                 : manager.ActiveBindings.ContainsKey(registration.CommandId)
                     ? ShortcutUiStatus.Registered
-                    : ShortcutUiStatus.RegistrationFailed;
+                    : ShortcutUiStatus.Disabled;
         }
     }
 
@@ -516,7 +535,12 @@ public sealed partial class AppController
                 [commandId] = normalized
             });
         status = PluginShortcutStatusFor(commandId);
-        if (status is not (ShortcutUiStatus.Registered or ShortcutUiStatus.Unassigned))
+        // Disabled means configured/reserved but currently not executable (no entity paper or no
+        // live appRuntime handler). Configuration is still valid and must be persisted.
+        if (status is not (
+                ShortcutUiStatus.Registered or
+                ShortcutUiStatus.Unassigned or
+                ShortcutUiStatus.Disabled))
         {
             RefreshPluginShortcuts();
             return false;
@@ -585,8 +609,9 @@ public sealed partial class AppController
         }
 
         _shortcutRecordingCommandId = null;
-        // The plugin currently owns this exact RegisterHotKey slot. Release it before applying the
-        // host draft, then rebuild plugin registrations against the newly authoritative host set.
+        // Release only the plugin's active native registration. Its configured reservation stays in
+        // the broker, so ApplyShortcutDraft correctly rejects a host command that tries to steal the
+        // same configured plugin gesture.
         SuspendPluginShortcutRegistrations();
         try
         {
