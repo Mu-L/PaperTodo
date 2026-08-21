@@ -42,7 +42,8 @@ PaperTodo.exe
         ├─ NoteImageStore (LMDB)
         ├─ PaperBodyPluginRegistry / PaperBodyPluginDataStore
         ├─ PaperCommandService
-        ├─ plugin Top Bar session registry
+        ├─ plugin app runtime[providerId] → Global Top Bar
+        ├─ paper Top Bar session registry
         ├─ PaperWindow[paperId]
         │   ├─ paper shell / Todo / built-in Note
         │   ├─ PaperBodyHost
@@ -67,8 +68,9 @@ PaperTodo.exe
 | 外部 Paper/Todo/Note 命令 | `PaperCommandService` | 插件/MCP 共用的验证、mutation、同步提交/回滚和事件发布 |
 | 单纸片 UI | `PaperWindow` | paper WPF shell、普通交互、provider 选择、子系统适配 |
 | paper-body session | `PaperBodyHost` | 当前 `IPaperBodySession` 的 attach / invoke / commit / dispose |
+| plugin app runtime | `AppController.PluginAppRuntime` | 软件启动阶段激活显式 `appRuntime` provider；持有进程级 Global Top Bar owner 与 app-runtime Workspace facade |
 | 插件发现与合同 | `PaperBodyPluginRegistry` | builtin / Native / Web provider 发现、校验、激活 |
-| 插件 Top Bar 注册 | `AppController.PluginTopBar` | session lease、Paper/Global action 集合、Global provider 去重、输入校验 |
+| 插件 Top Bar 注册 | `AppController.PluginTopBar` | Paper session action 与 app-runtime Global action 的分域注册、输入校验 |
 | 插件 Top Bar 绘制 | `PaperWindow.PluginTopBar` | 宿主按钮、字符/SVG 图标、主题/字体/响应式与 suppression reconcile |
 | Edge 单纸片业务状态 | `EdgeCapsuleReducer` + `EdgeCapsuleModel` | 单纸片 typed intent 到完整 model 的原子变化 |
 | Edge 单纸片呈现 | `EdgeCapsulePresenter` | desired model、target plan、transition、applied frame、reconcile |
@@ -94,11 +96,13 @@ PaperTodo.exe
 
 MCP 的 transport、权限策略和 bridge 生命周期不拥有 Paper/Todo/Note 的第二套业务写入逻辑；真正的业务 mutation 仍回到 GUI 主宿主和共享命令边界。
 
-### 3.3 辅助进程
+### 3.3 辅助进程与插件 app runtime
 
 Web 插件使用 WebView2 runtime；脚本胶囊可以启动 PowerShell 子进程。这些进程/运行时只提供对应能力，不成为核心 `AppState` authority。
 
-插件协议以 **2.0** 为新开发目标，同时兼容加载既有 **1.8** 插件。2.0 的 Top Bar 是 session/presentation capability；兼容 1.8 不意味着向旧协议开放 2.0 Top Bar。
+插件协议以 **2.0** 为新开发目标，同时兼容加载既有 **1.8** 插件。2.0 把 Top Bar 明确拆成两个生命周期：Paper action 属于 paper-body session；Global action 属于显式声明 `appRuntime` 的 provider 级 app runtime。兼容 1.8 不意味着向旧协议开放 2.0 Top Bar。
+
+`appRuntime` 在核心状态和 paper 恢复稳定后、仍处于软件启动阶段时由宿主启动，并通过低优先级 Dispatcher work 避免第三方 runtime 阻塞 PaperTodo 自己完成启动。它不依赖任何插件 paper 是否存在、可见、展开或曾创建 body session。Native provider 只有声明 `appRuntime` 时才会因此在启动阶段加载 DLL；未声明的 Native provider 继续保持按 paper 使用时懒加载。Web app runtime 使用与 body 同一插件 origin 下的 `runtime.html`，但获得独立 app-scope bridge，不获得 Paper/Body/Mini presentation API。
 
 ## 4. 状态与持久化架构
 
@@ -178,20 +182,24 @@ transport 权限、Web/Native surface 生命周期、Top Bar presentation 和 MC
 
 ### 5.4 Protocol 2.0 Top Bar
 
-Top Bar 是 **session-scoped presentation capability**，不是 Workspace 数据 API。Native 通过 `PaperBodyContext.TopBar` / `IPaperTopBarApi` 使用；Web body 复用 root bridge request/response transport，但不把 Top Bar 放进 `papertodo.workspace` 数据能力。
+Top Bar 是宿主 chrome/presentation capability，不是 Workspace 数据 API，而且 **Paper 与 Global 有不同 owner**：
+
+- **Paper scope**：属于当前 `PaperBodyContext.TopBar` / paper-body session，只作用于承载该 session 的纸片。
+- **Global scope**：属于 `PaperAppRuntimeContext.GlobalTopBar` / provider app runtime。软件启动时创建，与任何插件 paper 是否存在、可见、展开或曾启动 body 无关。
 
 当前稳定边界：
 
 - `PaperWindow` 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout；插件只提交 action descriptor。
 - 图标只接受短字符或受限 SVG/WPF Path Data；Path 可以按宿主前景色 Fill 或 Stroke，不接受完整 SVG document、WebView 或任意 WPF tree。
 - Paper scope 只作用于承载当前 session 的纸片；插件只能请求隐藏 `NewTodoPaper` / `NewNotePaper`，关闭、置顶、标题拖动和窗口生命周期不属于插件可删减区域。
-- Global scope 由真实活跃 session lease 持有。仅安装插件、仅存在 manifest/descriptor、或没有有效 runtime session 时，不产生 Global UI。
-- 同 provider 多 session 时，Global owner 只由最后一次 **Global 注册顺序**决定；Paper action 更新不改变 Global ownership。
-- Global 点击带目标 `PaperId` / `Type` / `BodyProviderId`；需要读取或修改目标正文时继续走 Workspace → `PaperCommandService`。
+- Global scope 每 provider 只有一个 app-runtime owner；没有运行中的 app runtime 就没有该 provider 的 Global UI。删除/关闭某张插件纸片不会撤销 Global action，因为它不属于 paper session。
+- Global 点击带目标 `PaperId` / `Type` / `BodyProviderId`；需要读取或修改目标正文时仍走 app-runtime Workspace → `PaperCommandService`，Top Bar 不复制业务 mutation。
+- app-runtime Workspace / GlobalTopBar facade 会把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper session presentation 仍沿用自己的 WPF Dispatcher 生命周期。
 - 用户设置决定宿主按钮 base visibility，插件 suppression 是最终 paper-local reconcile 层。
-- session Dispose 自动回收 contribution。Web Top Bar 进一步绑定当前 body document generation；导航、renderer failure 或 body document replacement 会撤销旧 contribution，Web Mini 不拥有 Top Bar 注册权。
+- Paper session Dispose 自动回收 Paper contribution。Web body 的 Paper contribution进一步绑定当前 body document generation；导航、renderer failure 或 body document replacement 会撤销旧 Paper contribution。
+- Web Global action 由独立 `runtime.html` app surface 注册。runtime document 导航、renderer failure 或 app-runtime Dispose 会撤销 Global contribution；Web Mini 不拥有 Top Bar 注册权。
 
-为什么选择 descriptor + live session lease、而不是插件直接拥有顶栏控件或把 Top Bar 塞进 Workspace，见 D-022。
+为什么选择 host-rendered descriptor、Paper/session 与 Global/app-runtime 分域，而不是插件直接拥有顶栏控件或把 Top Bar 塞进 Workspace，见 D-022。
 
 ### 5.5 Edge mini
 
