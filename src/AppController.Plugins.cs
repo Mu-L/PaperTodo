@@ -684,6 +684,7 @@ public sealed partial class AppController
             setting,
             value);
         var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
+        RetryFailedPluginAppRuntimeAfterSettingsChanged(descriptor.Id);
         foreach (var window in _windows.Values.ToList())
         {
             window.NotifyPaperBodyPluginSettingsChanged(descriptor.Id, settingsJson);

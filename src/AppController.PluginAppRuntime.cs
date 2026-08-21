@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using PaperTodo.Plugin;
@@ -14,6 +15,8 @@ public sealed partial class AppController
         TimeSpan.FromSeconds(3),
         TimeSpan.FromSeconds(10)
     ];
+    private static readonly TimeSpan PluginAppRuntimeStableFailureResetAfter =
+        TimeSpan.FromSeconds(30);
 
     private enum PluginAppRuntimeState
     {
@@ -58,7 +61,12 @@ public sealed partial class AppController
 
     private sealed class PluginAppRuntimeLifetime
     {
-        public bool Active { get; set; } = true;
+        private int _active = 1;
+
+        public bool IsActive => Volatile.Read(ref _active) != 0;
+
+        public bool TryDeactivate() =>
+            Interlocked.Exchange(ref _active, 0) != 0;
     }
 
     private sealed class PluginAppRuntimeOwnershipCanceledException(string message)
@@ -70,14 +78,18 @@ public sealed partial class AppController
         public PaperBodyPluginDescriptor? Descriptor { get; set; }
         public PluginAppRuntimeState State { get; set; }
         public Guid RuntimeId { get; set; }
+        public PluginAppRuntimeLifetime? Lifetime { get; set; }
         public PluginAppRuntimeLease? Lease { get; set; }
         public int FailureCount { get; set; }
         public int RetryGeneration { get; set; }
         public bool RestartRequested { get; set; }
+        public DateTimeOffset RunningSinceUtc { get; set; }
     }
 
     private sealed class PluginAppRuntimeLease : IDisposable
     {
+        private int _disposed;
+
         public required Guid RuntimeId { get; init; }
         public required string ProviderId { get; init; }
         public required PluginAppRuntimeLifetime Lifetime { get; init; }
@@ -89,17 +101,18 @@ public sealed partial class AppController
 
         public void Dispose()
         {
-            if (!Lifetime.Active)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
                 return;
             }
 
-            Lifetime.Active = false;
+            Lifetime.TryDeactivate();
             try { Runtime?.Dispose(); } catch { }
             try { GlobalShortcuts.Dispose(); } catch { }
             try { GlobalTopBar.Dispose(); } catch { }
             try { Workspace.Dispose(); } catch { }
-            if (NativeFactory is IDisposable disposable)
+            if (NativeFactory is IDisposable disposable &&
+                !ReferenceEquals(Runtime, NativeFactory))
             {
                 try { disposable.Dispose(); } catch { }
             }
@@ -221,23 +234,36 @@ public sealed partial class AppController
         slot.Descriptor = descriptor;
         slot.RuntimeId = Guid.NewGuid();
         slot.RestartRequested = false;
+        slot.RunningSinceUtc = default;
         var runtimeId = slot.RuntimeId;
-        _ = StartPluginAppRuntimeSlotAsync(slot, descriptor, runtimeId);
+        var lifetime = new PluginAppRuntimeLifetime();
+        slot.Lifetime = lifetime;
+        _ = StartPluginAppRuntimeSlotAsync(
+            slot,
+            descriptor,
+            runtimeId,
+            lifetime);
     }
 
     private async Task StartPluginAppRuntimeSlotAsync(
         PluginAppRuntimeSlot slot,
         PaperBodyPluginDescriptor descriptor,
-        Guid runtimeId)
+        Guid runtimeId,
+        PluginAppRuntimeLifetime lifetime)
     {
         PluginAppRuntimeLease? lease = null;
         try
         {
-            lease = await CreatePluginAppRuntimeLeaseAsync(slot, descriptor, runtimeId);
+            lease = await CreatePluginAppRuntimeLeaseAsync(
+                slot,
+                descriptor,
+                runtimeId,
+                lifetime);
 
             if (!IsCurrentPluginAppRuntimeSlot(slot, runtimeId) ||
                 !IsPluginAppRuntimeDesired(descriptor.Id))
             {
+                ClearPluginAppRuntimeLifetime(slot, lifetime);
                 lease.Dispose();
                 lease = null;
                 if (IsCurrentPluginAppRuntimeSlot(slot, runtimeId))
@@ -250,25 +276,30 @@ public sealed partial class AppController
 
             if (slot.RestartRequested)
             {
+                ClearPluginAppRuntimeLifetime(slot, lifetime);
                 lease.Dispose();
                 lease = null;
                 slot.RestartRequested = false;
-                slot.State = PluginAppRuntimeState.Stopped;
-                slot.FailureCount = 0;
-                QueuePluginStatusUiRefresh();
-                ReconcilePluginAppRuntimes();
+                HandlePluginAppRuntimeFailure(
+                    slot,
+                    descriptor,
+                    new InvalidOperationException(
+                        "The Web plugin app runtime failed while completing startup."),
+                    "startup-ready");
                 return;
             }
 
             slot.Lease = lease;
             lease = null;
             slot.State = PluginAppRuntimeTransitions.StartSucceeded(slot.State);
-            slot.FailureCount = 0;
+            slot.RunningSinceUtc = DateTimeOffset.UtcNow;
             slot.RetryGeneration++;
             QueuePluginStatusUiRefresh();
         }
         catch (PluginAppRuntimeOwnershipCanceledException)
         {
+            ClearPluginAppRuntimeLifetime(slot, lifetime);
+            lifetime.TryDeactivate();
             lease?.Dispose();
             if (!IsCurrentPluginAppRuntimeSlot(slot, runtimeId))
             {
@@ -282,35 +313,33 @@ public sealed partial class AppController
         }
         catch (Exception ex)
         {
+            ClearPluginAppRuntimeLifetime(slot, lifetime);
+            lifetime.TryDeactivate();
             lease?.Dispose();
             if (!IsCurrentPluginAppRuntimeSlot(slot, runtimeId))
             {
                 return;
             }
 
-            HandlePluginAppRuntimeStartFailure(slot, descriptor, ex);
+            HandlePluginAppRuntimeFailure(slot, descriptor, ex, "start");
         }
     }
 
     private async Task<PluginAppRuntimeLease> CreatePluginAppRuntimeLeaseAsync(
         PluginAppRuntimeSlot slot,
         PaperBodyPluginDescriptor descriptor,
-        Guid runtimeId)
+        Guid runtimeId,
+        PluginAppRuntimeLifetime lifetime)
     {
         if (!IsCurrentPluginAppRuntimeSlot(slot, runtimeId) ||
-            !IsPluginAppRuntimeDesired(descriptor.Id))
+            !IsPluginAppRuntimeDesired(descriptor.Id) ||
+            !lifetime.IsActive)
         {
             throw new PluginAppRuntimeOwnershipCanceledException(
                 "The plugin app runtime no longer has an entity-paper owner.");
         }
 
-        var lifetime = new PluginAppRuntimeLifetime();
-        bool IsActive() =>
-            lifetime.Active &&
-            IsRunning &&
-            IsCurrentPluginAppRuntimeSlot(slot, runtimeId) &&
-            slot.State is PluginAppRuntimeState.Starting or PluginAppRuntimeState.Running &&
-            IsPluginAppRuntimeDesired(descriptor.Id);
+        bool IsActive() => lifetime.IsActive;
 
         var workspace = new PaperAppRuntimeWorkspaceApi(
             this,
@@ -377,7 +406,7 @@ public sealed partial class AppController
                     "Built-in body providers cannot declare plugin appRuntime.");
             }
 
-            if (!IsActive())
+            if (!lifetime.IsActive)
             {
                 throw new PluginAppRuntimeOwnershipCanceledException(
                     "The plugin app runtime lost its entity-paper owner while starting.");
@@ -397,12 +426,13 @@ public sealed partial class AppController
         }
         catch
         {
-            lifetime.Active = false;
+            lifetime.TryDeactivate();
             try { runtime?.Dispose(); } catch { }
             try { globalShortcuts.Dispose(); } catch { }
             try { globalTopBar.Dispose(); } catch { }
             try { workspace.Dispose(); } catch { }
-            if (nativeFactory is IDisposable disposable)
+            if (nativeFactory is IDisposable disposable &&
+                !ReferenceEquals(runtime, nativeFactory))
             {
                 try { disposable.Dispose(); } catch { }
             }
@@ -410,19 +440,24 @@ public sealed partial class AppController
         }
     }
 
-    private void HandlePluginAppRuntimeStartFailure(
+    private void HandlePluginAppRuntimeFailure(
         PluginAppRuntimeSlot slot,
         PaperBodyPluginDescriptor descriptor,
-        Exception exception)
+        Exception exception,
+        string phase)
     {
         slot.Lease = null;
+        slot.Lifetime?.TryDeactivate();
+        slot.Lifetime = null;
         slot.RestartRequested = false;
+        slot.RunningSinceUtc = default;
         slot.FailureCount++;
         var attempt = slot.FailureCount;
 
         Trace.TraceWarning(
-            "Plugin app runtime failed to start. Provider={0}; Attempt={1}; Exception={2}",
+            "Plugin app runtime failure. Provider={0}; Phase={1}; Attempt={2}; Exception={3}",
             descriptor.Id,
+            phase,
             attempt,
             exception.GetBaseException());
 
@@ -545,22 +580,64 @@ public sealed partial class AppController
                 }
 
                 if (slot.State != PluginAppRuntimeState.Running ||
-                    slot.Lease?.RuntimeId != runtimeId)
+                    slot.Lease?.RuntimeId != runtimeId ||
+                    slot.Descriptor == null)
                 {
                     return;
                 }
 
+                if (slot.RunningSinceUtc != default &&
+                    DateTimeOffset.UtcNow - slot.RunningSinceUtc >=
+                    PluginAppRuntimeStableFailureResetAfter)
+                {
+                    slot.FailureCount = 0;
+                }
+
+                var descriptor = slot.Descriptor;
                 var lease = slot.Lease;
                 slot.Lease = null;
+                slot.Lifetime?.TryDeactivate();
+                slot.Lifetime = null;
                 slot.RetryGeneration++;
                 slot.RestartRequested = false;
-                slot.FailureCount = 0;
-                slot.State = PluginAppRuntimeState.Stopped;
                 lease.Dispose();
-                QueuePluginStatusUiRefresh();
-                ReconcilePluginAppRuntimes();
+                HandlePluginAppRuntimeFailure(
+                    slot,
+                    descriptor,
+                    new InvalidOperationException(
+                        "The Web plugin app runtime requested restart after a fatal navigation or browser-process failure."),
+                    "running");
             }),
             DispatcherPriority.Background);
+    }
+
+    private void RetryFailedPluginAppRuntimeAfterSettingsChanged(string providerId)
+    {
+        if (_pluginAppRuntimeDisposing ||
+            IsExiting ||
+            !_pluginAppRuntimeSlots.TryGetValue(providerId, out var slot) ||
+            slot.State is not (PluginAppRuntimeState.Backoff or PluginAppRuntimeState.Failed))
+        {
+            return;
+        }
+
+        slot.RetryGeneration++;
+        slot.RestartRequested = false;
+        slot.FailureCount = 0;
+        slot.RunningSinceUtc = default;
+        slot.State = PluginAppRuntimeState.Stopped;
+        QueuePluginStatusUiRefresh();
+        ReconcilePluginAppRuntimes();
+    }
+
+    private static void ClearPluginAppRuntimeLifetime(
+        PluginAppRuntimeSlot slot,
+        PluginAppRuntimeLifetime lifetime)
+    {
+        if (ReferenceEquals(slot.Lifetime, lifetime))
+        {
+            slot.Lifetime = null;
+        }
     }
 
     private void RemovePluginAppRuntimeSlot(string providerId)
@@ -573,6 +650,8 @@ public sealed partial class AppController
         slot.RetryGeneration++;
         slot.RestartRequested = false;
         slot.State = PluginAppRuntimeState.Disposing;
+        slot.Lifetime?.TryDeactivate();
+        slot.Lifetime = null;
         var lease = slot.Lease;
         slot.Lease = null;
         lease?.Dispose();

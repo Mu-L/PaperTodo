@@ -37,7 +37,7 @@ PaperTodo 负责：
 - 主键盘数字 / 小键盘数字别名规则；
 - 设置保存、恢复默认和插件卸载 / 退出清理。
 
-插件不要自己调用 Windows `RegisterHotKey` 来绕过这套管理。
+插件不要自己调用 Windows `RegisterHotKey` 来绕过这套管理。无法映射到真实 Windows 虚拟键的键名会在解析阶段直接拒绝，例如未定义的数值型 `Key`，不会拖到 `RegisterHotKey` 时才失败。
 
 ### 1.1 宿主自带的 paper action
 
@@ -60,7 +60,15 @@ paper.toggle
 
 这些动作由 PaperTodo 直接执行，不要求 body session 当前展开，也不需要插件 app runtime 接收回调。
 
-宿主会优先定位同 provider 的 `startupPaper` 所有者纸片；没有时回退到同 provider 的可见纸片，再回退到第一张同 provider 纸片。当前不会在完全没有该 provider 纸片时凭空猜一个多实例目标。
+同一个 provider 有多张纸片时，宿主按这个顺序找目标：
+
+1. 当前激活的同 provider 纸片；
+2. 最近激活过的同 provider 纸片；
+3. 当前可见的同 provider 纸片；
+4. 同 provider 的 `startupPaper` 所有者纸片；
+5. 第一张同 provider 纸片。
+
+完全没有该 provider 纸片时，不会凭空猜一个多实例目标。
 
 ## 2. 插件自己的快捷键 action
 
@@ -87,6 +95,8 @@ paper.toggle
 - 插件声明 `appRuntime`；
 - action id 为 1～80 个 ASCII 字母、数字、`.`、`_`、`-`；
 - app runtime 注册快捷键 action handler。
+
+自定义 action 是 **provider/appRuntime 全局动作**。宿主不会替它选择某张纸片，也不会在回调中偷偷附加“当前纸片”语义；如果插件业务需要目标纸片，应通过 Workspace 数据自行决定。
 
 ### Native app runtime
 
@@ -167,6 +177,8 @@ public interface IPaperPresentationApi
 
 调用会排队回到 PaperTodo UI Dispatcher，再进入已有 `ShowPaper`、`HidePaper`、`SetPaperCollapsedRuntime`、`ArrangeDeepCapsules`、`BringPaperToFront` 等宿主流程，不绕过已有状态机。
 
+**Presentation 是请求接口，不是动画完成接口。** Native 方法返回只表示请求已经交给宿主；不表示窗口动画已经结束，也不保证之后不会被新的宿主状态或生命周期变化覆盖。
+
 ## 4. Web：控制承载自己的纸片
 
 body 页面直接使用：
@@ -192,7 +204,7 @@ await papertodo.paper.expand({ activate: false });
 await papertodo.paper.toggleCollapsed({ activate: false });
 ```
 
-这些方法仍通过 PaperTodo host request，不直接操作 WebView2 外层窗口。
+这些方法仍通过 PaperTodo host request，不直接操作 WebView2 外层窗口。Promise resolve 表示宿主已经接受/处理这次请求，**不代表视觉动画已经完成**。
 
 ## 5. 快捷键录制期间的处理
 

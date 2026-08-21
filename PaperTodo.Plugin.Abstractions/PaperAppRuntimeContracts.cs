@@ -70,6 +70,10 @@ public sealed class PaperAppRuntimeContext
 /// "appRuntime" must implement this interface. After startupPaper handling, PaperTodo starts one
 /// provider runtime when at least one real paper uses the provider; a later 0 -> 1 transition starts
 /// it as well, and deleting/repurposing the last such paper ends it.
+///
+/// CreateAppRuntime is invoked on PaperTodo's UI-owned runtime lifecycle and must return promptly.
+/// Do not perform slow I/O or long initialization inline; start plugin-owned background work from the
+/// returned runtime and stop it with cancellation during Dispose.
 /// </summary>
 public interface IPaperAppRuntimeProvider
 {

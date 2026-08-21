@@ -19,12 +19,15 @@ internal sealed class WebPluginAppRuntime : IDisposable
     private readonly Action _requestRestart;
     private readonly WebView2CompositionControl _webView;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly TaskCompletionSource<bool> _startupReady =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _expectedOrigin = string.Empty;
     private bool _documentReady;
     private ulong _documentNavigationId;
     private bool _hasDocumentNavigation;
     private bool _reloadRecoveryPending;
     private bool _restartRequested;
+    private bool _startupCompleted;
     private bool _disposed;
 
     public WebPluginAppRuntime(
@@ -99,11 +102,20 @@ internal sealed class WebPluginAppRuntime : IDisposable
         core.ProcessFailed += OnProcessFailed;
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
             BuildBridgeScript(_expectedOrigin));
+        _lifetime.Token.ThrowIfCancellationRequested();
+        ThrowIfInactive();
         core.SetVirtualHostNameToFolderMapping(
             hostName,
             webRoot,
             CoreWebView2HostResourceAccessKind.DenyCors);
         _webView.Source = runtimeUri;
+
+        // A runtime is not Running merely because Source was assigned. Wait until the matching
+        // local document has completed and the host has sent initialize, so bridge requests cannot
+        // disappear into the pre-navigation gap.
+        await _startupReady.Task.WaitAsync(_lifetime.Token);
+        _startupCompleted = true;
+        ThrowIfInactive();
     }
 
     private static string BuildBridgeScript(string expectedOrigin)
@@ -115,13 +127,19 @@ internal sealed class WebPluginAppRuntime : IDisposable
               if (window !== window.top || location.origin !== expectedOrigin || window.papertodo) return;
               const listeners = new Set();
               const pending = new Map();
+              const queuedRequests = [];
               let sequence = 0;
+              let hostReady = false;
               const post = (type, payload = null) => window.chrome.webview.postMessage({ type, payload });
+              const postRequest = payload => {
+                if (hostReady) post('hostRequest', payload);
+                else queuedRequests.push(payload);
+              };
               const request = (method, params = {}) => {
                 const requestId = `a${++sequence}`;
                 return new Promise((resolve, reject) => {
                   pending.set(requestId, { resolve, reject });
-                  post('hostRequest', { requestId, method: String(method ?? ''), params: params ?? {} });
+                  postRequest({ requestId, method: String(method ?? ''), params: params ?? {} });
                 });
               };
               const workspace = Object.freeze({ request });
@@ -149,6 +167,12 @@ internal sealed class WebPluginAppRuntime : IDisposable
               });
               window.chrome.webview.addEventListener('message', event => {
                 const message = event.data;
+                if (message?.type === 'initialize' && !hostReady) {
+                  hostReady = true;
+                  for (const payload of queuedRequests.splice(0)) {
+                    post('hostRequest', payload);
+                  }
+                }
                 if (message?.type === 'hostResponse') {
                   const waiter = pending.get(message.requestId);
                   if (waiter) {
@@ -216,7 +240,8 @@ internal sealed class WebPluginAppRuntime : IDisposable
             _documentReady = false;
             TryClearGlobalTopBar();
             TryClearGlobalShortcuts();
-            RequestRestart();
+            FailStartupOrRestart(
+                $"Web app runtime navigation failed ({e.WebErrorStatus}).");
             return;
         }
 
@@ -232,6 +257,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
             permissions = _workspace.GrantedPermissions.OrderBy(value => value).ToArray(),
             settings = ReadSettings()
         });
+        _startupReady.TrySetResult(true);
     }
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
@@ -246,7 +272,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
                 // The control is closed after a browser-process exit and cannot be recovered with
                 // Reload. Let the app-runtime owner dispose this instance and create a fresh view.
-                RequestRestart();
+                FailStartupOrRestart("The WebView2 browser process exited.");
                 return;
 
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
@@ -276,7 +302,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         var dispatcher = _webView.Dispatcher;
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
-            RequestRestart();
+            FailStartupOrRestart("The Web app runtime dispatcher is shutting down.");
             return;
         }
 
@@ -294,17 +320,35 @@ internal sealed class WebPluginAppRuntime : IDisposable
                     var core = _webView.CoreWebView2;
                     if (core == null)
                     {
-                        RequestRestart();
+                        FailStartupOrRestart("The Web app runtime renderer could not be reloaded.");
                         return;
                     }
                     core.Reload();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    RequestRestart();
+                    FailStartupOrRestart(
+                        $"The Web app runtime renderer reload failed: {ex.GetBaseException().Message}");
                 }
             }),
             DispatcherPriority.Background);
+    }
+
+    private void FailStartupOrRestart(string message)
+    {
+        _hasDocumentNavigation = false;
+        _reloadRecoveryPending = false;
+        _documentReady = false;
+        TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
+
+        if (!_startupCompleted &&
+            _startupReady.TrySetException(new InvalidOperationException(message)))
+        {
+            return;
+        }
+
+        RequestRestart();
     }
 
     private void RequestRestart()
@@ -504,6 +548,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         TryClearGlobalTopBar();
         TryClearGlobalShortcuts();
         _disposed = true;
+        _startupReady.TrySetCanceled();
         _lifetime.Cancel();
         if (_webView.CoreWebView2 is { } core)
         {

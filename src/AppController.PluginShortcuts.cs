@@ -29,6 +29,10 @@ public sealed partial class AppController
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, PluginGlobalShortcutRuntime> _pluginShortcutRuntimes =
         new(StringComparer.Ordinal);
+    private readonly HashSet<PaperWindow> _pluginShortcutTrackedWindows = [];
+    private readonly Dictionary<string, long> _pluginShortcutPaperRecency =
+        new(StringComparer.Ordinal);
+    private long _pluginShortcutPaperRecencySequence;
     private string? _pluginShortcutRecordingCommandId;
 
     internal void SetPluginGlobalShortcutRuntime(
@@ -79,6 +83,7 @@ public sealed partial class AppController
             return;
         }
 
+        EnsurePluginShortcutWindowTracking();
         _pluginShortcutRegistrations.Clear();
         _pluginShortcutStatuses.Clear();
 
@@ -549,6 +554,7 @@ public sealed partial class AppController
     private void NotifyPluginSettingsChanged(PaperBodyPluginDescriptor descriptor)
     {
         var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
+        RetryFailedPluginAppRuntimeAfterSettingsChanged(descriptor.Id);
         foreach (var window in _windows.Values.ToList())
         {
             window.NotifyPaperBodyPluginSettingsChanged(descriptor.Id, settingsJson);
@@ -687,8 +693,45 @@ public sealed partial class AppController
         }
     }
 
+    private void EnsurePluginShortcutWindowTracking()
+    {
+        foreach (var pair in _windows.ToArray())
+        {
+            var paperId = pair.Key;
+            var window = pair.Value;
+            if (window.IsClosed || !_pluginShortcutTrackedWindows.Add(window))
+            {
+                continue;
+            }
+
+            window.Activated += (_, _) =>
+            {
+                if (!IsExiting && !window.IsClosed)
+                {
+                    RecordPluginShortcutPaperActivation(paperId);
+                }
+            };
+            window.Closed += (_, _) =>
+            {
+                _pluginShortcutTrackedWindows.Remove(window);
+                _pluginShortcutPaperRecency.Remove(paperId);
+            };
+
+            if (window.IsActive)
+            {
+                RecordPluginShortcutPaperActivation(paperId);
+            }
+        }
+    }
+
+    private void RecordPluginShortcutPaperActivation(string paperId)
+    {
+        _pluginShortcutPaperRecency[paperId] = ++_pluginShortcutPaperRecencySequence;
+    }
+
     private PaperData? ResolvePluginShortcutPaper(string providerId)
     {
+        EnsurePluginShortcutWindowTracking();
         var candidates = State.Papers
             .Where(paper =>
                 paper.Type == PaperTypes.Note &&
@@ -697,12 +740,28 @@ public sealed partial class AppController
                     providerId,
                     StringComparison.Ordinal))
             .ToArray();
-        return candidates.FirstOrDefault(paper =>
+
+        var active = candidates.FirstOrDefault(paper =>
+            _windows.TryGetValue(paper.Id, out var window) &&
+            !window.IsClosed &&
+            window.IsActive);
+        if (active != null)
+        {
+            RecordPluginShortcutPaperActivation(active.Id);
+            return active;
+        }
+
+        var recent = candidates
+            .Where(paper => _pluginShortcutPaperRecency.ContainsKey(paper.Id))
+            .OrderByDescending(paper => _pluginShortcutPaperRecency[paper.Id])
+            .FirstOrDefault();
+        return recent
+               ?? candidates.FirstOrDefault(paper => paper.IsVisible)
+               ?? candidates.FirstOrDefault(paper =>
                    string.Equals(
                        paper.StartupOwnerPluginId,
                        providerId,
                        StringComparison.Ordinal))
-               ?? candidates.FirstOrDefault(paper => paper.IsVisible)
                ?? candidates.FirstOrDefault();
     }
 
@@ -718,5 +777,7 @@ public sealed partial class AppController
         _pluginShortcutRegistrations.Clear();
         _pluginShortcutStatuses.Clear();
         _pluginShortcutRuntimes.Clear();
+        _pluginShortcutTrackedWindows.Clear();
+        _pluginShortcutPaperRecency.Clear();
     }
 }
