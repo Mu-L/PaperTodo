@@ -128,14 +128,12 @@ public partial class App : Application
             return;
         }
 
-        // App runtimes are process-level plugin owners. Start them after core state/paper recovery
-        // is stable, but still as part of application startup and before normal startup commands are
-        // released. No plugin paper or body session is required for Global Top Bar registration.
-        await _controller.StartPluginAppRuntimesAsync();
-        if (!_controller.IsRunning)
-        {
-            return;
-        }
+        // App runtimes are process-level plugin owners. Queue them only after core state/paper
+        // recovery is stable, but do not let third-party startup code delay PaperTodo becoming
+        // interactive. No plugin paper or body session is required for Global Top Bar registration.
+        _ = Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Background,
+            (Action)(() => _ = _controller.StartPluginAppRuntimesAsync()));
 
         if (!handlesInitialVisibility)
         {
