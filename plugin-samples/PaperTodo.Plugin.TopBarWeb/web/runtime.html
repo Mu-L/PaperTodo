@@ -22,6 +22,12 @@
   }
 
   papertodo.onEvent(async message => {
+    if (message.type === 'shortcutInvoked' &&
+        message.actionId === 'runtime.ping') {
+      console.log('PaperTodo custom shortcut', message.settingId, message.actionId);
+      return;
+    }
+
     if (message.type !== 'topBarActionInvoked' ||
         message.action?.actionId !== 'inspect-current') {
       return;
