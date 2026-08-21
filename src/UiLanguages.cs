@@ -26,6 +26,8 @@ public static class UiLanguages
     private static readonly string StartupPreference = LoadPersistedPreferenceCore();
 
     // Intentionally fixed for the process lifetime; a settings change takes effect after restart.
+    // EffectiveCulture owns user-visible number/date formatting and parsing; EffectiveUiCulture
+    // owns resource lookup plus WPF language/shaping. Persistence and protocols choose explicitly.
     public static CultureInfo EffectiveCulture { get; } =
         ResolveCulture(StartupPreference, SystemCulture);
 
@@ -53,7 +55,9 @@ public static class UiLanguages
 
             try
             {
-                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                using var document = JsonDocument.Parse(
+                    File.ReadAllText(path),
+                    StateJsonReadPolicy.DocumentOptions);
                 if (document.RootElement.TryGetProperty("uiLanguage", out var value) &&
                     value.ValueKind == JsonValueKind.String)
                 {

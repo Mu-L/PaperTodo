@@ -82,17 +82,7 @@ internal static class MarkdownInlineSyntax
             }
 
             chars ??= text.ToCharArray();
-            // Deliberately mask the whole delimiter run when its first punctuation is escaped.
-            // PaperTodo treats \**text** as literal Markdown markers rather than parsing the
-            // remaining asterisk as the start of emphasis.
-            var marker = text[i];
-            do
-            {
-                chars[i] = MaskedPunctuation;
-                i++;
-            }
-            while (i < text.Length && text[i] == marker);
-            i--;
+            chars[i] = MaskedPunctuation;
         }
         return chars == null ? text : new string(chars);
     }

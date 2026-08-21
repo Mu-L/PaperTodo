@@ -11,8 +11,8 @@ public sealed class StateStore
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
+        ReadCommentHandling = StateJsonReadPolicy.CommentHandling,
+        AllowTrailingCommas = StateJsonReadPolicy.AllowTrailingCommas,
         // Tolerate unknown properties so configs written by older / experimental builds (e.g.
         // retired deepCapsuleDock* fields) still load instead of crashing on startup. The Strict
         // preset otherwise sets Disallow, which makes any removed/renamed field fatal.
