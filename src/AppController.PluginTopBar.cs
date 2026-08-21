@@ -73,6 +73,10 @@ public sealed partial class AppController
         registration.HiddenHostActions = hiddenHostActions;
         registration.Ordinal = ++_pluginTopBarRegistrationOrdinal;
 
+        if (normalized.Length > 0 || hiddenHostActions != PaperHostTopBarActions.None)
+        {
+            PaperWindow.EnsurePluginTopBarLoadedHandler();
+        }
         RefreshPluginTopBarForPaper(hostPaperId);
     }
 
