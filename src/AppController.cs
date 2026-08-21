@@ -1961,7 +1961,7 @@ public sealed partial class AppController : IDisposable
         MarkDirty();
     }
 
-    public async void ShowAllPapers()
+    public void ShowAllPapers()
     {
         if (IsExiting)
         {
@@ -1969,17 +1969,31 @@ public sealed partial class AppController : IDisposable
         }
 
         EnsurePapersOnScreen();
-        var papersToShow = State.Papers.ToList();
-        foreach (var paper in papersToShow)
+
+        // Runtime show-all must follow the normal per-paper restore path. The startup restore
+        // pipeline prebuilds edge surfaces before ShowPaper(), which can change edge presentation
+        // state before remembered expanded geometry has been restored.
+        var wasSuppressingDirty = _suppressDirty;
+        _suppressDirty = true;
+        _trayRefreshSuppressionDepth++;
+        try
         {
-            paper.IsVisible = true;
+            var papersToShow = State.Papers.ToList();
+            var activationPaper = papersToShow.LastOrDefault(paper =>
+                !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
+            foreach (var paper in papersToShow)
+            {
+                ShowPaper(paper, activate: ReferenceEquals(paper, activationPaper));
+            }
+        }
+        finally
+        {
+            _trayRefreshSuppressionDepth--;
+            _suppressDirty = wasSuppressingDirty;
         }
 
-        await RestorePaperSurfacesAsync(papersToShow);
-        if (!IsExiting)
-        {
-            MarkDirty();
-        }
+        RefreshTrayMenu();
+        MarkDirty();
     }
 
     public void HideAllPapers()
