@@ -25,7 +25,7 @@ internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposab
         _inner = new PaperBodyPluginHostApi(
             controller,
             controller.PaperCommands,
-            hostPaperId: string.Empty,
+            hostPaperId: null,
             providerId,
             permissions,
             isSessionCurrent: isActive,
