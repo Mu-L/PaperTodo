@@ -35,6 +35,13 @@ public interface IPaperGlobalShortcutApi
 /// Context for one provider-level runtime. The runtime exists while PaperTodo has at least one real
 /// Note paper whose BodyProviderId is this plugin. It does not depend on that paper being visible,
 /// expanded, or having a live body session.
+///
+/// Native app runtimes may call Workspace / GlobalTopBar / GlobalShortcuts from worker threads;
+/// PaperTodo marshals those host operations to its UI dispatcher when required. Those calls are
+/// synchronous from the plugin's point of view. A runtime therefore must not block its Dispose
+/// implementation waiting for a worker that can itself be blocked inside one of these host calls,
+/// otherwise the UI thread and worker can deadlock during shutdown. Keep host calls short and make
+/// worker shutdown cancellation-based rather than UI-thread join-based.
 /// </summary>
 public sealed class PaperAppRuntimeContext
 {
@@ -59,7 +66,9 @@ public interface IPaperAppRuntimeProvider
 
 /// <summary>
 /// One provider-level plugin runtime. It is not a hidden paper session and owns no Paper/Body/Mini
-/// presentation. Dispose ends the runtime and revokes its provider-level contributions.
+/// presentation. Dispose ends the runtime and revokes its provider-level contributions. Native
+/// implementations are disposed from PaperTodo's UI-owned runtime lifecycle; Dispose must return
+/// promptly and must not synchronously join workers that may call back into PaperTodo host APIs.
 /// </summary>
 public interface IPaperAppRuntime : IDisposable
 {
