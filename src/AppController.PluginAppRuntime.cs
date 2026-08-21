@@ -154,7 +154,12 @@ public sealed partial class AppController
         }
 
         var lifetime = new PluginAppRuntimeLifetime();
-        bool IsActive() => lifetime.Active && IsRunning;
+        bool IsActive() =>
+            lifetime.Active &&
+            IsRunning &&
+            _pluginAppRuntimeReconciliationEnabled &&
+            !_pluginAppRuntimeDisposing &&
+            HasEntityPluginPaper(descriptor.Id);
         var runtimeId = Guid.NewGuid();
         var workspace = new PaperAppRuntimeWorkspaceApi(
             this,
@@ -206,11 +211,7 @@ public sealed partial class AppController
                     "Built-in body providers cannot declare plugin appRuntime.");
             }
 
-            if (!_pluginAppRuntimeReconciliationEnabled ||
-                _pluginAppRuntimeDisposing ||
-                IsExiting ||
-                !lifetime.Active ||
-                !HasEntityPluginPaper(descriptor.Id))
+            if (!IsActive())
             {
                 throw new OperationCanceledException(
                     "The plugin app runtime lost its last entity paper while starting.");
