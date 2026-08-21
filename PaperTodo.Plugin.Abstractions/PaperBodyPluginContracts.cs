@@ -123,9 +123,9 @@ public sealed record PaperTopBarAction
 }
 
 /// <summary>
-/// Describes a top-bar click. Global actions are rendered on other papers while their owning plugin
-/// session is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
-/// clicked rather than the plugin's host paper. TargetBodyProviderId is empty for non-Note papers.
+/// Describes a top-bar click. Global actions can be rendered on any paper while their owning plugin
+/// app runtime is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
+/// clicked rather than any plugin-owned paper. TargetBodyProviderId is empty for non-Note papers.
 /// </summary>
 public sealed record PaperTopBarActionInvocation(
     string ActionId,
@@ -135,10 +135,9 @@ public sealed record PaperTopBarActionInvocation(
     string TargetBodyProviderId);
 
 /// <summary>
-/// Session-scoped PaperTodo top-bar capability introduced by protocol 2.0. This is deliberately
-/// separate from IPaperTodoHostApi/Workspace: top-bar contribution is presentation/session state,
-/// not a Paper/Todo/Note business-data mutation. PaperTodo owns rendering and automatically removes
-/// all contributions when the owning session ends.
+/// Paper-session-scoped Top Bar capability. It can contribute actions only to the paper carrying
+/// this body session. Process-level Global actions belong to PaperAppRuntimeContext.GlobalTopBar.
+/// PaperTodo owns rendering and automatically removes these Paper actions when the session ends.
 /// </summary>
 public interface IPaperTopBarApi
 {
@@ -147,8 +146,6 @@ public interface IPaperTopBarApi
     void SetPaperActions(
         IReadOnlyList<PaperTopBarAction> actions,
         PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None);
-
-    void SetGlobalActions(IReadOnlyList<PaperTopBarAction> actions);
 
     void Clear();
 }
@@ -330,7 +327,7 @@ public sealed class PaperBodySurfaceContext
 /// <summary>
 /// One plugin instance is anchored to one paper. Paper contains paper-owned presentation state,
 /// Body contains the expanded body surface, Workspace exposes PaperTodo-wide business-data
-/// operations, and TopBar exposes the independent session-scoped chrome contribution capability.
+/// operations, and TopBar exposes the paper-session chrome contribution capability.
 /// </summary>
 public sealed class PaperBodyContext
 {
@@ -348,7 +345,7 @@ public sealed class PaperBodyContext
     public required IPaperTodoHostApi Workspace { get; init; }
     public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
         ?? throw new InvalidOperationException(
-            "This PaperTodo host does not expose the protocol 2.0 top-bar capability.");
+            "This PaperTodo host does not expose the protocol 2.0 paper top-bar capability.");
     public required Action<string> SaveStateJson { get; init; }
 
     // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
