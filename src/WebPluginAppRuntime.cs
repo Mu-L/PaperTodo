@@ -20,6 +20,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
     private readonly PaperAppRuntimeGlobalTopBarApi _globalTopBar;
+    private readonly PaperAppRuntimeGlobalShortcutApi _globalShortcuts;
     private readonly Func<bool> _isActive;
     private readonly WebView2CompositionControl _webView;
     private readonly CancellationTokenSource _lifetime = new();
@@ -31,11 +32,13 @@ internal sealed class WebPluginAppRuntime : IDisposable
         PaperBodyPluginDescriptor descriptor,
         IPaperTodoHostApi workspace,
         PaperAppRuntimeGlobalTopBarApi globalTopBar,
+        PaperAppRuntimeGlobalShortcutApi globalShortcuts,
         Func<bool> isActive)
     {
         _descriptor = descriptor;
         _workspace = workspace;
         _globalTopBar = globalTopBar;
+        _globalShortcuts = globalShortcuts;
         _isActive = isActive;
         _webView = new WebView2CompositionControl
         {
@@ -51,6 +54,14 @@ internal sealed class WebPluginAppRuntime : IDisposable
             throw new InvalidOperationException(
                 "PaperTodo could not attach the Web plugin app runtime to its background host.");
         }
+
+        _globalShortcuts.SetActionHandler(invocation =>
+            Send(new
+            {
+                type = "shortcutInvoked",
+                settingId = invocation.SettingId,
+                actionId = invocation.ActionId
+            }));
     }
 
     public async Task StartAsync()
