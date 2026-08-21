@@ -543,8 +543,15 @@ public sealed partial class AppController
 
     private void OnPluginHotkeyInvoked(string commandId)
     {
-        if (IsExiting ||
-            !_pluginShortcutRegistrations.TryGetValue(commandId, out var registration))
+        if (IsExiting)
+        {
+            return;
+        }
+        if (TryRecordRegisteredPluginHotkey(commandId))
+        {
+            return;
+        }
+        if (!_pluginShortcutRegistrations.TryGetValue(commandId, out var registration))
         {
             return;
         }
@@ -552,6 +559,47 @@ public sealed partial class AppController
         _ = Application.Current.Dispatcher.InvokeAsync(
             () => ExecutePluginShortcut(registration),
             DispatcherPriority.Input);
+    }
+
+    private bool TryRecordRegisteredPluginHotkey(string commandId)
+    {
+        if (!SupportsShortcutRecording(_settingsPage) ||
+            _shortcutRecordingCommandId is not { Length: > 0 } recordingCommandId)
+        {
+            return false;
+        }
+
+        if (_pluginHotkeys is not { } hotkeys ||
+            !hotkeys.ActiveBindings.TryGetValue(commandId, out var binding) ||
+            string.IsNullOrEmpty(binding))
+        {
+            // A plugin WM_HOTKEY received while the host is recording must never fall through to
+            // the old plugin action, even if the registration disappeared during a UI rebuild.
+            return true;
+        }
+
+        if (!ShortcutGesture.TryParse(binding, out var gesture) ||
+            !TrySetRecordedShortcutDraft(recordingCommandId, gesture))
+        {
+            return true;
+        }
+
+        _shortcutRecordingCommandId = null;
+        // The plugin currently owns this exact RegisterHotKey slot. Release it before applying the
+        // host draft, then rebuild plugin registrations against the newly authoritative host set.
+        SuspendPluginShortcutRegistrations();
+        try
+        {
+            ApplyShortcutDraft(recordingCommandId);
+        }
+        finally
+        {
+            if (!IsExiting)
+            {
+                RefreshPluginShortcuts();
+            }
+        }
+        return true;
     }
 
     private void ExecutePluginShortcut(PluginShortcutRegistration registration)

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Windows;
+using System.Windows.Threading;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -6,6 +8,12 @@ namespace PaperTodo;
 public sealed partial class AppController
 {
     private const string PluginAppRuntimeCapability = "appRuntime";
+    private static readonly TimeSpan[] PluginAppRuntimeRetryDelays =
+    [
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromSeconds(10)
+    ];
 
     private sealed class PluginAppRuntimeLifetime
     {
@@ -17,6 +25,7 @@ public sealed partial class AppController
 
     private sealed class PluginAppRuntimeLease : IDisposable
     {
+        public required Guid RuntimeId { get; init; }
         public required string ProviderId { get; init; }
         public required PluginAppRuntimeLifetime Lifetime { get; init; }
         public required PaperAppRuntimeWorkspaceApi Workspace { get; init; }
@@ -49,6 +58,13 @@ public sealed partial class AppController
         new(StringComparer.Ordinal);
     private readonly HashSet<string> _pluginAppRuntimeStartFailures =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _pluginAppRuntimeStartFailureCounts =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _pluginAppRuntimeRetryTokens =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Guid> _pluginAppRuntimeRestartRequests =
+        new(StringComparer.Ordinal);
+    private int _pluginAppRuntimeNextRetryToken;
     private bool _pluginAppRuntimeReconciliationEnabled;
     private bool _pluginAppRuntimeDisposing;
 
@@ -95,7 +111,8 @@ public sealed partial class AppController
             var lease = _pluginAppRuntimes[providerId];
             _pluginAppRuntimes.Remove(providerId);
             lease.Dispose();
-            _pluginAppRuntimeStartFailures.Remove(providerId);
+            ClearPluginAppRuntimeFailureState(providerId);
+            _pluginAppRuntimeRestartRequests.Remove(providerId);
             runtimeSetChanged = true;
         }
 
@@ -103,7 +120,8 @@ public sealed partial class AppController
                      .Where(providerId => !desired.ContainsKey(providerId))
                      .ToArray())
         {
-            _pluginAppRuntimeStartFailures.Remove(providerId);
+            ClearPluginAppRuntimeFailureState(providerId);
+            _pluginAppRuntimeRestartRequests.Remove(providerId);
             runtimeSetChanged = true;
         }
 
@@ -139,20 +157,26 @@ public sealed partial class AppController
         try
         {
             await StartPluginAppRuntimeAsync(descriptor);
+            ClearPluginAppRuntimeFailureState(descriptor.Id);
             QueuePluginStatusUiRefresh();
         }
         catch (PluginAppRuntimeOwnershipCanceledException)
         {
-            // The last entity paper disappeared or PaperTodo began shutting down while startup was
-            // in flight. That is a normal ownership change, not a plugin failure.
+            // The last entity paper disappeared, a failed WebView requested a clean replacement,
+            // or PaperTodo began shutting down while startup was in flight. None is a plugin fault.
         }
         catch (Exception ex)
         {
+            var failureCount =
+                _pluginAppRuntimeStartFailureCounts.GetValueOrDefault(descriptor.Id) + 1;
+            _pluginAppRuntimeStartFailureCounts[descriptor.Id] = failureCount;
             _pluginAppRuntimeStartFailures.Add(descriptor.Id);
+            SchedulePluginAppRuntimeRetry(descriptor.Id, failureCount);
             QueuePluginStatusUiRefresh();
             Trace.TraceWarning(
-                "Plugin app runtime failed to start. Provider={0}; Exception={1}",
+                "Plugin app runtime failed to start. Provider={0}; Attempt={1}; Exception={2}",
                 descriptor.Id,
+                failureCount,
                 ex.GetBaseException());
         }
         finally
@@ -162,6 +186,75 @@ public sealed partial class AppController
             // in-flight marker is gone so the new entity paper cannot be stranded without runtime.
             ReconcilePluginAppRuntimes();
         }
+    }
+
+    private void SchedulePluginAppRuntimeRetry(string providerId, int failureCount)
+    {
+        var retryIndex = failureCount - 1;
+        if (retryIndex < 0 ||
+            retryIndex >= PluginAppRuntimeRetryDelays.Length ||
+            _pluginAppRuntimeRetryTokens.ContainsKey(providerId) ||
+            !_pluginAppRuntimeReconciliationEnabled ||
+            _pluginAppRuntimeDisposing ||
+            IsExiting ||
+            !HasEntityPluginPaper(providerId))
+        {
+            return;
+        }
+
+        var token = ++_pluginAppRuntimeNextRetryToken;
+        _pluginAppRuntimeRetryTokens[providerId] = token;
+        _ = RetryPluginAppRuntimeAfterDelayAsync(
+            providerId,
+            token,
+            PluginAppRuntimeRetryDelays[retryIndex]);
+    }
+
+    private async Task RetryPluginAppRuntimeAfterDelayAsync(
+        string providerId,
+        int token,
+        TimeSpan delay)
+    {
+        await Task.Delay(delay).ConfigureAwait(false);
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (!_pluginAppRuntimeRetryTokens.TryGetValue(providerId, out var currentToken) ||
+                    currentToken != token)
+                {
+                    return;
+                }
+                _pluginAppRuntimeRetryTokens.Remove(providerId);
+
+                if (_pluginAppRuntimeDisposing ||
+                    IsExiting ||
+                    !_pluginAppRuntimeReconciliationEnabled ||
+                    !HasEntityPluginPaper(providerId))
+                {
+                    ClearPluginAppRuntimeFailureState(providerId);
+                    return;
+                }
+
+                // Release the failure gate only when its backoff has elapsed. A new failure records
+                // the next attempt and schedules the next bounded delay.
+                _pluginAppRuntimeStartFailures.Remove(providerId);
+                ReconcilePluginAppRuntimes();
+            }),
+            DispatcherPriority.Background);
+    }
+
+    private void ClearPluginAppRuntimeFailureState(string providerId)
+    {
+        _pluginAppRuntimeStartFailures.Remove(providerId);
+        _pluginAppRuntimeStartFailureCounts.Remove(providerId);
+        // Removing the token also invalidates a delayed retry callback that has not dispatched yet.
+        _pluginAppRuntimeRetryTokens.Remove(providerId);
     }
 
     private async Task StartPluginAppRuntimeAsync(PaperBodyPluginDescriptor descriptor)
@@ -231,7 +324,8 @@ public sealed partial class AppController
                     workspace,
                     globalTopBar,
                     globalShortcuts,
-                    IsActive);
+                    IsActive,
+                    () => RequestPluginAppRuntimeRestart(runtimeId, descriptor.Id));
                 runtime = webRuntime;
                 await webRuntime.StartAsync();
             }
@@ -247,8 +341,21 @@ public sealed partial class AppController
                     "The plugin app runtime lost its last entity paper while starting.");
             }
 
+            if (_pluginAppRuntimeRestartRequests.TryGetValue(
+                    descriptor.Id,
+                    out var requestedRuntimeId))
+            {
+                _pluginAppRuntimeRestartRequests.Remove(descriptor.Id);
+                if (requestedRuntimeId == runtimeId)
+                {
+                    throw new PluginAppRuntimeOwnershipCanceledException(
+                        "The plugin app runtime requested replacement while starting.");
+                }
+            }
+
             _pluginAppRuntimes.Add(descriptor.Id, new PluginAppRuntimeLease
             {
+                RuntimeId = runtimeId,
                 ProviderId = descriptor.Id,
                 Lifetime = lifetime,
                 Workspace = workspace,
@@ -273,6 +380,51 @@ public sealed partial class AppController
         }
     }
 
+    private void RequestPluginAppRuntimeRestart(Guid runtimeId, string providerId)
+    {
+        if (_pluginAppRuntimeDisposing || IsExiting)
+        {
+            return;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        // ProcessFailed is raised by WebView2. Defer disposal out of that callback so we never tear
+        // down the control while WebView2 is still unwinding its own failure notification.
+        _ = dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_pluginAppRuntimeDisposing || IsExiting)
+                {
+                    return;
+                }
+
+                if (_pluginAppRuntimes.TryGetValue(providerId, out var lease) &&
+                    lease.RuntimeId == runtimeId)
+                {
+                    _pluginAppRuntimes.Remove(providerId);
+                    ClearPluginAppRuntimeFailureState(providerId);
+                    _pluginAppRuntimeRestartRequests.Remove(providerId);
+                    lease.Dispose();
+                    QueuePluginStatusUiRefresh();
+                    ReconcilePluginAppRuntimes();
+                    return;
+                }
+
+                if (_pluginAppRuntimeStarts.Contains(providerId))
+                {
+                    // StartAsync returns before the first document necessarily settles. Remember
+                    // the exact runtime id so a stale crash callback can never cancel a newer start.
+                    _pluginAppRuntimeRestartRequests[providerId] = runtimeId;
+                }
+            }),
+            DispatcherPriority.Background);
+    }
+
     private static bool DeclaresPluginAppRuntime(PaperBodyPluginDescriptor descriptor) =>
         descriptor.Manifest?.Capabilities?.Any(value =>
             string.Equals(
@@ -290,5 +442,8 @@ public sealed partial class AppController
         }
         _pluginAppRuntimes.Clear();
         _pluginAppRuntimeStartFailures.Clear();
+        _pluginAppRuntimeStartFailureCounts.Clear();
+        _pluginAppRuntimeRetryTokens.Clear();
+        _pluginAppRuntimeRestartRequests.Clear();
     }
 }

@@ -188,8 +188,9 @@ public sealed partial class AppController
 
     internal PluginTopBarRenderState GetPluginTopBarRenderState(string paperId)
     {
-        PruneInactivePluginTopBarRegistrations();
-
+        // Rendering is a read-only query. Ownership teardown is the only place that mutates these
+        // registries so a stale registration cannot disappear here before its owner gets a chance
+        // to refresh every window through RemovePlugin*TopBar*.
         var paperRegistration = _pluginPaperTopBars.Values
             .FirstOrDefault(item =>
                 string.Equals(item.HostPaperId, paperId, StringComparison.Ordinal) &&
@@ -392,24 +393,6 @@ public sealed partial class AppController
             });
         }
         return result.ToArray();
-    }
-
-    private void PruneInactivePluginTopBarRegistrations()
-    {
-        foreach (var registration in _pluginPaperTopBars.Values.ToArray())
-        {
-            if (!IsActive(registration.IsActive))
-            {
-                _pluginPaperTopBars.Remove(registration.SessionId);
-            }
-        }
-        foreach (var registration in _pluginGlobalTopBars.Values.ToArray())
-        {
-            if (!IsActive(registration.IsActive))
-            {
-                _pluginGlobalTopBars.Remove(registration.ProviderId);
-            }
-        }
     }
 
     private static bool IsActive(Func<bool> predicate)

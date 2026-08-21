@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using PaperTodo.Plugin;
@@ -22,10 +23,15 @@ internal sealed class WebPluginAppRuntime : IDisposable
     private readonly PaperAppRuntimeGlobalTopBarApi _globalTopBar;
     private readonly PaperAppRuntimeGlobalShortcutApi _globalShortcuts;
     private readonly Func<bool> _isActive;
+    private readonly Action _requestRestart;
     private readonly WebView2CompositionControl _webView;
     private readonly CancellationTokenSource _lifetime = new();
     private string _expectedOrigin = string.Empty;
     private bool _documentReady;
+    private ulong _documentNavigationId;
+    private bool _hasDocumentNavigation;
+    private bool _reloadRecoveryPending;
+    private bool _restartRequested;
     private bool _disposed;
 
     public WebPluginAppRuntime(
@@ -33,13 +39,15 @@ internal sealed class WebPluginAppRuntime : IDisposable
         IPaperTodoHostApi workspace,
         PaperAppRuntimeGlobalTopBarApi globalTopBar,
         PaperAppRuntimeGlobalShortcutApi globalShortcuts,
-        Func<bool> isActive)
+        Func<bool> isActive,
+        Action requestRestart)
     {
         _descriptor = descriptor;
         _workspace = workspace;
         _globalTopBar = globalTopBar;
         _globalShortcuts = globalShortcuts;
         _isActive = isActive;
+        _requestRestart = requestRestart;
         _webView = new WebView2CompositionControl
         {
             Width = 1,
@@ -185,6 +193,9 @@ internal sealed class WebPluginAppRuntime : IDisposable
             e.Cancel = true;
             return;
         }
+
+        _documentNavigationId = e.NavigationId;
+        _hasDocumentNavigation = true;
         _documentReady = false;
         TryClearGlobalTopBar();
         TryClearGlobalShortcuts();
@@ -195,14 +206,26 @@ internal sealed class WebPluginAppRuntime : IDisposable
         CoreWebView2NavigationCompletedEventArgs e)
     {
         if (!ReferenceEquals(sender, _webView.CoreWebView2) ||
-            !e.IsSuccess ||
-            !IsAllowedSource(_webView.Source?.AbsoluteUri))
+            !_hasDocumentNavigation ||
+            e.NavigationId != _documentNavigationId)
         {
+            // A host-cancelled external navigation still raises NavigationCompleted. It never
+            // became the committed app-runtime navigation and must not tear down the healthy page.
+            return;
+        }
+
+        _hasDocumentNavigation = false;
+        if (!e.IsSuccess || !IsAllowedSource(_webView.Source?.AbsoluteUri))
+        {
+            _reloadRecoveryPending = false;
             _documentReady = false;
             TryClearGlobalTopBar();
             TryClearGlobalShortcuts();
+            RequestRestart();
             return;
         }
+
+        _reloadRecoveryPending = false;
         _documentReady = true;
         RegisterGlobalShortcutHandler();
         Send(new
@@ -217,13 +240,98 @@ internal sealed class WebPluginAppRuntime : IDisposable
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
     {
-        if (!ReferenceEquals(sender, _webView.CoreWebView2))
+        if (!ReferenceEquals(sender, _webView.CoreWebView2) || _disposed)
         {
             return;
         }
+
+        switch (e.ProcessFailedKind)
+        {
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                // The control is closed after a browser-process exit and cannot be recovered with
+                // Reload. Let the app-runtime owner dispose this instance and create a fresh view.
+                RequestRestart();
+                return;
+
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                RecoverRendererByReload();
+                return;
+
+            default:
+                // Utility/GPU/sandbox/subframe process failures are non-fatal to the top-level app
+                // runtime. WebView2 recreates those processes or leaves the main document usable.
+                return;
+        }
+    }
+
+    private void RecoverRendererByReload()
+    {
+        if (_disposed || _restartRequested || _reloadRecoveryPending)
+        {
+            return;
+        }
+
+        _reloadRecoveryPending = true;
         _documentReady = false;
         TryClearGlobalTopBar();
         TryClearGlobalShortcuts();
+
+        var dispatcher = _webView.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            RequestRestart();
+            return;
+        }
+
+        // Leave the ProcessFailed callback before calling back into WebView2. A repeated
+        // RenderProcessUnresponsive event is ignored while this one recovery navigation is pending.
+        _ = dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_disposed || _restartRequested || !_reloadRecoveryPending)
+                {
+                    return;
+                }
+                try
+                {
+                    var core = _webView.CoreWebView2;
+                    if (core == null)
+                    {
+                        RequestRestart();
+                        return;
+                    }
+                    core.Reload();
+                }
+                catch
+                {
+                    RequestRestart();
+                }
+            }),
+            DispatcherPriority.Background);
+    }
+
+    private void RequestRestart()
+    {
+        if (_disposed || _restartRequested)
+        {
+            return;
+        }
+
+        _restartRequested = true;
+        _hasDocumentNavigation = false;
+        _reloadRecoveryPending = false;
+        _documentReady = false;
+        TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
+        try
+        {
+            _requestRestart();
+        }
+        catch
+        {
+            // Runtime ownership still tears this instance down during normal host shutdown.
+        }
     }
 
     private void OnWebMessageReceived(
