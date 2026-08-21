@@ -86,6 +86,8 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     internal const string SupportedPluginApiVersion = "2.0";
     internal const string MinimumPluginApiVersion = "1.8";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
+    private static readonly StringComparer UiDisplayNameComparer =
+        StringComparer.Create(UiLanguages.EffectiveUiCulture, ignoreCase: true);
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -118,7 +120,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     public IReadOnlyList<PaperBodyPluginDescriptor> Descriptors =>
         _descriptors.Values
             .OrderBy(item => item.Kind)
-            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.DisplayName, UiDisplayNameComparer)
             .ToArray();
 
     public IReadOnlyList<PaperBodyPluginLoadIssue> Issues => _issues.ToArray();
@@ -248,8 +250,6 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 loaded.DirectoryPath,
                 Strings.Get("PluginsNativeRemovedRestart"),
                 RestartRequired: true));
-            // The CLR cannot safely replace an already loaded trusted WPF plugin. Keep the
-            // in-memory descriptor usable for this process; the next start will reflect deletion.
             if (!next.ContainsKey(loaded.Descriptor.Id))
             {
                 next.Add(loaded.Descriptor.Id, loaded.Descriptor);
@@ -422,8 +422,6 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             return loaded.Descriptor;
         }
 
-        // Discovery stays manifest-only. Loading the assembly, reflecting its types and running
-        // its constructor are deferred until a paper actually selects this provider.
         return new PaperBodyPluginDescriptor(
             manifest.Id.Trim(),
             string.IsNullOrWhiteSpace(manifest.Name)
@@ -710,6 +708,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         throw new InvalidDataException(
             $"Unsupported plugin API version {pluginApiVersion}; host supports 1.8 compatibility and {SupportedPluginApiVersion}.");
     }
+
     private static Version ParseVersion(string? value)
     {
         if (!Version.TryParse(value, out var parsed))
