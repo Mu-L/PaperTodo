@@ -334,6 +334,9 @@ public sealed class PaperBodySurfaceContext
 /// </summary>
 public sealed class PaperBodyContext
 {
+    private IPaperTodoHostApi _workspace = null!;
+    private IPaperTopBarApi _topBar = null!;
+
     public required string ProviderId { get; init; }
     public required string ApiVersion { get; init; }
     public required string StateJson { get; init; }
@@ -345,8 +348,22 @@ public sealed class PaperBodyContext
 
     public required PaperBodyPaperContext Paper { get; init; }
     public required PaperBodySurfaceContext Body { get; init; }
-    public required IPaperTodoHostApi Workspace { get; init; }
-    public required IPaperTopBarApi TopBar { get; init; }
+    public required IPaperTodoHostApi Workspace
+    {
+        get => _workspace;
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (value is not IPaperTopBarApi topBar)
+            {
+                throw new InvalidOperationException(
+                    "The PaperTodo plugin host must expose the protocol 2.0 top-bar capability.");
+            }
+            _workspace = value;
+            _topBar = topBar;
+        }
+    }
+    public IPaperTopBarApi TopBar => _topBar;
     public required Action<string> SaveStateJson { get; init; }
 
     // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
