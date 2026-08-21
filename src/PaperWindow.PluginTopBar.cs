@@ -13,7 +13,9 @@ public sealed partial class PaperWindow
     private StackPanel? _pluginTopBarButtonsHost;
     private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
     private bool _pluginHostActionVisibilityHooksInstalled;
+    private bool _pluginTopBarCapacityHookInstalled;
     private bool _reconcilingPluginHostActionVisibility;
+    private bool _reconcilingPluginTopBarCapacity;
 
     internal static void EnsurePluginTopBarLoadedHandler()
     {
@@ -89,7 +91,7 @@ public sealed partial class PaperWindow
 
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
         ReconcilePluginHiddenHostTopBarActions();
-        UpdateTopBarResponsiveLayout();
+        ReconcilePluginTopBarCapacity();
     }
 
     private void EnsurePluginTopBarButtonsHost()
@@ -109,7 +111,60 @@ public sealed partial class PaperWindow
             _topBarActionButtonsHost.Children.Insert(0, _pluginTopBarButtonsHost);
         }
 
+        EnsurePluginTopBarCapacityHook();
         EnsurePluginHostActionVisibilityHooks();
+    }
+
+    private void EnsurePluginTopBarCapacityHook()
+    {
+        if (_pluginTopBarCapacityHookInstalled || _topBar == null)
+        {
+            return;
+        }
+
+        _pluginTopBarCapacityHookInstalled = true;
+        _topBar.SizeChanged += (_, _) => ReconcilePluginTopBarCapacity();
+    }
+
+    private void ReconcilePluginTopBarCapacity()
+    {
+        if (_reconcilingPluginTopBarCapacity ||
+            _pluginTopBarButtonsHost == null ||
+            _topBarActionButtonsHost == null ||
+            _paper.IsCollapsed)
+        {
+            return;
+        }
+
+        _reconcilingPluginTopBarCapacity = true;
+        try
+        {
+            // Host actions have absolute precedence over plugin priority. First ask the existing
+            // responsive policy whether the host-only right group fits. Only if it does, try adding
+            // the plugin group. If that would collapse the whole host action group, the plugin group
+            // yields and the host-only decision is applied again. This keeps Global action count
+            // unbounded without letting a plugin push PaperTodo's own controls out first.
+            _pluginTopBarButtonsHost.Visibility = Visibility.Collapsed;
+            UpdateTopBarResponsiveLayout();
+
+            if (_pluginTopBarButtonsHost.Children.Count == 0 ||
+                _topBarActionButtonsHost.Visibility != Visibility.Visible)
+            {
+                return;
+            }
+
+            _pluginTopBarButtonsHost.Visibility = Visibility.Visible;
+            UpdateTopBarResponsiveLayout();
+            if (_topBarActionButtonsHost.Visibility != Visibility.Visible)
+            {
+                _pluginTopBarButtonsHost.Visibility = Visibility.Collapsed;
+                UpdateTopBarResponsiveLayout();
+            }
+        }
+        finally
+        {
+            _reconcilingPluginTopBarCapacity = false;
+        }
     }
 
     private void EnsurePluginHostActionVisibilityHooks()
@@ -130,13 +185,16 @@ public sealed partial class PaperWindow
         object sender,
         DependencyPropertyChangedEventArgs e)
     {
-        if (_reconcilingPluginHostActionVisibility ||
-            _pluginHiddenHostTopBarActions == PaperHostTopBarActions.None)
+        if (_reconcilingPluginHostActionVisibility)
         {
             return;
         }
 
-        ReconcilePluginHiddenHostTopBarActions();
+        if (_pluginHiddenHostTopBarActions != PaperHostTopBarActions.None)
+        {
+            ReconcilePluginHiddenHostTopBarActions();
+        }
+        ReconcilePluginTopBarCapacity();
     }
 
     private static UIElement CreatePluginTopBarIcon(
