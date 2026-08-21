@@ -148,6 +148,9 @@ public sealed partial class AppController
         finally
         {
             _pluginAppRuntimeStarts.Remove(descriptor.Id);
+            // 0 -> 1 can occur while an earlier async start is cancelling. Re-evaluate after the
+            // in-flight marker is gone so the new entity paper cannot be stranded without runtime.
+            ReconcilePluginAppRuntimes();
         }
     }
 
