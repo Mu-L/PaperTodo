@@ -2,8 +2,6 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using PaperTodo.Plugin;
@@ -18,71 +16,6 @@ internal sealed class WebPluginAppRuntime : IDisposable
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
-
-    private static class RuntimeHost
-    {
-        private static Window? _window;
-        private static Grid? _root;
-
-        public static void Attach(WebView2CompositionControl webView)
-        {
-            EnsureWindow();
-            if (webView.Parent is Panel panel)
-            {
-                panel.Children.Remove(webView);
-            }
-            _root!.Children.Add(webView);
-            if (_window!.IsVisible == false)
-            {
-                _window.Show();
-            }
-        }
-
-        public static void Detach(WebView2CompositionControl webView)
-        {
-            if (_root?.Children.Contains(webView) == true)
-            {
-                _root.Children.Remove(webView);
-            }
-            if (_root?.Children.Count == 0 && _window?.IsVisible == true)
-            {
-                _window.Hide();
-            }
-        }
-
-        private static void EnsureWindow()
-        {
-            if (_window != null)
-            {
-                return;
-            }
-            _root = new Grid
-            {
-                Width = 1,
-                Height = 1,
-                Background = Brushes.Transparent,
-                ClipToBounds = true
-            };
-            _window = new Window
-            {
-                Content = _root,
-                Width = 1,
-                Height = 1,
-                Left = -32000,
-                Top = -32000,
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                WindowStyle = WindowStyle.None,
-                ResizeMode = ResizeMode.NoResize,
-                AllowsTransparency = true,
-                Background = Brushes.Transparent,
-                Opacity = 0.01,
-                ShowActivated = false,
-                ShowInTaskbar = false,
-                Focusable = false,
-                IsHitTestVisible = false
-            };
-        }
-    }
 
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
@@ -113,7 +46,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
             IsHitTestVisible = false,
             Opacity = 0
         };
-        RuntimeHost.Attach(_webView);
+        if (!WebPaperBodySession.AttachSharedBackgroundWebView(_webView))
+        {
+            throw new InvalidOperationException(
+                "PaperTodo could not attach the Web plugin app runtime to its background host.");
+        }
     }
 
     public async Task StartAsync()
@@ -366,11 +303,22 @@ internal sealed class WebPluginAppRuntime : IDisposable
 
     private object SetGlobalActions(JsonElement parameters)
     {
-        var actions = parameters.ValueKind == JsonValueKind.Object &&
+        PaperTopBarAction[] actions;
+        try
+        {
+            actions = parameters.ValueKind == JsonValueKind.Object &&
                       parameters.TryGetProperty("actions", out var actionsValue) &&
                       actionsValue.ValueKind != JsonValueKind.Null
-            ? actionsValue.Deserialize<PaperTopBarAction[]>(JsonOptions) ?? []
-            : [];
+                ? actionsValue.Deserialize<PaperTopBarAction[]>(JsonOptions) ?? []
+                : [];
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            throw new PaperTodoPluginException(
+                "invalid_params",
+                ex.GetBaseException().Message);
+        }
+
         _globalTopBar.SetActionHandler(invocation =>
             Send(new { type = "topBarActionInvoked", action = invocation }));
         _globalTopBar.SetActions(actions);
@@ -442,7 +390,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
             core.NavigationCompleted -= OnNavigationCompleted;
             core.ProcessFailed -= OnProcessFailed;
         }
-        RuntimeHost.Detach(_webView);
+        WebPaperBodySession.DetachSharedBackgroundWebView(_webView);
         try { _webView.Dispose(); } catch { }
         _lifetime.Dispose();
     }
