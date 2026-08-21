@@ -45,7 +45,7 @@ jobs:
               ConvertFrom-Json -Depth 100
           }
 
-      - name: Validate capsule protocol sample coverage
+      - name: Validate capsule sample coverage
         shell: pwsh
         run: |
           $sampleDirectories = Get-ChildItem plugin-samples -Directory -Filter "PaperTodo.Plugin.*"
@@ -60,7 +60,7 @@ jobs:
               ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 } |
               Out-String
             if ($source -notmatch 'setCapsulePresentation\s*\(') {
-              throw "$($directory.Name) does not exercise protocol 1.6 capsule presentation."
+              throw "$($directory.Name) does not exercise host-rendered capsule presentation."
             }
             if ($source -notmatch 'PaperCapsulePresentation\.AutomaticWidth' -and
                 $source -notmatch 'preferredWidth\s*:\s*0') {
@@ -71,7 +71,44 @@ jobs:
           $clockSource = Get-Content "plugin-samples/PaperTodo.Plugin.SampleClock/SampleClockPlugin.cs" -Raw -Encoding UTF8
           if ($clockSource -notmatch 'IPaperCapsuleViewProvider' -or
               $clockSource -notmatch 'CreateCapsuleView\s*\(') {
-            throw "SampleClock must exercise protocol 1.7 native capsule views."
+            throw "SampleClock must exercise native custom capsule views."
+          }
+
+      - name: Validate protocol 2.0 top bar sample
+        shell: pwsh
+        run: |
+          $manifestPath = "plugin-samples/PaperTodo.Plugin.TopBarWeb/plugin.json"
+          $sourcePath = "plugin-samples/PaperTodo.Plugin.TopBarWeb/web/index.html"
+          $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+          $source = Get-Content $sourcePath -Raw -Encoding UTF8
+
+          if ($manifest.apiVersion -ne "2.0") {
+            throw "TopBarWeb must target apiVersion 2.0."
+          }
+          $requiredPatterns = @(
+            "topbar\.paper\.set",
+            "topbar\.global\.set",
+            "surface\s*:\s*papertodo\.surface",
+            "topBarActionInvoked",
+            "targetPaperId",
+            "papertodo\.workspace\.request\('papers\.get'",
+            "renderMode\s*:\s*'stroke'",
+            "strokeWidth\s*:\s*1\.5"
+          )
+          foreach ($pattern in $requiredPatterns) {
+            if ($source -notmatch $pattern) {
+              throw "TopBarWeb is missing required protocol 2.0 coverage: $pattern"
+            }
+          }
+
+          $workspaceContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperTodoHostContracts.cs" -Raw -Encoding UTF8
+          $presentationContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs" -Raw -Encoding UTF8
+          if ($workspaceContract -match 'TopBar') {
+            throw "Top Bar must not be exposed through IPaperTodoHostApi/Workspace."
+          }
+          if ($presentationContract -notmatch 'interface\s+IPaperTopBarApi' -or
+              $presentationContract -notmatch 'PaperTopBarSvgRenderMode') {
+            throw "Protocol 2.0 top-bar presentation contract is incomplete."
           }
 
       - name: Validate Web source and runtime copies
