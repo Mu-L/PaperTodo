@@ -56,6 +56,7 @@ public sealed partial class AppController : IDisposable
     private bool _ignoreSaveFailures;
     private int _trayRefreshSuppressionDepth;
     private bool _isRestoringStartupPapers;
+    private bool _isRestoringRuntimePaperBatch;
     private bool _isPreparingStartupEdgeCapsules;
     private int _paperSurfaceRestoreGeneration;
     private int _startupShellPrewarmGeneration;
@@ -1424,13 +1425,16 @@ public sealed partial class AppController : IDisposable
             window.Activate();
         }
         if (!_isRestoringStartupPapers &&
+            !_isRestoringRuntimePaperBatch &&
             State.UseCapsuleMode &&
             State.UseDeepCapsuleMode &&
             ShouldPaperOccupyDeepCapsuleSlot(paper, window))
         {
             ArrangeDeepCapsules(animate: State.EnableAnimations);
         }
-        if (showAsDeepCapsuleOnly && !window.IsShellBuilt)
+        if (showAsDeepCapsuleOnly &&
+            !window.IsShellBuilt &&
+            !_isRestoringRuntimePaperBatch)
         {
             ScheduleDeferredShellPrewarm(paper, window);
         }
@@ -1968,17 +1972,23 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
+        // A runtime show supersedes any startup restore still waiting below Render/Loaded.
+        _paperSurfaceRestoreGeneration++;
+        _startupShellPrewarmGeneration++;
+        _isPreparingStartupEdgeCapsules = false;
         EnsurePapersOnScreen();
 
-        // Runtime show-all must follow the normal per-paper restore path. The startup restore
-        // pipeline prebuilds edge surfaces before ShowPaper(), which can change edge presentation
-        // state before remembered expanded geometry has been restored.
+        // Runtime show-all must follow the normal per-paper restore path so remembered expanded
+        // geometry wins before edge placement. Batch-only work is deferred until every paper has
+        // restored, avoiding one full queue arrange and one shell-prewarm task per paper.
+        var papersToShow = State.Papers.ToList();
         var wasSuppressingDirty = _suppressDirty;
+        var wasRestoringRuntimePaperBatch = _isRestoringRuntimePaperBatch;
         _suppressDirty = true;
         _trayRefreshSuppressionDepth++;
+        _isRestoringRuntimePaperBatch = true;
         try
         {
-            var papersToShow = State.Papers.ToList();
             var activationPaper = papersToShow.LastOrDefault(paper =>
                 !(State.UseCapsuleMode && State.UseDeepCapsuleMode && paper.IsCollapsed && CanPaperDisplayAsCapsule(paper)));
             foreach (var paper in papersToShow)
@@ -1988,12 +1998,27 @@ public sealed partial class AppController : IDisposable
         }
         finally
         {
+            _isRestoringRuntimePaperBatch = wasRestoringRuntimePaperBatch;
             _trayRefreshSuppressionDepth--;
             _suppressDirty = wasSuppressingDirty;
         }
 
+        ArrangeDeepCapsules(animate: State.EnableAnimations);
+        ScheduleStartupShellPrewarm(papersToShow);
+        RefreshAllTodoRowsForPaperVisibility();
         RefreshTrayMenu();
         MarkDirty();
+    }
+
+    private void RefreshAllTodoRowsForPaperVisibility()
+    {
+        foreach (var paper in State.Papers.Where(paper => paper.Type == PaperTypes.Todo))
+        {
+            if (_windows.TryGetValue(paper.Id, out var window))
+            {
+                window.RefreshTodoRowsForExternalChange();
+            }
+        }
     }
 
     public void HideAllPapers()
@@ -2021,15 +2046,8 @@ public sealed partial class AppController : IDisposable
             window.ReleaseHiddenNoteImages();
         }
 
-        // Linked-paper buttons cache whether their target currently has an expanded surface. Keep
-        // hidden todo windows current so showing only one paper later cannot revive a stale state.
-        foreach (var paper in State.Papers.Where(paper => paper.Type == PaperTypes.Todo))
-        {
-            if (_windows.TryGetValue(paper.Id, out var window))
-            {
-                window.RefreshTodoRowsForExternalChange();
-            }
-        }
+        // Linked-paper buttons cache whether their target currently has an expanded surface.
+        RefreshAllTodoRowsForPaperVisibility();
 
         ArrangeDeepCapsules();
         RefreshTrayMenu();
