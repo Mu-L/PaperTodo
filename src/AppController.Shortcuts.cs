@@ -558,6 +558,11 @@ public sealed partial class AppController
             .Where(id => desiredEnabled.GetValueOrDefault(id))
             .ToArray();
         var manager = EnsureGlobalHotkeyManager();
+
+        // Plugin hotkeys use their own WM_HOTKEY owner. Release the old registration set while
+        // changing numeric alias semantics so it cannot make the built-in transaction fail merely
+        // because a plugin still owns a key that will be re-evaluated under the new mode.
+        SuspendPluginShortcutRegistrations();
         if (!manager.TryApply(
                 desiredBindings,
                 enabledCommandIds,
@@ -565,12 +570,14 @@ public sealed partial class AppController
                 out _,
                 out _))
         {
+            RefreshPluginShortcuts();
             ShowNumpadShortcutModeConflict();
             RefreshSettingsWindowContent();
             return;
         }
 
         State.DistinguishNumpadShortcutDigits = desiredMode;
+        RefreshPluginShortcuts();
         ClearShortcutApplyFailure();
         SaveNow();
         RefreshSettingsWindowContent();

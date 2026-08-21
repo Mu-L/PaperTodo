@@ -13,6 +13,25 @@ public interface IPaperGlobalTopBarApi
 }
 
 /// <summary>
+/// One host-managed shortcut invocation routed to the plugin app runtime. SettingId names the
+/// manifest setting and ActionId is that setting's shortcutAction value.
+/// </summary>
+public sealed record PaperShortcutActionInvocation(
+    string SettingId,
+    string ActionId);
+
+/// <summary>
+/// App-scoped callback endpoint for plugin-defined global shortcut actions. PaperTodo owns the
+/// actual Windows hotkey registration, conflict handling, persistence and settings UI. Host-owned
+/// paper.* shortcut actions are executed directly by PaperTodo and are not sent to this handler.
+/// </summary>
+public interface IPaperGlobalShortcutApi
+{
+    void SetActionHandler(Action<PaperShortcutActionInvocation>? handler);
+    void Clear();
+}
+
+/// <summary>
 /// Context for one provider-level runtime. The runtime exists while PaperTodo has at least one real
 /// Note paper whose BodyProviderId is this plugin. It does not depend on that paper being visible,
 /// expanded, or having a live body session.
@@ -24,6 +43,7 @@ public sealed class PaperAppRuntimeContext
     public required IReadOnlySet<string> GrantedPermissions { get; init; }
     public required IPaperTodoHostApi Workspace { get; init; }
     public required IPaperGlobalTopBarApi GlobalTopBar { get; init; }
+    public required IPaperGlobalShortcutApi GlobalShortcuts { get; init; }
 }
 
 /// <summary>
@@ -39,7 +59,7 @@ public interface IPaperAppRuntimeProvider
 
 /// <summary>
 /// One provider-level plugin runtime. It is not a hidden paper session and owns no Paper/Body/Mini
-/// presentation. Dispose ends the runtime and revokes its global top-bar contribution.
+/// presentation. Dispose ends the runtime and revokes its provider-level contributions.
 /// </summary>
 public interface IPaperAppRuntime : IDisposable
 {

@@ -20,6 +20,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
     private readonly PaperAppRuntimeGlobalTopBarApi _globalTopBar;
+    private readonly PaperAppRuntimeGlobalShortcutApi _globalShortcuts;
     private readonly Func<bool> _isActive;
     private readonly WebView2CompositionControl _webView;
     private readonly CancellationTokenSource _lifetime = new();
@@ -31,11 +32,13 @@ internal sealed class WebPluginAppRuntime : IDisposable
         PaperBodyPluginDescriptor descriptor,
         IPaperTodoHostApi workspace,
         PaperAppRuntimeGlobalTopBarApi globalTopBar,
+        PaperAppRuntimeGlobalShortcutApi globalShortcuts,
         Func<bool> isActive)
     {
         _descriptor = descriptor;
         _workspace = workspace;
         _globalTopBar = globalTopBar;
+        _globalShortcuts = globalShortcuts;
         _isActive = isActive;
         _webView = new WebView2CompositionControl
         {
@@ -43,9 +46,9 @@ internal sealed class WebPluginAppRuntime : IDisposable
             Height = 1,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            IsHitTestVisible = false,
-            Opacity = 0
+            IsHitTestVisible = false
         };
+        _webView.SetValue(UIElement.OpacityProperty, 0.0);
         if (!WebPaperBodySession.AttachSharedBackgroundWebView(_webView))
         {
             throw new InvalidOperationException(
@@ -184,6 +187,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
     }
 
     private void OnNavigationCompleted(
@@ -196,9 +200,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
         {
             _documentReady = false;
             TryClearGlobalTopBar();
+            TryClearGlobalShortcuts();
             return;
         }
         _documentReady = true;
+        RegisterGlobalShortcutHandler();
         Send(new
         {
             type = "initialize",
@@ -217,6 +223,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
     }
 
     private void OnWebMessageReceived(
@@ -325,6 +332,17 @@ internal sealed class WebPluginAppRuntime : IDisposable
         return new { updated = actions.Length };
     }
 
+    private void RegisterGlobalShortcutHandler()
+    {
+        _globalShortcuts.SetActionHandler(invocation =>
+            Send(new
+            {
+                type = "shortcutInvoked",
+                settingId = invocation.SettingId,
+                actionId = invocation.ActionId
+            }));
+    }
+
     private static string RequiredString(JsonElement payload, string name)
     {
         if (payload.ValueKind != JsonValueKind.Object ||
@@ -365,6 +383,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
         try { _globalTopBar.Clear(); } catch { }
     }
 
+    private void TryClearGlobalShortcuts()
+    {
+        try { _globalShortcuts.Clear(); } catch { }
+    }
+
     private void ThrowIfInactive()
     {
         if (_disposed || !_isActive())
@@ -381,6 +404,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
         _disposed = true;
         _lifetime.Cancel();
         if (_webView.CoreWebView2 is { } core)

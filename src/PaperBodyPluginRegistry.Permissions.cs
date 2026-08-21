@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.IO;
 using System.Text.Json;
+using System.Windows.Input;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -98,6 +99,19 @@ internal sealed partial class PaperBodyPluginRegistry
                 {
                     throw new InvalidDataException(
                         $"Plugin setting '{setting.Id}' default is not a declared option.");
+                }
+                return;
+
+            case "shortcut" when value.ValueKind == JsonValueKind.String:
+                var shortcut = value.GetString() ?? "";
+                if (string.IsNullOrWhiteSpace(shortcut))
+                {
+                    return;
+                }
+                if (!ShortcutGesture.TryParse(shortcut, out var gesture) || gesture.Key == Key.None)
+                {
+                    throw new InvalidDataException(
+                        $"Plugin setting '{setting.Id}' default is not a valid shortcut gesture.");
                 }
                 return;
         }

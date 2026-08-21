@@ -19,9 +19,34 @@ public sealed partial class AppController
 
     private UIElement BuildPluginsSettingsPage()
     {
+        // Rebuilding the settings tree is also a recording boundary. Never let a stale recorder
+        // survive into a fresh visual tree with only one of the two hotkey managers restored.
+        if (_pluginShortcutRecordingCommandId != null)
+        {
+            _pluginShortcutRecordingCommandId = null;
+            RestoreAllHotkeysAfterPluginRecording();
+        }
+        else
+        {
+            RefreshPluginShortcuts();
+        }
+
         var root = new StackPanel
         {
             Margin = new Thickness(2, 4, 4, 0)
+        };
+        root.Unloaded += (_, _) =>
+        {
+            if (_pluginShortcutRecordingCommandId == null)
+            {
+                return;
+            }
+
+            _pluginShortcutRecordingCommandId = null;
+            if (!IsExiting)
+            {
+                RestoreAllHotkeysAfterPluginRecording();
+            }
         };
 
         var header = new Grid();
@@ -56,7 +81,6 @@ public sealed partial class AppController
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 7, 0, 0)
         });
-
 
         var descriptors = _paperBodyPlugins.Descriptors;
         root.Children.Add(SettingsSectionLabel(
@@ -341,6 +365,7 @@ public sealed partial class AppController
             "string" => BuildPluginStringSetting(descriptor, setting),
             "number" => BuildPluginNumberSetting(descriptor, setting),
             "select" => BuildPluginSelectSetting(descriptor, setting),
+            "shortcut" => BuildPluginShortcutSetting(descriptor, setting),
             _ => new TextBlock()
         };
         Grid.SetColumn(editor, 1);
@@ -689,7 +714,7 @@ public sealed partial class AppController
     private UIElement BuildPluginIssueCard(PaperBodyPluginLoadIssue issue)
     {
         var label = issue.RestartRequired
-            ? $"{issue.Message} · {Strings.Get("PluginsRestartRequired")}" 
+            ? $"{issue.Message} · {Strings.Get("PluginsRestartRequired")}"
             : issue.Message;
         return new Border
         {
@@ -771,6 +796,7 @@ public sealed partial class AppController
 
     private void DisposePaperBodyPlugins()
     {
+        DisposePluginShortcuts();
         DisposePaperPluginHostRuntime();
         _paperBodyPlugins.Dispose();
     }

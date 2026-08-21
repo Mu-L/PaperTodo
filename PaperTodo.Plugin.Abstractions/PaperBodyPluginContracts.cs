@@ -327,7 +327,8 @@ public sealed class PaperBodySurfaceContext
 /// <summary>
 /// One plugin instance is anchored to one paper. Paper contains paper-owned presentation state,
 /// Body contains the expanded body surface, Workspace exposes PaperTodo-wide business-data
-/// operations, and TopBar exposes the paper-session chrome contribution capability.
+/// operations, TopBar exposes the paper-session chrome contribution capability, and Presentation
+/// can only request state changes for this session's own host paper.
 /// </summary>
 public sealed class PaperBodyContext
 {
@@ -346,9 +347,13 @@ public sealed class PaperBodyContext
     public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
         ?? throw new InvalidOperationException(
             "This PaperTodo host does not expose the protocol 2.0 paper top-bar capability.");
+    public IPaperPresentationApi Presentation => Workspace as IPaperPresentationApi
+        ?? throw new InvalidOperationException(
+            "This PaperTodo host does not expose own-paper presentation controls.");
     public required Action<string> SaveStateJson { get; init; }
 
-    // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
+    // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body /
+    // TopBar / Presentation.
     public string PaperId => Paper.PaperId;
     public IPaperTodoHostApi Host => Workspace;
     public IPaperBodyControls Controls => Body.Controls;
