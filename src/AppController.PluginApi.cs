@@ -143,6 +143,10 @@ public sealed partial class AppController
                 // later successful save without converting it into a core save failure.
             }
         }
+
+        // Deletion is committed before this cleanup pass. Reconcile from the final entity-paper
+        // set so deleting the last paper of a provider also ends its process-level app runtime.
+        ReconcilePluginAppRuntimes();
     }
 
     internal void DisposePaperPluginHostRuntime()
