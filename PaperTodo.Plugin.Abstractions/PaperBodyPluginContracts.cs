@@ -217,7 +217,10 @@ public interface IPaperCapsuleViewProvider
 /// <summary>
 /// Preferred complete edge mini-card size in device-independent pixels. The size includes the
 /// host-owned chrome and close segment. Width and Height must be positive finite numbers; PaperTodo
-/// clamps the requested size only to the usable area of the current monitor.
+/// clamps the requested size only to the usable area of the current monitor. Runtime size changes
+/// are supported, but repeatedly changing the preferred size while a mini is visible is discouraged
+/// because it can force host/native relayout; keep one browsing session geometrically stable when
+/// practical.
 /// </summary>
 public readonly record struct PaperMiniViewSize(double Width, double Height)
 {
@@ -343,13 +346,8 @@ public sealed class PaperBodyContext
     public required PaperBodyPaperContext Paper { get; init; }
     public required PaperBodySurfaceContext Body { get; init; }
     public required IPaperTodoHostApi Workspace { get; init; }
+    public required IPaperTopBarApi TopBar { get; init; }
     public required Action<string> SaveStateJson { get; init; }
-
-    // The host implementation backs Workspace and TopBar with the same session lifetime, but the
-    // public contracts stay separate so presentation capabilities do not pollute workspace data API.
-    public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
-        ?? throw new InvalidOperationException(
-            "This PaperTodo host does not expose the protocol 2.0 top-bar capability.");
 
     // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
     public string PaperId => Paper.PaperId;
