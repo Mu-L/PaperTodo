@@ -172,6 +172,14 @@ public sealed partial class AppController
                     "Built-in body providers cannot declare plugin appRuntime.");
             }
 
+            // Shutdown can run while a WebView2 runtime is awaiting initialization. Never publish a
+            // late runtime after the controller has already begun tearing plugin infrastructure down.
+            if (IsExiting || !lifetime.Active)
+            {
+                throw new OperationCanceledException(
+                    "PaperTodo is shutting down while the plugin app runtime starts.");
+            }
+
             _pluginAppRuntimes.Add(descriptor.Id, new PluginAppRuntimeLease
             {
                 ProviderId = descriptor.Id,
