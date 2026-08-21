@@ -312,11 +312,12 @@ public sealed partial class AppController
             switch (icon.Kind)
             {
                 case PaperTopBarIconKind.Character:
-                    if (value.Length is 0 or > MaximumTopBarCharacterLength)
+                    if (value.Length is 0 or > MaximumTopBarCharacterLength ||
+                        value.Any(char.IsControl))
                     {
                         throw new PaperTodoPluginException(
                             "invalid_topbar_icon",
-                            $"Character top-bar icons must contain 1-{MaximumTopBarCharacterLength} UTF-16 characters.");
+                            $"Character top-bar icons must contain 1-{MaximumTopBarCharacterLength} UTF-16 characters and no control characters.");
                     }
                     break;
 
