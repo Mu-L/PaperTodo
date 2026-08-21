@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - main
+      - agent/plugin-protocol-2.0
     paths:
       - "PaperTodo.Plugin.Abstractions/**"
       - "plugin-samples/**"
