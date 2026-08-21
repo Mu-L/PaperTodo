@@ -14,6 +14,7 @@ PaperTodo 是 Windows 桌面“纸片”应用。当前技术路线围绕几个�
 - **每个职责尽量只有一个 authority。** 状态、几何、队列 placement、presentation、持久化和外部 mutation 不各自复制第二套“近似真相”。
 - **复杂 UI 状态优先走显式状态与单通道 reconcile。** Edge Capsule 使用 Intent → Reducer → Presenter；窗口和 controller 不通过并行 bool/临时 setter 绕过它。
 - **WPF 是主 UI / shape owner，native/DirectComposition 只承担确有必要的 Windows 边界能力。** 不把 compositor 扩成第二套 UI renderer。
+- **插件贡献 intent / content，宿主持有产品 chrome 与关键生命周期 authority。** capsule、Edge Mini、Top Bar 都遵守这一方向；插件不能因为获得扩展点就接管 PaperWindow、Edge HWND 或顶栏 WPF tree。
 - **持久化按数据生命周期和失败语义分域。** 核心状态、图片资产、插件状态分别由各自 store 管理；破坏性恢复/回收采用保守策略。
 - **当前 Architecture 只记录已经确立的方向。** 未确认的未来方案、实验候选和一次性 workaround 不写成当前架构。
 
@@ -41,9 +42,11 @@ PaperTodo.exe
         ├─ NoteImageStore (LMDB)
         ├─ PaperBodyPluginRegistry / PaperBodyPluginDataStore
         ├─ PaperCommandService
+        ├─ plugin Top Bar session registry
         ├─ PaperWindow[paperId]
         │   ├─ paper shell / Todo / built-in Note
         │   ├─ PaperBodyHost
+        │   ├─ host-owned Top Bar renderer
         │   └─ EdgeCapsulePresenter + EdgeCapsuleHost
         ├─ MasterCapsuleWindow[queue]
         ├─ EdgeCapsuleDragWindow (process-global pooled host)
@@ -65,6 +68,8 @@ PaperTodo.exe
 | 单纸片 UI | `PaperWindow` | paper WPF shell、普通交互、provider 选择、子系统适配 |
 | paper-body session | `PaperBodyHost` | 当前 `IPaperBodySession` 的 attach / invoke / commit / dispose |
 | 插件发现与合同 | `PaperBodyPluginRegistry` | builtin / Native / Web provider 发现、校验、激活 |
+| 插件 Top Bar 注册 | `AppController.PluginTopBar` | session lease、Paper/Global action 集合、Global provider 去重、输入校验 |
+| 插件 Top Bar 绘制 | `PaperWindow.PluginTopBar` | 标准按钮、字符/SVG 图标、主题/DPI/响应式布局、宿主按钮 suppression reconcile |
 | Edge 单纸片业务状态 | `EdgeCapsuleReducer` + `EdgeCapsuleModel` | 单纸片 typed intent 到完整 model 的原子变化 |
 | Edge 单纸片呈现 | `EdgeCapsulePresenter` | desired model、target plan、transition、applied frame、reconcile |
 | Edge 队列级协调 | `AppController` edge partials | preview owner/corridor、arrange、visual transaction、proxy lifecycle |
@@ -89,9 +94,11 @@ PaperTodo.exe
 
 MCP 的 transport、权限策略和 bridge 生命周期不拥有 Paper/Todo/Note 的第二套业务写入逻辑；真正的业务 mutation 仍回到 GUI 主宿主和共享命令边界。
 
-### 3.3 辅助进程
+### 3.3 辅助进程与插件 runtime
 
 Web 插件使用 WebView2 runtime；脚本胶囊可以启动 PowerShell 子进程。这些进程/运行时只提供对应能力，不成为核心 `AppState` authority。
+
+插件协议当前以 **2.0** 为新开发目标，同时兼容加载既有 **1.8** 插件。2.0 的 Top Bar 是新增的 session/presentation capability；兼容加载 1.8 不意味着把 2.0 presentation API 反向开放给旧协议。
 
 ## 4. 状态与持久化架构
 
@@ -135,6 +142,8 @@ Markdown 中的 Note 图片只通过 PaperTodo 内部 `i:` asset URI 引用宿�
 
 插件 settings 与 per-paper state 由 `PaperBodyPluginDataStore` 独立保存，不塞回 `data.json`。插件数据读失败时保留原始问题源，并通过受控 recovery 路径继续；插件数据故障不应把核心 Paper 数据变成不可加载。
 
+删除 paper 后，插件 per-paper state 属于附属数据：核心 paper 删除先成为 authority，插件 state 清理可在后续成功保存边界继续重试，不反向阻塞核心删除。
+
 ## 5. Paper 与 paper-body 插件
 
 ### 5.1 Paper shell
@@ -159,7 +168,7 @@ Native assembly 一旦载入 CLR，不按 Web provider 的方式做进程内热�
 
 ### 5.3 外部读写
 
-插件 Host API 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务 mutation 统一进入 `PaperCommandService`。该边界负责：
+插件 `Workspace` 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务 mutation 统一进入 `PaperCommandService`。该边界负责：
 
 - 参数和类型约束；
 - mutation 前提交仍停留在 UI/provider session 的待提交内容；
@@ -167,9 +176,28 @@ Native assembly 一旦载入 CLR，不按 Web provider 的方式做进程内热�
 - 保存失败回滚内存状态；
 - 提交后刷新必要 UI 并发布外部变更事件。
 
-transport 权限、Web/Native surface 生命周期和 MCP protocol 不下沉到 `PaperCommandService`；反过来，transport 层也不建立另一套核心 mutation 实现。
+transport 权限、Web/Native surface 生命周期、Top Bar presentation 和 MCP protocol 不下沉到 `PaperCommandService`；反过来，transport / presentation 层也不建立另一套核心 mutation 实现。
 
-### 5.4 Edge mini
+### 5.4 Protocol 2.0 Top Bar
+
+Top Bar 是 **session-scoped presentation capability**，不是 Workspace 数据 API。Native 通过 `PaperBodyContext.TopBar` / `IPaperTopBarApi` 使用；Web body 通过 root bridge transport 提交 `topbar.paper.set` / `topbar.global.set`，但真正的数据读写仍回到 Workspace。
+
+当前 ownership：
+
+- `PaperWindow` 始终拥有顶栏 WPF tree、按钮大小、位置、Hover、主题、DPI、字体/缩放和 responsive layout。
+- 插件只提交 action descriptor：ID、字符或受限 SVG Path 图标、Tooltip、Enabled/Visible 与点击处理。
+- 不接受插件直接传 Button、`FrameworkElement`、WebView 或完整 SVG document。
+- SVG Path 支持宿主前景色 `Fill` 或 `Stroke`；Stroke width 受协议范围约束。
+- Paper scope 只作用于承载当前 session 的纸片；Global scope 由活跃 session lease 持有并显示在全部纸片。
+- 同 provider 多 session 的 Global owner 只由**最后一次 Global 注册顺序**决定；Paper scope 更新不改变 Global ownership。
+- Global action 的点击上下文包含目标 `PaperId` / `Type` / `BodyProviderId`；插件需要读写目标正文时继续调用 Workspace。
+- 插件自己的纸片只能 suppression 宿主明确白名单中的 `NewTodoPaper` / `NewNotePaper`；关闭、置顶、标题拖动和窗口生命周期不属于插件可删减区域。
+- 用户设置决定宿主按钮的 base visibility，插件 suppression 是最终 paper-local reconcile 层；两条路径不互相覆盖。
+- session Dispose 会回收全部 contribution。Web 进一步把 contribution 绑定当前 **body document generation**：导航、renderer failure 或 body WebView replacement 会立即撤销旧 document 的 contribution；Web Mini 不注册 Top Bar。
+
+Global Top Bar 不是 manifest 静态 UI。仅安装插件、仅存在 descriptor、或不存在有效 runtime session 时，不应留下全局按钮。
+
+### 5.5 Edge mini
 
 插件可以提供专属 mini、允许迁移的纯 WPF 正文 View、custom/standard capsule presentation 或 plain-text fallback，但 **Edge 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主**。
 
@@ -177,6 +205,7 @@ transport 权限、Web/Native surface 生命周期和 MCP protocol 不下沉到 
 
 - Native mini 只接纳 fresh / unparented / pure-WPF tree。
 - Web `miniEntry` 使用独立 Web mini surface；它自己的 ready/publication 时序属于 Web session 实现，不把 WebView2 当作可迁移 WPF child。
+- Web Mini pointer 默认归宿主；只有 `data-papertodo-interactive` 声明的局部矩形交给 Web surface。
 - 正文 View migration 只对 provider 明确声明且宿主可以安全接管的纯 WPF View 启用。
 - 没有专属能力时由宿主降级到 capsule/plain text。
 
@@ -207,113 +236,88 @@ EdgeCapsulePresenter reconcile / transition
         ↓
 EdgeCapsulePresentationFrame
         ↓
-EdgeCapsuleHost.Apply(frame)
+EdgeCapsuleHost / floating drag host
 ```
 
-`EdgeCapsuleReducer` 决定单纸片业务状态；`EdgeCapsulePresenter` 是该纸 desired model、target、transition、applied presentation 和 dirty/deferred work 的唯一 presentation authority。
+`EdgeCapsulePresenter` 是一张纸 desired model、target plan、transition、applied frame 和 deferred work 的唯一 presentation authority。`PaperWindow` 和 controller 可以转发/协调，但不保存第二份近似状态。
 
-`EdgeCapsuleTargetPlanner` 是纯 desired-model → shape/layout planner，一次生成完整 `EdgeCapsulePresentationPlan`。Docked surface 与 `FloatingFree` 是互斥外形；floating 的宽度、圆角、关闭区和其他 shape 语义不由窗口构造参数或拖拽路径另行拼装。
+`EdgeCapsuleTargetPlanner` 是 desired model → 完整 plan 的纯规划层。Docked shape 与 `FloatingFree` shape 互斥；不能在各个调用点临时拼 shape。
 
-`AppController` 可以协调跨纸片 session、向多张纸 dispatch intent、捕获事务 frame，但不维护第二份 per-paper desired model。
+measure、display refresh、DPI refresh 是同一个 reconcile 的新输入，不建立平行状态入口。手势期间不能安全 apply 的刷新进入 presenter deferred work，手势结束后统一重算。
 
-Measure / display-metrics 也是同一 presentation reconcile 的输入，而不是第二套状态入口：非拖拽时更新 layout snapshot 并从当前已呈现帧 retarget；正在 docked/floating drag 时相关 refresh 延后到 gesture 边界后处理，不反向改写 Hover / Active / slot / gesture 语义。
+### 6.2 monitor / DPI / geometry
 
-### 6.2 Queue placement 与 geometry
+目标 monitor/DPI 来自 `EdgeCapsuleLayoutSnapshot` 和当前 target environment，不拿主 `PaperWindow` 的 DPI 猜 docked host 的目标 DPI。
 
-队列由 monitor + edge 标识。`EdgeCapsuleQueueCoordinator` 只负责 index、master offset 和 slot count；`EdgeCapsuleGeometry` 只负责 monitor/edge/DIP 到物理像素矩形。
+`ScreenGeometry` 的 typed wrapper 用来阻止 device pixel / global DIP / local DIP 混算。Queue placement 由 `EdgeCapsuleQueueCoordinator` 负责，物理 docked geometry 由 `EdgeCapsuleGeometry` 负责。
 
-`EdgeCapsuleLayoutSnapshot` 捕获的是**目标 monitor** 的 `MonitorGeometry` 与 DPI；docked 物理矩形必须基于这份目标显示器事实计算，不能退回主 `PaperWindow` 的当前 DPI 或在动画/measure 路径重新复制一套换算。共享 capsule 尺寸和队列布局参数从 `PaperLayoutDefaults` / `EdgeCapsuleLayout` 等统一来源进入 layout/planner。
+### 6.3 bounded live host
 
-队列保持完整顺序，不引入分页/自动隐藏 overflow。分页会把 placement 问题升级成另一套 visibility/state ownership，因此当前方向仍是连续完整队列。
+每张 docked capsule 的真实 HWND 由 `EdgeCapsuleHost` 长期拥有。`HostBounds` 是当前 host generation 的稳定 bounded capacity；`Bounds` 是当前可见 WPF shape；`InteractiveBounds` 是真实可交互物理范围。
 
-Presentation contract 区分：
+容量只覆盖该纸在当前 monitor/DPI/edge 上真实可能需要的 Preview，不扩成整个工作区或整条队列。Late-bound plugin preview 可以让后续安全 generation 增长，但普通热帧不为协议理论最大值预留巨型透明 surface。
 
-- `Bounds`：当前真正可见的 capsule rectangle。
-- `HostBounds`：bounded docked HWND 的 native capacity。
-- `InteractiveBounds`：当前真实输入区域。
+### 6.4 WPF shape / DComp translation
 
-透明 capacity 不属于交互区域。
+WPF 始终拥有可见 shape、圆角、内容、clip 语义。正常同队列动画不每帧提交 native HWND geometry；`EdgeCapsuleQueueCompositionProxy` 只代理 live HWND surface 的 X/Y translation 和必要 visual-authority handoff。
 
-### 6.3 Surface 切分
+DComp 不拥有第二份 snapshot renderer、shape morph、scale/effect、Reveal/Conceal state machine 或延后 resize 模型。出现需要持续增加 shadow ownership / deferred recovery state 的情况，应先重新检查 authority 边界，而不是继续堆 proxy 状态。
 
-每张 docked capsule 由独立 `EdgeCapsuleHost` 长期拥有真实 HWND 和完整 WPF visual tree。Host 是 **bounded live host**：native capacity 稳定且有限，可见 shape 在其中由 WPF 变化。
+### 6.5 visual authority transaction
 
-跨队列/脱墙拖拽使用独立、进程级复用的 `EdgeCapsuleDragWindow`，不把 docked host 变形成自由 floating pill。
+视觉事务的原子单位是一次**用户可见 authority swap**，不是单个 HWND API 调用。
 
-开启 collapse-all master 时，每个队列的 `MasterCapsuleWindow` 占 slot 0，只拥有自身 presentation/gesture，不持有真实 paper 的第二套 presenter state。
+同一 queue 中共享 endpoint settle / reveal / cloak / root detach 的成员应：
 
-### 6.4 WPF 与 DirectComposition
+1. 先准备全部成员；
+2. 跨过同一个 render/composition publication boundary；
+3. 统一验证并完成 handoff。
 
-当前明确的职责切分：
+切换期间不能出现所有真实 surface 同时不可见的空档。固定毫秒 delay 不是“视觉已经发布”的证明。
 
-**WPF / bounded host owns shape；DirectComposition owns translation。**
+### 6.6 Preview owner / corridor / pointer truth
 
-WPF / Presenter 负责：
+Preview 的物理命中真相来自当前 applied `InteractiveBounds`：
 
-- Resting / Hover / Active / Preview 的可见宽高；
-- rounded geometry；
-- 内容布局与 opacity；
-- `InteractiveBounds` 等 presentation contract。
+- WPF/native enter/leave 只负责唤醒 sampling，不直接建立第二套命中状态机。
+- `HostBounds`、proxy envelope、透明容量不能扩张 hit area。
+- 没有 session 时，verified physical hit 可以立即建立第一个 owner。
+- session 已建立后，当前 owner 是 queue-wide pointer arbiter，owner / candidate / corridor / outside 走一个 controller 路径。
+- A→B 的已有 session 切换可以使用 residence / stability / predictor policy；具体时间参数留在代码，不进 Architecture。
+- corridor 只维护从当前 owner 到候选的连续性，不是新的可交互区域。
+- 真实物理 exit 是 hard boundary；predictor 不能覆盖真实 outside。
+- pointer capture 期间暂停 leave 决策，保持当前交互 owner。
 
-DirectComposition queue proxy 负责：
+### 6.7 cadence 与边界清理
 
-- 从真实 HWND 建立 live surface；
-- 保持 surface identity / size；
-- 只做 X/Y translation；
-- 在真实 HWND 已受 cover 保护时帮助 queue 成员完成位置移动和 visual-authority handoff。
+正常动画节拍使用共享 `CompositionTarget.Rendering`；watchdog 只负责 liveness rescue，不建立第二个主动画循环。
 
-Production translation backend 不承担 snapshot、clip/scale/effect resize 或另一套 deferred-resize presentation model。需要 shape/size 变化时，回到 WPF bounded host 或明确 native fallback 边界。
-
-### 6.5 Visual authority 与 handoff
-
-真实 docked HWND、queue compositor cover、floating drag HWND 是显式 visual authority。任何 publication、successor、handoff 或 rollback 边界都必须保证至少有一个可见 authority。
-
-同队列 successor 继承 predecessor 当前 live authority 和可见 sample，而不是 dispose 后冷启动另一套互不相关 proxy。
-
-Proxy 动画逻辑结束不等于 real WPF 已经可以接管。只有 terminal real/WPF presentation 已完成必要的 apply/layout/render/verify 边界后，cover 才能释放；completion timer 只负责发起完成尝试，不作为 correctness proof。
-
-Display/DPI、z-order、drag 结束、隐藏/关闭 Edge 模式等生命周期边界如果会让现有 surface/queue 失效，先结束或恢复当前 visual authority，再清理 preview、retraction、临时 placement/transaction 等 transient state；这些临时状态不能跨失效边界残留到下一次显示或重新启用。
-
-### 6.6 Pointer、Preview corridor 与帧节拍
-
-Hover/Preview 的最终物理 truth 来自当前 presented/applied `InteractiveBounds`。WPF/native enter/leave 主要负责唤醒采样，透明 `HostBounds` 和 proxy envelope 不能扩大 hit area。
-
-Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：owner、候选 target、transfer corridor 和 outside 都由同一 controller 路径解析，host/WPF 输入适配层只提供物理采样，不复制另一套 preview 状态机。owner 与可浏览候选的 `InteractiveBounds` 是真实命中区；连续可交互成员之间的 transfer corridor 只是允许指针跨空白移动的临时连续区域，不是新的 capsule hit area。指针真实离开合法 transfer region 时属于硬边界，预测逻辑不能把 outside 改写成 inside；pointer capture 期间则暂停这类离场判断，避免正在进行的交互被 corridor watcher 抢走。
-
-首次没有 preview session 时，经过验证的真实物理命中可以直接建立 owner；已有 session 内的 A→B transfer 则继续使用当前 residence/stability/predictor policy。具体毫秒数和灵敏度属于实现参数，留在代码。
-
-同一 Dispatcher 的 presenters 共用 `EdgeCapsuleFrameScheduler`。正常 transition 由 `CompositionTarget.Rendering` 推进；watchdog 只在 Rendering 没有及时推进 active transition 时做 demand-driven rescue，不成为第二套长期动画时钟。
-
-这些原则的历史原因、失败路线和不可回退点见 D-005～D-014。
+Display/DPI/z-order/drag-end/hide/disable 等 lifecycle boundary 先安全结束当前 visual authority，再清理 transient state。不能先丢 proxy/owner/host 状态，再依赖后续偶然事件恢复。
 
 ## 7. OS 与全局集成
 
-`AppController` 还协调：
+Windows 边界能力统一由宿主封装，不让普通业务代码到处直接 P/Invoke：
 
-- Hardcodet tray icon / context menu；
-- 全局快捷键；
-- foreground fullscreen 检测和 topmost avoidance；
-- display metrics / DPI 更新；
-- Todo reminders；
-- virtual desktop integration；
-- 可选窗口 magnetism / tether 等实验 runtime；
-- GUI 侧 MCP runtime。
+- taskbar / window-switcher owner；
+- topmost / fullscreen avoidance；
+- virtual desktop；
+- global hotkey；
+- tray；
+- native geometry / DComp；
+- power/display/runtime notification。
 
-全局 watcher 可以触发 visibility、z-order、monitor placement 等变化，但进入具体 Paper/Edge surface 后，仍应回到对应 subsystem authority，而不是在 watcher 中复制 geometry 或 presentation state。
-
-托盘当前基于仓库固定的 `vendor/wpf-notifyicon` 和 WPF `IconSource`；选择该路线的历史原因见 D-017。
+这些能力仍以 Paper / AppController 的业务 ownership 为入口；OS handle 不是新的业务对象 authority。
 
 ## 8. 仓库结构
 
-- `src/`：主程序 C# 源码。
-- `Resources/`：中文默认资源及 en/ja/ko 本地化 `.resx`。
-- `PaperTodo.Plugin.Abstractions/`：插件 ABI / host contract。
-- `plugins/`：可直接加载的插件产物；`plugins/data/` 保存宿主管理的插件状态。
-- `plugin-samples/`：插件源码、示例和构建说明。
-- `native/`：PaperTodo 自有 native 组件，例如 LMDB bridge。
-- `vendor/`：固定版本 vendored dependency / submodule。
-- `assets/`：图标和静态资源。
-- `docs/`：GitHub Pages 站点资源，不作为内部架构文档默认目录。
-- `.github/workflows/`：CI / Release。
+根 `PaperTodo.csproj` 是主应用项目；主要实现位于 `src/`。`PaperTodo.Plugin.Abstractions/` 是公开插件编译期合同；`plugin-samples/` 是当前插件开发手册、源码示例和构建脚本；`plugins/` 保存可直接加载的最终插件产物。
 
-根目录保留项目入口和仓库级知识入口：`README`、`CHANGELOG`、`AGENTS.md`、`ARCHITECTURE.md`、`DECISIONS.md`。
+文档职责：
+
+- `AGENTS.md`：Agent 入口、任务路由、必须直接执行的规则/禁区；
+- `ARCHITECTURE.md`：当前有效架构、ownership、技术方向和稳定 invariant；
+- `DECISIONS.md`：历史取舍、失败路线、trade-off 与 why；
+- `plugin-samples/README.md`：当前插件 API/开发流程；
+- 代码与关键注释：局部实现事实、具体 invariant 和不易从类型/调用关系直接看出的 why。
+
+不要为同一事实再维护一份独立手工验收矩阵；稳定语义优先落到可执行检查、诊断或当前代码合同中。
