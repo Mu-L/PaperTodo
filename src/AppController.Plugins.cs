@@ -31,7 +31,6 @@ public sealed partial class AppController
             Width = new GridLength(1, GridUnitType.Star)
         });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = new TextBlock
         {
             Text = Strings.Get("PluginsPageTitle"),
@@ -44,15 +43,10 @@ public sealed partial class AppController
         openFolder.Margin = new Thickness(8, 0, 0, 0);
         openFolder.ToolTip = _paperBodyPlugins.PluginRoot;
         openFolder.Click += (_, _) => OpenPluginFolder();
-        var reload = PluginPageButton(Strings.Get("PluginsReload"));
-        reload.Margin = new Thickness(8, 0, 0, 0);
-        reload.Click += (_, _) => ReloadPaperBodyPlugins();
         Grid.SetColumn(title, 0);
         Grid.SetColumn(openFolder, 1);
-        Grid.SetColumn(reload, 2);
         header.Children.Add(title);
         header.Children.Add(openFolder);
-        header.Children.Add(reload);
         root.Children.Add(header);
 
         root.Children.Add(new TextBlock
@@ -774,19 +768,6 @@ public sealed partial class AppController
         {
             // Settings remains usable if Explorer cannot open the directory.
         }
-    }
-
-    private void ReloadPaperBodyPlugins()
-    {
-        _paperBodyPlugins.Reload();
-        var changedProviderIds = _paperBodyPlugins.LastChangedProviderIds;
-        foreach (var window in _windows.Values.ToList())
-        {
-            window.RefreshPaperBodyProviderAvailability(changedProviderIds);
-        }
-        RefreshPluginShortcuts();
-        RefreshTrayMenu();
-        RefreshSettingsWindowContent();
     }
 
     private void DisposePaperBodyPlugins()
