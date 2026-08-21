@@ -30,10 +30,18 @@ internal sealed partial class PaperBodyPluginRegistry
     private static void ValidateProtocolFeatures(PaperBodyPluginManifest manifest)
     {
         manifest.Permissions ??= [];
+        manifest.Capabilities ??= [];
         if (manifest.Permissions.Length > 0 && !ApiAtLeast(manifest.ApiVersion, 1, 3))
         {
             throw new InvalidDataException(
                 "Plugin permissions require apiVersion 1.3 or newer.");
+        }
+        if (manifest.Capabilities.Any(value =>
+                string.Equals(value?.Trim(), "appRuntime", StringComparison.Ordinal)) &&
+            !ApiAtLeast(manifest.ApiVersion, 2, 0))
+        {
+            throw new InvalidDataException(
+                "The appRuntime capability requires apiVersion 2.0 or newer.");
         }
     }
 
