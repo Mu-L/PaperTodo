@@ -5,7 +5,7 @@ using PaperTodo.Plugin;
 namespace PaperTodo;
 
 internal sealed record PluginTopBarActionBinding(
-    Guid SessionId,
+    Guid OwnerId,
     string ProviderId,
     PaperTopBarActionScope Scope,
     PaperTopBarAction Action);
@@ -25,22 +25,32 @@ public sealed partial class AppController
     private const double MinimumTopBarSvgStrokeWidth = 0.1;
     private const double MaximumTopBarSvgStrokeWidth = 4.0;
 
-    private sealed class PluginTopBarSessionRegistration
+    private sealed class PluginPaperTopBarRegistration
     {
         public required Guid SessionId { get; init; }
         public required string ProviderId { get; init; }
         public required string HostPaperId { get; init; }
         public required Func<bool> IsActive { get; set; }
         public required Action<PaperTopBarActionInvocation> Invoke { get; set; }
-        public long GlobalOrdinal { get; set; }
-        public PaperTopBarAction[] PaperActions { get; set; } = [];
+        public PaperTopBarAction[] Actions { get; set; } = [];
         public PaperHostTopBarActions HiddenHostActions { get; set; }
-        public PaperTopBarAction[] GlobalActions { get; set; } = [];
     }
 
-    private readonly Dictionary<Guid, PluginTopBarSessionRegistration>
-        _pluginTopBarSessions = new();
-    private long _pluginTopBarGlobalOrdinal;
+    private sealed class PluginGlobalTopBarRegistration
+    {
+        public required Guid RuntimeId { get; init; }
+        public required string ProviderId { get; init; }
+        public required Func<bool> IsActive { get; set; }
+        public required Action<PaperTopBarActionInvocation> Invoke { get; set; }
+        public required long Order { get; init; }
+        public PaperTopBarAction[] Actions { get; set; } = [];
+    }
+
+    private readonly Dictionary<Guid, PluginPaperTopBarRegistration>
+        _pluginPaperTopBars = new();
+    private readonly Dictionary<string, PluginGlobalTopBarRegistration>
+        _pluginGlobalTopBars = new(StringComparer.Ordinal);
+    private long _pluginGlobalTopBarOrder;
 
     internal void SetPluginPaperTopBarActions(
         Guid sessionId,
@@ -66,15 +76,26 @@ public sealed partial class AppController
                 "Only the host's new-Todo and new-Note actions can be hidden by a plugin paper.");
         }
 
-        var registration = GetOrCreatePluginTopBarRegistration(
-            sessionId,
-            providerId,
-            hostPaperId,
-            isActive,
-            invoke);
-        registration.PaperActions = normalized;
-        registration.HiddenHostActions = hiddenHostActions;
+        if (!_pluginPaperTopBars.TryGetValue(sessionId, out var registration))
+        {
+            registration = new PluginPaperTopBarRegistration
+            {
+                SessionId = sessionId,
+                ProviderId = providerId,
+                HostPaperId = hostPaperId,
+                IsActive = isActive,
+                Invoke = invoke
+            };
+            _pluginPaperTopBars.Add(sessionId, registration);
+        }
+        else
+        {
+            registration.IsActive = isActive;
+            registration.Invoke = invoke;
+        }
 
+        registration.Actions = normalized;
+        registration.HiddenHostActions = hiddenHostActions;
         if (normalized.Length > 0 || hiddenHostActions != PaperHostTopBarActions.None)
         {
             PaperWindow.EnsurePluginTopBarLoadedHandler();
@@ -83,9 +104,8 @@ public sealed partial class AppController
     }
 
     internal void SetPluginGlobalTopBarActions(
-        Guid sessionId,
+        Guid runtimeId,
         string providerId,
-        string hostPaperId,
         IReadOnlyList<PaperTopBarAction> actions,
         Func<bool> isActive,
         Action<PaperTopBarActionInvocation> invoke)
@@ -95,15 +115,34 @@ public sealed partial class AppController
             actions,
             MaximumGlobalTopBarActions,
             "global");
-        var registration = GetOrCreatePluginTopBarRegistration(
-            sessionId,
-            providerId,
-            hostPaperId,
-            isActive,
-            invoke);
-        registration.GlobalActions = normalized;
-        registration.GlobalOrdinal = ++_pluginTopBarGlobalOrdinal;
 
+        if (_pluginGlobalTopBars.TryGetValue(providerId, out var current) &&
+            current.RuntimeId != runtimeId)
+        {
+            throw new PaperTodoPluginException(
+                "global_topbar_runtime_conflict",
+                "A provider can have only one active app-runtime global top-bar owner.");
+        }
+
+        if (current == null)
+        {
+            current = new PluginGlobalTopBarRegistration
+            {
+                RuntimeId = runtimeId,
+                ProviderId = providerId,
+                IsActive = isActive,
+                Invoke = invoke,
+                Order = ++_pluginGlobalTopBarOrder
+            };
+            _pluginGlobalTopBars.Add(providerId, current);
+        }
+        else
+        {
+            current.IsActive = isActive;
+            current.Invoke = invoke;
+        }
+
+        current.Actions = normalized;
         if (normalized.Length > 0)
         {
             PaperWindow.EnsurePluginTopBarLoadedHandler();
@@ -127,51 +166,42 @@ public sealed partial class AppController
             "Plugin top-bar extensions require apiVersion 2.0.");
     }
 
-    internal void RemovePluginTopBarSession(Guid sessionId)
+    internal void RemovePluginPaperTopBarSession(Guid sessionId)
     {
-        if (!_pluginTopBarSessions.Remove(sessionId, out var removed))
-        {
-            return;
-        }
-
-        if (removed.GlobalOrdinal > 0)
-        {
-            RefreshAllPluginTopBars();
-        }
-        else
+        if (_pluginPaperTopBars.Remove(sessionId, out var removed))
         {
             RefreshPluginTopBarForPaper(removed.HostPaperId);
         }
     }
 
+    internal void RemovePluginGlobalTopBarRuntime(Guid runtimeId, string providerId)
+    {
+        if (_pluginGlobalTopBars.TryGetValue(providerId, out var current) &&
+            current.RuntimeId == runtimeId)
+        {
+            _pluginGlobalTopBars.Remove(providerId);
+            RefreshAllPluginTopBars();
+        }
+    }
+
     internal PluginTopBarRenderState GetPluginTopBarRenderState(string paperId)
     {
-        PruneInactivePluginTopBarSessions();
+        PruneInactivePluginTopBarRegistrations();
 
-        // A paper has at most one current body session. Stale registrations remain harmless because
-        // their IsActive closure includes the body-session generation and provider identity.
-        var paperRegistration = _pluginTopBarSessions.Values
+        var paperRegistration = _pluginPaperTopBars.Values
             .FirstOrDefault(item =>
                 string.Equals(item.HostPaperId, paperId, StringComparison.Ordinal) &&
-                IsPluginTopBarRegistrationActive(item));
+                IsActive(item.IsActive));
 
         var actions = new List<PluginTopBarActionBinding>();
-        foreach (var registration in _pluginTopBarSessions.Values
-                     .Where(item =>
-                         item.GlobalOrdinal > 0 &&
-                         IsPluginTopBarRegistrationActive(item))
-                     .GroupBy(item => item.ProviderId, StringComparer.Ordinal)
-                     .Select(group => group
-                         .OrderByDescending(item => item.GlobalOrdinal)
-                         .First())
-                     .OrderBy(item => item.GlobalOrdinal))
+        foreach (var registration in _pluginGlobalTopBars.Values
+                     .Where(item => IsActive(item.IsActive))
+                     .OrderBy(item => item.Order))
         {
-            // The latest Global registration owns the provider even when its replacement set is
-            // empty. This prevents an older live session's actions from resurfacing after clear.
-            foreach (var action in registration.GlobalActions)
+            foreach (var action in registration.Actions)
             {
                 actions.Add(new PluginTopBarActionBinding(
-                    registration.SessionId,
+                    registration.RuntimeId,
                     registration.ProviderId,
                     PaperTopBarActionScope.Global,
                     action));
@@ -180,7 +210,7 @@ public sealed partial class AppController
 
         if (paperRegistration != null)
         {
-            foreach (var action in paperRegistration.PaperActions)
+            foreach (var action in paperRegistration.Actions)
             {
                 actions.Add(new PluginTopBarActionBinding(
                     paperRegistration.SessionId,
@@ -201,16 +231,33 @@ public sealed partial class AppController
         string targetPaperType,
         string targetBodyProviderId)
     {
-        if (!_pluginTopBarSessions.TryGetValue(binding.SessionId, out var registration) ||
-            !IsPluginTopBarRegistrationActive(registration))
+        Action<PaperTopBarActionInvocation>? invoke = null;
+        IReadOnlyList<PaperTopBarAction>? actions = null;
+
+        if (binding.Scope == PaperTopBarActionScope.Global)
         {
-            RemovePluginTopBarSession(binding.SessionId);
-            return;
+            if (!_pluginGlobalTopBars.TryGetValue(binding.ProviderId, out var registration) ||
+                registration.RuntimeId != binding.OwnerId ||
+                !IsActive(registration.IsActive))
+            {
+                RemovePluginGlobalTopBarRuntime(binding.OwnerId, binding.ProviderId);
+                return;
+            }
+            invoke = registration.Invoke;
+            actions = registration.Actions;
+        }
+        else
+        {
+            if (!_pluginPaperTopBars.TryGetValue(binding.OwnerId, out var registration) ||
+                !IsActive(registration.IsActive))
+            {
+                RemovePluginPaperTopBarSession(binding.OwnerId);
+                return;
+            }
+            invoke = registration.Invoke;
+            actions = registration.Actions;
         }
 
-        var actions = binding.Scope == PaperTopBarActionScope.Global
-            ? registration.GlobalActions
-            : registration.PaperActions;
         if (!actions.Any(action =>
                 string.Equals(action.Id, binding.Action.Id, StringComparison.Ordinal) &&
                 action.Visible &&
@@ -221,7 +268,7 @@ public sealed partial class AppController
 
         try
         {
-            registration.Invoke(new PaperTopBarActionInvocation(
+            invoke(new PaperTopBarActionInvocation(
                 binding.Action.Id,
                 binding.Scope,
                 targetPaperId,
@@ -236,32 +283,6 @@ public sealed partial class AppController
                 binding.Action.Id,
                 ex.GetBaseException());
         }
-    }
-
-    private PluginTopBarSessionRegistration GetOrCreatePluginTopBarRegistration(
-        Guid sessionId,
-        string providerId,
-        string hostPaperId,
-        Func<bool> isActive,
-        Action<PaperTopBarActionInvocation> invoke)
-    {
-        if (_pluginTopBarSessions.TryGetValue(sessionId, out var existing))
-        {
-            existing.IsActive = isActive;
-            existing.Invoke = invoke;
-            return existing;
-        }
-
-        var created = new PluginTopBarSessionRegistration
-        {
-            SessionId = sessionId,
-            ProviderId = providerId,
-            HostPaperId = hostPaperId,
-            IsActive = isActive,
-            Invoke = invoke
-        };
-        _pluginTopBarSessions.Add(sessionId, created);
-        return created;
     }
 
     private static PaperTopBarAction[] NormalizePluginTopBarActions(
@@ -371,23 +392,29 @@ public sealed partial class AppController
         return result.ToArray();
     }
 
-    private void PruneInactivePluginTopBarSessions()
+    private void PruneInactivePluginTopBarRegistrations()
     {
-        foreach (var registration in _pluginTopBarSessions.Values.ToArray())
+        foreach (var registration in _pluginPaperTopBars.Values.ToArray())
         {
-            if (!IsPluginTopBarRegistrationActive(registration))
+            if (!IsActive(registration.IsActive))
             {
-                _pluginTopBarSessions.Remove(registration.SessionId);
+                _pluginPaperTopBars.Remove(registration.SessionId);
+            }
+        }
+        foreach (var registration in _pluginGlobalTopBars.Values.ToArray())
+        {
+            if (!IsActive(registration.IsActive))
+            {
+                _pluginGlobalTopBars.Remove(registration.ProviderId);
             }
         }
     }
 
-    private static bool IsPluginTopBarRegistrationActive(
-        PluginTopBarSessionRegistration registration)
+    private static bool IsActive(Func<bool> predicate)
     {
         try
         {
-            return registration.IsActive();
+            return predicate();
         }
         catch
         {
