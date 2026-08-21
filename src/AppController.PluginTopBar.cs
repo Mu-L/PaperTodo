@@ -110,7 +110,9 @@ public sealed partial class AppController
         Func<bool> isActive,
         Action<PaperTopBarActionInvocation> invoke)
     {
-        EnsurePluginTopBarProtocol(providerId);
+        // The app-runtime manager validates protocol 2.0 before creating this capability. Once a
+        // runtime is alive, it owns its process-lifetime lease even if the user rescans plugin
+        // manifests; ordinary plugin Reload does not silently replace a running app runtime.
         var normalized = NormalizePluginTopBarActions(
             actions,
             MaximumGlobalTopBarActions,
