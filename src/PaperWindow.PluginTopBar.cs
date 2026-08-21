@@ -14,9 +14,6 @@ public sealed partial class PaperWindow
     private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
     private bool _pluginHostActionVisibilityHooksInstalled;
     private bool _reconcilingPluginHostActionVisibility;
-    private bool _pluginTopBarTypographyHookInstalled;
-    private double _pluginTopBarAppliedScale = double.NaN;
-    private string _pluginTopBarAppliedFontFamily = string.Empty;
 
     internal static void EnsurePluginTopBarLoadedHandler()
     {
@@ -60,6 +57,12 @@ public sealed partial class PaperWindow
             }
 
             var button = IconButton("", binding.Action.ToolTip);
+            button.SetBinding(
+                Control.FontFamilyProperty,
+                new Binding(nameof(FontFamily)) { Source = this });
+            button.SetBinding(
+                Control.FontSizeProperty,
+                new Binding(nameof(FontSize)) { Source = this });
             button.IsEnabled = binding.Action.Enabled;
             button.Opacity = binding.Action.Enabled ? 1.0 : 0.5;
             button.Width = 23;
@@ -84,8 +87,6 @@ public sealed partial class PaperWindow
             .OfType<FrameworkElement>()
             .Sum(TopBarOuterWidth);
 
-        _pluginTopBarAppliedScale = AppTypography.ScaleFactor;
-        _pluginTopBarAppliedFontFamily = AppTypography.UiFontFamily.Source;
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
         ReconcilePluginHiddenHostTopBarActions();
         UpdateTopBarResponsiveLayout();
@@ -109,11 +110,6 @@ public sealed partial class PaperWindow
         }
 
         EnsurePluginHostActionVisibilityHooks();
-        if (!_pluginTopBarTypographyHookInstalled)
-        {
-            _pluginTopBarTypographyHookInstalled = true;
-            LayoutUpdated += OnPluginTopBarLayoutUpdated;
-        }
     }
 
     private void EnsurePluginHostActionVisibilityHooks()
@@ -143,28 +139,6 @@ public sealed partial class PaperWindow
         ReconcilePluginHiddenHostTopBarActions();
     }
 
-    private void OnPluginTopBarLayoutUpdated(object? sender, EventArgs e)
-    {
-        if (_pluginTopBarButtonsHost == null ||
-            _pluginTopBarButtonsHost.Children.Count == 0)
-        {
-            return;
-        }
-
-        var scale = AppTypography.ScaleFactor;
-        var fontFamily = AppTypography.UiFontFamily.Source;
-        if (Math.Abs(scale - _pluginTopBarAppliedScale) <= 0.001 &&
-            string.Equals(
-                fontFamily,
-                _pluginTopBarAppliedFontFamily,
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        RefreshPluginTopBarActions();
-    }
-
     private static UIElement CreatePluginTopBarIcon(
         Button button,
         PaperTopBarIcon icon)
@@ -174,12 +148,16 @@ public sealed partial class PaperWindow
             var path = new Path
             {
                 Data = Geometry.Parse(icon.Value),
-                Width = AppTypography.Scale(13),
-                Height = AppTypography.Scale(13),
                 Stretch = Stretch.Uniform,
                 SnapsToDevicePixels = true,
                 IsHitTestVisible = false
             };
+            path.SetBinding(
+                FrameworkElement.WidthProperty,
+                new Binding(nameof(Control.FontSize)) { Source = button });
+            path.SetBinding(
+                FrameworkElement.HeightProperty,
+                new Binding(nameof(Control.FontSize)) { Source = button });
 
             if (icon.RenderMode == PaperTopBarSvgRenderMode.Stroke)
             {
@@ -204,8 +182,6 @@ public sealed partial class PaperWindow
         var text = new TextBlock
         {
             Text = icon.Value,
-            FontFamily = AppTypography.UiFontFamily,
-            FontSize = AppTypography.Scale(12),
             FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
