@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -7,6 +8,7 @@ namespace PaperTodo;
 internal sealed partial class WebPaperBodySession
 {
     private CoreWebView2? _topBarHookedCore;
+    private WebView2CompositionControl? _topBarHookedWebView;
 
     private object SetPaperTopBarActionsFromWeb(JsonElement parameters)
     {
@@ -63,21 +65,26 @@ internal sealed partial class WebPaperBodySession
                 "Web top-bar contribution must be registered by the current body document.");
         }
 
-        EnsureTopBarDocumentLifecycleHook(core);
+        EnsureTopBarDocumentLifecycleHook(core, _webView);
         return _documentGeneration;
     }
 
-    private void EnsureTopBarDocumentLifecycleHook(CoreWebView2 core)
+    private void EnsureTopBarDocumentLifecycleHook(
+        CoreWebView2 core,
+        WebView2CompositionControl webView)
     {
-        if (ReferenceEquals(_topBarHookedCore, core))
+        if (ReferenceEquals(_topBarHookedCore, core) &&
+            ReferenceEquals(_topBarHookedWebView, webView))
         {
             return;
         }
 
         DetachTopBarDocumentLifecycleHook();
         _topBarHookedCore = core;
+        _topBarHookedWebView = webView;
         core.NavigationStarting += OnTopBarDocumentNavigationStarting;
         core.ProcessFailed += OnTopBarDocumentProcessFailed;
+        webView.Unloaded += OnTopBarBodyWebViewUnloaded;
     }
 
     private void OnTopBarDocumentNavigationStarting(
@@ -102,6 +109,15 @@ internal sealed partial class WebPaperBodySession
         ClearWebTopBarContribution();
     }
 
+    private void OnTopBarBodyWebViewUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _topBarHookedWebView))
+        {
+            return;
+        }
+        ClearWebTopBarContribution();
+    }
+
     private void ClearWebTopBarContribution()
     {
         DetachTopBarDocumentLifecycleHook();
@@ -119,14 +135,19 @@ internal sealed partial class WebPaperBodySession
     private void DetachTopBarDocumentLifecycleHook()
     {
         var core = _topBarHookedCore;
+        var webView = _topBarHookedWebView;
         _topBarHookedCore = null;
-        if (core == null)
-        {
-            return;
-        }
+        _topBarHookedWebView = null;
 
-        try { core.NavigationStarting -= OnTopBarDocumentNavigationStarting; } catch { }
-        try { core.ProcessFailed -= OnTopBarDocumentProcessFailed; } catch { }
+        if (core != null)
+        {
+            try { core.NavigationStarting -= OnTopBarDocumentNavigationStarting; } catch { }
+            try { core.ProcessFailed -= OnTopBarDocumentProcessFailed; } catch { }
+        }
+        if (webView != null)
+        {
+            try { webView.Unloaded -= OnTopBarBodyWebViewUnloaded; } catch { }
+        }
     }
 
     private static PaperTopBarAction[] ReadTopBarActions(JsonElement parameters)
