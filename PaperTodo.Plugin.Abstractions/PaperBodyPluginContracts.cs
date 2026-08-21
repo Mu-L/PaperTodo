@@ -301,11 +301,13 @@ public interface IPaperBodyControls
 
 /// <summary>
 /// Operations that belong to the paper carrying this plugin instance. The paper remains the
-/// product-level anchor even when the plugin reads or mutates workspace data.
+/// product-level anchor even when the plugin reads or mutates workspace data. Presentation is
+/// session-scoped and can only affect this PaperId.
 /// </summary>
 public sealed class PaperBodyPaperContext
 {
     public required string PaperId { get; init; }
+    public required IPaperPresentationApi Presentation { get; init; }
     public required Action<string> SetTitle { get; init; }
     public required Action<string> SetHeaderText { get; init; }
     public required Action<PaperCapsulePresentation?> SetCapsulePresentation { get; init; }
