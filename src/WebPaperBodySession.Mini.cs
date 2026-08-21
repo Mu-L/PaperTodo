@@ -846,7 +846,7 @@ internal sealed partial class WebPaperBodySession
                                  payload.TryGetProperty("params", out var paramsValue)
                     ? paramsValue
                     : JsonSerializer.SerializeToElement(new { });
-                var result = _owner.ExecuteHostRequest(method, parameters);
+                var result = _owner.ExecuteMiniHostRequest(method, parameters);
                 if (generation != _documentGeneration)
                 {
                     return;
