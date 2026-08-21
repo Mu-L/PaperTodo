@@ -54,14 +54,6 @@ internal sealed class WebPluginAppRuntime : IDisposable
             throw new InvalidOperationException(
                 "PaperTodo could not attach the Web plugin app runtime to its background host.");
         }
-
-        _globalShortcuts.SetActionHandler(invocation =>
-            Send(new
-            {
-                type = "shortcutInvoked",
-                settingId = invocation.SettingId,
-                actionId = invocation.ActionId
-            }));
     }
 
     public async Task StartAsync()
@@ -195,6 +187,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
     }
 
     private void OnNavigationCompleted(
@@ -207,9 +200,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
         {
             _documentReady = false;
             TryClearGlobalTopBar();
+            TryClearGlobalShortcuts();
             return;
         }
         _documentReady = true;
+        RegisterGlobalShortcutHandler();
         Send(new
         {
             type = "initialize",
@@ -228,6 +223,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
     }
 
     private void OnWebMessageReceived(
@@ -336,6 +332,17 @@ internal sealed class WebPluginAppRuntime : IDisposable
         return new { updated = actions.Length };
     }
 
+    private void RegisterGlobalShortcutHandler()
+    {
+        _globalShortcuts.SetActionHandler(invocation =>
+            Send(new
+            {
+                type = "shortcutInvoked",
+                settingId = invocation.SettingId,
+                actionId = invocation.ActionId
+            }));
+    }
+
     private static string RequiredString(JsonElement payload, string name)
     {
         if (payload.ValueKind != JsonValueKind.Object ||
@@ -376,6 +383,11 @@ internal sealed class WebPluginAppRuntime : IDisposable
         try { _globalTopBar.Clear(); } catch { }
     }
 
+    private void TryClearGlobalShortcuts()
+    {
+        try { _globalShortcuts.Clear(); } catch { }
+    }
+
     private void ThrowIfInactive()
     {
         if (_disposed || !_isActive())
@@ -392,6 +404,7 @@ internal sealed class WebPluginAppRuntime : IDisposable
         }
         _documentReady = false;
         TryClearGlobalTopBar();
+        TryClearGlobalShortcuts();
         _disposed = true;
         _lifetime.Cancel();
         if (_webView.CoreWebView2 is { } core)
