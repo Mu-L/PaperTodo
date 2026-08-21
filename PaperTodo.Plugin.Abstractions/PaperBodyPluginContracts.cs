@@ -54,6 +54,68 @@ public enum PaperCapsuleTone
     Danger
 }
 
+public enum PaperTopBarIconKind
+{
+    Character,
+    SvgPath
+}
+
+public enum PaperTopBarActionScope
+{
+    Paper,
+    Global
+}
+
+[Flags]
+public enum PaperHostTopBarActions
+{
+    None = 0,
+    NewTodoPaper = 1 << 0,
+    NewNotePaper = 1 << 1
+}
+
+/// <summary>
+/// A small host-rendered top-bar icon. Character renders short text/glyph content; SvgPath accepts
+/// SVG/WPF path-data syntax only, not a complete SVG document. PaperTodo owns the button size,
+/// theme, hover/focus behavior and clipping.
+/// </summary>
+public sealed record PaperTopBarIcon
+{
+    public PaperTopBarIconKind Kind { get; init; }
+    public string Value { get; init; } = string.Empty;
+
+    public static PaperTopBarIcon Character(string value) =>
+        new() { Kind = PaperTopBarIconKind.Character, Value = value ?? string.Empty };
+
+    public static PaperTopBarIcon SvgPath(string pathData) =>
+        new() { Kind = PaperTopBarIconKind.SvgPath, Value = pathData ?? string.Empty };
+}
+
+/// <summary>
+/// One host-rendered plugin action in a PaperTodo top bar. Plugins contribute intent only; they do
+/// not provide Button/FrameworkElement instances or control placement, sizing, theme or hover UI.
+/// </summary>
+public sealed record PaperTopBarAction
+{
+    public string Id { get; init; } = string.Empty;
+    public PaperTopBarIcon Icon { get; init; } = new();
+    public string ToolTip { get; init; } = string.Empty;
+    public bool Enabled { get; init; } = true;
+    public bool Visible { get; init; } = true;
+}
+
+/// <summary>
+/// Describes a top-bar click. Global actions are rendered on other papers while their owning plugin
+/// session is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
+/// clicked rather than the plugin's host paper.
+/// </summary>
+public sealed record PaperTopBarActionInvocation(
+    string ActionId,
+    PaperTopBarActionScope Scope,
+    string TargetPaperId,
+    string TargetPaperType,
+    string TargetBodyProviderId);
+
 /// <summary>
 /// One host-rendered item inside the fixed-height capsule content area. Up to three items are
 /// accepted and their order is preserved. Fill consumes remaining horizontal space.
@@ -70,10 +132,10 @@ public sealed record PaperCapsuleComponent
 }
 
 /// <summary>
-/// Protocol 1.6 host-rendered capsule description. A positive PreferredWidth is the complete
-/// capsule content segment width in DIPs. AutomaticWidth asks PaperTodo to measure the natural
-/// width of the standard components, including their internal padding and gaps. PaperTodo owns the
-/// fixed height, outer chrome, close segment and all input.
+/// Host-rendered capsule description. A positive PreferredWidth is the complete capsule content
+/// segment width in DIPs. AutomaticWidth asks PaperTodo to measure the natural width of the standard
+/// components, including their internal padding and gaps. PaperTodo owns the fixed height, outer
+/// chrome, close segment and all input.
 /// </summary>
 public sealed record PaperCapsulePresentation
 {
@@ -93,8 +155,7 @@ public enum PaperCapsuleSurfaceKind
 
 /// <summary>
 /// Geometry and theme of one fixed-height capsule content surface. Width and Height are the exact
-/// custom-view layout slot in DIPs: protocol 1.7 does not subtract the protocol 1.6 template's
-/// visual padding. The host keeps ownership of outer chrome and input.
+/// custom-view layout slot in DIPs. The host keeps ownership of outer chrome and input.
 /// </summary>
 public sealed record PaperCapsuleViewContext(
     PaperCapsuleSurfaceKind Surface,
@@ -103,14 +164,13 @@ public sealed record PaperCapsuleViewContext(
     PaperBodyTheme Theme);
 
 /// <summary>
-/// Optional protocol 1.7 native-session capability. A session may create one fresh WPF view for
-/// each live capsule surface. The host attempts each surface at most once per live body session and
-/// caches either the returned view or a null fallback. AutomaticWidth resolves from the standard
-/// component template before this method is called. Any resolved-width geometry change recreates
-/// the surface with a new context; presentation, theme and DPI changes that keep the same resolved
-/// width reuse the view, so plugins that render live state should retain and update it through the
-/// session lifecycle.
-/// Returning null falls back to the protocol 1.6 host template.
+/// Optional native-session capability. A session may create one fresh WPF view for each live
+/// capsule surface. The host attempts each surface at most once per live body session and caches
+/// either the returned view or a null fallback. AutomaticWidth resolves from the standard component
+/// template before this method is called. Any resolved-width geometry change recreates the surface
+/// with a new context; presentation, theme and DPI changes that keep the same resolved width reuse
+/// the view, so plugins that render live state should retain and update it through the session
+/// lifecycle. Returning null falls back to the host template.
 /// </summary>
 public interface IPaperCapsuleViewProvider
 {
@@ -128,9 +188,9 @@ public readonly record struct PaperMiniViewSize(double Width, double Height)
 }
 
 /// <summary>
-/// Exact geometry and theme supplied when PaperTodo creates a protocol 1.8 native mini view.
-/// CardWidth/CardHeight describe the complete visible card. Width/Height describe the inner slot
-/// owned by the plugin after the host chrome and close segment have been reserved.
+/// Exact geometry and theme supplied when PaperTodo creates a native mini view. CardWidth/CardHeight
+/// describe the complete visible card. Width/Height describe the inner slot owned by the plugin
+/// after the host chrome and close segment have been reserved.
 /// </summary>
 public sealed record PaperMiniViewContext(
     double CardWidth,
@@ -140,11 +200,11 @@ public sealed record PaperMiniViewContext(
     PaperBodyTheme Theme);
 
 /// <summary>
-/// Optional protocol 1.8 native-session capability for a dedicated edge-browsing surface. The
-/// session and mini view may share one business-state model, but CreateMiniView must return a
-/// fresh pure-WPF tree. Window, HwndHost, WindowsFormsHost, WebView2 and already-parented controls
-/// are rejected. PaperTodo caches one successful view per live session and normalized geometry.
-/// Returning null or throwing falls back to the enlarged protocol 1.7/1.6 capsule.
+/// Optional native-session capability for a dedicated edge-browsing surface. The session and mini
+/// view may share one business-state model, but CreateMiniView must return a fresh pure-WPF tree.
+/// Window, HwndHost, WindowsFormsHost, WebView2 and already-parented controls are rejected.
+/// PaperTodo caches one successful view per live session and normalized geometry. Returning null or
+/// throwing falls back to the enlarged capsule presentation.
 /// </summary>
 public interface IPaperMiniViewProvider
 {
@@ -153,19 +213,19 @@ public interface IPaperMiniViewProvider
     FrameworkElement? CreateMiniView(PaperMiniViewContext context);
 
     /// <summary>
-    /// Notifies a cached mini tree when it becomes the active preview or starts leaving it.
-    /// Plugins can pause timers and input work when hidden, but must keep the last painted tree
-    /// intact for the host-owned outgoing animation. Business-state updates should continue
-    /// according to the normal body-session visibility contract.
+    /// Notifies a cached mini tree when it becomes the active preview or starts leaving it. Plugins
+    /// can pause timers and input work when hidden, but must keep the last painted tree intact for
+    /// the host-owned outgoing animation. Business-state updates should continue according to the
+    /// normal body-session visibility contract.
     /// </summary>
     void OnMiniViewVisibilityChanged(bool visible) { }
 }
 
 /// <summary>
-/// Optional protocol 1.8 native-session opt-in for moving the one real body view into the first
-/// mini preview before the body has ever been presented. PaperTodo owns reparenting and screenshot
-/// hand-off. Only a pure-WPF body tree is eligible; unsupported surfaces fall back safely.
-/// Dedicated IPaperMiniViewProvider content always takes precedence over migration.
+/// Optional native-session opt-in for moving the one real body view into the first mini preview
+/// before the body has ever been presented. PaperTodo owns reparenting and screenshot hand-off.
+/// Only a pure-WPF body tree is eligible; unsupported surfaces fall back safely. Dedicated
+/// IPaperMiniViewProvider content always takes precedence over migration.
 /// </summary>
 public interface IPaperBodyViewMigrationProvider
 {
@@ -194,8 +254,8 @@ public static class PaperMiniViewInteraction
 }
 
 /// <summary>
-/// Host-owned native controls. Plugins provide data and behavior while PaperTodo owns the
-/// shared visual language, popup lifecycle, theme and DPI behavior.
+/// Host-owned native controls. Plugins provide data and behavior while PaperTodo owns the shared
+/// visual language, popup lifecycle, theme and DPI behavior.
 /// </summary>
 public interface IPaperBodyControls
 {
@@ -230,7 +290,6 @@ public sealed class PaperBodySurfaceContext
 /// <summary>
 /// One plugin instance is anchored to one paper. Paper contains paper-owned presentation state,
 /// Body contains the expanded body surface, and Workspace exposes PaperTodo-wide data operations.
-/// Paper, Body and Workspace are the canonical capability scopes.
 /// </summary>
 public sealed class PaperBodyContext
 {
@@ -262,9 +321,9 @@ public sealed class PaperBodyContext
 
 /// <summary>
 /// A fully trusted, unsandboxed native plugin loaded from one self-contained
-/// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions.
-/// Implementations must provide a public parameterless constructor and act as stateless factories.
-/// PaperTodo creates a fresh plugin object for every body session.
+/// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions. Implementations must provide a
+/// public parameterless constructor and act as stateless factories. PaperTodo creates a fresh plugin
+/// object for every body session.
 /// </summary>
 public interface IPaperBodyPlugin
 {
@@ -278,8 +337,8 @@ public interface IPaperBodyPlugin
     PaperBodyCapabilities Capabilities { get; }
 
     /// <summary>
-    /// Migrate persisted JSON before Create is called. Return valid JSON for StateVersion.
-    /// The default implementation keeps the old JSON unchanged.
+    /// Migrate persisted JSON before Create is called. Return valid JSON for StateVersion. The
+    /// default implementation keeps the old JSON unchanged.
     /// </summary>
     string MigrateState(string stateJson, int fromVersion) => stateJson;
 
@@ -287,8 +346,8 @@ public interface IPaperBodyPlugin
 }
 
 /// <summary>
-/// One live body instance attached to one PaperTodo paper.
-/// Web plugins must call papertodo.saveState after every state mutation; Commit is best-effort only.
+/// One live body instance attached to one PaperTodo paper. Web plugins must call
+/// papertodo.saveState after every state mutation; Commit is best-effort only.
 /// </summary>
 public interface IPaperBodySession : IDisposable
 {
