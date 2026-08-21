@@ -60,6 +60,12 @@ public enum PaperTopBarIconKind
     SvgPath
 }
 
+public enum PaperTopBarSvgRenderMode
+{
+    Fill,
+    Stroke
+}
+
 public enum PaperTopBarActionScope
 {
     Paper,
@@ -77,18 +83,30 @@ public enum PaperHostTopBarActions
 /// <summary>
 /// A small host-rendered top-bar icon. Character renders short text/glyph content; SvgPath accepts
 /// SVG/WPF path-data syntax only, not a complete SVG document. PaperTodo owns the button size,
-/// theme, hover/focus behavior and clipping.
+/// theme, hover/focus behavior and clipping. SvgPath can be rendered as either a filled silhouette
+/// or a stroked outline; StrokeWidth is interpreted in the icon's normalized path coordinate space.
 /// </summary>
 public sealed record PaperTopBarIcon
 {
     public PaperTopBarIconKind Kind { get; init; }
     public string Value { get; init; } = string.Empty;
+    public PaperTopBarSvgRenderMode RenderMode { get; init; } = PaperTopBarSvgRenderMode.Fill;
+    public double StrokeWidth { get; init; } = 1.5;
 
     public static PaperTopBarIcon Character(string value) =>
         new() { Kind = PaperTopBarIconKind.Character, Value = value ?? string.Empty };
 
-    public static PaperTopBarIcon SvgPath(string pathData) =>
-        new() { Kind = PaperTopBarIconKind.SvgPath, Value = pathData ?? string.Empty };
+    public static PaperTopBarIcon SvgPath(
+        string pathData,
+        PaperTopBarSvgRenderMode renderMode = PaperTopBarSvgRenderMode.Fill,
+        double strokeWidth = 1.5) =>
+        new()
+        {
+            Kind = PaperTopBarIconKind.SvgPath,
+            Value = pathData ?? string.Empty,
+            RenderMode = renderMode,
+            StrokeWidth = strokeWidth
+        };
 }
 
 /// <summary>
@@ -115,6 +133,25 @@ public sealed record PaperTopBarActionInvocation(
     string TargetPaperId,
     string TargetPaperType,
     string TargetBodyProviderId);
+
+/// <summary>
+/// Session-scoped PaperTodo top-bar capability introduced by protocol 2.0. This is deliberately
+/// separate from IPaperTodoHostApi/Workspace: top-bar contribution is presentation/session state,
+/// not a Paper/Todo/Note business-data mutation. PaperTodo owns rendering and automatically removes
+/// all contributions when the owning session ends.
+/// </summary>
+public interface IPaperTopBarApi
+{
+    void SetActionHandler(Action<PaperTopBarActionInvocation>? handler);
+
+    void SetPaperActions(
+        IReadOnlyList<PaperTopBarAction> actions,
+        PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None);
+
+    void SetGlobalActions(IReadOnlyList<PaperTopBarAction> actions);
+
+    void Clear();
+}
 
 /// <summary>
 /// One host-rendered item inside the fixed-height capsule content area. Up to three items are
@@ -289,7 +326,8 @@ public sealed class PaperBodySurfaceContext
 
 /// <summary>
 /// One plugin instance is anchored to one paper. Paper contains paper-owned presentation state,
-/// Body contains the expanded body surface, and Workspace exposes PaperTodo-wide data operations.
+/// Body contains the expanded body surface, Workspace exposes PaperTodo-wide business-data
+/// operations, and TopBar exposes the independent session-scoped chrome contribution capability.
 /// </summary>
 public sealed class PaperBodyContext
 {
@@ -307,7 +345,13 @@ public sealed class PaperBodyContext
     public required IPaperTodoHostApi Workspace { get; init; }
     public required Action<string> SaveStateJson { get; init; }
 
-    // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body.
+    // The host implementation backs Workspace and TopBar with the same session lifetime, but the
+    // public contracts stay separate so presentation capabilities do not pollute workspace data API.
+    public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
+        ?? throw new InvalidOperationException(
+            "This PaperTodo host does not expose the protocol 2.0 top-bar capability.");
+
+    // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body / TopBar.
     public string PaperId => Paper.PaperId;
     public IPaperTodoHostApi Host => Workspace;
     public IPaperBodyControls Controls => Body.Controls;
