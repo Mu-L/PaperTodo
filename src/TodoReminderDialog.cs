@@ -320,7 +320,7 @@ internal static class TodoReminderDialog
                     out value) ||
                 DateTime.TryParse(
                     dateInput.Text.Trim(),
-                    CultureInfo.CurrentCulture,
+                    UiLanguages.EffectiveCulture,
                     DateTimeStyles.AllowWhiteSpaces,
                     out value);
         }

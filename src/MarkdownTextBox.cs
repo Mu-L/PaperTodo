@@ -3807,7 +3807,7 @@ public sealed partial class MarkdownTextBox : TextEditor
 
         while (search < text.Length)
         {
-            var start = text.IndexOf("</", search, StringComparison.Ordinal);
+            var start = MarkdownInlineSyntax.IndexOfUnescaped(text, "</", search);
             if (start < 0)
             {
                 return false;
@@ -4163,7 +4163,7 @@ public sealed partial class MarkdownTextBox : TextEditor
                     {
                         var formatted = new FormattedText(
                             text.Substring(markerStart, markerLength),
-                            CultureInfo.CurrentUICulture,
+                            UiLanguages.EffectiveUiCulture,
                             FlowDirection.LeftToRight,
                             ListMarkerTypeface,
                             _owner.ScaledFontSize(NoteTypography.FontSize),

@@ -856,7 +856,7 @@ public sealed partial class AppController
         {
             var formatted = new FormattedText(
                 text,
-                CultureInfo.CurrentUICulture,
+                UiLanguages.EffectiveUiCulture,
                 FlowDirection.LeftToRight,
                 new Typeface(AppTypography.UiFontFamily, FontStyles.Normal, weight, FontStretches.Normal),
                 fontSize,

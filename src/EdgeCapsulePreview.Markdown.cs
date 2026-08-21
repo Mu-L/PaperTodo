@@ -148,12 +148,29 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
 
     public static string MeasureText(string? markdown)
     {
-        return string.Join(
-            Environment.NewLine,
-            NormalizeLines(markdown)
-                .Where(line => !string.IsNullOrWhiteSpace(line.Text))
-                .Take(MaximumMeasuredLines)
-                .Select(line => CompactText(MarkdownInlineSyntax.Unescape(StripBlockPrefix(line.Text)))));
+        var measured = new List<string>();
+        var fencedCodeState = default(MarkdownFencedCodeState);
+        foreach (var previewLine in NormalizeLines(markdown).Take(MaximumMeasuredLines))
+        {
+            var original = previewLine.Text;
+            var wasInsideFence = fencedCodeState.IsInside;
+            var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
+                original,
+                fencedCodeState,
+                out fencedCodeState);
+            if (fenceKind is MarkdownFenceLineKind.Opening or MarkdownFenceLineKind.Closing ||
+                string.IsNullOrWhiteSpace(original))
+            {
+                continue;
+            }
+
+            var text = wasInsideFence
+                ? original.TrimEnd()
+                : PrepareInlineTextForMeasurement(StripBlockPrefix(original));
+            measured.Add(CompactText(text));
+        }
+
+        return string.Join(Environment.NewLine, measured);
     }
 
     public static int EstimateVisualLines(string? markdown, double widthDip)
@@ -182,14 +199,18 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
             {
                 estimate += 1;
             }
-            else if (trimmed.Length == 0 || HorizontalRulePattern.IsMatch(trimmed))
+            else if (trimmed.Length == 0 ||
+                     (!wasInsideFence && HorizontalRulePattern.IsMatch(trimmed)))
             {
                 estimate += 1;
             }
             else
             {
+                var measurementText = wasInsideFence
+                    ? raw.TrimEnd()
+                    : PrepareInlineTextForMeasurement(StripBlockPrefix(trimmed));
                 var lines = EdgeCapsulePreviewMeasure.EstimateWrappedLines(
-                    MarkdownInlineSyntax.Unescape(StripBlockPrefix(trimmed)),
+                    measurementText,
                     widthDip);
                 estimate += wasInsideFence ? Math.Min(3, lines) : Math.Min(4, lines);
             }
@@ -655,6 +676,39 @@ internal static partial class MarkdownEdgeCapsulePreviewRenderer
         }
         target.Append(value);
         return truncated;
+    }
+
+    private static string PrepareInlineTextForMeasurement(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        var cursor = 0;
+        while (cursor < text.Length)
+        {
+            var start = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', cursor);
+            if (start < 0)
+            {
+                builder.Append(MarkdownInlineSyntax.Unescape(text[cursor..]));
+                break;
+            }
+
+            var end = MarkdownInlineSyntax.IndexOfUnescaped(text, '`', start + 1);
+            if (end < 0)
+            {
+                builder.Append(MarkdownInlineSyntax.Unescape(text[cursor..]));
+                break;
+            }
+
+            builder.Append(MarkdownInlineSyntax.Unescape(text[cursor..start]));
+            builder.Append(text.AsSpan(start + 1, end - start - 1));
+            cursor = end + 1;
+        }
+
+        return builder.ToString();
     }
 
     private static string CompactText(string value) =>

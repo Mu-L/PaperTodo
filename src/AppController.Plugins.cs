@@ -394,7 +394,7 @@ public sealed partial class AppController
         var editor = new TextBox
         {
             Text = current.TryGetDouble(out var number)
-                ? number.ToString("G", CultureInfo.CurrentCulture)
+                ? number.ToString("G", UiLanguages.EffectiveCulture)
                 : "0",
             Width = string.IsNullOrWhiteSpace(setting.Suffix) ? 112 : 86,
             MinHeight = 27,
@@ -417,7 +417,7 @@ public sealed partial class AppController
             if (!TryParsePluginNumber(editor.Text, out var parsed))
             {
                 var stored = _paperBodyPlugins.DataStore.GetSettingValue(descriptor, setting);
-                editor.Text = stored.GetDouble().ToString("G", CultureInfo.CurrentCulture);
+                editor.Text = stored.GetDouble().ToString("G", UiLanguages.EffectiveCulture);
                 return;
             }
 
@@ -425,7 +425,7 @@ public sealed partial class AppController
                 descriptor,
                 setting,
                 JsonSerializer.SerializeToElement(parsed));
-            editor.Text = normalized.GetDouble().ToString("G", CultureInfo.CurrentCulture);
+            editor.Text = normalized.GetDouble().ToString("G", UiLanguages.EffectiveCulture);
         };
         panel.Children.Add(editor);
         if (!string.IsNullOrWhiteSpace(setting.Suffix))
@@ -677,7 +677,7 @@ public sealed partial class AppController
         var parsed = double.TryParse(
                 text,
                 NumberStyles.Float,
-                CultureInfo.CurrentCulture,
+                UiLanguages.EffectiveCulture,
                 out value) ||
             double.TryParse(
                 text,

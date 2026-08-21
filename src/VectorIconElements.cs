@@ -504,7 +504,7 @@ internal sealed class VectorGlyphElement : FrameworkElement
     {
         return new FormattedText(
             _text,
-            CultureInfo.CurrentUICulture,
+            UiLanguages.EffectiveUiCulture,
             FlowDirection.LeftToRight,
             new Typeface(
                 _fontFamily,
