@@ -11,6 +11,12 @@ public sealed partial class PaperWindow
 {
     private static bool _pluginTopBarLoadedHandlerRegistered;
     private StackPanel? _pluginTopBarButtonsHost;
+    private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
+    private bool _pluginHostActionVisibilityHooksInstalled;
+    private bool _reconcilingPluginHostActionVisibility;
+    private bool _pluginTopBarTypographyHookInstalled;
+    private double _pluginTopBarAppliedScale = double.NaN;
+    private string _pluginTopBarAppliedFontFamily = string.Empty;
 
     internal static void EnsurePluginTopBarLoadedHandler()
     {
@@ -68,7 +74,10 @@ public sealed partial class PaperWindow
             _pluginTopBarButtonsHost.Children.Add(button);
         }
 
-        ApplyPluginHiddenHostTopBarActions(state.HiddenHostActions);
+        _pluginTopBarAppliedScale = AppTypography.ScaleFactor;
+        _pluginTopBarAppliedFontFamily = AppTypography.UiFontFamily.Source;
+        _pluginHiddenHostTopBarActions = state.HiddenHostActions;
+        ReconcilePluginHiddenHostTopBarActions();
         UpdateTopBarResponsiveLayout();
     }
 
@@ -88,6 +97,62 @@ public sealed partial class PaperWindow
         {
             _topBarActionButtonsHost.Children.Insert(0, _pluginTopBarButtonsHost);
         }
+
+        EnsurePluginHostActionVisibilityHooks();
+        if (!_pluginTopBarTypographyHookInstalled)
+        {
+            _pluginTopBarTypographyHookInstalled = true;
+            LayoutUpdated += OnPluginTopBarLayoutUpdated;
+        }
+    }
+
+    private void EnsurePluginHostActionVisibilityHooks()
+    {
+        if (_pluginHostActionVisibilityHooksInstalled ||
+            _newTodoButton == null ||
+            _newNoteButton == null)
+        {
+            return;
+        }
+
+        _pluginHostActionVisibilityHooksInstalled = true;
+        _newTodoButton.IsVisibleChanged += OnPluginHostActionVisibilityChanged;
+        _newNoteButton.IsVisibleChanged += OnPluginHostActionVisibilityChanged;
+    }
+
+    private void OnPluginHostActionVisibilityChanged(
+        object sender,
+        DependencyPropertyChangedEventArgs e)
+    {
+        if (_reconcilingPluginHostActionVisibility ||
+            _pluginHiddenHostTopBarActions == PaperHostTopBarActions.None)
+        {
+            return;
+        }
+
+        ReconcilePluginHiddenHostTopBarActions();
+    }
+
+    private void OnPluginTopBarLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (_pluginTopBarButtonsHost == null ||
+            _pluginTopBarButtonsHost.Children.Count == 0)
+        {
+            return;
+        }
+
+        var scale = AppTypography.ScaleFactor;
+        var fontFamily = AppTypography.UiFontFamily.Source;
+        if (Math.Abs(scale - _pluginTopBarAppliedScale) <= 0.001 &&
+            string.Equals(
+                fontFamily,
+                _pluginTopBarAppliedFontFamily,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        RefreshPluginTopBarActions();
     }
 
     private static UIElement CreatePluginTopBarIcon(
@@ -105,9 +170,24 @@ public sealed partial class PaperWindow
                 SnapsToDevicePixels = true,
                 IsHitTestVisible = false
             };
-            path.SetBinding(
-                Shape.FillProperty,
-                new Binding(nameof(Control.Foreground)) { Source = button });
+
+            if (icon.RenderMode == PaperTopBarSvgRenderMode.Stroke)
+            {
+                path.Fill = Brushes.Transparent;
+                path.StrokeThickness = icon.StrokeWidth;
+                path.StrokeLineJoin = PenLineJoin.Round;
+                path.StrokeStartLineCap = PenLineCap.Round;
+                path.StrokeEndLineCap = PenLineCap.Round;
+                path.SetBinding(
+                    Shape.StrokeProperty,
+                    new Binding(nameof(Control.Foreground)) { Source = button });
+            }
+            else
+            {
+                path.SetBinding(
+                    Shape.FillProperty,
+                    new Binding(nameof(Control.Foreground)) { Source = button });
+            }
             return path;
         }
 
@@ -128,23 +208,37 @@ public sealed partial class PaperWindow
         return text;
     }
 
-    private void ApplyPluginHiddenHostTopBarActions(
-        PaperHostTopBarActions hidden)
+    private void ReconcilePluginHiddenHostTopBarActions()
     {
-        // First restore PaperTodo's normal user/settings-driven visibility, then apply only the
-        // small protocol whitelist. Close, pin, title drag and window lifecycle controls are never
-        // part of plugin-owned suppression.
-        UpdateTopBarNewPaperButtons();
-
-        if (_newTodoButton != null &&
-            hidden.HasFlag(PaperHostTopBarActions.NewTodoPaper))
+        if (_reconcilingPluginHostActionVisibility)
         {
-            _newTodoButton.Visibility = Visibility.Collapsed;
+            return;
         }
-        if (_newNoteButton != null &&
-            hidden.HasFlag(PaperHostTopBarActions.NewNotePaper))
+
+        _reconcilingPluginHostActionVisibility = true;
+        try
         {
-            _newNoteButton.Visibility = Visibility.Collapsed;
+            // The user setting is the base visibility; plugin suppression is the final paper-local
+            // layer. Reapplying this from the visibility hooks prevents a later settings refresh
+            // from temporarily resurrecting actions that the active provider asked to hide.
+            UpdateTopBarNewPaperButtons();
+
+            if (_newTodoButton != null &&
+                _pluginHiddenHostTopBarActions.HasFlag(
+                    PaperHostTopBarActions.NewTodoPaper))
+            {
+                _newTodoButton.Visibility = Visibility.Collapsed;
+            }
+            if (_newNoteButton != null &&
+                _pluginHiddenHostTopBarActions.HasFlag(
+                    PaperHostTopBarActions.NewNotePaper))
+            {
+                _newNoteButton.Visibility = Visibility.Collapsed;
+            }
+        }
+        finally
+        {
+            _reconcilingPluginHostActionVisibility = false;
         }
     }
 }
