@@ -3,7 +3,7 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
-internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
+internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarApi, IDisposable
 {
     private readonly AppController _controller;
     private readonly PaperCommandService _commands;
@@ -157,8 +157,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
             PaperOperationContext.Plugin(_providerId)));
     }
 
-    public void SetTopBarActionHandler(
-        Action<PaperTopBarActionInvocation>? handler)
+    public void SetActionHandler(Action<PaperTopBarActionInvocation>? handler)
     {
         EnsureUsable();
         _topBarActionHandler = handler;
@@ -168,7 +167,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         }
     }
 
-    public void SetPaperTopBarActions(
+    public void SetPaperActions(
         IReadOnlyList<PaperTopBarAction> actions,
         PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None)
     {
@@ -185,7 +184,7 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
             DispatchTopBarAction);
     }
 
-    public void SetGlobalTopBarActions(IReadOnlyList<PaperTopBarAction> actions)
+    public void SetGlobalActions(IReadOnlyList<PaperTopBarAction> actions)
     {
         ArgumentNullException.ThrowIfNull(actions);
         EnsureUsable();
@@ -197,6 +196,13 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
             actions,
             () => !_disposed && _isSessionCurrent(),
             DispatchTopBarAction);
+    }
+
+    public void Clear()
+    {
+        EnsureUsable();
+        _topBarActionHandler = null;
+        _controller.RemovePluginTopBarSession(_sessionId);
     }
 
     private void EnsureTopBarHandlerForActions(IReadOnlyList<PaperTopBarAction> actions)
@@ -357,6 +363,8 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         PaperTodoEventKind.NoteChanged => PaperTodoPermissionNames.NotesObserve,
         _ => throw Error("invalid_params", "Unknown event kind.")
     };
+
+    private HashSet<string>? _unused;
 
     private HashSet<PaperTodoEventKind> DefaultObservableKinds()
     {
