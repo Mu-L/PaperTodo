@@ -11,14 +11,16 @@ internal static class Program
             var host = Assembly.Load("PaperTodo");
             var abstractions = Assembly.Load("PaperTodo.Plugin.Abstractions");
             CheckSingleHotkeyAuthority(host);
+            CheckShortcutValidation(host);
             CheckRuntimeSlotAuthority(host);
             CheckRuntimeTransitions(host);
             CheckCapabilityNormalization(host);
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
+            CheckWebBodyNavigationIdentity(host);
             CheckManifestRuntimeAndMiniContracts(host);
             CheckGlobalTopBarPriority(host, abstractions);
-            CheckAppRuntimeSettings(abstractions);
+            CheckAppRuntimeSettings(host, abstractions);
             Console.WriteLine("PaperTodo protocol policy checks passed.");
             return 0;
         }
@@ -112,6 +114,23 @@ internal static class Program
         return (applied, args[5]?.ToString() ?? "");
     }
 
+    private static void CheckShortcutValidation(Assembly host)
+    {
+        var gestureType = RequireType(host, "PaperTodo.ShortcutGesture");
+        var tryParse = gestureType.GetMethod(
+            "TryParse",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ShortcutGesture.TryParse was not found.");
+
+        object?[] invalid = ["Ctrl+999", Activator.CreateInstance(gestureType)];
+        Assert(!(bool)(tryParse.Invoke(null, invalid) ?? false),
+            "Undefined numeric Key enum values must not parse as shortcuts.");
+
+        object?[] valid = ["Ctrl+Alt+A", Activator.CreateInstance(gestureType)];
+        Assert((bool)(tryParse.Invoke(null, valid) ?? false),
+            "A normal defined shortcut stopped parsing.");
+    }
+
     private static void CheckRuntimeSlotAuthority(Assembly host)
     {
         var controller = RequireType(host, "PaperTodo.AppController");
@@ -121,6 +140,13 @@ internal static class Program
         Assert(
             controller.GetField("_pluginAppRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) != null,
             "Plugin app runtime slot dictionary was not found.");
+
+        var lifetime = controller.GetNestedType("PluginAppRuntimeLifetime", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PluginAppRuntimeLifetime was not found.");
+        Assert(lifetime.GetField("_active", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType == typeof(int),
+            "App runtime lifetime must expose one atomic integer active token to worker-side APIs.");
+        Assert(lifetime.GetMethod("TryDeactivate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null,
+            "App runtime lifetime must support atomic revocation before teardown.");
 
         var obsoleteParallelState = new[]
         {
@@ -159,7 +185,7 @@ internal static class Program
         Assert(InvokeState("StartSucceeded", State("Starting")) == "Running",
             "Starting must enter Running after successful creation.");
         Assert(InvokeState("StartFailed", 1, 3) == "Backoff",
-            "The first start failure must enter Backoff.");
+            "The first runtime failure must enter Backoff.");
         Assert(InvokeState("StartFailed", 3, 3) == "Backoff",
             "The third bounded retry failure must still enter Backoff.");
         Assert(InvokeState("StartFailed", 4, 3) == "Failed",
@@ -234,6 +260,20 @@ internal static class Program
         Assert(
             appRuntime.GetField("JsonOptions", BindingFlags.Static | BindingFlags.NonPublic) == null,
             "WebPluginAppRuntime still owns a duplicate JSON bridge policy.");
+        Assert(
+            appRuntime.GetField("_startupReady", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "Web app runtime must wait for document readiness before it enters Running.");
+    }
+
+    private static void CheckWebBodyNavigationIdentity(Assembly host)
+    {
+        var body = RequireType(host, "PaperTodo.WebPaperBodySession");
+        Assert(
+            body.GetField("_documentNavigationId", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType == typeof(ulong),
+            "Web body navigation completion must be tied to the current NavigationId.");
+        Assert(
+            body.GetField("_hasDocumentNavigation", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType == typeof(bool),
+            "Web body must track whether a current navigation identity exists.");
     }
 
     private static void CheckManifestRuntimeAndMiniContracts(Assembly host)
@@ -262,9 +302,14 @@ internal static class Program
         Assert(
             controller.GetField("MaximumGlobalTopBarActions", BindingFlags.Static | BindingFlags.NonPublic) == null,
             "Global Top Bar still has a hard action-count limit.");
+
+        var window = RequireType(host, "PaperTodo.PaperWindow");
+        Assert(
+            window.GetField("_pluginTopBarActionElements", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "Top Bar must retain action scope per button so Global actions can be fitted individually.");
     }
 
-    private static void CheckAppRuntimeSettings(Assembly abstractions)
+    private static void CheckAppRuntimeSettings(Assembly host, Assembly abstractions)
     {
         var settings = RequireType(abstractions, "PaperTodo.Plugin.IPaperAppRuntimeSettings");
         Assert(settings.GetProperty("Json")?.PropertyType == typeof(string),
@@ -273,6 +318,13 @@ internal static class Program
         var context = RequireType(abstractions, "PaperTodo.Plugin.PaperAppRuntimeContext");
         Assert(context.GetProperty("Settings")?.PropertyType == settings,
             "PaperAppRuntimeContext.Settings was not found.");
+
+        var controller = RequireType(host, "PaperTodo.AppController");
+        Assert(
+            controller.GetMethod(
+                "RetryFailedPluginAppRuntimeAfterSettingsChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "A Failed/Backoff app runtime must have a settings-change recovery path.");
     }
 
     private static Type RequireType(Assembly assembly, string name) =>

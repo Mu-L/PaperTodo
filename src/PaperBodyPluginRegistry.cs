@@ -81,8 +81,9 @@ internal sealed class PaperBodyPluginMiniSizeManifest
 
 /// <summary>
 /// Discovers one fully trusted, unsandboxed native or local Web plugin from each self-contained
-/// plugins/&lt;plugin-id&gt;/plugin.json folder. Native code is not hot-replaced: changed native
-/// folders remain on the loaded version until restart, while Web folders reload immediately.
+/// plugins/&lt;plugin-id&gt;/plugin.json folder. Protocol 2.0 has no plugin hot-reload contract: code,
+/// manifest and Web file changes are discovered on the next app start. Loaded native assemblies
+/// remain loaded for the process lifetime.
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
@@ -564,6 +565,20 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             {
                 throw new InvalidDataException(
                     $"Native plugin runtime requirements {plugin.RuntimeRequirements} must match manifest requirements {manifestRuntimeRequirements}.");
+            }
+            const PaperBodyCapabilities supportedCapabilities =
+                PaperBodyCapabilities.TextZoom |
+                PaperBodyCapabilities.NoteLinks;
+            if ((plugin.Capabilities & ~supportedCapabilities) != PaperBodyCapabilities.None)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin capabilities {plugin.Capabilities} contain unsupported flags.");
+            }
+            var manifestCapabilities = ParseCapabilities(manifest.Capabilities);
+            if (plugin.Capabilities != manifestCapabilities)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin capabilities {plugin.Capabilities} must match manifest body capabilities {manifestCapabilities}.");
             }
             if (plugin.StateVersion < 1 ||
                 plugin.StateVersion != manifest.StateVersion)

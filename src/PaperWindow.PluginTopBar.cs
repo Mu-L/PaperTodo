@@ -11,6 +11,8 @@ public sealed partial class PaperWindow
 {
     private static bool _pluginTopBarLoadedHandlerRegistered;
     private StackPanel? _pluginTopBarButtonsHost;
+    private readonly List<(FrameworkElement Element, PaperTopBarActionScope Scope)>
+        _pluginTopBarActionElements = [];
     private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
     private bool _pluginHostActionVisibilityHooksInstalled;
     private bool _pluginTopBarCapacityHookInstalled;
@@ -51,6 +53,7 @@ public sealed partial class PaperWindow
         }
 
         _pluginTopBarButtonsHost.Children.Clear();
+        _pluginTopBarActionElements.Clear();
         foreach (var binding in state.Actions)
         {
             if (!binding.Action.Visible)
@@ -80,15 +83,10 @@ public sealed partial class PaperWindow
                         ? NormalizeBodyProviderId(_paper.BodyProviderId)
                         : string.Empty);
             _pluginTopBarButtonsHost.Children.Add(button);
+            _pluginTopBarActionElements.Add((button, binding.Scope));
         }
 
-        // The host responsive algorithm can run while the entire right action group is Collapsed,
-        // when a child's ActualWidth is no longer useful. Keep this aggregate width explicit so the
-        // same TopBarOuterWidth calculation stays truthful in both visible and collapsed states.
-        _pluginTopBarButtonsHost.Width = _pluginTopBarButtonsHost.Children
-            .OfType<FrameworkElement>()
-            .Sum(TopBarOuterWidth);
-
+        UpdatePluginTopBarHostWidth();
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
         ReconcilePluginHiddenHostTopBarActions();
         ReconcilePluginTopBarCapacity();
@@ -139,32 +137,85 @@ public sealed partial class PaperWindow
         _reconcilingPluginTopBarCapacity = true;
         try
         {
-            // Host actions have absolute precedence over plugin priority. First ask the existing
-            // responsive policy whether the host-only right group fits. Only if it does, try adding
-            // the plugin group. If that would collapse the whole host action group, the plugin group
-            // yields and the host-only decision is applied again. This keeps Global action count
-            // unbounded without letting a plugin push PaperTodo's own controls out first.
-            _pluginTopBarButtonsHost.Visibility = Visibility.Collapsed;
+            // Host actions always win. Paper-scoped plugin actions are a small bounded group and
+            // keep their existing all-or-nothing behavior. Global actions are unbounded at the API
+            // layer, so after host + Paper fit, expose them one at a time in Priority order. The
+            // first Global button that no longer fits is hidden and ends the pass; no controls are
+            // compressed, reordered or removed to make room for it.
+            foreach (var (element, _) in _pluginTopBarActionElements)
+            {
+                element.Visibility = Visibility.Collapsed;
+            }
+            UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
 
-            if (_pluginTopBarButtonsHost.Children.Count == 0 ||
+            if (_pluginTopBarActionElements.Count == 0 ||
                 _topBarActionButtonsHost.Visibility != Visibility.Visible)
             {
                 return;
             }
 
-            _pluginTopBarButtonsHost.Visibility = Visibility.Visible;
+            foreach (var (element, scope) in _pluginTopBarActionElements)
+            {
+                if (scope == PaperTopBarActionScope.Paper)
+                {
+                    element.Visibility = Visibility.Visible;
+                }
+            }
+            UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
             if (_topBarActionButtonsHost.Visibility != Visibility.Visible)
             {
-                _pluginTopBarButtonsHost.Visibility = Visibility.Collapsed;
+                foreach (var (element, _) in _pluginTopBarActionElements)
+                {
+                    element.Visibility = Visibility.Collapsed;
+                }
+                UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
+                return;
+            }
+
+            foreach (var (element, scope) in _pluginTopBarActionElements)
+            {
+                if (scope != PaperTopBarActionScope.Global)
+                {
+                    continue;
+                }
+
+                element.Visibility = Visibility.Visible;
+                UpdatePluginTopBarHostWidth();
+                UpdateTopBarResponsiveLayout();
+                if (_topBarActionButtonsHost.Visibility == Visibility.Visible)
+                {
+                    continue;
+                }
+
+                element.Visibility = Visibility.Collapsed;
+                UpdatePluginTopBarHostWidth();
+                UpdateTopBarResponsiveLayout();
+                break;
             }
         }
         finally
         {
             _reconcilingPluginTopBarCapacity = false;
         }
+    }
+
+    private void UpdatePluginTopBarHostWidth()
+    {
+        if (_pluginTopBarButtonsHost == null)
+        {
+            return;
+        }
+
+        var width = _pluginTopBarActionElements
+            .Where(item => item.Element.Visibility == Visibility.Visible)
+            .Sum(item => TopBarOuterWidth(item.Element));
+        _pluginTopBarButtonsHost.Width = width;
+        _pluginTopBarButtonsHost.Visibility = width > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void EnsurePluginHostActionVisibilityHooks()

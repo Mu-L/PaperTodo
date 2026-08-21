@@ -133,6 +133,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     private bool _initialized;
     private bool _documentReady;
     private bool _pluginDocumentReady;
+    private ulong _documentNavigationId;
+    private bool _hasDocumentNavigation;
     private bool _disposed;
     private bool _runtimeVisible;
     private bool _presentationVisible;
@@ -429,6 +431,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _documentNavigationId = e.NavigationId;
+        _hasDocumentNavigation = true;
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -437,11 +441,14 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (!ReferenceEquals(sender, _webView.CoreWebView2))
+        if (!ReferenceEquals(sender, _webView.CoreWebView2) ||
+            !_hasDocumentNavigation ||
+            e.NavigationId != _documentNavigationId)
         {
             return;
         }
 
+        _hasDocumentNavigation = false;
         if (!e.IsSuccess)
         {
             ShowFailure(
@@ -548,6 +555,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
         var previous = _webView;
         _webViewGeneration++;
+        _hasDocumentNavigation = false;
         BackgroundWebViewHost.Detach(previous);
         DisposeWebView(previous);
         _context.SetInputClaims(PaperBodyInputClaims.None);
@@ -621,6 +629,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     {
         if (ReferenceEquals(webView, _webView))
         {
+            _hasDocumentNavigation = false;
             _documentGeneration++;
             ClearHostSubscriptions();
         }
@@ -989,6 +998,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         ShowFailure(Strings.Format("PluginsWebProcessFailedFormat", e.ProcessFailedKind));
@@ -1077,6 +1087,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -1283,6 +1294,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         _disposed = true;
         _miniViewHost?.Dispose();
         _miniViewHost = null;
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         _lifetime.Cancel();

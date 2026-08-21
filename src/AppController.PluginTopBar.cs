@@ -112,8 +112,9 @@ public sealed partial class AppController
         // The app-runtime manager validates protocol 2.0 before creating this capability. Once a
         // runtime is alive, it owns its process-lifetime lease even if the user rescans plugin
         // manifests; ordinary plugin Reload does not silently replace a running app runtime.
-        // Global action count is intentionally unbounded at the protocol layer; host layout remains
-        // authoritative and plugin Priority only orders plugin actions, never host actions.
+        // Global action count is intentionally unbounded at the protocol layer. The window gives
+        // current-paper actions first claim on plugin space, then considers Global actions by
+        // Priority and shows only the prefix that still fits without displacing host controls.
         var normalized = NormalizePluginTopBarActions(
             actions,
             maximumCount: null,
@@ -198,6 +199,18 @@ public sealed partial class AppController
                 IsActive(item.IsActive));
 
         var actions = new List<PluginTopBarActionBinding>();
+        if (paperRegistration != null)
+        {
+            foreach (var action in paperRegistration.Actions)
+            {
+                actions.Add(new PluginTopBarActionBinding(
+                    paperRegistration.SessionId,
+                    paperRegistration.ProviderId,
+                    PaperTopBarActionScope.Paper,
+                    action));
+            }
+        }
+
         var globalActions = _pluginGlobalTopBars.Values
             .Where(item => IsActive(item.IsActive))
             .SelectMany(registration =>
@@ -217,18 +230,6 @@ public sealed partial class AppController
                 item.Registration.ProviderId,
                 PaperTopBarActionScope.Global,
                 item.Action));
-        }
-
-        if (paperRegistration != null)
-        {
-            foreach (var action in paperRegistration.Actions)
-            {
-                actions.Add(new PluginTopBarActionBinding(
-                    paperRegistration.SessionId,
-                    paperRegistration.ProviderId,
-                    PaperTopBarActionScope.Paper,
-                    action));
-            }
         }
 
         return new PluginTopBarRenderState(
