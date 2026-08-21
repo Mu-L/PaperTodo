@@ -39,17 +39,10 @@ internal sealed partial class WebPaperBodySession
         return new { updated = actions.Length };
     }
 
-    private object SetGlobalTopBarActionsFromWeb(JsonElement parameters)
-    {
-        var documentGeneration = RequireCurrentBodyTopBarDocument();
-        var actions = ReadTopBarActions(parameters);
-        _context.TopBar.SetActionHandler(
-            invocation => HandleTopBarActionInvocation(
-                documentGeneration,
-                invocation));
-        _context.TopBar.SetGlobalActions(actions);
-        return new { updated = actions.Length };
-    }
+    private static object SetGlobalTopBarActionsFromWeb(JsonElement parameters) =>
+        throw new PaperTodoPluginException(
+            "global_topbar_app_runtime_only",
+            "Global top-bar actions must be registered by the plugin app runtime.");
 
     private int RequireCurrentBodyTopBarDocument()
     {
