@@ -3,7 +3,7 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
-internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarApi, IDisposable
+internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarApi, IPaperPresentationApi, IDisposable
 {
     private readonly AppController _controller;
     private readonly PaperCommandService _commands;
