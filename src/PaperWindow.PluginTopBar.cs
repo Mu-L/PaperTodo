@@ -91,11 +91,16 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _pluginTopBarButtonsHost ??= new StackPanel
+        if (_pluginTopBarButtonsHost == null)
         {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+            _pluginTopBarButtonsHost = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _pluginTopBarButtonsHost.SizeChanged += (_, _) =>
+                UpdateTopBarResponsiveLayout();
+        }
         if (_pluginTopBarButtonsHost.Parent == null)
         {
             _topBarActionButtonsHost.Children.Insert(0, _pluginTopBarButtonsHost);
