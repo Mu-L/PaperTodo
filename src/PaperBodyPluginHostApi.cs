@@ -185,13 +185,6 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarAp
             DispatchTopBarAction);
     }
 
-    public void SetGlobalActions(IReadOnlyList<PaperTopBarAction> actions)
-    {
-        throw Error(
-            "global_topbar_app_runtime_only",
-            "Global top-bar actions must be registered by the plugin app runtime.");
-    }
-
     public void Clear()
     {
         EnsureUsable();
