@@ -127,7 +127,6 @@ public partial class App : Application
         {
             return;
         }
-
         if (!handlesInitialVisibility)
         {
             _controller.ExecuteStartupCommand(startupCommand);
