@@ -1,12 +1,16 @@
 using System.Text.Json;
+using Microsoft.Web.WebView2.Core;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
 internal sealed partial class WebPaperBodySession
 {
+    private CoreWebView2? _topBarHookedCore;
+
     private object SetPaperTopBarActionsFromWeb(JsonElement parameters)
     {
+        var documentGeneration = RequireBodyTopBarDocument(parameters);
         var actions = ReadTopBarActions(parameters);
         var hidden = PaperHostTopBarActions.None;
         if (ReadStringSet(parameters, "hiddenHostActions") is { } hiddenValues)
@@ -24,17 +28,105 @@ internal sealed partial class WebPaperBodySession
             }
         }
 
-        _context.Host.SetTopBarActionHandler(HandleTopBarActionInvocation);
-        _context.Host.SetPaperTopBarActions(actions, hidden);
+        _context.TopBar.SetActionHandler(
+            invocation => HandleTopBarActionInvocation(
+                documentGeneration,
+                invocation));
+        _context.TopBar.SetPaperActions(actions, hidden);
         return new { updated = actions.Length };
     }
 
     private object SetGlobalTopBarActionsFromWeb(JsonElement parameters)
     {
+        var documentGeneration = RequireBodyTopBarDocument(parameters);
         var actions = ReadTopBarActions(parameters);
-        _context.Host.SetTopBarActionHandler(HandleTopBarActionInvocation);
-        _context.Host.SetGlobalTopBarActions(actions);
+        _context.TopBar.SetActionHandler(
+            invocation => HandleTopBarActionInvocation(
+                documentGeneration,
+                invocation));
+        _context.TopBar.SetGlobalActions(actions);
         return new { updated = actions.Length };
+    }
+
+    private int RequireBodyTopBarDocument(JsonElement parameters)
+    {
+        if (!string.Equals(
+                OptionalPayloadString(parameters, "surface"),
+                "body",
+                StringComparison.Ordinal) ||
+            !_documentReady ||
+            !_pluginDocumentReady ||
+            _webView.CoreWebView2 is not { } core)
+        {
+            throw new PaperTodoPluginException(
+                "topbar_body_only",
+                "Web top-bar contribution must be registered by the current body document.");
+        }
+
+        EnsureTopBarDocumentLifecycleHook(core);
+        return _documentGeneration;
+    }
+
+    private void EnsureTopBarDocumentLifecycleHook(CoreWebView2 core)
+    {
+        if (ReferenceEquals(_topBarHookedCore, core))
+        {
+            return;
+        }
+
+        DetachTopBarDocumentLifecycleHook();
+        _topBarHookedCore = core;
+        core.NavigationStarting += OnTopBarDocumentNavigationStarting;
+        core.ProcessFailed += OnTopBarDocumentProcessFailed;
+    }
+
+    private void OnTopBarDocumentNavigationStarting(
+        object? sender,
+        CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _topBarHookedCore))
+        {
+            return;
+        }
+        ClearWebTopBarContribution();
+    }
+
+    private void OnTopBarDocumentProcessFailed(
+        object? sender,
+        CoreWebView2ProcessFailedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _topBarHookedCore))
+        {
+            return;
+        }
+        ClearWebTopBarContribution();
+    }
+
+    private void ClearWebTopBarContribution()
+    {
+        DetachTopBarDocumentLifecycleHook();
+        try
+        {
+            _context.TopBar.Clear();
+        }
+        catch
+        {
+            // Session teardown can race navigation/process failure. HostApi.Dispose owns the final
+            // cleanup, so a stale document never needs to keep retrying from renderer callbacks.
+        }
+    }
+
+    private void DetachTopBarDocumentLifecycleHook()
+    {
+        var core = _topBarHookedCore;
+        _topBarHookedCore = null;
+        if (core == null)
+        {
+            return;
+        }
+
+        try { core.NavigationStarting -= OnTopBarDocumentNavigationStarting; } catch { }
+        try { core.ProcessFailed -= OnTopBarDocumentProcessFailed; } catch { }
     }
 
     private static PaperTopBarAction[] ReadTopBarActions(JsonElement parameters)
@@ -54,8 +146,17 @@ internal sealed partial class WebPaperBodySession
         return DeserializePayload<PaperTopBarAction[]>(actionsValue);
     }
 
-    private void HandleTopBarActionInvocation(PaperTopBarActionInvocation invocation)
+    private void HandleTopBarActionInvocation(
+        int documentGeneration,
+        PaperTopBarActionInvocation invocation)
     {
+        if (documentGeneration != _documentGeneration ||
+            !_documentReady ||
+            !_pluginDocumentReady)
+        {
+            return;
+        }
+
         Send(new
         {
             type = "topBarActionInvoked",
