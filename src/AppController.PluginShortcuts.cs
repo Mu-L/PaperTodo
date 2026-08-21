@@ -49,6 +49,7 @@ public sealed partial class AppController
             providerId,
             isActive,
             dispatch);
+        RefreshPluginShortcutsAfterRuntimeChange();
     }
 
     internal void RemovePluginGlobalShortcutRuntime(Guid runtimeId, string providerId)
@@ -57,6 +58,17 @@ public sealed partial class AppController
             current.RuntimeId == runtimeId)
         {
             _pluginShortcutRuntimes.Remove(providerId);
+            RefreshPluginShortcutsAfterRuntimeChange();
+        }
+    }
+
+    private void RefreshPluginShortcutsAfterRuntimeChange()
+    {
+        // Recording intentionally releases all WM_HOTKEY owners. Runtime navigation/startup may
+        // race that UI state, so defer rebuilding registrations until recording ends.
+        if (_pluginShortcutRecordingCommandId == null)
+        {
+            RefreshPluginShortcuts();
         }
     }
 
@@ -105,6 +117,16 @@ public sealed partial class AppController
                 }
 
                 if (!ShortcutGesture.TryParse(binding, out var gesture) || gesture.Key == Key.None)
+                {
+                    _pluginShortcutStatuses[commandId] = ShortcutUiStatus.RegistrationFailed;
+                    continue;
+                }
+
+                // Host-owned paper.* actions are always executable. Plugin-defined actions only
+                // claim a Windows hotkey while their appRuntime has a live handler; otherwise a
+                // failed/refreshing runtime would steal a key that can only no-op.
+                if (PluginShortcutActions.IsCustomAction(setting.ShortcutAction) &&
+                    !HasActivePluginShortcutRuntime(descriptor.Id))
                 {
                     _pluginShortcutStatuses[commandId] = ShortcutUiStatus.RegistrationFailed;
                     continue;
@@ -258,6 +280,21 @@ public sealed partial class AppController
     {
         var includeDigitAlias = !State.DistinguishNumpadShortcutDigits && gesture.IsDigitKey;
         return gesture.RegistrationGestures(includeDigitAlias);
+    }
+
+    private bool HasActivePluginShortcutRuntime(string providerId)
+    {
+        if (!_pluginShortcutRuntimes.TryGetValue(providerId, out var runtime))
+        {
+            return false;
+        }
+        if (runtime.IsActive())
+        {
+            return true;
+        }
+
+        _pluginShortcutRuntimes.Remove(providerId);
+        return false;
     }
 
     private static string PluginShortcutCommandId(string providerId, string settingId) =>
@@ -572,7 +609,7 @@ public sealed partial class AppController
         }
         if (!runtime.IsActive())
         {
-            _pluginShortcutRuntimes.Remove(registration.ProviderId);
+            RemovePluginGlobalShortcutRuntime(runtime.RuntimeId, registration.ProviderId);
             return;
         }
 
