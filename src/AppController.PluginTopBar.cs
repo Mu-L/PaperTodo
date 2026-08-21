@@ -32,7 +32,6 @@ public sealed partial class AppController
         public required string HostPaperId { get; init; }
         public required Func<bool> IsActive { get; set; }
         public required Action<PaperTopBarActionInvocation> Invoke { get; set; }
-        public long PaperOrdinal { get; set; }
         public long GlobalOrdinal { get; set; }
         public PaperTopBarAction[] PaperActions { get; set; } = [];
         public PaperHostTopBarActions HiddenHostActions { get; set; }
@@ -41,7 +40,6 @@ public sealed partial class AppController
 
     private readonly Dictionary<Guid, PluginTopBarSessionRegistration>
         _pluginTopBarSessions = new();
-    private long _pluginTopBarPaperOrdinal;
     private long _pluginTopBarGlobalOrdinal;
 
     internal void SetPluginPaperTopBarActions(
@@ -76,7 +74,6 @@ public sealed partial class AppController
             invoke);
         registration.PaperActions = normalized;
         registration.HiddenHostActions = hiddenHostActions;
-        registration.PaperOrdinal = ++_pluginTopBarPaperOrdinal;
 
         if (normalized.Length > 0 || hiddenHostActions != PaperHostTopBarActions.None)
         {
@@ -137,7 +134,7 @@ public sealed partial class AppController
             return;
         }
 
-        if (removed.GlobalActions.Length > 0)
+        if (removed.GlobalOrdinal > 0)
         {
             RefreshAllPluginTopBars();
         }
@@ -151,17 +148,17 @@ public sealed partial class AppController
     {
         PruneInactivePluginTopBarSessions();
 
+        // A paper has at most one current body session. Stale registrations remain harmless because
+        // their IsActive closure includes the body-session generation and provider identity.
         var paperRegistration = _pluginTopBarSessions.Values
-            .Where(item =>
+            .FirstOrDefault(item =>
                 string.Equals(item.HostPaperId, paperId, StringComparison.Ordinal) &&
-                IsPluginTopBarRegistrationActive(item))
-            .OrderByDescending(item => item.PaperOrdinal)
-            .FirstOrDefault();
+                IsPluginTopBarRegistrationActive(item));
 
         var actions = new List<PluginTopBarActionBinding>();
         foreach (var registration in _pluginTopBarSessions.Values
                      .Where(item =>
-                         item.GlobalActions.Length > 0 &&
+                         item.GlobalOrdinal > 0 &&
                          IsPluginTopBarRegistrationActive(item))
                      .GroupBy(item => item.ProviderId, StringComparer.Ordinal)
                      .Select(group => group
@@ -169,6 +166,8 @@ public sealed partial class AppController
                          .First())
                      .OrderBy(item => item.GlobalOrdinal))
         {
+            // The latest Global registration owns the provider even when its replacement set is
+            // empty. This prevents an older live session's actions from resurfacing after clear.
             foreach (var action in registration.GlobalActions)
             {
                 actions.Add(new PluginTopBarActionBinding(
