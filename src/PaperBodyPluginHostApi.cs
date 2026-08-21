@@ -364,8 +364,6 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarAp
         _ => throw Error("invalid_params", "Unknown event kind.")
     };
 
-    private HashSet<string>? _unused;
-
     private HashSet<PaperTodoEventKind> DefaultObservableKinds()
     {
         var result = new HashSet<PaperTodoEventKind>();
