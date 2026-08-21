@@ -22,6 +22,8 @@ public sealed partial class AppController
     private const int MaximumTopBarToolTipLength = 160;
     private const int MaximumTopBarCharacterLength = 8;
     private const int MaximumTopBarSvgPathLength = 4096;
+    private const double MinimumTopBarSvgStrokeWidth = 0.1;
+    private const double MaximumTopBarSvgStrokeWidth = 4.0;
 
     private sealed class PluginTopBarSessionRegistration
     {
@@ -30,7 +32,8 @@ public sealed partial class AppController
         public required string HostPaperId { get; init; }
         public required Func<bool> IsActive { get; set; }
         public required Action<PaperTopBarActionInvocation> Invoke { get; set; }
-        public long Ordinal { get; set; }
+        public long PaperOrdinal { get; set; }
+        public long GlobalOrdinal { get; set; }
         public PaperTopBarAction[] PaperActions { get; set; } = [];
         public PaperHostTopBarActions HiddenHostActions { get; set; }
         public PaperTopBarAction[] GlobalActions { get; set; } = [];
@@ -38,7 +41,8 @@ public sealed partial class AppController
 
     private readonly Dictionary<Guid, PluginTopBarSessionRegistration>
         _pluginTopBarSessions = new();
-    private long _pluginTopBarRegistrationOrdinal;
+    private long _pluginTopBarPaperOrdinal;
+    private long _pluginTopBarGlobalOrdinal;
 
     internal void SetPluginPaperTopBarActions(
         Guid sessionId,
@@ -72,7 +76,7 @@ public sealed partial class AppController
             invoke);
         registration.PaperActions = normalized;
         registration.HiddenHostActions = hiddenHostActions;
-        registration.Ordinal = ++_pluginTopBarRegistrationOrdinal;
+        registration.PaperOrdinal = ++_pluginTopBarPaperOrdinal;
 
         if (normalized.Length > 0 || hiddenHostActions != PaperHostTopBarActions.None)
         {
@@ -101,7 +105,7 @@ public sealed partial class AppController
             isActive,
             invoke);
         registration.GlobalActions = normalized;
-        registration.Ordinal = ++_pluginTopBarRegistrationOrdinal;
+        registration.GlobalOrdinal = ++_pluginTopBarGlobalOrdinal;
 
         if (normalized.Length > 0)
         {
@@ -151,7 +155,7 @@ public sealed partial class AppController
             .Where(item =>
                 string.Equals(item.HostPaperId, paperId, StringComparison.Ordinal) &&
                 IsPluginTopBarRegistrationActive(item))
-            .OrderByDescending(item => item.Ordinal)
+            .OrderByDescending(item => item.PaperOrdinal)
             .FirstOrDefault();
 
         var actions = new List<PluginTopBarActionBinding>();
@@ -161,9 +165,9 @@ public sealed partial class AppController
                          IsPluginTopBarRegistrationActive(item))
                      .GroupBy(item => item.ProviderId, StringComparer.Ordinal)
                      .Select(group => group
-                         .OrderByDescending(item => item.Ordinal)
+                         .OrderByDescending(item => item.GlobalOrdinal)
                          .First())
-                     .OrderBy(item => item.Ordinal))
+                     .OrderBy(item => item.GlobalOrdinal))
         {
             foreach (var action in registration.GlobalActions)
             {
@@ -255,8 +259,7 @@ public sealed partial class AppController
             ProviderId = providerId,
             HostPaperId = hostPaperId,
             IsActive = isActive,
-            Invoke = invoke,
-            Ordinal = ++_pluginTopBarRegistrationOrdinal
+            Invoke = invoke
         };
         _pluginTopBarSessions.Add(sessionId, created);
         return created;
@@ -317,12 +320,28 @@ public sealed partial class AppController
                             $"Character top-bar icons must contain 1-{MaximumTopBarCharacterLength} UTF-16 characters.");
                     }
                     break;
+
                 case PaperTopBarIconKind.SvgPath:
                     if (value.Length is 0 or > MaximumTopBarSvgPathLength)
                     {
                         throw new PaperTodoPluginException(
                             "invalid_topbar_icon",
                             $"SVG path data must contain 1-{MaximumTopBarSvgPathLength} characters.");
+                    }
+                    if (!Enum.IsDefined(icon.RenderMode))
+                    {
+                        throw new PaperTodoPluginException(
+                            "invalid_topbar_icon",
+                            "Unknown SVG top-bar render mode.");
+                    }
+                    if (icon.RenderMode == PaperTopBarSvgRenderMode.Stroke &&
+                        (!double.IsFinite(icon.StrokeWidth) ||
+                         icon.StrokeWidth < MinimumTopBarSvgStrokeWidth ||
+                         icon.StrokeWidth > MaximumTopBarSvgStrokeWidth))
+                    {
+                        throw new PaperTodoPluginException(
+                            "invalid_topbar_icon",
+                            $"SVG strokeWidth must be between {MinimumTopBarSvgStrokeWidth} and {MaximumTopBarSvgStrokeWidth}.");
                     }
                     try
                     {
@@ -335,6 +354,7 @@ public sealed partial class AppController
                             $"SVG path data is invalid: {ex.GetBaseException().Message}");
                     }
                     break;
+
                 default:
                     throw new PaperTodoPluginException(
                         "invalid_topbar_icon",
