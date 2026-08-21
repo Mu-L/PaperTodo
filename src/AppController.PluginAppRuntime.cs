@@ -46,10 +46,10 @@ public sealed partial class AppController
 
     /// <summary>
     /// Starts app-scoped plugin runtimes during PaperTodo application startup, after core state and
-    /// paper restoration are stable. This is intentionally independent of whether any paper using
-    /// the provider exists or has ever opened its body session.
+    /// paper restoration are stable. Each provider starts independently: a slow WebView2 runtime or
+    /// one failed plugin cannot delay another provider from registering process-level capabilities.
     /// </summary>
-    internal async Task StartPluginAppRuntimesAsync()
+    internal void StartPluginAppRuntimes()
     {
         if (_pluginAppRuntimesStarted || IsExiting)
         {
@@ -61,21 +61,27 @@ public sealed partial class AppController
                      .Where(DeclaresPluginAppRuntime)
                      .ToArray())
         {
-            if (IsExiting)
-            {
-                return;
-            }
-            try
-            {
-                await StartPluginAppRuntimeAsync(descriptor);
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning(
-                    "Plugin app runtime failed to start. Provider={0}; Exception={1}",
-                    descriptor.Id,
-                    ex.GetBaseException());
-            }
+            _ = StartPluginAppRuntimeSafelyAsync(descriptor);
+        }
+    }
+
+    private async Task StartPluginAppRuntimeSafelyAsync(
+        PaperBodyPluginDescriptor descriptor)
+    {
+        if (IsExiting)
+        {
+            return;
+        }
+        try
+        {
+            await StartPluginAppRuntimeAsync(descriptor);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning(
+                "Plugin app runtime failed to start. Provider={0}; Exception={1}",
+                descriptor.Id,
+                ex.GetBaseException());
         }
     }
 
