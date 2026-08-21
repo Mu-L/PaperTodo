@@ -137,7 +137,7 @@ public sealed partial class AppController
             }
         }
 
-        var builtInGestures = ActiveBuiltInRegistrationGestures();
+        var builtInGestures = ConfiguredBuiltInRegistrationGestures();
         foreach (var pair in registrationsByCommand)
         {
             if (pair.Value.Any(builtInGestures.Contains))
@@ -248,22 +248,22 @@ public sealed partial class AppController
         RefreshPluginShortcuts();
     }
 
-    private HashSet<ShortcutGesture> ActiveBuiltInRegistrationGestures()
+    private HashSet<ShortcutGesture> ConfiguredBuiltInRegistrationGestures()
     {
         var result = new HashSet<ShortcutGesture>();
-        if (_globalHotkeys == null)
+        var bindings = GlobalShortcutCatalog.NormalizeBindings(State.GlobalHotkeys);
+        var enabled = GlobalShortcutCatalog.NormalizeEnabled(State.GlobalHotkeyEnabled);
+        foreach (var commandId in GlobalShortcutCatalog.ExecutableIds)
         {
-            return result;
-        }
-
-        foreach (var pair in _globalHotkeys.ActiveBindings)
-        {
-            if (!ShortcutGesture.TryParse(pair.Value, out var gesture) || gesture.Key == Key.None)
+            if (!enabled.GetValueOrDefault(commandId) ||
+                !bindings.TryGetValue(commandId, out var binding) ||
+                !ShortcutGesture.TryParse(binding, out var gesture) ||
+                gesture.Key == Key.None)
             {
                 continue;
             }
 
-            var definition = GlobalShortcutCatalog.Find(pair.Key);
+            var definition = GlobalShortcutCatalog.Find(commandId);
             var includeDigitAlias =
                 !State.DistinguishNumpadShortcutDigits &&
                 definition?.IsEdgeCapsule != true &&
