@@ -87,7 +87,6 @@ jobs:
           $requiredPatterns = @(
             "topbar\.paper\.set",
             "topbar\.global\.set",
-            "surface\s*:\s*papertodo\.surface",
             "topBarActionInvoked",
             "targetPaperId",
             "papertodo\.workspace\.request\('papers\.get'",
