@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PaperTodo Top Bar 2.0</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: transparent; }
+    body {
+      font-family: system-ui, sans-serif;
+      display: grid;
+      place-items: center;
+      color: #555;
+    }
+    main { max-width: 520px; padding: 24px; line-height: 1.65; }
+    code { user-select: text; }
+  </style>
+</head>
+<body>
+  <main>
+    <strong>Protocol 2.0 Top Bar</strong>
+    <p id="status">等待宿主初始化…</p>
+  </main>
+  <script>
+    const status = document.querySelector('#status');
+
+    async function registerTopBar() {
+      await papertodo.request('topbar.paper.set', {
+        surface: papertodo.surface,
+        actions: [
+          {
+            id: 'paper-info',
+            icon: { kind: 'character', value: 'i' },
+            toolTip: '显示这张插件纸片的信息'
+          }
+        ],
+        hiddenHostActions: ['newNotePaper']
+      });
+
+      await papertodo.request('topbar.global.set', {
+        surface: papertodo.surface,
+        actions: [
+          {
+            id: 'inspect-current',
+            icon: {
+              kind: 'svgPath',
+              value: 'M3,3 L13,3 13,13 3,13 Z M6,8 L10,8',
+              renderMode: 'stroke',
+              strokeWidth: 1.5
+            },
+            toolTip: '读取当前纸片信息'
+          }
+        ]
+      });
+    }
+
+    async function showInvocation(action) {
+      if (action.actionId === 'paper-info') {
+        status.textContent = `Paper action · ${action.targetPaperId}`;
+        return;
+      }
+
+      if (action.actionId !== 'inspect-current') return;
+      try {
+        const paper = await papertodo.workspace.request('papers.get', {
+          paperId: action.targetPaperId
+        });
+        status.textContent = paper
+          ? `Global action · ${paper.title || paper.id} · ${action.targetPaperType}`
+          : `Global action · ${action.targetPaperId}`;
+      } catch (error) {
+        status.textContent = `读取失败：${error?.message || error}`;
+      }
+    }
+
+    papertodo.onEvent(message => {
+      if (message.type === 'topBarActionInvoked') {
+        showInvocation(message.action);
+      }
+    });
+
+    window.addEventListener('papertodo', event => {
+      const message = event.detail || {};
+      if (message.type !== 'initialize') return;
+
+      papertodo.paper.setHeaderText('Top Bar 2.0');
+      papertodo.paper.setCapsulePresentation({
+        preferredWidth: 0,
+        plainText: 'Top Bar 2.0',
+        toolTip: 'Protocol 2.0 Top Bar 示例',
+        components: [
+          { kind: 'glyph', text: 'T' },
+          { kind: 'text', text: 'Top Bar 2.0', fill: true }
+        ]
+      });
+
+      registerTopBar()
+        .then(() => { status.textContent = '已注册 Paper + Global 顶栏动作。'; })
+        .catch(error => { status.textContent = `注册失败：${error?.message || error}`; });
+    });
+  </script>
+</body>
+</html>
