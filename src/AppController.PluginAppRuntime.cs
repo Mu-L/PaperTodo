@@ -40,54 +40,117 @@ public sealed partial class AppController
 
     private readonly Dictionary<string, PluginAppRuntimeLease> _pluginAppRuntimes =
         new(StringComparer.Ordinal);
-    private bool _pluginAppRuntimesStarted;
+    private readonly HashSet<string> _pluginAppRuntimeStarts =
+        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _pluginAppRuntimeStartFailures =
+        new(StringComparer.Ordinal);
+    private bool _pluginAppRuntimeReconciliationEnabled;
+    private bool _pluginAppRuntimeDisposing;
 
     /// <summary>
-    /// Starts app-scoped plugin runtimes during PaperTodo application startup, after core state and
-    /// paper restoration are stable. Each provider starts independently: a slow WebView2 runtime or
-    /// one failed plugin cannot delay another provider from registering its Global Top Bar.
+    /// Enables process-level plugin runtimes only after startupPaper handling has settled. From this
+    /// point on, the final State.Papers provider set is the authority: 0 -> 1 entity paper starts the
+    /// provider runtime and 1 -> 0 stops it. Paper visibility/presentation/body-session state is not
+    /// part of this lifetime decision.
     /// </summary>
-    internal void StartPluginAppRuntimes()
+    internal void EnablePluginAppRuntimeReconciliation()
     {
-        if (_pluginAppRuntimesStarted || IsExiting)
+        if (_pluginAppRuntimeDisposing || IsExiting)
         {
             return;
         }
-        _pluginAppRuntimesStarted = true;
+        _pluginAppRuntimeReconciliationEnabled = true;
+        ReconcilePluginAppRuntimes();
+    }
 
-        foreach (var descriptor in PaperBodyPlugins.Descriptors
-                     .Where(DeclaresPluginAppRuntime)
+    internal void ReconcilePluginAppRuntimes()
+    {
+        if (!_pluginAppRuntimeReconciliationEnabled ||
+            _pluginAppRuntimeDisposing ||
+            IsExiting)
+        {
+            return;
+        }
+
+        var desired = PaperBodyPlugins.Descriptors
+            .Where(DeclaresPluginAppRuntime)
+            .Where(descriptor => HasEntityPluginPaper(descriptor.Id))
+            .ToDictionary(descriptor => descriptor.Id, StringComparer.Ordinal);
+
+        foreach (var providerId in _pluginAppRuntimes.Keys
+                     .Where(providerId => !desired.ContainsKey(providerId))
                      .ToArray())
         {
+            var lease = _pluginAppRuntimes[providerId];
+            _pluginAppRuntimes.Remove(providerId);
+            lease.Dispose();
+            _pluginAppRuntimeStartFailures.Remove(providerId);
+        }
+
+        foreach (var providerId in _pluginAppRuntimeStartFailures
+                     .Where(providerId => !desired.ContainsKey(providerId))
+                     .ToArray())
+        {
+            _pluginAppRuntimeStartFailures.Remove(providerId);
+        }
+
+        foreach (var descriptor in desired.Values)
+        {
+            if (_pluginAppRuntimes.ContainsKey(descriptor.Id) ||
+                _pluginAppRuntimeStarts.Contains(descriptor.Id) ||
+                _pluginAppRuntimeStartFailures.Contains(descriptor.Id))
+            {
+                continue;
+            }
+            _pluginAppRuntimeStarts.Add(descriptor.Id);
             _ = StartPluginAppRuntimeSafelyAsync(descriptor);
         }
     }
 
+    private bool HasEntityPluginPaper(string providerId) =>
+        State.Papers.Any(paper =>
+            paper.Type == PaperTypes.Note &&
+            string.Equals(
+                paper.BodyProviderId?.Trim(),
+                providerId,
+                StringComparison.Ordinal));
+
     private async Task StartPluginAppRuntimeSafelyAsync(
         PaperBodyPluginDescriptor descriptor)
     {
-        if (IsExiting)
-        {
-            return;
-        }
         try
         {
             await StartPluginAppRuntimeAsync(descriptor);
         }
+        catch (OperationCanceledException)
+        {
+            // The last entity paper disappeared or PaperTodo began shutting down while startup was
+            // in flight. That is a normal ownership change, not a plugin failure.
+        }
         catch (Exception ex)
         {
+            _pluginAppRuntimeStartFailures.Add(descriptor.Id);
             Trace.TraceWarning(
                 "Plugin app runtime failed to start. Provider={0}; Exception={1}",
                 descriptor.Id,
                 ex.GetBaseException());
         }
+        finally
+        {
+            _pluginAppRuntimeStarts.Remove(descriptor.Id);
+        }
     }
 
     private async Task StartPluginAppRuntimeAsync(PaperBodyPluginDescriptor descriptor)
     {
-        if (_pluginAppRuntimes.ContainsKey(descriptor.Id))
+        if (_pluginAppRuntimes.ContainsKey(descriptor.Id) ||
+            !_pluginAppRuntimeReconciliationEnabled ||
+            _pluginAppRuntimeDisposing ||
+            IsExiting ||
+            !HasEntityPluginPaper(descriptor.Id))
         {
-            return;
+            throw new OperationCanceledException(
+                "The plugin app runtime no longer has an entity-paper owner.");
         }
 
         var lifetime = new PluginAppRuntimeLifetime();
@@ -143,10 +206,14 @@ public sealed partial class AppController
                     "Built-in body providers cannot declare plugin appRuntime.");
             }
 
-            if (IsExiting || !lifetime.Active)
+            if (!_pluginAppRuntimeReconciliationEnabled ||
+                _pluginAppRuntimeDisposing ||
+                IsExiting ||
+                !lifetime.Active ||
+                !HasEntityPluginPaper(descriptor.Id))
             {
                 throw new OperationCanceledException(
-                    "PaperTodo is shutting down while the plugin app runtime starts.");
+                    "The plugin app runtime lost its last entity paper while starting.");
             }
 
             _pluginAppRuntimes.Add(descriptor.Id, new PluginAppRuntimeLease
@@ -182,11 +249,13 @@ public sealed partial class AppController
 
     private void DisposePluginAppRuntimes()
     {
-        _pluginAppRuntimesStarted = true;
+        _pluginAppRuntimeDisposing = true;
+        _pluginAppRuntimeReconciliationEnabled = false;
         foreach (var lease in _pluginAppRuntimes.Values.ToArray())
         {
             lease.Dispose();
         }
         _pluginAppRuntimes.Clear();
+        _pluginAppRuntimeStartFailures.Clear();
     }
 }
