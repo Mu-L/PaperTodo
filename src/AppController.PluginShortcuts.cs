@@ -214,6 +214,18 @@ public sealed partial class AppController
         return manager;
     }
 
+    private void SuspendAllHotkeysForPluginRecording()
+    {
+        DisposeGlobalHotkeys();
+        SuspendPluginShortcutRegistrations();
+    }
+
+    private void RestoreAllHotkeysAfterPluginRecording()
+    {
+        InitializeGlobalHotkeys();
+        RefreshPluginShortcuts();
+    }
+
     private HashSet<ShortcutGesture> ActiveBuiltInRegistrationGestures()
     {
         var result = new HashSet<ShortcutGesture>();
@@ -330,7 +342,7 @@ public sealed partial class AppController
             _pluginShortcutRecordingCommandId = null;
             if (restoreRuntime)
             {
-                RefreshPluginShortcuts();
+                RestoreAllHotkeysAfterPluginRecording();
             }
             UpdateVisual();
         }
@@ -341,11 +353,11 @@ public sealed partial class AppController
                 !string.Equals(previous, commandId, StringComparison.Ordinal))
             {
                 _pluginShortcutRecordingCommandId = null;
-                RefreshPluginShortcuts();
+                RestoreAllHotkeysAfterPluginRecording();
             }
 
             _pluginShortcutRecordingCommandId = commandId;
-            RefreshPluginShortcuts(excludedCommandId: commandId);
+            SuspendAllHotkeysForPluginRecording();
             UpdateVisual();
             _ = keyButton.Dispatcher.InvokeAsync(() =>
             {
@@ -375,6 +387,7 @@ public sealed partial class AppController
                 Keyboard.Modifiers == ModifierKeys.None)
             {
                 _pluginShortcutRecordingCommandId = null;
+                RestoreAllHotkeysAfterPluginRecording();
                 if (!TryCommitPluginShortcutBinding(
                         descriptor,
                         setting,
@@ -400,6 +413,7 @@ public sealed partial class AppController
 
             var gesture = new ShortcutGesture(key, modifiers);
             _pluginShortcutRecordingCommandId = null;
+            RestoreAllHotkeysAfterPluginRecording();
             if (!TryCommitPluginShortcutBinding(
                     descriptor,
                     setting,
@@ -419,7 +433,12 @@ public sealed partial class AppController
 
         restore.Click += (_, _) =>
         {
+            var wasRecording = _pluginShortcutRecordingCommandId != null;
             _pluginShortcutRecordingCommandId = null;
+            if (wasRecording)
+            {
+                RestoreAllHotkeysAfterPluginRecording();
+            }
             var defaultValue = PaperBodyPluginRegistry.DefaultSettingValue(setting);
             var binding = defaultValue.ValueKind == JsonValueKind.String
                 ? defaultValue.GetString() ?? ""
