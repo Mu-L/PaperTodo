@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>PaperTodo Top Bar App Runtime</title>
+</head>
+<body>
+<script>
+  async function registerGlobalTopBar() {
+    await papertodo.globalTopBar.setActions([
+      {
+        id: 'inspect-current',
+        icon: {
+          kind: 'svgPath',
+          value: 'M3,3 L13,3 13,13 3,13 Z M6,8 L10,8',
+          renderMode: 'stroke',
+          strokeWidth: 1.5
+        },
+        toolTip: '读取当前纸片信息'
+      }
+    ]);
+  }
+
+  papertodo.onEvent(async message => {
+    if (message.type !== 'topBarActionInvoked' ||
+        message.action?.actionId !== 'inspect-current') {
+      return;
+    }
+
+    try {
+      const paper = await papertodo.workspace.request('papers.get', {
+        paperId: message.action.targetPaperId
+      });
+      console.log('PaperTodo Global Top Bar target', paper || message.action);
+    } catch (error) {
+      console.error('PaperTodo Global Top Bar workspace read failed', error);
+    }
+  });
+
+  window.addEventListener('papertodo', event => {
+    if (event.detail?.type !== 'initialize') return;
+    registerGlobalTopBar().catch(error => {
+      console.error('PaperTodo Global Top Bar registration failed', error);
+    });
+  });
+</script>
+</body>
+</html>
