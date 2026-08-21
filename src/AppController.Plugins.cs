@@ -19,6 +19,7 @@ public sealed partial class AppController
 
     private UIElement BuildPluginsSettingsPage()
     {
+        RefreshPluginShortcuts();
         var root = new StackPanel
         {
             Margin = new Thickness(2, 4, 4, 0)
@@ -62,7 +63,6 @@ public sealed partial class AppController
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 7, 0, 0)
         });
-
 
         var descriptors = _paperBodyPlugins.Descriptors;
         root.Children.Add(SettingsSectionLabel(
@@ -347,6 +347,7 @@ public sealed partial class AppController
             "string" => BuildPluginStringSetting(descriptor, setting),
             "number" => BuildPluginNumberSetting(descriptor, setting),
             "select" => BuildPluginSelectSetting(descriptor, setting),
+            "shortcut" => BuildPluginShortcutSetting(descriptor, setting),
             _ => new TextBlock()
         };
         Grid.SetColumn(editor, 1);
@@ -783,12 +784,14 @@ public sealed partial class AppController
         {
             window.RefreshPaperBodyProviderAvailability(changedProviderIds);
         }
+        RefreshPluginShortcuts();
         RefreshTrayMenu();
         RefreshSettingsWindowContent();
     }
 
     private void DisposePaperBodyPlugins()
     {
+        DisposePluginShortcuts();
         DisposePaperPluginHostRuntime();
         _paperBodyPlugins.Dispose();
     }
