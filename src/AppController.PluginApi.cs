@@ -147,6 +147,7 @@ public sealed partial class AppController
 
     internal void DisposePaperPluginHostRuntime()
     {
+        DisposePluginAppRuntimes();
         _paperBodyPluginEvents?.Dispose();
         _paperBodyPluginEvents = null;
         _paperCommands = null;
