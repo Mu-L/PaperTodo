@@ -790,6 +790,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             DeserializePayload<DeleteTodoRequest>(parameters)),
         "papers.delete" => _context.Host.DeletePaper(
             PayloadString(parameters, "paperId")),
+        "topbar.paper.set" => SetPaperTopBarActionsFromWeb(parameters),
+        "topbar.global.set" => SetGlobalTopBarActionsFromWeb(parameters),
         _ => throw new PaperTodoPluginException(
             "method_not_found",
             $"Unknown PaperTodo plugin host method: {method}")
