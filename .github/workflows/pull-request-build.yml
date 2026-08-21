@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 jobs:
   build:
@@ -47,30 +46,4 @@ jobs:
         run: dotnet restore .\PaperTodo.csproj
 
       - name: Build
-        id: build
         run: dotnet build .\PaperTodo.csproj -c Release --no-restore
-
-      - name: Expose diagnostic run
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $state = if ("${{ job.status }}" -eq "success") { "success" } else { "failure" }
-          $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = "application/vnd.github+json"
-            "X-GitHub-Api-Version" = "2022-11-28"
-          }
-          $body = @{
-            state = $state
-            context = "diagnostic/merge-build"
-            target_url = $runUrl
-            description = if ($state -eq "success") { "Merge Release build passed" } else { "Merge Release build failed" }
-          } | ConvertTo-Json
-          Invoke-RestMethod `
-            -Method Post `
-            -Uri "${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}" `
-            -Headers $headers `
-            -Body $body `
-            -ContentType "application/json" | Out-Null
