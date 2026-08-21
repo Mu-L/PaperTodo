@@ -1,14 +1,19 @@
+using System.Windows;
+using System.Windows.Threading;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
 /// <summary>
 /// Hides paper-session presentation capabilities from app runtimes while reusing the same reviewed
-/// Workspace implementation and permission/event semantics.
+/// Workspace implementation and permission/event semantics. Unlike a paper body context, an app
+/// runtime has no View.Dispatcher, so this facade marshals synchronous Workspace calls to the UI
+/// dispatcher before entering PaperCommandService.
 /// </summary>
 internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposable
 {
     private readonly PaperBodyPluginHostApi _inner;
+    private readonly Dispatcher _dispatcher;
 
     public PaperAppRuntimeWorkspaceApi(
         AppController controller,
@@ -16,6 +21,7 @@ internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposab
         IEnumerable<string> permissions,
         Func<bool> isActive)
     {
+        _dispatcher = Application.Current.Dispatcher;
         _inner = new PaperBodyPluginHostApi(
             controller,
             controller.PaperCommands,
@@ -27,27 +33,61 @@ internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposab
     }
 
     public IReadOnlySet<string> GrantedPermissions => _inner.GrantedPermissions;
-    public IReadOnlyList<PaperSnapshot> ListPapers(string? type = null) => _inner.ListPapers(type);
-    public PaperSnapshot? GetPaper(string paperId) => _inner.GetPaper(paperId);
+    public IReadOnlyList<PaperSnapshot> ListPapers(string? type = null) =>
+        OnUi(() => _inner.ListPapers(type));
+    public PaperSnapshot? GetPaper(string paperId) =>
+        OnUi(() => _inner.GetPaper(paperId));
     public IReadOnlyList<TodoSnapshot> ListTodos(string? paperId = null, bool includeBlank = false) =>
-        _inner.ListTodos(paperId, includeBlank);
-    public NoteSnapshot? GetNote(string paperId) => _inner.GetNote(paperId);
-    public PaperMutationResult CreatePaper(CreatePaperRequest request) => _inner.CreatePaper(request);
-    public AppendTodosResult AppendTodos(AppendTodosRequest request) => _inner.AppendTodos(request);
-    public TodoMutationResult UpdateTodo(UpdateTodoRequest request) => _inner.UpdateTodo(request);
+        OnUi(() => _inner.ListTodos(paperId, includeBlank));
+    public NoteSnapshot? GetNote(string paperId) =>
+        OnUi(() => _inner.GetNote(paperId));
+    public PaperMutationResult CreatePaper(CreatePaperRequest request) =>
+        OnUi(() => _inner.CreatePaper(request));
+    public AppendTodosResult AppendTodos(AppendTodosRequest request) =>
+        OnUi(() => _inner.AppendTodos(request));
+    public TodoMutationResult UpdateTodo(UpdateTodoRequest request) =>
+        OnUi(() => _inner.UpdateTodo(request));
     public TodoMutationResult SetTodoReminder(SetTodoReminderRequest request) =>
-        _inner.SetTodoReminder(request);
-    public NoteMutationResult WriteNote(WriteNoteRequest request) => _inner.WriteNote(request);
-    public DeleteMutationResult DeleteTodo(DeleteTodoRequest request) => _inner.DeleteTodo(request);
-    public DeleteMutationResult DeletePaper(string paperId) => _inner.DeletePaper(paperId);
+        OnUi(() => _inner.SetTodoReminder(request));
+    public NoteMutationResult WriteNote(WriteNoteRequest request) =>
+        OnUi(() => _inner.WriteNote(request));
+    public DeleteMutationResult DeleteTodo(DeleteTodoRequest request) =>
+        OnUi(() => _inner.DeleteTodo(request));
+    public DeleteMutationResult DeletePaper(string paperId) =>
+        OnUi(() => _inner.DeletePaper(paperId));
     public IDisposable Subscribe(PaperTodoEventFilter filter, Action<PaperTodoEvent> handler) =>
-        _inner.Subscribe(filter, handler);
-    public void Dispose() => _inner.Dispose();
+        OnUi(() => _inner.Subscribe(filter, handler));
+
+    private T OnUi<T>(Func<T> action) =>
+        _dispatcher.CheckAccess()
+            ? action()
+            : _dispatcher.Invoke(action);
+
+    public void Dispose()
+    {
+        try
+        {
+            if (_dispatcher.CheckAccess())
+            {
+                _inner.Dispose();
+            }
+            else if (!_dispatcher.HasShutdownStarted && !_dispatcher.HasShutdownFinished)
+            {
+                _dispatcher.Invoke(_inner.Dispose);
+            }
+        }
+        catch
+        {
+            // App shutdown owns final process teardown; do not turn dispatcher shutdown into a
+            // second plugin-runtime failure.
+        }
+    }
 }
 
 internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, IDisposable
 {
     private readonly AppController _controller;
+    private readonly Dispatcher _dispatcher;
     private readonly Guid _runtimeId;
     private readonly string _providerId;
     private readonly Func<bool> _isActive;
@@ -61,45 +101,52 @@ internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, ID
         Func<bool> isActive)
     {
         _controller = controller;
+        _dispatcher = Application.Current.Dispatcher;
         _runtimeId = runtimeId;
         _providerId = providerId;
         _isActive = isActive;
     }
 
-    public void SetActionHandler(Action<PaperTopBarActionInvocation>? handler)
-    {
-        EnsureUsable();
-        _handler = handler;
-        if (handler == null)
+    public void SetActionHandler(Action<PaperTopBarActionInvocation>? handler) =>
+        OnUi(() =>
         {
-            _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId);
-        }
-    }
+            EnsureUsable();
+            _handler = handler;
+            if (handler == null)
+            {
+                _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId);
+            }
+        });
 
     public void SetActions(IReadOnlyList<PaperTopBarAction> actions)
     {
         ArgumentNullException.ThrowIfNull(actions);
-        EnsureUsable();
-        if (actions.Count > 0 && _handler == null)
+        var snapshot = actions.ToArray();
+        OnUi(() =>
         {
-            throw new PaperTodoPluginException(
-                "topbar_handler_missing",
-                "Register a global top-bar action handler before contributing actions.");
-        }
-        _controller.SetPluginGlobalTopBarActions(
-            _runtimeId,
-            _providerId,
-            actions,
-            () => !_disposed && _isActive(),
-            Dispatch);
+            EnsureUsable();
+            if (snapshot.Length > 0 && _handler == null)
+            {
+                throw new PaperTodoPluginException(
+                    "topbar_handler_missing",
+                    "Register a global top-bar action handler before contributing actions.");
+            }
+            _controller.SetPluginGlobalTopBarActions(
+                _runtimeId,
+                _providerId,
+                snapshot,
+                () => !_disposed && _isActive(),
+                Dispatch);
+        });
     }
 
-    public void Clear()
-    {
-        EnsureUsable();
-        _handler = null;
-        _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId);
-    }
+    public void Clear() =>
+        OnUi(() =>
+        {
+            EnsureUsable();
+            _handler = null;
+            _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId);
+        });
 
     private void Dispatch(PaperTopBarActionInvocation invocation)
     {
@@ -120,6 +167,16 @@ internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, ID
         }
     }
 
+    private void OnUi(Action action)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        _dispatcher.Invoke(action);
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -128,6 +185,20 @@ internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, ID
         }
         _disposed = true;
         _handler = null;
-        try { _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId); } catch { }
+        try
+        {
+            if (_dispatcher.CheckAccess())
+            {
+                _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId);
+            }
+            else if (!_dispatcher.HasShutdownStarted && !_dispatcher.HasShutdownFinished)
+            {
+                _dispatcher.Invoke(() =>
+                    _controller.RemovePluginGlobalTopBarRuntime(_runtimeId, _providerId));
+            }
+        }
+        catch
+        {
+        }
     }
 }
