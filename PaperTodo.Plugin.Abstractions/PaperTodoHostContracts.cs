@@ -272,6 +272,28 @@ public interface IPaperTodoHostApi
     DeleteMutationResult DeleteTodo(DeleteTodoRequest request);
     DeleteMutationResult DeletePaper(string paperId);
 
+    /// <summary>
+    /// Registers the callback used by both paper-scoped and global top-bar actions. Setting null
+    /// removes all top-bar contributions from this live plugin session.
+    /// </summary>
+    void SetTopBarActionHandler(Action<PaperTopBarActionInvocation>? handler);
+
+    /// <summary>
+    /// Replaces this session's actions on its own paper. Plugins may also request hiding the small
+    /// whitelist of host actions exposed through PaperHostTopBarActions; close/pin/window lifecycle
+    /// controls remain host-owned and cannot be removed.
+    /// </summary>
+    void SetPaperTopBarActions(
+        IReadOnlyList<PaperTopBarAction> actions,
+        PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None);
+
+    /// <summary>
+    /// Replaces this session's global actions. They are rendered by PaperTodo on every paper only
+    /// while an owning plugin session remains alive. Multiple sessions of one provider are deduped
+    /// by the host so one provider contributes one current global action set.
+    /// </summary>
+    void SetGlobalTopBarActions(IReadOnlyList<PaperTopBarAction> actions);
+
     IDisposable Subscribe(
         PaperTodoEventFilter filter,
         Action<PaperTodoEvent> handler);
