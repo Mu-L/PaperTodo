@@ -75,6 +75,7 @@ internal static class PluginShortcutActions
 
     private static bool IsCustomActionId(string value) =>
         value.Length is >= 1 and <= 80 &&
+        !value.StartsWith("paper.", StringComparison.OrdinalIgnoreCase) &&
         value.All(character =>
             char.IsAsciiLetterOrDigit(character) ||
             character is '.' or '_' or '-');
