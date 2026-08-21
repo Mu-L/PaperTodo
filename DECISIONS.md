@@ -34,6 +34,7 @@
 | D-019 | Note 编辑与浏览共享 `MarkdownTextBox` | Accepted | Note |
 | D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
 | D-021 | 插件与 MCP 共用 `PaperCommandService` | Accepted | 外部命令 / 一致性 |
+| D-022 | Plugin Top Bar 使用宿主绘制 descriptor + live session lease | Accepted | 插件 / UI ownership |
 
 ## 维护规则
 
@@ -418,7 +419,7 @@ Docked capsule 有 wall-side straight edge、close segment、bounded capacity �
 ### Evidence
 
 - `303c9ebd22fa69d75a32bb7cb923c42cfb512fb5`。
-- `708dcd267827cee9f9174d9e9c49303ae3b760e8`。
+- `708dcd267827cee9050f12943b4b768453a64998`。
 - `e5e07526da0d9b6178975e5c7e90debf4d4a6241`。
 - `ce406c10507418c67b32bd17b9c7b99819201145`。
 - `a3c8b62962178ca5d6a63f5c555c7c0a847eee56`。
@@ -707,3 +708,58 @@ MCP transport 继续拥有 JSON/MCP 参数映射和 MCP 授权；plugin host 继
 - `src/PaperBodyPluginHostApi.cs`：只做 plugin permission/session 边界，并把业务读写委托给同一 service。
 - `16cfdb76672390df28a8445937f994af0a0cdc2f` — `feat: add reviewed MCP architecture`，形成最初外部命令事务边界。
 - `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin v2 / MCP hardening，收敛外部写入失败与恢复语义。
+
+---
+
+## D-022 — Plugin Top Bar 使用宿主绘制 descriptor + live session lease
+
+**Status:** Accepted
+
+### Context
+
+Protocol 2.0 要允许插件在自己的纸片顶栏贡献动作，并在插件实际运行时向所有纸片贡献少量 Global 动作。如果直接让插件塞 `FrameworkElement` / Button / WebView，插件会同时获得尺寸、主题、Hover、DPI、focus、responsive layout 和 popup 等宿主 chrome ownership；如果把 Top Bar 方法塞进 `Workspace`，又会污染 D-021 已经收敛的 Paper/Todo/Note 数据命令边界。
+
+Global 动作还存在额外生命周期问题：同 provider 可以同时有多张插件纸片；Web body document 可以 reload、崩溃或被宿主替换。如果 Global UI 被当成 manifest 静态声明，或只按 provider 是否“安装”判断存在，就会产生重复按钮、幽灵按钮和旧 document callback 泄漏。
+
+### Decision
+
+Protocol 2.0 将 Top Bar 定义为**独立的 session-scoped presentation capability**：
+
+- Native 使用 `PaperBodyContext.TopBar` / `IPaperTopBarApi`；`Workspace` 继续只公开 Paper/Todo/Note 业务数据 API。
+- PaperTodo 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout。插件只提交 action descriptor，不提交真实控件。
+- 图标只接受短字符或受限 SVG/WPF Path Data。Path 可以使用宿主当前前景色 Fill 或 Stroke；不接受完整 SVG document、WebView 或任意 WPF tree。
+- Paper scope 只属于当前 session 的宿主纸片；插件只能 suppression 宿主明确白名单中的 `NewTodoPaper` / `NewNotePaper`，不能删除关闭、置顶、标题拖动或窗口生命周期入口。
+- Global scope 由真实活跃 session 以 lease 持有。没有有效 session 就没有 Global action；仅安装插件或 manifest 中存在 descriptor 不产生静态 Global UI。
+- 同 provider 多 session 时，Global owner 只按**最后一次 Global 注册顺序**选择；Paper action 更新不改变 Global ownership。
+- Global 点击提供目标 `PaperId` / `Type` / `BodyProviderId`。插件若要读取或修改目标内容，仍通过 Workspace → `PaperCommandService`，不在 Top Bar 再复制一套业务 mutation。
+- Web Top Bar 只由当前 body document 注册，并绑定 document generation；导航、renderer failure、body WebView replacement 或 session Dispose 都撤销旧 contribution。Web Mini 不拥有 Top Bar 注册权。
+
+### Why
+
+这套边界让插件获得“功能入口”，但不获得宿主 chrome 的结构 authority。主题、DPI、布局和交互一致性继续只维护一套；未来 PaperTodo 修改顶栏实现时，不需要把任意插件 WPF tree 当成 ABI。
+
+把 Top Bar 与 Workspace 分开也保持了 D-021 的可理解性：Workspace/MCP 共享的是业务数据语义，Top Bar 是进程内 session presentation。Global lease 则让“必须运行中才允许全局增加”成为可验证生命周期，而不是依赖插件记得手工删除按钮。
+
+### Rejected / Do not reintroduce
+
+- 不开放 `AddGlobalTopBar(FrameworkElement)`、任意 Button/WebView 或完整 SVG DOM。
+- 不把 Global Top Bar 做成仅凭 manifest/安装状态就永久存在的静态 UI。
+- 不把 Top Bar 方法塞回 `IPaperTodoHostApi` / Workspace 数据合同。
+- 不让 Paper scope 的更新顺序决定同 provider 的 Global owner。
+- 不让 Web Mini 或失效的旧 Web document 继续持有 Top Bar contribution。
+- 不在 Top Bar callback 内复制 Note/Todo 读写、保存、rollback 或 UI reconcile；业务 mutation 继续走 `PaperCommandService`。
+
+### Consequences
+
+- Top Bar action descriptor 是公开协议，需要保持小而稳定；新增复杂控件能力前先判断是否会重新转移宿主 chrome ownership。
+- Global action 数量、字符/SVG 输入范围和可隐藏宿主 action 属于宿主保护边界；具体视觉尺寸仍由 PaperTodo 当前主题/布局实现决定。
+- Web transport 可以复用 bridge 的 request/response 通道，但 API scope 仍与 `papertodo.workspace` 数据能力区分。
+- 旧 1.8 插件继续兼容加载，但 Top Bar 只对声明 2.0 的 session 开放。
+
+### Evidence
+
+- `PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs`：`IPaperTopBarApi`、action/icon/invocation contracts。
+- `src/AppController.PluginTopBar.cs`：session lease、Paper/Global 独立 ordinal、provider 去重与输入校验。
+- `src/PaperWindow.PluginTopBar.cs`：宿主绘制、主题/字体/响应式与 suppression reconcile。
+- `src/WebPaperBodySession.TopBar.cs`：body document generation ownership 与失效清理。
+- `plugin-samples/PaperTodo.Plugin.TopBarWeb/`：2.0 Paper/Global、字符/Stroke SVG、点击后复用 Workspace 的当前示例。
