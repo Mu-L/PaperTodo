@@ -2,11 +2,13 @@
 
 本文是 **当前 PaperTodo 插件开发手册**。只描述现在可用的插件合同、运行边界、构建方式和示例，不记录协议演进历史。
 
-当前宿主只接受：
+新插件使用：
 
 ```json
-"apiVersion": "1.8"
+"apiVersion": "2.0"
 ```
+
+宿主继续兼容加载现有 `1.8` 插件，但 **Top Bar 扩展只属于 2.0**；1.8 插件调用对应接口会被拒绝。新开发和升级中的插件不要再以 1.8 作为目标版本。
 
 插件公开类型以 [`../PaperTodo.Plugin.Abstractions/`](../PaperTodo.Plugin.Abstractions/) 为编译期合同；宿主实际校验和运行行为以当前代码为准。需要理解 PaperTodo 内部 ownership 时再看 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)，插件作者不需要先阅读主程序架构才能开始开发。
 
@@ -48,7 +50,7 @@ plugins/com.example.hello/
   "id": "com.example.hello",
   "name": "Hello",
   "version": "1.0.0",
-  "apiVersion": "1.8",
+  "apiVersion": "2.0",
   "stateVersion": 1,
   "entry": "web/index.html"
 }
@@ -115,7 +117,7 @@ public sealed class HelloPlugin : IPaperBodyPlugin
     public string Id => "com.example.hello-native";
     public string DisplayName => "Hello Native";
     public Version Version => new(1, 0, 0);
-    public string ApiVersion => "1.8";
+    public string ApiVersion => "2.0";
     public int StateVersion => 1;
     public PaperBodyRuntimeRequirements RuntimeRequirements =>
         PaperBodyRuntimeRequirements.None;
@@ -167,7 +169,7 @@ Native `plugin.json`：
   "id": "com.example.hello-native",
   "name": "Hello Native",
   "version": "1.0.0",
-  "apiVersion": "1.8",
+  "apiVersion": "2.0",
   "stateVersion": 1,
   "entry": "HelloPlugin.dll"
 }
@@ -237,7 +239,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 | `name` | 显示名称；为空时回退到 ID |
 | `description` | 插件说明 |
 | `version` | 插件版本，必须能解析为 `Version` |
-| `apiVersion` | 当前必须为字符串 `"1.8"` |
+| `apiVersion` | 新插件使用字符串 `"2.0"`；宿主兼容加载既有 `"1.8"`，但 1.8 不提供 Top Bar 扩展 |
 | `stateVersion` | per-paper state 版本，至少为 1 |
 | `entry` | Web 主页面或 Native 入口 DLL，必须位于插件目录内 |
 | `miniEntry` | 可选，仅 Web；专属 Edge Mini 页面 |
@@ -260,7 +262,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
   "id": "com.example.weather",
   "name": "天气",
   "version": "1.0.0",
-  "apiVersion": "1.8",
+  "apiVersion": "2.0",
   "stateVersion": 1,
   "entry": "web/index.html",
   "miniEntry": "web/mini.html",
@@ -589,6 +591,123 @@ note.changed
 
 会话失效或销毁后订阅自动失效；插件自己也应及时 dispose/unsubscribe 不再需要的监听。
 
+### 6.1 正文读写边界
+
+Top Bar 动作不提供另一套 `GetBodyText/SetBodyText`。需要读写目标纸片时继续使用 Workspace：
+
+- Markdown Note：`notes.get` + `notes.write`，分别受 `notes.read` / `notes.append` / `notes.replace` 权限约束；
+- Todo：使用结构化 `todos.*` API，不把 Todo 伪装成 Markdown 字符串；
+- 自定义插件正文：正文数据仍由对应 provider 的 state/capability 拥有，宿主不会假装所有正文都是文本。
+
+这与 MCP 共用同一个 `PaperCommandService` 业务边界，因此保存、失败回滚、UI reconcile 和事件顺序不因为入口不同而复制第二套实现。
+
+## 6.5 Top Bar 扩展（2.0）
+
+Top Bar 扩展只对 `apiVersion: "2.0"` 开放。**PaperTodo 始终拥有顶栏 WPF tree、按钮尺寸、位置、主题、Hover、DPI 和 responsive layout；插件只贡献动作描述。** 不接受插件直接塞 `FrameworkElement`、Button、WebView 或任意顶栏控件。
+
+动作有两种 scope：
+
+- **Paper**：只显示在承载当前 session 的这张插件纸片；最多 4 个；
+- **Global**：显示在所有 PaperTodo 纸片；每个 provider 当前最多 2 个；只有至少一个真实活跃 session 注册并持有它时才存在。多个同 provider session 会按 provider 去重，由最近注册的活跃 session 持有当前全局动作集合。
+
+Global 点击回调会给插件目标纸片：`TargetPaperId`、`TargetPaperType`、`TargetBodyProviderId`。插件可据此通过 Workspace 读取/修改当前 Markdown 或 Todo；Top Bar 本身不拥有业务数据 API。
+
+### Native
+
+先注册统一回调，再提交自己的纸片动作和/或全局动作：
+
+```csharp
+context.Workspace.SetTopBarActionHandler(invocation =>
+{
+    if (invocation.ActionId == "summarize" &&
+        invocation.TargetPaperType == "note" &&
+        invocation.TargetBodyProviderId == "builtin.markdown")
+    {
+        var note = context.Workspace.GetNote(invocation.TargetPaperId);
+        // 根据 notes.read 权限读取；需要改写时继续调用 WriteNote(...)
+    }
+});
+
+context.Workspace.SetPaperTopBarActions(
+    [
+        new PaperTopBarAction
+        {
+            Id = "refresh",
+            Icon = PaperTopBarIcon.Character("↻"),
+            ToolTip = "刷新插件"
+        },
+        new PaperTopBarAction
+        {
+            Id = "details",
+            Icon = PaperTopBarIcon.SvgPath("M3,3 L13,3 13,13 3,13 Z"),
+            ToolTip = "详情"
+        }
+    ],
+    PaperHostTopBarActions.NewTodoPaper |
+    PaperHostTopBarActions.NewNotePaper);
+
+context.Workspace.SetGlobalTopBarActions(
+    [
+        new PaperTopBarAction
+        {
+            Id = "summarize",
+            Icon = PaperTopBarIcon.Character("✦"),
+            ToolTip = "处理当前纸片"
+        }
+    ]);
+```
+
+字符图标最多 8 个 UTF-16 字符。SVG 只接受 **Path Data**，不是完整 `<svg>` 文档；单个 path data 最长 4096 字符。图标最终缩放到宿主的小图标槽，颜色继承当前顶栏前景色。
+
+自己的插件纸片可以请求隐藏的宿主动作目前只有：
+
+```text
+NewTodoPaper
+NewNotePaper
+```
+
+关闭、置顶、标题拖动、窗口生命周期等宿主生命线不能被插件删除。
+
+`SetPaperTopBarActions(...)` / `SetGlobalTopBarActions(...)` 都是 replace 语义；传空数组即可撤掉该 scope 的动作。`SetTopBarActionHandler(null)` 会撤掉这个 session 的全部 Top Bar contribution。即使插件忘记手工清理，Host API/session Dispose 也会自动回收。
+
+### Web
+
+Web 使用现有 `workspace.request`，不复制新的 transport：
+
+```js
+await papertodo.workspace.request('topbar.paper.set', {
+  actions: [
+    {
+      id: 'refresh',
+      icon: { kind: 'character', value: '↻' },
+      toolTip: '刷新'
+    }
+  ],
+  hiddenHostActions: ['newTodoPaper', 'newNotePaper']
+});
+
+await papertodo.workspace.request('topbar.global.set', {
+  actions: [
+    {
+      id: 'summarize',
+      icon: { kind: 'svgPath', value: 'M2,8 L8,2 14,8 8,14 Z' },
+      toolTip: '处理当前纸片'
+    }
+  ]
+});
+```
+
+点击后宿主发送普通 Web bridge 事件：
+
+```js
+papertodo.onEvent(message => {
+  if (message.type !== 'topBarActionInvoked') return;
+  const { actionId, scope, targetPaperId, targetPaperType, targetBodyProviderId } = message.action;
+});
+```
+
+Web 与 Native 使用同一宿主注册表、同一 action ID/尺寸/数量限制和同一 session 生命周期。
+
 ## 7. 胶囊 presentation
 
 ### 7.1 宿主绘制的标准胶囊
@@ -817,7 +936,7 @@ IPaperBodyViewMigrationProvider
 - dedicated `IPaperMiniViewProvider` 优先级高于 migration；
 - snapshot 只用于 handoff/后续快速预览，不建立持续截图循环，也不是第二份业务 UI。
 
-如果插件正文包含 WebView2 等 native child，请像 `PaperTodo.Plugin.CloudGenshin` 一样把它留在完整正文，并为 Edge Mini 提供独立纯 WPF 状态面板。
+如果插件正文包含 WebView2 等 native child，请像 `PaperTodo.Plugin.CloudGenshin` 一样把它留在完整正文，并为 Edge Mini 提供独立 pure-WPF 状态面板。
 
 ## 9. Web 插件
 
@@ -854,6 +973,8 @@ papertodo.onHostEvent(types, listener, options);
 papertodo.onEvent(listener);
 ```
 
+2.0 的顶栏仍通过 `papertodo.workspace.request(...)` 进入同一 host request transport；详见 6.5。
+
 宿主会发送：
 
 ```text
@@ -872,6 +993,7 @@ cancelInteractions
 hostResponse
 hostEvent
 hostSubscriptionError
+topBarActionInvoked
 ```
 
 `initialize` 包含当前 `surface`、paper/provider ID、API/state 版本、state、settings、permissions、theme、runtime visibility 和 presentation visibility。
@@ -914,7 +1036,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - 已载入 DLL 的文件变化/删除需要重启才能稳定反映；
 - 私有依赖和 native library 放在插件自包含目录；
 - 不重复携带宿主共享程序集；
-- 所有 timer、task、subscription、外部资源在 session `Dispose()` 中清理。
+- 所有 timer、task、subscription、Top Bar contribution、外部资源都随 session 生命周期结束；插件自己创建的资源仍必须在 `Dispose()` 中清理。
 
 需要宿主统一视觉的 select 可使用 `PaperBodyContext.Body.Controls`，不要复制 PaperTodo 内部 popup/theme/DPI 细节。
 
@@ -922,19 +1044,19 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 
 | 示例 | 重点 |
 | --- | --- |
-| `PaperTodo.Plugin.SampleClock` | Native 主示例：settings、background updates、标准 capsule、自定义 WPF capsule、dedicated WPF mini |
-| `PaperTodo.Plugin.OfficialClockWeb` | Web 主示例：body/mini 双页面、`miniEntry`、state/settings 同步、startup paper、background updates |
+| `PaperTodo.Plugin.SampleClock` | Native 主示例：settings、background updates、标准 capsule、自定义 WPF capsule、dedicated WPF mini；当前仍作为 1.8 兼容样本 |
+| `PaperTodo.Plugin.OfficialClockWeb` | Web 2.0 主示例：body/mini 双页面、`miniEntry`、state/settings 同步、startup paper、background updates |
 | `PaperTodo.Plugin.FocusTimer` | Native 有状态交互：正文与 dedicated mini 共享同一计时模型，mini 内直接开始/暂停/继续 |
 | `PaperTodo.Plugin.ReviewArchive` | Workspace 数据读取/observe、插件状态与长期数据的组合使用 |
 | `PaperTodo.Plugin.CloudGenshin` | 正文含 WebView2/native child 时的边界：完整远程应用留在正文，Edge Mini 使用独立 pure-WPF 状态面板 |
 
-开发新插件时优先从与目标最接近的示例复制最小结构，不要把五个示例的能力一次全部合并进去。
+开发新插件时优先从与目标最接近的示例复制最小结构，不要把五个示例的能力一次全部合并进去。需要 Top Bar 时以本手册 6.5 和 `PaperTodo.Plugin.Abstractions` 当前合同为准。
 
 ## 12. 常见错误
 
 ### Manifest
 
-- `apiVersion` 不是 `"1.8"`；
+- 新插件仍以 `apiVersion: "1.8"` 为目标，导致无法使用 2.0 Top Bar；
 - 插件目录名和 `id` 不一致；
 - `id` 使用非法字符或保留 ID `data`；
 - `miniSize` 没有对应 `miniEntry`；
@@ -943,6 +1065,16 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - `quick: true` 超过三个；
 - `startupPaper.enabledSetting` 没有指向 boolean setting；
 - 声明未知 `requires` / `permissions`。
+
+### Top Bar
+
+- 给 PaperTodo 传 `FrameworkElement` / Button / 完整 SVG，而不是 action descriptor；
+- action ID 重复、超过 64 字符或含非法字符；
+- 一个插件贡献超过 4 个 Paper action 或 2 个 Global action；
+- SVG 传完整 `<svg>` 文档而不是 Path Data；
+- 想隐藏关闭/置顶/拖动等宿主生命线；
+- 为 Top Bar 另写一套正文 mutation，而不是复用 Workspace；
+- 把 Global contribution 当成 manifest 静态 UI，忽略它必须由活跃 session 持有的生命周期。
 
 ### WPF surface
 
@@ -978,15 +1110,16 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 
 ## 13. 提交示例插件前
 
-- `plugin.json` 使用当前 `apiVersion: "1.8"`；
+- 新插件 `plugin.json` 使用当前 `apiVersion: "2.0"`；确需兼容验证的旧样本才保留 1.8；
 - Native manifest 与入口 DLL metadata/runtime requirements 一致；
 - Native 使用统一 build/install 脚本跑通；
 - 最终 `plugins/<id>/` 不包含 PDB/XML/重复 shared assemblies；
 - `.runtime/` 不被构建脚本误删；
 - Web body 与 mini 的 state/settings 同步没有回声；
 - Web mini 只有真正需要网页处理 pointer 的局部元素声明 `data-papertodo-interactive`；
+- Top Bar 只提交 host-rendered descriptor，Global contribution 随 session 自动撤销；
 - capsule 提供合理 `plainText`；
 - custom WPF surface 均为 fresh / unparented / pure-WPF；
 - Edge Mini 不依赖键盘输入；
 - 只声明实际需要的 permissions / `backgroundUpdates`；
-- 切换 provider、重载、折叠/展开、关闭 paper 后没有遗留 timer、task、subscription 或输入占用。
+- 切换 provider、重载、折叠/展开、关闭 paper 后没有遗留 timer、task、subscription、Top Bar contribution 或输入占用。
