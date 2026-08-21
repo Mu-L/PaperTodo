@@ -13,18 +13,17 @@
       color: #555;
     }
     main { max-width: 520px; padding: 24px; line-height: 1.65; }
-    code { user-select: text; }
   </style>
 </head>
 <body>
   <main>
-    <strong>Protocol 2.0 Top Bar</strong>
+    <strong>Protocol 2.0 Paper Top Bar</strong>
     <p id="status">等待宿主初始化…</p>
   </main>
   <script>
     const status = document.querySelector('#status');
 
-    async function registerTopBar() {
+    async function registerPaperTopBar() {
       await papertodo.request('topbar.paper.set', {
         actions: [
           {
@@ -35,45 +34,12 @@
         ],
         hiddenHostActions: ['newNotePaper']
       });
-
-      await papertodo.request('topbar.global.set', {
-        actions: [
-          {
-            id: 'inspect-current',
-            icon: {
-              kind: 'svgPath',
-              value: 'M3,3 L13,3 13,13 3,13 Z M6,8 L10,8',
-              renderMode: 'stroke',
-              strokeWidth: 1.5
-            },
-            toolTip: '读取当前纸片信息'
-          }
-        ]
-      });
-    }
-
-    async function showInvocation(action) {
-      if (action.actionId === 'paper-info') {
-        status.textContent = `Paper action · ${action.targetPaperId}`;
-        return;
-      }
-
-      if (action.actionId !== 'inspect-current') return;
-      try {
-        const paper = await papertodo.workspace.request('papers.get', {
-          paperId: action.targetPaperId
-        });
-        status.textContent = paper
-          ? `Global action · ${paper.title || paper.id} · ${action.targetPaperType}`
-          : `Global action · ${action.targetPaperId}`;
-      } catch (error) {
-        status.textContent = `读取失败：${error?.message || error}`;
-      }
     }
 
     papertodo.onEvent(message => {
-      if (message.type === 'topBarActionInvoked') {
-        showInvocation(message.action);
+      if (message.type === 'topBarActionInvoked' &&
+          message.action?.actionId === 'paper-info') {
+        status.textContent = `Paper action · ${message.action.targetPaperId}`;
       }
     });
 
@@ -92,8 +58,8 @@
         ]
       });
 
-      registerTopBar()
-        .then(() => { status.textContent = '已注册 Paper + Global 顶栏动作。'; })
+      registerPaperTopBar()
+        .then(() => { status.textContent = 'Paper 顶栏动作已注册。Global 动作由 app runtime 持有。'; })
         .catch(error => { status.textContent = `注册失败：${error?.message || error}`; });
     });
   </script>
