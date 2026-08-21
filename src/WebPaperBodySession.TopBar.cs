@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using PaperTodo.Plugin;
@@ -13,7 +12,7 @@ internal sealed partial class WebPaperBodySession
 
     private object SetPaperTopBarActionsFromWeb(JsonElement parameters)
     {
-        var documentGeneration = RequireBodyTopBarDocument(parameters);
+        var documentGeneration = RequireCurrentBodyTopBarDocument();
         var actions = ReadTopBarActions(parameters);
         var hidden = PaperHostTopBarActions.None;
         if (ReadStringSet(parameters, "hiddenHostActions") is { } hiddenValues)
@@ -41,7 +40,7 @@ internal sealed partial class WebPaperBodySession
 
     private object SetGlobalTopBarActionsFromWeb(JsonElement parameters)
     {
-        var documentGeneration = RequireBodyTopBarDocument(parameters);
+        var documentGeneration = RequireCurrentBodyTopBarDocument();
         var actions = ReadTopBarActions(parameters);
         _context.TopBar.SetActionHandler(
             invocation => HandleTopBarActionInvocation(
@@ -51,19 +50,15 @@ internal sealed partial class WebPaperBodySession
         return new { updated = actions.Length };
     }
 
-    private int RequireBodyTopBarDocument(JsonElement parameters)
+    private int RequireCurrentBodyTopBarDocument()
     {
-        if (!string.Equals(
-                OptionalPayloadString(parameters, "surface"),
-                "body",
-                StringComparison.Ordinal) ||
-            !_documentReady ||
+        if (!_documentReady ||
             !_pluginDocumentReady ||
             _webView.CoreWebView2 is not { } core)
         {
             throw new PaperTodoPluginException(
-                "topbar_body_only",
-                "Web top-bar contribution must be registered by the current body document.");
+                "topbar_body_unavailable",
+                "Web top-bar contribution requires the current ready body document.");
         }
 
         EnsureTopBarDocumentLifecycleHook(core, _webView);
