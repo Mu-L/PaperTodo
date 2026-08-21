@@ -7,7 +7,7 @@ internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaper
 {
     private readonly AppController _controller;
     private readonly PaperCommandService _commands;
-    private readonly string _hostPaperId;
+    private readonly string? _hostPaperId;
     private readonly string _providerId;
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly FrozenSet<string> _permissions;
@@ -20,7 +20,7 @@ internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaper
     public PaperBodyPluginHostApi(
         AppController controller,
         PaperCommandService commands,
-        string hostPaperId,
+        string? hostPaperId,
         string providerId,
         IEnumerable<string> permissions,
         Func<bool> isSessionCurrent,
@@ -146,7 +146,7 @@ internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaper
     {
         Require(PaperTodoPermissionNames.PapersDelete);
         var normalized = RequiredId(paperId, "paperId");
-        if (!string.IsNullOrEmpty(_hostPaperId) &&
+        if (_hostPaperId != null &&
             string.Equals(normalized, _hostPaperId, StringComparison.Ordinal))
         {
             throw Error(
@@ -178,18 +178,11 @@ internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaper
         _controller.SetPluginPaperTopBarActions(
             _sessionId,
             _providerId,
-            _hostPaperId,
+            _hostPaperId!,
             actions,
             hiddenHostActions,
             () => !_disposed && _isSessionCurrent(),
             DispatchTopBarAction);
-    }
-
-    public void SetGlobalActions(IReadOnlyList<PaperTopBarAction> actions)
-    {
-        throw Error(
-            "global_topbar_app_runtime_only",
-            "Global top-bar actions must be registered by the plugin app runtime.");
     }
 
     public void Clear()
