@@ -76,6 +76,7 @@ public sealed partial class AppController
             .Where(DeclaresPluginAppRuntime)
             .Where(descriptor => HasEntityPluginPaper(descriptor.Id))
             .ToDictionary(descriptor => descriptor.Id, StringComparer.Ordinal);
+        var runtimeSetChanged = false;
 
         foreach (var providerId in _pluginAppRuntimes.Keys
                      .Where(providerId => !desired.ContainsKey(providerId))
@@ -85,6 +86,7 @@ public sealed partial class AppController
             _pluginAppRuntimes.Remove(providerId);
             lease.Dispose();
             _pluginAppRuntimeStartFailures.Remove(providerId);
+            runtimeSetChanged = true;
         }
 
         foreach (var providerId in _pluginAppRuntimeStartFailures
@@ -92,6 +94,7 @@ public sealed partial class AppController
                      .ToArray())
         {
             _pluginAppRuntimeStartFailures.Remove(providerId);
+            runtimeSetChanged = true;
         }
 
         foreach (var descriptor in desired.Values)
@@ -104,6 +107,11 @@ public sealed partial class AppController
             }
             _pluginAppRuntimeStarts.Add(descriptor.Id);
             _ = StartPluginAppRuntimeSafelyAsync(descriptor);
+        }
+
+        if (runtimeSetChanged)
+        {
+            QueuePluginStatusUiRefresh();
         }
     }
 
@@ -121,6 +129,7 @@ public sealed partial class AppController
         try
         {
             await StartPluginAppRuntimeAsync(descriptor);
+            QueuePluginStatusUiRefresh();
         }
         catch (OperationCanceledException)
         {
@@ -130,6 +139,7 @@ public sealed partial class AppController
         catch (Exception ex)
         {
             _pluginAppRuntimeStartFailures.Add(descriptor.Id);
+            QueuePluginStatusUiRefresh();
             Trace.TraceWarning(
                 "Plugin app runtime failed to start. Provider={0}; Exception={1}",
                 descriptor.Id,
