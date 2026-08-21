@@ -44,6 +44,7 @@ internal sealed partial class PaperBodyPluginHostApi
     private string RequireHostPaperId()
     {
         EnsureUsable();
+        EnsurePresentationProtocol();
         if (string.IsNullOrEmpty(_hostPaperId))
         {
             throw Error(
@@ -51,6 +52,22 @@ internal sealed partial class PaperBodyPluginHostApi
                 "This plugin context is not attached to a paper.");
         }
         return _hostPaperId;
+    }
+
+    private void EnsurePresentationProtocol()
+    {
+        if (_controller.PaperBodyPlugins.TryGet(_providerId, out var descriptor) &&
+            string.Equals(
+                descriptor.ApiVersion,
+                PaperBodyPluginRegistry.SupportedPluginApiVersion,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw Error(
+            "presentation_requires_api_2_0",
+            "Own-paper presentation controls require plugin apiVersion 2.0.");
     }
 
     private void QueuePresentation(Func<string, bool> action)
