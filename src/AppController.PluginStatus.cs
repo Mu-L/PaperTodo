@@ -104,8 +104,14 @@ public sealed partial class AppController
         dot.Opacity = status == PluginPageStatus.Stopped ? 0.62 : 1;
         dot.ToolTip = Strings.Get(tipKey);
     }
+
     internal void QueuePluginStatusRefresh()
     {
+        // Body attach/remove/provider switch is also the existing low-frequency signal that an
+        // entity plugin paper may have appeared or disappeared. Reconciliation itself is gated
+        // until startupPaper handling has completed.
+        ReconcilePluginAppRuntimes();
+
         if (_pluginStatusRefreshQueued ||
             _settingsWindow is not { IsVisible: true } ||
             _settingsPage != SettingsPage.Plugins)
@@ -130,5 +136,4 @@ public sealed partial class AppController
             }),
             DispatcherPriority.Background);
     }
-
 }
