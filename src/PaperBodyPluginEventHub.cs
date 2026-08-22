@@ -22,9 +22,9 @@ internal readonly record struct PaperOperationContext(
 /// <summary>
 /// Session-scoped plugin event hub. The host keeps a baseline only while subscriptions exist and
 /// never polls the whole workspace on a recurring interval. User mutations are detected through
-/// AppController's monotonic state revision; a short one-shot debounce coalesces edit bursts before
-/// the expensive snapshot/diff. MCP/plugin mutations still publish synchronously with their exact
-/// operation origin.
+/// persistence's monotonic state/save stamps; a short one-shot debounce coalesces edit bursts
+/// before the expensive snapshot/diff. MCP/plugin mutations still publish synchronously with their
+/// exact operation origin.
 /// </summary>
 internal sealed class PaperBodyPluginEventHub : IDisposable
 {
@@ -40,6 +40,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         IReadOnlyDictionary<string, TodoSnapshot> Todos,
         string? NoteContent);
 
+    private readonly record struct ChangeStamp(long StateRevision, long SaveVersion);
+
     private static readonly TimeSpan UserChangeDebounce = TimeSpan.FromMilliseconds(180);
 
     private readonly AppController _controller;
@@ -48,8 +50,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     private readonly Dictionary<Guid, Subscription> _subscriptions = [];
     private Dictionary<string, PaperStateSnapshot> _baseline =
         new(StringComparer.Ordinal);
-    private long _observedStateRevision;
-    private long _scheduledStateRevision;
+    private ChangeStamp _observedStamp;
+    private ChangeStamp _scheduledStamp;
     private int _suppressionDepth;
     private bool _watchingDispatcher;
     private bool _disposed;
@@ -89,8 +91,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         if (wasEmpty)
         {
             _baseline = CaptureState();
-            _observedStateRevision = _controller.PluginEventStateRevision;
-            _scheduledStateRevision = _observedStateRevision;
+            _observedStamp = CaptureChangeStamp();
+            _scheduledStamp = _observedStamp;
             StartWatchingDispatcher();
         }
         return new SubscriptionHandle(this, subscription.Id);
@@ -104,14 +106,14 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             return;
         }
 
-        var revision = _controller.PluginEventStateRevision;
-        if (revision == _observedStateRevision)
+        var stamp = CaptureChangeStamp();
+        if (stamp == _observedStamp)
         {
             return;
         }
 
         _flushTimer.Stop();
-        ScanNowCore(PaperOperationContext.User(), revision);
+        ScanNowCore(PaperOperationContext.User(), stamp);
     }
 
     public IDisposable SuppressScans()
@@ -138,7 +140,7 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
 
         _flushTimer.Stop();
-        ScanNowCore(context, _controller.PluginEventStateRevision);
+        ScanNowCore(context, CaptureChangeStamp());
     }
 
     public void ResetBaseline()
@@ -152,8 +154,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
 
         _baseline = CaptureState();
-        _observedStateRevision = _controller.PluginEventStateRevision;
-        _scheduledStateRevision = _observedStateRevision;
+        _observedStamp = CaptureChangeStamp();
+        _scheduledStamp = _observedStamp;
     }
 
     public void RemoveSession(Guid sessionId)
@@ -168,6 +170,9 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
         StopWhenIdle();
     }
+
+    private ChangeStamp CaptureChangeStamp() =>
+        new(_controller.PluginEventStateRevision, _controller.PluginEventSaveVersion);
 
     private void StartWatchingDispatcher()
     {
@@ -207,13 +212,13 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             return;
         }
 
-        var revision = _controller.PluginEventStateRevision;
-        if (revision == _observedStateRevision && revision == _scheduledStateRevision)
+        var stamp = CaptureChangeStamp();
+        if (stamp == _observedStamp && stamp == _scheduledStamp)
         {
             return;
         }
 
-        _scheduledStateRevision = revision;
+        _scheduledStamp = stamp;
         _flushTimer.Stop();
         _flushTimer.Start();
     }
@@ -226,16 +231,16 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             return;
         }
 
-        var revision = _controller.PluginEventStateRevision;
-        if (revision == _observedStateRevision)
+        var stamp = CaptureChangeStamp();
+        if (stamp == _observedStamp)
         {
-            _scheduledStateRevision = revision;
+            _scheduledStamp = stamp;
             return;
         }
-        ScanNowCore(PaperOperationContext.User(), revision);
+        ScanNowCore(PaperOperationContext.User(), stamp);
     }
 
-    private void ScanNowCore(PaperOperationContext context, long observedRevision)
+    private void ScanNowCore(PaperOperationContext context, ChangeStamp observedStamp)
     {
         _dispatcher.VerifyAccess();
         if (_disposed || _suppressionDepth > 0 || _subscriptions.Count == 0)
@@ -253,8 +258,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
 
         _baseline = current;
-        _observedStateRevision = observedRevision;
-        _scheduledStateRevision = observedRevision;
+        _observedStamp = observedStamp;
+        _scheduledStamp = observedStamp;
 
         foreach (var value in events)
         {
@@ -276,7 +281,7 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             }
         }
 
-        // A handler may synchronously mutate PaperTodo. Do not lose that newer revision just
+        // A handler may synchronously mutate or save PaperTodo. Do not lose that newer stamp just
         // because this scan installed a fresh baseline before invoking listeners.
         QueueUserChangesIfNeeded();
     }
@@ -482,8 +487,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         _flushTimer.Stop();
         StopWatchingDispatcher();
         _baseline.Clear();
-        _observedStateRevision = _controller.PluginEventStateRevision;
-        _scheduledStateRevision = _observedStateRevision;
+        _observedStamp = CaptureChangeStamp();
+        _scheduledStamp = _observedStamp;
     }
 
     public void Dispose()
