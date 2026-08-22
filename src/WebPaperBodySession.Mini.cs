@@ -122,13 +122,22 @@ internal sealed partial class WebPaperBodySession
         private bool _documentReady;
         private bool _pluginReportedReady;
         private bool _pluginReady;
+        private bool _surfaceReady;
+        private bool _surfaceRefreshRequired;
         private bool _disposed;
         private int _documentGeneration;
+        private int _presentationGeneration;
         private ulong _documentNavigationId;
         private bool _hasDocumentNavigation;
         private int _queuedShowGeneration = -1;
         private int _readyProbeGeneration = -1;
         private string? _readyProbeToken;
+        private int _surfaceProbeGeneration = -1;
+        private string? _surfaceProbeToken;
+        private EventHandler? _surfaceRevealRenderingHandler;
+#if DEBUG
+        private long _surfaceRecoveryStartedAtTimestamp;
+#endif
 
         public WebPluginMiniViewHost(
             WebPaperBodySession owner,
@@ -177,7 +186,7 @@ internal sealed partial class WebPaperBodySession
             _fallback = fallback;
             PrepareFallbackForFirstDisplay(_fallback);
             Children.Insert(0, fallback);
-            _fallback.Visibility = _pluginReady
+            _fallback.Visibility = _pluginReady && _surfaceReady
                 ? Visibility.Collapsed
                 : Visibility.Visible;
         }
@@ -196,23 +205,36 @@ internal sealed partial class WebPaperBodySession
             {
                 return;
             }
+
+            var presentationGeneration = AdvancePresentationGeneration();
+            CancelSurfaceRecovery(restorePreviousSurface: !visible);
             _visible = visible;
+
             if (visible)
             {
                 QueueInitialization();
-                if (_pluginReportedReady)
-                {
-                    QueueShowPlugin();
-                }
             }
             else
             {
+                _surfaceRefreshRequired =
+                    _documentReady &&
+                    _pluginReportedReady &&
+                    _pluginReady &&
+                    _webView.CoreWebView2 != null;
                 PaperMiniViewInteraction.SetConsumesPointer(_webView, false);
                 _initializationQueued = false;
                 _initializationDeferralGeneration++;
                 Send(new { type = "commitRequested" });
             }
+
+            // Deliver the public lifecycle event before a host-private surface probe. A plugin that
+            // chooses to repaint on resume can do so naturally; a paused/static plugin still gets
+            // host-owned recovery without seeing the private probe itself.
             Send(new { type = "miniVisibilityChanged", visible });
+            if (visible && _pluginReportedReady)
+            {
+                QueuePluginPresentation(presentationGeneration);
+            }
             UpdatePresentation();
         }
 
@@ -554,6 +576,16 @@ internal sealed partial class WebPaperBodySession
                   });
                   window.chrome.webview.addEventListener('message', event => {
                     const message = event.data;
+                    if (message?.type === 'miniSurfacePresentProbe') {
+                      const token = String(message.token ?? '');
+                      requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                          post('miniSurfacePresentProbeResult', { token });
+                        });
+                      });
+                      // Host-private presentation bookkeeping must not leak into plugin listeners.
+                      return;
+                    }
                     if (message?.type === 'initialize') markHostReady();
                     if (message?.type === 'commitRequested') flushState();
                     if (message?.type === 'miniReadyProbe') {
@@ -620,6 +652,8 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            _surfaceReady = false;
+            _surfaceRefreshRequired = false;
             ClearInteractiveRegions();
             ShowFallback();
         }
@@ -664,6 +698,8 @@ internal sealed partial class WebPaperBodySession
             _documentReady = false;
             _pluginReportedReady = false;
             _pluginReady = false;
+            _surfaceReady = false;
+            _surfaceRefreshRequired = false;
             ClearInteractiveRegions();
             ShowFallback();
         }
@@ -694,6 +730,30 @@ internal sealed partial class WebPaperBodySession
                     : default;
                 switch (type)
                 {
+                    case "miniSurfacePresentProbeResult":
+                        if (!_documentReady ||
+                            !_pluginReportedReady ||
+                            !_pluginReady ||
+                            !_visible ||
+                            _surfaceProbeGeneration != _presentationGeneration ||
+                            !string.Equals(
+                                PayloadString(payload, "token"),
+                                _surfaceProbeToken,
+                                StringComparison.Ordinal))
+                        {
+                            break;
+                        }
+                        var surfaceGeneration = _surfaceProbeGeneration;
+                        _surfaceProbeGeneration = -1;
+                        _surfaceProbeToken = null;
+#if DEBUG
+                        EdgeCapsulePerformanceDiagnostics.Trace(
+                            $"preview.webmini phase=surface-probe-ack " +
+                            $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                            $"generation={surfaceGeneration}");
+#endif
+                        QueueSurfaceRevealAfterComposition(surfaceGeneration);
+                        break;
                     case "miniReady":
                         // Do not trust the source URL alone: a retiring same-origin document can
                         // still have a queued message. Challenge the currently committed document
@@ -715,7 +775,7 @@ internal sealed partial class WebPaperBodySession
                         _readyProbeGeneration = -1;
                         _readyProbeToken = null;
                         _pluginReportedReady = true;
-                        QueueShowPlugin();
+                        QueuePluginPresentation(_presentationGeneration);
                         break;
                     case "miniInteractiveRegions":
                         UpdateInteractiveRegions(payload);
@@ -820,6 +880,7 @@ internal sealed partial class WebPaperBodySession
             if (!_disposed &&
                 _visible &&
                 _pluginReady &&
+                _surfaceReady &&
                 _webView.IsHitTestVisible &&
                 _webView.IsMouseOver &&
                 _interactiveRegions.Length > 0 &&
@@ -908,6 +969,234 @@ internal sealed partial class WebPaperBodySession
             presentationVisible = _visible
         });
 
+        private int AdvancePresentationGeneration()
+        {
+            unchecked
+            {
+                return ++_presentationGeneration;
+            }
+        }
+
+        private void QueuePluginPresentation(int presentationGeneration)
+        {
+            if (_disposed ||
+                !_visible ||
+                presentationGeneration != _presentationGeneration ||
+                !_documentReady ||
+                !_pluginReportedReady)
+            {
+                return;
+            }
+
+            if (_surfaceRefreshRequired &&
+                _pluginReady &&
+                _webView.CoreWebView2 != null)
+            {
+                BeginSurfaceRecovery(presentationGeneration);
+                return;
+            }
+
+            QueueShowPlugin();
+        }
+
+        private void BeginSurfaceRecovery(int presentationGeneration)
+        {
+            if (_disposed ||
+                !_visible ||
+                presentationGeneration != _presentationGeneration ||
+                !_documentReady ||
+                !_pluginReportedReady ||
+                !_pluginReady ||
+                _webView.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            CancelQueuedShowPlugin();
+            CancelSurfaceRecovery(restorePreviousSurface: false);
+            _surfaceRefreshRequired = false;
+            _surfaceReady = false;
+            _fallback.Visibility = Visibility.Visible;
+            _webView.SetValue(UIElement.OpacityProperty, 0.0);
+            _webView.IsHitTestVisible = false;
+            ClearInteractiveRegions();
+#if DEBUG
+            _surfaceRecoveryStartedAtTimestamp =
+                EdgeCapsulePerformanceDiagnostics.Timestamp();
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.webmini phase=surface-recovery-begin " +
+                $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                $"generation={presentationGeneration}");
+#endif
+
+            // Drive the recovery through WebView2's own WPF visibility path. Unlike the old
+            // workaround, this does not insert/remove elements from the plugin DOM. The preview is
+            // still at the start of its host-owned expansion transaction, so this hidden pulse is
+            // covered by the compact/fallback presentation rather than becoming a user-visible
+            // flash.
+            _webView.Visibility = Visibility.Hidden;
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                (Action)(() =>
+                {
+                    if (!IsSurfaceRecoveryCurrent(presentationGeneration))
+                    {
+                        return;
+                    }
+
+                    _webView.Visibility = Visibility.Visible;
+                    _webView.InvalidateVisual();
+#if DEBUG
+                    EdgeCapsulePerformanceDiagnostics.Trace(
+                        $"preview.webmini phase=surface-visible " +
+                        $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                        $"generation={presentationGeneration}");
+#endif
+                    RequestSurfacePresentProbe(presentationGeneration);
+                }));
+        }
+
+        private bool IsSurfaceRecoveryCurrent(int presentationGeneration) =>
+            !_disposed &&
+            _visible &&
+            presentationGeneration == _presentationGeneration &&
+            _documentReady &&
+            _pluginReportedReady &&
+            _pluginReady &&
+            _webView.CoreWebView2 != null;
+
+        private void RequestSurfacePresentProbe(int presentationGeneration)
+        {
+            if (!IsSurfaceRecoveryCurrent(presentationGeneration))
+            {
+                return;
+            }
+
+            _surfaceProbeGeneration = presentationGeneration;
+            _surfaceProbeToken = Guid.NewGuid().ToString("N");
+            if (TrySendSurfacePresentProbe(_surfaceProbeToken))
+            {
+                return;
+            }
+
+#if DEBUG
+            EdgeCapsulePerformanceDiagnostics.Trace(
+                $"preview.webmini phase=surface-probe-send-failed " +
+                $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                $"generation={presentationGeneration}");
+#endif
+            _surfaceProbeGeneration = -1;
+            _surfaceProbeToken = null;
+            QueueSurfaceRevealAfterComposition(presentationGeneration);
+        }
+
+        private bool TrySendSurfacePresentProbe(string token)
+        {
+            if (!_documentReady || _disposed || _webView.CoreWebView2 == null)
+            {
+                return false;
+            }
+            try
+            {
+                _webView.CoreWebView2.PostWebMessageAsJson(
+                    JsonSerializer.Serialize(
+                        new { type = "miniSurfacePresentProbe", token },
+                        BridgeJsonOptions));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void QueueSurfaceRevealAfterComposition(int presentationGeneration)
+        {
+            if (!IsSurfaceRecoveryCurrent(presentationGeneration))
+            {
+                return;
+            }
+
+            CancelSurfaceRevealRenderingHandler();
+            EventHandler? renderHandler = null;
+            renderHandler = (_, _) =>
+            {
+                if (renderHandler != null)
+                {
+                    CompositionTarget.Rendering -= renderHandler;
+                }
+                if (ReferenceEquals(_surfaceRevealRenderingHandler, renderHandler))
+                {
+                    _surfaceRevealRenderingHandler = null;
+                }
+                if (!IsSurfaceRecoveryCurrent(presentationGeneration))
+                {
+                    return;
+                }
+
+                _surfaceReady = true;
+                _fallback.Visibility = Visibility.Collapsed;
+                _webView.InvalidateVisual();
+                UpdatePresentation();
+#if DEBUG
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.webmini phase=surface-recovery-complete " +
+                    $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                    $"generation={presentationGeneration} " +
+                    $"ms={EdgeCapsulePerformanceDiagnostics.ElapsedMilliseconds(_surfaceRecoveryStartedAtTimestamp):F3}");
+                _surfaceRecoveryStartedAtTimestamp = 0;
+#endif
+            };
+            _surfaceRevealRenderingHandler = renderHandler;
+            CompositionTarget.Rendering += renderHandler;
+        }
+
+        private void CancelSurfaceRevealRenderingHandler()
+        {
+            var handler = _surfaceRevealRenderingHandler;
+            _surfaceRevealRenderingHandler = null;
+            if (handler != null)
+            {
+                CompositionTarget.Rendering -= handler;
+            }
+        }
+
+        private void CancelSurfaceRecovery(bool restorePreviousSurface)
+        {
+            var hadRecovery =
+                _surfaceProbeGeneration >= 0 ||
+                _surfaceRevealRenderingHandler != null ||
+                _webView.Visibility != Visibility.Visible;
+            _surfaceProbeGeneration = -1;
+            _surfaceProbeToken = null;
+            CancelSurfaceRevealRenderingHandler();
+            if (!_disposed)
+            {
+                _webView.Visibility = Visibility.Visible;
+            }
+            if (restorePreviousSurface &&
+                !_disposed &&
+                _documentReady &&
+                _pluginReady)
+            {
+                // Closing can race the hidden/restart phase. Restore the old painted surface so the
+                // outgoing host-owned shrink still has content; the next open remains marked for a
+                // fresh recovery below.
+                _surfaceReady = true;
+                _fallback.Visibility = Visibility.Collapsed;
+            }
+#if DEBUG
+            if (hadRecovery)
+            {
+                EdgeCapsulePerformanceDiagnostics.Trace(
+                    $"preview.webmini phase=surface-recovery-cancel " +
+                    $"paper={EdgeCapsulePerformanceDiagnostics.ShortId(_owner._context.PaperId)} " +
+                    $"restore={restorePreviousSurface}");
+            }
+            _surfaceRecoveryStartedAtTimestamp = 0;
+#endif
+        }
+
         private void QueueShowPlugin()
         {
             if (!_documentReady ||
@@ -917,7 +1206,7 @@ internal sealed partial class WebPaperBodySession
             {
                 return;
             }
-            var generation = _documentGeneration;
+            var generation = _presentationGeneration;
             if (_queuedShowGeneration == generation)
             {
                 return;
@@ -946,7 +1235,7 @@ internal sealed partial class WebPaperBodySession
             var generation = _queuedShowGeneration;
             _queuedShowGeneration = -1;
             if (_disposed ||
-                generation != _documentGeneration ||
+                generation != _presentationGeneration ||
                 !_documentReady ||
                 !_pluginReportedReady ||
                 !_visible)
@@ -954,9 +1243,12 @@ internal sealed partial class WebPaperBodySession
                 return;
             }
 
-            // Do not replace the fallback from a DispatcherPriority.Render callback. This event is
-            // the first real composition frame after the current document reported ready.
+            // This is the first normal reveal for the current presentation. A warm reattach that
+            // needs capture recovery bypasses this path until its private browser-frame probe and
+            // the following WPF composition pass have both completed.
             _pluginReady = true;
+            _surfaceReady = true;
+            _surfaceRefreshRequired = false;
             _fallback.Visibility = Visibility.Collapsed;
             UpdatePresentation();
         }
@@ -983,11 +1275,15 @@ internal sealed partial class WebPaperBodySession
             // The edge host owns the outgoing cross-fade. Keep the last painted Web frame visible
             // after miniVisibilityChanged(false); only input stops immediately. Hiding the WebView
             // here would manufacture an empty frame while the card is still shrinking.
-            var painted = _documentReady && _pluginReady && !_disposed;
+            var painted =
+                _documentReady &&
+                _pluginReady &&
+                _surfaceReady &&
+                !_disposed;
             _webView.SetValue(UIElement.OpacityProperty, painted ? 1.0 : 0.0);
             _webView.IsHitTestVisible = painted && _visible;
             RefreshPointerOwnership();
-            if (!_pluginReady)
+            if (!_pluginReady || !_surfaceReady)
             {
                 _fallback.Visibility = Visibility.Visible;
             }
@@ -999,11 +1295,15 @@ internal sealed partial class WebPaperBodySession
             {
                 return;
             }
+            AdvancePresentationGeneration();
+            CancelSurfaceRecovery(restorePreviousSurface: false);
             CancelQueuedShowPlugin();
             _readyProbeGeneration = -1;
             _readyProbeToken = null;
             _pluginReady = false;
             _pluginReportedReady = false;
+            _surfaceReady = false;
+            _surfaceRefreshRequired = false;
             ClearInteractiveRegions();
             _fallback.Visibility = Visibility.Visible;
             _webView.SetValue(UIElement.OpacityProperty, 0.0);
@@ -1033,6 +1333,8 @@ internal sealed partial class WebPaperBodySession
                 return;
             }
             Send(new { type = "commitRequested" });
+            AdvancePresentationGeneration();
+            CancelSurfaceRecovery(restorePreviousSurface: false);
             _disposed = true;
             ClearInteractiveRegions();
             CancelQueuedShowPlugin();
