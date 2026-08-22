@@ -175,10 +175,17 @@ internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaper
         ArgumentNullException.ThrowIfNull(actions);
         EnsureUsable();
         EnsureTopBarHandlerForActions(actions);
+        var hostPaperId = _hostPaperId;
+        if (string.IsNullOrEmpty(hostPaperId))
+        {
+            throw Error(
+                "host_paper_unavailable",
+                "This plugin context is not attached to a paper.");
+        }
         _controller.SetPluginPaperTopBarActions(
             _sessionId,
             _providerId,
-            _hostPaperId!,
+            hostPaperId,
             actions,
             hiddenHostActions,
             () => !_disposed && _isSessionCurrent(),
