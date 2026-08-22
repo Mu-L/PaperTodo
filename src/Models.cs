@@ -400,6 +400,7 @@ public sealed class AppState
 {
     [JsonRequired]
     public List<PaperData> Papers { get; set; } = new();
+    [JsonPropertyOrder(-100)]
     public string UiLanguage { get; set; } = UiLanguages.Default;
     public string Theme { get; set; } = "system";
     public string ColorScheme { get; set; } = ColorSchemes.Warm;
@@ -433,10 +434,14 @@ public sealed class AppState
     public bool ShowTopBarExternalOpenButton { get; set; } = true;
     public bool HidePapersFromTaskbar { get; set; } = true;
     public bool HidePapersFromWindowSwitcher { get; set; } = true;
+    [JsonPropertyName("enableTodoNoteLinks")]
     public bool EnableTodoPaperLinks { get; set; } = true;
+    [JsonPropertyName("showLinkedNoteName")]
     public bool ShowLinkedPaperName { get; set; }
+    [JsonPropertyName("allowLongLinkedNoteTitles")]
     public bool AllowLongLinkedPaperTitles { get; set; }
     public bool ShowLinkedPathExtensionOnly { get; set; }
+    [JsonPropertyName("hideLinkedNotesFromCapsules")]
     public bool HideLinkedPapersFromCapsules { get; set; }
     public bool RunLinkedScriptCapsulesOnClick { get; set; }
     public int MaxTitleLength { get; set; } = PaperTitles.DefaultMaxTitleLength;
@@ -601,6 +606,7 @@ public sealed class PaperItem
     public int Order { get; set; }
 
     [JsonInclude]
+    [JsonPropertyName("linkedNoteId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LinkedPaperId { get; private set; }
 

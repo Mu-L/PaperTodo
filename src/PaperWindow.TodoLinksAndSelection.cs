@@ -1151,31 +1151,23 @@ public sealed partial class PaperWindow
 
         void RefreshPresentation(bool hovered)
         {
-            var valid = File.Exists(path) || Directory.Exists(path);
-            var isDirectory = valid && Directory.Exists(path);
-            glyph.Text = valid
-                ? showName
-                    ? (text.LineCount > 1
-                        ? multilineLinkedPathButtonText
-                        : linkedPathButtonText)
-                    : isDirectory ? "\uE8B7" : "\uE7C3"
-                : "!";
-            glyph.FontFamily = showName || !valid
+            glyph.Text = showName
+                ? (text.LineCount > 1
+                    ? multilineLinkedPathButtonText
+                    : linkedPathButtonText)
+                : "\uE71B";
+            glyph.FontFamily = showName
                 ? AppTypography.UiFontFamily
                 : new FontFamily("Segoe MDL2 Assets");
             glyph.FontSize = showName
                 ? metrics.LinkedPaperNameFontSize
-                : valid ? metrics.LinkedPaperIconFontSize : metrics.LinkedPaperIconFontSize + 1;
-            glyph.Foreground = valid
-                ? hovered ? TextBrush : WeakTextBrush
-                : TrashTextBrush;
-            glyph.Opacity = valid ? hovered ? 1.0 : 0.72 : 1.0;
-            button.Background = valid
-                ? hovered ? LinkedPaperLightBgBrush : LinkedPaperNormalBgBrush
-                : hovered ? TrashHoverBgBrush : TrashBgBrush;
-            button.ToolTip = valid
-                ? Strings.Format("ToolTipOpenLinkedPath", path)
-                : Strings.Format("ToolTipLinkedPathMissing", path);
+                : metrics.LinkedPaperIconFontSize;
+            glyph.Foreground = hovered ? TextBrush : WeakTextBrush;
+            glyph.Opacity = hovered ? 1.0 : 0.72;
+            button.Background = hovered
+                ? LinkedPaperLightBgBrush
+                : LinkedPaperNormalBgBrush;
+            button.ToolTip = Strings.Format("ToolTipOpenLinkedPath", path);
         }
 
         var linkedPathNameLayoutQueued = false;
@@ -1244,8 +1236,7 @@ public sealed partial class PaperWindow
                 limit);
         }
 
-        if (_controller.State.ShowLinkedPathExtensionOnly &&
-            !Directory.Exists(path))
+        if (_controller.State.ShowLinkedPathExtensionOnly)
         {
             try
             {
