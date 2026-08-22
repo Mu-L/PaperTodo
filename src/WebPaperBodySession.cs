@@ -12,8 +12,9 @@ using PaperTodo.Plugin;
 namespace PaperTodo;
 
 // Web plugins are trusted. Top-level body navigation stays on the plugin's local origin; normal
-// http/https/mailto external navigation is handed to the system shell. Frames, popups and permission
-// behavior remain WebView2-owned, and PaperTodo's host bridge is restricted to the local top-level origin.
+// http/https/mailto external navigation and external new-window requests are handed to the system
+// shell. Same-origin frames/popups and permission behavior remain WebView2-owned, and PaperTodo's
+// host bridge is restricted to the local top-level origin.
 internal sealed partial class WebPaperBodySession : IPaperBodySession
 {
     private static readonly object EnvironmentGate = new();
@@ -136,6 +137,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     private bool _pluginDocumentReady;
     private ulong _documentNavigationId;
     private bool _hasDocumentNavigation;
+    private string? _activeDocumentToken;
+    private string? _departingDocumentToken;
     private bool _disposed;
     private bool _runtimeVisible;
     private bool _presentationVisible;
@@ -253,6 +256,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             core.ProcessFailed += OnProcessFailed;
             core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
+            core.NewWindowRequested += OnNewWindowRequested;
             core.DownloadStarting += OnDownloadStarting;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
                 BuildBridgeScript(_expectedOrigin));
@@ -307,19 +311,26 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               const pending = new Map();
               let sequence = 0;
               let stateProvider = null;
+              let documentToken = null;
+              let pendingState = null;
+              let hasPendingState = false;
               let markHostReady;
               const hostReady = new Promise(resolve => { markHostReady = resolve; });
               const rawPost = (type, payload = null) => {
-                window.chrome.webview.postMessage({ type, payload });
+                window.chrome.webview.postMessage({ type, payload, documentToken });
               };
               const post = (type, payload = null) => {
-                if (type === 'saveState') {
-                  rawPost(type, payload);
-                  return;
-                }
                 void hostReady.then(() => rawPost(type, payload));
               };
-              const saveState = state => rawPost('saveState', state ?? {});
+              const saveState = state => {
+                const nextState = state ?? {};
+                if (documentToken) {
+                  rawPost('saveState', nextState);
+                  return;
+                }
+                pendingState = nextState;
+                hasPendingState = true;
+              };
               const flushState = () => {
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
@@ -403,7 +414,17 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               });
               window.chrome.webview.addEventListener('message', event => {
                 const message = event.data;
-                if (message?.type === 'initialize') markHostReady();
+                if (message?.type === 'initialize') {
+                  documentToken = typeof message.documentToken === 'string'
+                    ? message.documentToken
+                    : null;
+                  if (documentToken && hasPendingState) {
+                    rawPost('saveState', pendingState);
+                  }
+                  pendingState = null;
+                  hasPendingState = false;
+                  markHostReady();
+                }
                 if (message?.type === 'commitRequested') flushState();
                 if (message?.type === 'hostResponse') {
                   const waiter = pending.get(message.requestId);
@@ -457,6 +478,11 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
         _documentNavigationId = e.NavigationId;
         _hasDocumentNavigation = true;
+        if (!string.IsNullOrWhiteSpace(_activeDocumentToken))
+        {
+            _departingDocumentToken = _activeDocumentToken;
+            _activeDocumentToken = null;
+        }
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -485,7 +511,31 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         ShowWebView();
         if (_pluginDocumentReady)
         {
+            _activeDocumentToken = Guid.NewGuid().ToString("N");
+            _departingDocumentToken = null;
             SendInitialize();
+        }
+        else
+        {
+            _activeDocumentToken = null;
+            _departingDocumentToken = null;
+        }
+    }
+
+    private void OnNewWindowRequested(
+        object? sender,
+        CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _webView.CoreWebView2) ||
+            IsAllowedDocumentUri(e.Uri))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri))
+        {
+            _ = TryOpenExternalNavigation(uri);
         }
     }
 
@@ -667,6 +717,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         if (ReferenceEquals(webView, _webView))
         {
             _hasDocumentNavigation = false;
+            _activeDocumentToken = null;
+            _departingDocumentToken = null;
             _documentGeneration++;
             ClearHostSubscriptions();
         }
@@ -684,6 +736,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             core.ProcessFailed -= OnProcessFailed;
             core.NavigationStarting -= OnNavigationStarting;
             core.NavigationCompleted -= OnNavigationCompleted;
+            core.NewWindowRequested -= OnNewWindowRequested;
             core.DownloadStarting -= OnDownloadStarting;
         }
         try { webView.Dispose(); } catch { }
@@ -695,6 +748,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         {
             type = "initialize",
             surface = "body",
+            documentToken = _activeDocumentToken,
             paperId = _context.PaperId,
             providerId = _context.ProviderId,
             apiVersion = _context.ApiVersion,
@@ -733,6 +787,15 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                     type,
                     _documentReady,
                     _pluginDocumentReady))
+            {
+                return;
+            }
+
+            var documentToken = root.TryGetProperty("documentToken", out var tokenElement) &&
+                                tokenElement.ValueKind == JsonValueKind.String
+                ? tokenElement.GetString()
+                : null;
+            if (!HasDocumentAuthority(type, documentToken))
             {
                 return;
             }
@@ -791,6 +854,25 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         bool pluginDocumentReady) =>
         string.Equals(type, "saveState", StringComparison.Ordinal) ||
         (documentReady && pluginDocumentReady);
+
+    private bool HasDocumentAuthority(string type, string? documentToken)
+    {
+        if (string.IsNullOrWhiteSpace(documentToken))
+        {
+            return false;
+        }
+
+        if (_documentReady &&
+            _pluginDocumentReady &&
+            string.Equals(documentToken, _activeDocumentToken, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return string.Equals(type, "saveState", StringComparison.Ordinal) &&
+            !_documentReady &&
+            string.Equals(documentToken, _departingDocumentToken, StringComparison.Ordinal);
+    }
 
     private void HandleHostRequest(JsonElement payload)
     {
@@ -1051,6 +1133,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         }
 
         _hasDocumentNavigation = false;
+        _activeDocumentToken = null;
+        _departingDocumentToken = null;
         _documentGeneration++;
         ClearHostSubscriptions();
         ShowFailure(Strings.Format("PluginsWebProcessFailedFormat", e.ProcessFailedKind));
@@ -1140,6 +1224,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         }
 
         _hasDocumentNavigation = false;
+        _activeDocumentToken = null;
+        _departingDocumentToken = null;
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -1347,6 +1433,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         _miniViewHost?.Dispose();
         _miniViewHost = null;
         _hasDocumentNavigation = false;
+        _activeDocumentToken = null;
+        _departingDocumentToken = null;
         _documentGeneration++;
         ClearHostSubscriptions();
         _lifetime.Cancel();

@@ -617,7 +617,7 @@ Top Bar 不提供另一套 `GetBodyText/SetBodyText`。需要读写目标纸片�
 Top Bar 有两个明确 owner：
 
 - **Paper**：`PaperBodyContext.TopBar` / body session；只显示在承载当前 session 的插件纸片，每 session 最多 4 个；
-- **Global**：`PaperAppRuntimeContext.GlobalTopBar` / provider app runtime；显示在所有 PaperTodo 纸片，协议不限制 provider 声明的 Global action 数量。Global runtime 要求该 provider 当前至少有一张实体插件 paper，但不要求任何 paper 可见、展开或拥有 live body session。
+- **Global**：`PaperAppRuntimeContext.GlobalTopBar` / provider app runtime；显示在所有 PaperTodo 纸片，每个 provider app runtime 最多声明 256 个 Global action。Global runtime 要求该 provider 当前至少有一张实体插件 paper，但不要求任何 paper 可见、展开或拥有 live body session。
 
 Global action 使用 `Priority` 排序，数值越大越靠前；同优先级先按 provider runtime 注册顺序，再按插件声明顺序，保证稳定。**PaperTodo 自己的宿主 action 不进入这个数值空间，拥有不可被插件覆盖的最高优先级。** 窗口宽度不足时插件 contribution 先让位，不会因为插件声明很多 Global action 而先把宿主 action 挤掉。
 
@@ -915,7 +915,7 @@ https://<plugin-id>.papertodo.local/
 
 只有该插件的本地 **top-level document** 获得 `window.papertodo`。远程页面、iframe 或其他 origin 不获得宿主 bridge。
 
-PaperTodo 把 Web 插件视为可信内容；WebView2 保持正常导航、frame、popup 和 permission 行为。普通 HTTP/HTTPS 下载优先交给系统默认浏览器；`blob:`、`data:` 等 session-local download 保留 WebView2 默认行为。
+PaperTodo 把 Web 插件视为可信内容；同源 frame/popup 和 permission 保持 WebView2 默认行为，外部顶层导航及外部新窗口请求交给系统默认程序。普通 HTTP/HTTPS 下载优先交给系统默认浏览器；`blob:`、`data:` 等 session-local download 保留 WebView2 默认行为。
 
 ### 10.2 Body bridge
 
@@ -1055,7 +1055,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - 把 Top Bar 当 Workspace 数据 API；
 - 给 PaperTodo 传 `FrameworkElement` / Button / 完整 SVG，而不是 action descriptor；
 - action ID 重复、超过 64 字符或含非法字符；
-- 一个 session 超过 4 个 Paper action；Global action 没有数量上限，但不应滥用无意义按钮；
+- 一个 session 超过 4 个 Paper action；每个 provider app runtime 最多 256 个 Global action；
 - 误以为插件 `Priority` 可以超过宿主按钮；宿主 action 永远拥有更高优先级；
 - SVG 传完整 `<svg>` 而不是 Path Data；
 - `Stroke` 使用非有限或 0.1～4.0 之外的 `strokeWidth`；
