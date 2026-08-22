@@ -470,22 +470,25 @@ internal sealed class WebPluginAppRuntime : IDisposable
         PaperTopBarAction[] actions;
         try
         {
-            var hasActions = parameters.ValueKind == JsonValueKind.Object &&
-                             parameters.TryGetProperty("actions", out var actionsValue) &&
-                             actionsValue.ValueKind != JsonValueKind.Null;
-            if (hasActions &&
-                actionsValue.ValueKind == JsonValueKind.Array &&
-                actionsValue.GetArrayLength() > MaximumGlobalTopBarActions)
+            if (parameters.ValueKind != JsonValueKind.Object ||
+                !parameters.TryGetProperty("actions", out var actionsValue) ||
+                actionsValue.ValueKind == JsonValueKind.Null)
             {
-                throw new PaperTodoPluginException(
-                    "too_many_topbar_actions",
-                    $"A plugin can contribute at most {MaximumGlobalTopBarActions} global top-bar actions.");
+                actions = [];
             }
+            else
+            {
+                if (actionsValue.ValueKind == JsonValueKind.Array &&
+                    actionsValue.GetArrayLength() > MaximumGlobalTopBarActions)
+                {
+                    throw new PaperTodoPluginException(
+                        "too_many_topbar_actions",
+                        $"A plugin can contribute at most {MaximumGlobalTopBarActions} global top-bar actions.");
+                }
 
-            actions = hasActions
-                ? actionsValue.Deserialize<PaperTopBarAction[]>(
-                    WebPluginRuntimeInfrastructure.JsonOptions) ?? []
-                : [];
+                actions = actionsValue.Deserialize<PaperTopBarAction[]>(
+                    WebPluginRuntimeInfrastructure.JsonOptions) ?? [];
+            }
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
