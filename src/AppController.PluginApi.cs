@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using PaperTodo.Plugin;
 
@@ -17,6 +18,11 @@ public sealed partial class AppController
 
     internal PaperCommandService PaperCommands =>
         _paperCommands ??= new PaperCommandService(this);
+
+    // Event subscriptions use the same monotonic revision as persistence. Reading the revision is
+    // O(1), so the event hub can wake only after real state mutations instead of rescanning the
+    // entire workspace on a fixed timer.
+    internal long PluginEventStateRevision => Interlocked.Read(ref _stateRevision);
 
     internal PaperSnapshot CapturePaperSnapshot(PaperData paper) =>
         new(
