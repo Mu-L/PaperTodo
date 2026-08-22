@@ -844,8 +844,15 @@ public sealed partial class PaperWindow
             }),
             true);
 
-        box.MouseMove += (sender, e) =>
+        box.MouseMove += (_, e) =>
         {
+            if (!isPreviewing &&
+                (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
+            {
+                box.SetInteractionCursor(Cursors.IBeam);
+                return;
+            }
+
             var isOverLink = box.TryGetOpenableLinkFromTextViewPoint(
                 e.GetPosition(box.TextArea.TextView),
                 out _);
@@ -855,9 +862,7 @@ public sealed partial class PaperWindow
             }
             else
             {
-                box.SetInteractionCursor(isOverLink && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
-                    ? Cursors.Hand
-                    : Cursors.IBeam);
+                box.SetInteractionCursor(isOverLink ? Cursors.Hand : Cursors.IBeam);
             }
         };
 
