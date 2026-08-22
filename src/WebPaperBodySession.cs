@@ -306,6 +306,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               const pending = new Map();
               let sequence = 0;
               let stateProvider = null;
+              let markHostReady;
+              const hostReady = new Promise(resolve => { markHostReady = resolve; });
               const post = (type, payload = null) => {
                 window.chrome.webview.postMessage({ type, payload });
               };
@@ -314,7 +316,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
               };
-              const request = (method, params = {}) => {
+              const request = async (method, params = {}) => {
+                await hostReady;
                 const requestId = `r${++sequence}`;
                 return new Promise((resolve, reject) => {
                   pending.set(requestId, { resolve, reject });
@@ -392,6 +395,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               });
               window.chrome.webview.addEventListener('message', event => {
                 const message = event.data;
+                if (message?.type === 'initialize') markHostReady();
                 if (message?.type === 'commitRequested') flushState();
                 if (message?.type === 'hostResponse') {
                   const waiter = pending.get(message.requestId);

@@ -11,6 +11,7 @@ public sealed partial class PaperWindow
 {
     private static bool _pluginTopBarLoadedHandlerRegistered;
     private StackPanel? _pluginTopBarButtonsHost;
+    private PluginTopBarActionBinding[] _pluginTopBarDesiredActions = [];
     private readonly List<(FrameworkElement Element, PaperTopBarActionScope Scope)>
         _pluginTopBarActionElements = [];
     private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
@@ -52,41 +53,11 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _pluginTopBarButtonsHost.Children.Clear();
-        _pluginTopBarActionElements.Clear();
-        foreach (var binding in state.Actions)
-        {
-            if (!binding.Action.Visible)
-            {
-                continue;
-            }
-
-            var button = IconButton("", binding.Action.ToolTip);
-            button.SetBinding(
-                Control.FontFamilyProperty,
-                new Binding(nameof(FontFamily)) { Source = this });
-            button.SetBinding(
-                Control.FontSizeProperty,
-                new Binding(nameof(FontSize)) { Source = this });
-            button.IsEnabled = binding.Action.Enabled;
-            button.Opacity = binding.Action.Enabled ? 1.0 : 0.5;
-            button.Width = 23;
-            button.HorizontalAlignment = HorizontalAlignment.Center;
-            button.VerticalAlignment = VerticalAlignment.Center;
-            button.Content = CreatePluginTopBarIcon(button, binding.Action.Icon);
-            button.Click += (_, _) =>
-                _controller.InvokePluginTopBarAction(
-                    binding,
-                    _paper.Id,
-                    _paper.Type,
-                    _paper.Type == PaperTypes.Note
-                        ? NormalizeBodyProviderId(_paper.BodyProviderId)
-                        : string.Empty);
-            _pluginTopBarButtonsHost.Children.Add(button);
-            _pluginTopBarActionElements.Add((button, binding.Scope));
-        }
-
-        UpdatePluginTopBarHostWidth();
+        // Keep descriptors cheap. WPF controls are materialized only for the currently fitting
+        // prefix, so an app runtime cannot multiply thousands of hidden Buttons across papers.
+        _pluginTopBarDesiredActions = state.Actions
+            .Where(binding => binding.Action.Visible)
+            .ToArray();
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
         ReconcilePluginHiddenHostTopBarActions();
         ReconcilePluginTopBarCapacity();
@@ -128,8 +99,7 @@ public sealed partial class PaperWindow
     {
         if (_reconcilingPluginTopBarCapacity ||
             _pluginTopBarButtonsHost == null ||
-            _topBarActionButtonsHost == null ||
-            _paper.IsCollapsed)
+            _topBarActionButtonsHost == null)
         {
             return;
         }
@@ -137,52 +107,41 @@ public sealed partial class PaperWindow
         _reconcilingPluginTopBarCapacity = true;
         try
         {
-            // Host actions always win. Paper-scoped plugin actions are a small bounded group and
-            // keep their existing all-or-nothing behavior. Global actions are unbounded at the API
-            // layer, so after host + Paper fit, expose them one at a time in Priority order. The
-            // first Global button that no longer fits is hidden and ends the pass; no controls are
-            // compressed, reordered or removed to make room for it.
-            foreach (var (element, _) in _pluginTopBarActionElements)
-            {
-                element.Visibility = Visibility.Collapsed;
-            }
+            // Rebuild only the visible prefix. Paper actions are bounded and keep their existing
+            // all-or-nothing behavior. Global descriptors are already in Priority order; create
+            // them one at a time and stop as soon as the next one would displace host controls.
+            _pluginTopBarButtonsHost.Children.Clear();
+            _pluginTopBarActionElements.Clear();
             UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
 
-            if (_pluginTopBarActionElements.Count == 0 ||
+            if (_paper.IsCollapsed ||
+                _pluginTopBarDesiredActions.Length == 0 ||
                 _topBarActionButtonsHost.Visibility != Visibility.Visible)
             {
                 return;
             }
 
-            foreach (var (element, scope) in _pluginTopBarActionElements)
+            foreach (var binding in _pluginTopBarDesiredActions.Where(item =>
+                         item.Scope == PaperTopBarActionScope.Paper))
             {
-                if (scope == PaperTopBarActionScope.Paper)
-                {
-                    element.Visibility = Visibility.Visible;
-                }
+                AddPluginTopBarActionElement(binding);
             }
             UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
             if (_topBarActionButtonsHost.Visibility != Visibility.Visible)
             {
-                foreach (var (element, _) in _pluginTopBarActionElements)
-                {
-                    element.Visibility = Visibility.Collapsed;
-                }
+                _pluginTopBarButtonsHost.Children.Clear();
+                _pluginTopBarActionElements.Clear();
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 return;
             }
 
-            foreach (var (element, scope) in _pluginTopBarActionElements)
+            foreach (var binding in _pluginTopBarDesiredActions.Where(item =>
+                         item.Scope == PaperTopBarActionScope.Global))
             {
-                if (scope != PaperTopBarActionScope.Global)
-                {
-                    continue;
-                }
-
-                element.Visibility = Visibility.Visible;
+                var element = AddPluginTopBarActionElement(binding);
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 if (_topBarActionButtonsHost.Visibility == Visibility.Visible)
@@ -190,7 +149,9 @@ public sealed partial class PaperWindow
                     continue;
                 }
 
-                element.Visibility = Visibility.Collapsed;
+                _pluginTopBarButtonsHost.Children.Remove(element);
+                _pluginTopBarActionElements.RemoveAt(
+                    _pluginTopBarActionElements.Count - 1);
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 break;
@@ -200,6 +161,35 @@ public sealed partial class PaperWindow
         {
             _reconcilingPluginTopBarCapacity = false;
         }
+    }
+
+    private FrameworkElement AddPluginTopBarActionElement(
+        PluginTopBarActionBinding binding)
+    {
+        var button = IconButton("", binding.Action.ToolTip);
+        button.SetBinding(
+            Control.FontFamilyProperty,
+            new Binding(nameof(FontFamily)) { Source = this });
+        button.SetBinding(
+            Control.FontSizeProperty,
+            new Binding(nameof(FontSize)) { Source = this });
+        button.IsEnabled = binding.Action.Enabled;
+        button.Opacity = binding.Action.Enabled ? 1.0 : 0.5;
+        button.Width = 23;
+        button.HorizontalAlignment = HorizontalAlignment.Center;
+        button.VerticalAlignment = VerticalAlignment.Center;
+        button.Content = CreatePluginTopBarIcon(button, binding.Action.Icon);
+        button.Click += (_, _) =>
+            _controller.InvokePluginTopBarAction(
+                binding,
+                _paper.Id,
+                _paper.Type,
+                _paper.Type == PaperTypes.Note
+                    ? NormalizeBodyProviderId(_paper.BodyProviderId)
+                    : string.Empty);
+        _pluginTopBarButtonsHost!.Children.Add(button);
+        _pluginTopBarActionElements.Add((button, binding.Scope));
+        return button;
     }
 
     private void UpdatePluginTopBarHostWidth()
