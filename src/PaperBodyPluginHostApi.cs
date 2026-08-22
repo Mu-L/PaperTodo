@@ -3,23 +3,24 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
-internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
+internal sealed partial class PaperBodyPluginHostApi : IPaperTodoHostApi, IPaperTopBarApi, IPaperPresentationApi, IDisposable
 {
     private readonly AppController _controller;
     private readonly PaperCommandService _commands;
-    private readonly string _hostPaperId;
+    private readonly string? _hostPaperId;
     private readonly string _providerId;
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly FrozenSet<string> _permissions;
     private readonly Func<bool> _isSessionCurrent;
     private readonly Func<bool> _canReceiveEvents;
     private readonly List<IDisposable> _subscriptions = [];
+    private Action<PaperTopBarActionInvocation>? _topBarActionHandler;
     private bool _disposed;
 
     public PaperBodyPluginHostApi(
         AppController controller,
         PaperCommandService commands,
-        string hostPaperId,
+        string? hostPaperId,
         string providerId,
         IEnumerable<string> permissions,
         Func<bool> isSessionCurrent,
@@ -145,7 +146,8 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
     {
         Require(PaperTodoPermissionNames.PapersDelete);
         var normalized = RequiredId(paperId, "paperId");
-        if (string.Equals(normalized, _hostPaperId, StringComparison.Ordinal))
+        if (_hostPaperId != null &&
+            string.Equals(normalized, _hostPaperId, StringComparison.Ordinal))
         {
             throw Error(
                 "cannot_delete_host_paper",
@@ -154,6 +156,66 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
         return Invoke(() => _commands.DeletePaper(
             normalized,
             PaperOperationContext.Plugin(_providerId)));
+    }
+
+    public void SetActionHandler(Action<PaperTopBarActionInvocation>? handler)
+    {
+        EnsureUsable();
+        _topBarActionHandler = handler;
+        if (handler == null)
+        {
+            _controller.RemovePluginPaperTopBarSession(_sessionId);
+        }
+    }
+
+    public void SetPaperActions(
+        IReadOnlyList<PaperTopBarAction> actions,
+        PaperHostTopBarActions hiddenHostActions = PaperHostTopBarActions.None)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        EnsureUsable();
+        EnsureTopBarHandlerForActions(actions);
+        var hostPaperId = _hostPaperId;
+        if (string.IsNullOrEmpty(hostPaperId))
+        {
+            throw Error(
+                "host_paper_unavailable",
+                "This plugin context is not attached to a paper.");
+        }
+        _controller.SetPluginPaperTopBarActions(
+            _sessionId,
+            _providerId,
+            hostPaperId,
+            actions,
+            hiddenHostActions,
+            () => !_disposed && _isSessionCurrent(),
+            DispatchTopBarAction);
+    }
+
+    public void Clear()
+    {
+        EnsureUsable();
+        _topBarActionHandler = null;
+        _controller.RemovePluginPaperTopBarSession(_sessionId);
+    }
+
+    private void EnsureTopBarHandlerForActions(IReadOnlyList<PaperTopBarAction> actions)
+    {
+        if (actions.Count > 0 && _topBarActionHandler == null)
+        {
+            throw Error(
+                "topbar_handler_missing",
+                "Register a top-bar action handler before contributing top-bar actions.");
+        }
+    }
+
+    private void DispatchTopBarAction(PaperTopBarActionInvocation invocation)
+    {
+        if (_disposed || !_isSessionCurrent())
+        {
+            return;
+        }
+        _topBarActionHandler?.Invoke(invocation);
     }
 
     public IDisposable Subscribe(
@@ -340,6 +402,8 @@ internal sealed class PaperBodyPluginHostApi : IPaperTodoHostApi, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _topBarActionHandler = null;
+        try { _controller.RemovePluginPaperTopBarSession(_sessionId); } catch { }
         IDisposable[] subscriptions;
         lock (_subscriptions)
         {

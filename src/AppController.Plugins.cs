@@ -19,9 +19,34 @@ public sealed partial class AppController
 
     private UIElement BuildPluginsSettingsPage()
     {
+        // Rebuilding the settings tree is also a recording boundary. Never let a stale recorder
+        // survive into a fresh visual tree with only one of the two hotkey managers restored.
+        if (_pluginShortcutRecordingCommandId != null)
+        {
+            _pluginShortcutRecordingCommandId = null;
+            RestoreAllHotkeysAfterPluginRecording();
+        }
+        else
+        {
+            RefreshPluginShortcuts();
+        }
+
         var root = new StackPanel
         {
             Margin = new Thickness(2, 4, 4, 0)
+        };
+        root.Unloaded += (_, _) =>
+        {
+            if (_pluginShortcutRecordingCommandId == null)
+            {
+                return;
+            }
+
+            _pluginShortcutRecordingCommandId = null;
+            if (!IsExiting)
+            {
+                RestoreAllHotkeysAfterPluginRecording();
+            }
         };
 
         var header = new Grid();
@@ -29,7 +54,6 @@ public sealed partial class AppController
         {
             Width = new GridLength(1, GridUnitType.Star)
         });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = new TextBlock
         {
@@ -43,15 +67,10 @@ public sealed partial class AppController
         openFolder.Margin = new Thickness(8, 0, 0, 0);
         openFolder.ToolTip = _paperBodyPlugins.PluginRoot;
         openFolder.Click += (_, _) => OpenPluginFolder();
-        var reload = PluginPageButton(Strings.Get("PluginsReload"));
-        reload.Margin = new Thickness(8, 0, 0, 0);
-        reload.Click += (_, _) => ReloadPaperBodyPlugins();
         Grid.SetColumn(title, 0);
         Grid.SetColumn(openFolder, 1);
-        Grid.SetColumn(reload, 2);
         header.Children.Add(title);
         header.Children.Add(openFolder);
-        header.Children.Add(reload);
         root.Children.Add(header);
 
         root.Children.Add(new TextBlock
@@ -62,7 +81,6 @@ public sealed partial class AppController
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 7, 0, 0)
         });
-
 
         var descriptors = _paperBodyPlugins.Descriptors;
         root.Children.Add(SettingsSectionLabel(
@@ -347,6 +365,7 @@ public sealed partial class AppController
             "string" => BuildPluginStringSetting(descriptor, setting),
             "number" => BuildPluginNumberSetting(descriptor, setting),
             "select" => BuildPluginSelectSetting(descriptor, setting),
+            "shortcut" => BuildPluginShortcutSetting(descriptor, setting),
             _ => new TextBlock()
         };
         Grid.SetColumn(editor, 1);
@@ -665,6 +684,7 @@ public sealed partial class AppController
             setting,
             value);
         var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
+        RetryFailedPluginAppRuntimeAfterSettingsChanged(descriptor.Id);
         foreach (var window in _windows.Values.ToList())
         {
             window.NotifyPaperBodyPluginSettingsChanged(descriptor.Id, settingsJson);
@@ -775,20 +795,9 @@ public sealed partial class AppController
         }
     }
 
-    private void ReloadPaperBodyPlugins()
-    {
-        _paperBodyPlugins.Reload();
-        var changedProviderIds = _paperBodyPlugins.LastChangedProviderIds;
-        foreach (var window in _windows.Values.ToList())
-        {
-            window.RefreshPaperBodyProviderAvailability(changedProviderIds);
-        }
-        RefreshTrayMenu();
-        RefreshSettingsWindowContent();
-    }
-
     private void DisposePaperBodyPlugins()
     {
+        DisposePluginShortcuts();
         DisposePaperPluginHostRuntime();
         _paperBodyPlugins.Dispose();
     }

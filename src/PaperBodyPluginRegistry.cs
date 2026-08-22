@@ -60,7 +60,9 @@ internal sealed class PaperBodyPluginManifest
     public string[] Permissions { get; set; } = [];
     public string Entry { get; set; } = "index.html";
     public string MiniEntry { get; set; } = "";
+    public string Runtime { get; set; } = "";
     public PaperBodyPluginMiniSizeManifest? MiniSize { get; set; }
+    public PaperBodyPluginMiniSizeManifest? MiniMaxSize { get; set; }
     public string[] Capabilities { get; set; } = [];
     public PaperBodyPluginSettingManifest[] Settings { get; set; } = [];
     public PaperBodyPluginStartupManifest? StartupPaper { get; set; }
@@ -68,6 +70,7 @@ internal sealed class PaperBodyPluginManifest
     public string DirectoryPath { get; internal set; } = "";
     public string EntryPath { get; internal set; } = "";
     public string MiniEntryPath { get; internal set; } = "";
+    public string RuntimePath { get; internal set; } = "";
 }
 
 internal sealed class PaperBodyPluginMiniSizeManifest
@@ -78,12 +81,13 @@ internal sealed class PaperBodyPluginMiniSizeManifest
 
 /// <summary>
 /// Discovers one fully trusted, unsandboxed native or local Web plugin from each self-contained
-/// plugins/&lt;plugin-id&gt;/plugin.json folder. Native code is not hot-replaced: changed native
-/// folders remain on the loaded version until restart, while Web folders reload immediately.
+/// plugins/&lt;plugin-id&gt;/plugin.json folder. Protocol 2.0 has no plugin hot-reload contract: code,
+/// manifest and Web file changes are discovered on the next app start. Loaded native assemblies
+/// remain loaded for the process lifetime.
 /// </summary>
 internal sealed partial class PaperBodyPluginRegistry : IDisposable
 {
-    internal const string SupportedPluginApiVersion = "1.8";
+    internal const string SupportedPluginApiVersion = "2.0";
     internal const string MinimumPluginApiVersion = "1.8";
     private static readonly Regex PluginIdPattern = PluginIdRegex();
     private static readonly StringComparer UiDisplayNameComparer =
@@ -250,8 +254,6 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 loaded.DirectoryPath,
                 Strings.Get("PluginsNativeRemovedRestart"),
                 RestartRequired: true));
-            // The CLR cannot safely replace an already loaded trusted WPF plugin. Keep the
-            // in-memory descriptor usable for this process; the next start will reflect deletion.
             if (!next.ContainsKey(loaded.Descriptor.Id))
             {
                 next.Add(loaded.Descriptor.Id, loaded.Descriptor);
@@ -297,12 +299,19 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         ValidateStartupPaper(manifest);
         ValidateProtocolFeatures(manifest);
 
+        var kind = NormalizeKind(manifest.Kind);
         manifest.DirectoryPath = Path.GetFullPath(directory);
         manifest.EntryPath = ResolveContainedPath(directory, manifest.Entry);
         if (!File.Exists(manifest.EntryPath))
         {
             throw new FileNotFoundException("Plugin entry was not found.", manifest.EntryPath);
         }
+
+        var webRoot = kind == PaperBodyPluginKind.Web
+            ? Path.GetDirectoryName(manifest.EntryPath)
+              ?? throw new InvalidDataException("Web plugin entry has no containing directory.")
+            : null;
+
         if (!string.IsNullOrWhiteSpace(manifest.MiniEntry))
         {
             if (!ApiAtLeast(manifest.ApiVersion, 1, 8))
@@ -310,7 +319,7 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                 throw new InvalidDataException(
                     "miniEntry requires apiVersion 1.8 or newer.");
             }
-            if (NormalizeKind(manifest.Kind) != PaperBodyPluginKind.Web)
+            if (kind != PaperBodyPluginKind.Web)
             {
                 throw new InvalidDataException(
                     "miniEntry is only valid for Web plugins.");
@@ -325,31 +334,14 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
                     "Plugin mini entry was not found.",
                     manifest.MiniEntryPath);
             }
+            EnsurePathInsideDirectory(
+                webRoot!,
+                manifest.MiniEntryPath,
+                "miniEntry");
 
-            var webRoot = Path.GetDirectoryName(manifest.EntryPath)
-                ?? throw new InvalidDataException(
-                    "Web plugin entry has no containing directory.");
-            var relativeMini = Path.GetRelativePath(webRoot, manifest.MiniEntryPath);
-            if (relativeMini == ".." ||
-                relativeMini.StartsWith(
-                    $"..{Path.DirectorySeparatorChar}",
-                    StringComparison.Ordinal) ||
-                relativeMini.StartsWith(
-                    $"..{Path.AltDirectorySeparatorChar}",
-                    StringComparison.Ordinal))
+            if (manifest.MiniSize is { } miniSize)
             {
-                throw new InvalidDataException(
-                    "miniEntry must stay inside the Web entry directory.");
-            }
-
-            if (manifest.MiniSize is { } miniSize &&
-                (!double.IsFinite(miniSize.Width) ||
-                 !double.IsFinite(miniSize.Height) ||
-                 miniSize.Width <= 0 ||
-                 miniSize.Height <= 0))
-            {
-                throw new InvalidDataException(
-                    "miniSize width and height must be positive finite numbers.");
+                ValidateMiniSize(miniSize, "miniSize");
             }
         }
         else if (manifest.MiniSize != null)
@@ -357,7 +349,90 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             throw new InvalidDataException(
                 "miniSize requires a Web miniEntry.");
         }
+
+        if (manifest.MiniMaxSize is { } miniMaximum)
+        {
+            if (!ApiAtLeast(manifest.ApiVersion, 2, 0))
+            {
+                throw new InvalidDataException("miniMaxSize requires apiVersion 2.0.");
+            }
+            if (kind == PaperBodyPluginKind.Web &&
+                string.IsNullOrWhiteSpace(manifest.MiniEntry))
+            {
+                throw new InvalidDataException(
+                    "miniMaxSize requires a Web miniEntry for Web plugins.");
+            }
+            ValidateMiniSize(miniMaximum, "miniMaxSize");
+            if (manifest.MiniSize is { } preferred &&
+                (preferred.Width > miniMaximum.Width || preferred.Height > miniMaximum.Height))
+            {
+                throw new InvalidDataException(
+                    "miniSize cannot exceed the declared miniMaxSize.");
+            }
+        }
+
+        var hasAppRuntime = manifest.Capabilities.Contains(
+            "appRuntime",
+            StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(manifest.Runtime) &&
+            kind != PaperBodyPluginKind.Web)
+        {
+            throw new InvalidDataException(
+                "runtime is only valid for Web plugins.");
+        }
+        if (!string.IsNullOrWhiteSpace(manifest.Runtime) && !hasAppRuntime)
+        {
+            throw new InvalidDataException(
+                "runtime requires the appRuntime capability.");
+        }
+        if (kind == PaperBodyPluginKind.Web && hasAppRuntime)
+        {
+            manifest.RuntimePath = string.IsNullOrWhiteSpace(manifest.Runtime)
+                ? Path.Combine(webRoot!, "runtime.html")
+                : ResolveContainedPath(directory, manifest.Runtime);
+            EnsurePathInsideDirectory(webRoot!, manifest.RuntimePath, "runtime");
+            if (!File.Exists(manifest.RuntimePath))
+            {
+                throw new FileNotFoundException(
+                    "Plugin app runtime entry was not found.",
+                    manifest.RuntimePath);
+            }
+        }
+
         return manifest;
+    }
+
+    private static void ValidateMiniSize(
+        PaperBodyPluginMiniSizeManifest size,
+        string fieldName)
+    {
+        if (!double.IsFinite(size.Width) ||
+            !double.IsFinite(size.Height) ||
+            size.Width <= 0 ||
+            size.Height <= 0)
+        {
+            throw new InvalidDataException(
+                $"{fieldName} width and height must be positive finite numbers.");
+        }
+    }
+
+    private static void EnsurePathInsideDirectory(
+        string rootDirectory,
+        string path,
+        string fieldName)
+    {
+        var relative = Path.GetRelativePath(rootDirectory, path);
+        if (relative == ".." ||
+            relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal) ||
+            relative.StartsWith(
+                $"..{Path.AltDirectorySeparatorChar}",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"{fieldName} must stay inside the Web entry directory.");
+        }
     }
 
     private static PaperBodyPluginKind NormalizeKind(string? kind) =>
@@ -378,7 +453,8 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             : DiscoveryFingerprint(
                 manifestPath,
                 manifest.EntryPath,
-                manifest.MiniEntryPath);
+                manifest.MiniEntryPath,
+                manifest.RuntimePath);
         return new PaperBodyPluginDescriptor(
             manifest.Id.Trim(),
             string.IsNullOrWhiteSpace(manifest.Name) ? manifest.Id.Trim() : manifest.Name.Trim(),
@@ -424,8 +500,6 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             return loaded.Descriptor;
         }
 
-        // Discovery stays manifest-only. Loading the assembly, reflecting its types and running
-        // its constructor are deferred until a paper actually selects this provider.
         return new PaperBodyPluginDescriptor(
             manifest.Id.Trim(),
             string.IsNullOrWhiteSpace(manifest.Name)
@@ -491,6 +565,20 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
             {
                 throw new InvalidDataException(
                     $"Native plugin runtime requirements {plugin.RuntimeRequirements} must match manifest requirements {manifestRuntimeRequirements}.");
+            }
+            const PaperBodyCapabilities supportedCapabilities =
+                PaperBodyCapabilities.TextZoom |
+                PaperBodyCapabilities.NoteLinks;
+            if ((plugin.Capabilities & ~supportedCapabilities) != PaperBodyCapabilities.None)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin capabilities {plugin.Capabilities} contain unsupported flags.");
+            }
+            var manifestCapabilities = ParseCapabilities(manifest.Capabilities);
+            if (plugin.Capabilities != manifestCapabilities)
+            {
+                throw new InvalidDataException(
+                    $"Native plugin capabilities {plugin.Capabilities} must match manifest body capabilities {manifestCapabilities}.");
             }
             if (plugin.StateVersion < 1 ||
                 plugin.StateVersion != manifest.StateVersion)
@@ -703,19 +791,16 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
 
     private static void ValidateManifestApiVersion(string pluginApiVersion)
     {
-        var host = SupportedPluginApiVersion.Split('.');
-        var minimum = MinimumPluginApiVersion.Split('.');
-        var plugin = pluginApiVersion.Split('.');
-        if (plugin[0] == host[0] &&
-            int.Parse(plugin[1]) >= int.Parse(minimum[1]) &&
-            int.Parse(plugin[1]) <= int.Parse(host[1]))
+        if (string.Equals(pluginApiVersion, "1.8", StringComparison.Ordinal) ||
+            string.Equals(pluginApiVersion, SupportedPluginApiVersion, StringComparison.Ordinal))
         {
             return;
         }
 
         throw new InvalidDataException(
-            $"Unsupported plugin API version {pluginApiVersion}; host supports {MinimumPluginApiVersion} through {SupportedPluginApiVersion}.");
+            $"Unsupported plugin API version {pluginApiVersion}; host supports 1.8 compatibility and {SupportedPluginApiVersion}.");
     }
+
     private static Version ParseVersion(string? value)
     {
         if (!Version.TryParse(value, out var parsed))
@@ -751,7 +836,8 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
     private static string DiscoveryFingerprint(
         string manifestPath,
         string entryPath,
-        string? miniEntryPath = null)
+        string? miniEntryPath = null,
+        string? runtimePath = null)
     {
         var manifest = new FileInfo(manifestPath);
         var entry = new FileInfo(entryPath);
@@ -761,6 +847,11 @@ internal sealed partial class PaperBodyPluginRegistry : IDisposable
         {
             var mini = new FileInfo(miniEntryPath);
             value += $":{mini.Length}:{mini.LastWriteTimeUtc.Ticks}";
+        }
+        if (!string.IsNullOrWhiteSpace(runtimePath))
+        {
+            var runtime = new FileInfo(runtimePath);
+            value += $":{runtime.Length}:{runtime.LastWriteTimeUtc.Ticks}";
         }
         return value;
     }

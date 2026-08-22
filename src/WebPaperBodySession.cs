@@ -133,6 +133,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     private bool _initialized;
     private bool _documentReady;
     private bool _pluginDocumentReady;
+    private ulong _documentNavigationId;
+    private bool _hasDocumentNavigation;
     private bool _disposed;
     private bool _runtimeVisible;
     private bool _presentationVisible;
@@ -216,7 +218,6 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             {
                 return;
             }
-
             await webView.EnsureCoreWebView2Async(environment);
             token.ThrowIfCancellationRequested();
             if (!IsCurrentWebView(webView, generation))
@@ -305,6 +306,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               const pending = new Map();
               let sequence = 0;
               let stateProvider = null;
+              let markHostReady;
+              const hostReady = new Promise(resolve => { markHostReady = resolve; });
               const post = (type, payload = null) => {
                 window.chrome.webview.postMessage({ type, payload });
               };
@@ -313,7 +316,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
               };
-              const request = (method, params = {}) => {
+              const request = async (method, params = {}) => {
+                await hostReady;
                 const requestId = `r${++sequence}`;
                 return new Promise((resolve, reject) => {
                   pending.set(requestId, { resolve, reject });
@@ -329,7 +333,14 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                 setHeaderText(text) { post('setHeaderText', String(text ?? '')); },
                 setCapsulePresentation(presentation) {
                   post('setCapsulePresentation', presentation ?? null);
-                }
+                },
+                show(options = {}) { return request('paper.show', options); },
+                hide() { return request('paper.hide'); },
+                toggle(options = {}) { return request('paper.toggle', options); },
+                expand(options = {}) { return request('paper.expand', options); },
+                collapse() { return request('paper.collapse'); },
+                toggleCollapsed(options = {}) { return request('paper.toggleCollapsed', options); },
+                activate() { return request('paper.activate'); }
               });
               const body = Object.freeze({
                 setInputClaims(claims) {
@@ -384,6 +395,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               });
               window.chrome.webview.addEventListener('message', event => {
                 const message = event.data;
+                if (message?.type === 'initialize') markHostReady();
                 if (message?.type === 'commitRequested') flushState();
                 if (message?.type === 'hostResponse') {
                   const waiter = pending.get(message.requestId);
@@ -423,6 +435,8 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _documentNavigationId = e.NavigationId;
+        _hasDocumentNavigation = true;
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -431,11 +445,14 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (!ReferenceEquals(sender, _webView.CoreWebView2))
+        if (!ReferenceEquals(sender, _webView.CoreWebView2) ||
+            !_hasDocumentNavigation ||
+            e.NavigationId != _documentNavigationId)
         {
             return;
         }
 
+        _hasDocumentNavigation = false;
         if (!e.IsSuccess)
         {
             ShowFailure(
@@ -542,6 +559,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
         var previous = _webView;
         _webViewGeneration++;
+        _hasDocumentNavigation = false;
         BackgroundWebViewHost.Detach(previous);
         DisposeWebView(previous);
         _context.SetInputClaims(PaperBodyInputClaims.None);
@@ -615,6 +633,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     {
         if (ReferenceEquals(webView, _webView))
         {
+            _hasDocumentNavigation = false;
             _documentGeneration++;
             ClearHostSubscriptions();
         }
@@ -790,6 +809,15 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             DeserializePayload<DeleteTodoRequest>(parameters)),
         "papers.delete" => _context.Host.DeletePaper(
             PayloadString(parameters, "paperId")),
+        "paper.show" or
+        "paper.hide" or
+        "paper.toggle" or
+        "paper.expand" or
+        "paper.collapse" or
+        "paper.toggleCollapsed" or
+        "paper.activate" => ExecutePaperPresentationHostRequest(method, parameters),
+        "topbar.paper.set" => SetPaperTopBarActionsFromWeb(parameters),
+        "topbar.global.set" => SetGlobalTopBarActionsFromWeb(parameters),
         _ => throw new PaperTodoPluginException(
             "method_not_found",
             $"Unknown PaperTodo plugin host method: {method}")
@@ -974,6 +1002,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         ShowFailure(Strings.Format("PluginsWebProcessFailedFormat", e.ProcessFailedKind));
@@ -1062,6 +1091,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -1268,6 +1298,7 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
         _disposed = true;
         _miniViewHost?.Dispose();
         _miniViewHost = null;
+        _hasDocumentNavigation = false;
         _documentGeneration++;
         ClearHostSubscriptions();
         _lifetime.Cancel();

@@ -1,0 +1,31 @@
+{
+  "kind": "web",
+  "id": "sample.topbar.web",
+  "name": "Top Bar 2.0 示例",
+  "description": "演示 app-runtime Global 顶栏、Paper 顶栏、插件快捷键、自身纸片控制与 Workspace。",
+  "version": "1.0.0",
+  "apiVersion": "2.0",
+  "stateVersion": 1,
+  "entry": "web/index.html",
+  "capabilities": ["appRuntime"],
+  "permissions": ["papers.read"],
+  "settings": [
+    {
+      "id": "togglePaperShortcut",
+      "type": "shortcut",
+      "name": "显示 / 隐藏纸片",
+      "description": "由 PaperTodo 注册并执行 paper.toggle；纸片隐藏后仍然有效。",
+      "default": "Ctrl+Alt+Shift+U",
+      "shortcutAction": "paper.toggle",
+      "quick": true
+    },
+    {
+      "id": "runtimePingShortcut",
+      "type": "shortcut",
+      "name": "App Runtime 示例动作",
+      "description": "自定义 action 会投递到 app runtime，而不是 body session。",
+      "default": "",
+      "shortcutAction": "runtime.ping"
+    }
+  ]
+}

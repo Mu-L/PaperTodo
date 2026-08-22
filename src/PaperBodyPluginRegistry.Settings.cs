@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Windows.Input;
 
 namespace PaperTodo;
 
@@ -18,6 +19,11 @@ internal sealed partial class PaperBodyPluginRegistry
     private static void ValidateSettings(PaperBodyPluginManifest manifest)
     {
         manifest.Settings ??= [];
+        // Settings may depend on provider-level capabilities (for example custom shortcut actions
+        // require appRuntime). Normalize and validate the capability list before reading it here so
+        // every feature consumes one canonical manifest representation.
+        NormalizeProtocolFeatures(manifest);
+        var hasAppRuntime = manifest.Capabilities.Contains("appRuntime", StringComparer.Ordinal);
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var quickCount = 0;
         foreach (var setting in manifest.Settings)
@@ -30,6 +36,9 @@ internal sealed partial class PaperBodyPluginRegistry
             setting.Description = setting.Description?.Trim() ?? "";
             setting.Suffix = setting.Suffix?.Trim() ?? "";
             setting.Placeholder = setting.Placeholder?.Trim() ?? "";
+            setting.ShortcutAction = string.IsNullOrWhiteSpace(setting.ShortcutAction)
+                ? PluginShortcutActions.Default
+                : PluginShortcutActions.Normalize(setting.ShortcutAction);
             setting.Options ??= [];
 
             if (!SettingIdPattern.IsMatch(setting.Id) || !ids.Add(setting.Id))
@@ -37,10 +46,27 @@ internal sealed partial class PaperBodyPluginRegistry
                 throw new InvalidDataException(
                     $"Plugin setting id '{setting.Id}' is invalid or duplicated.");
             }
-            if (setting.Type is not ("boolean" or "string" or "number" or "select"))
+            if (setting.Type is not ("boolean" or "string" or "number" or "select" or "shortcut"))
             {
                 throw new InvalidDataException(
                     $"Plugin setting '{setting.Id}' has unsupported type '{setting.Type}'.");
+            }
+            if (setting.Type == "shortcut" && !ApiAtLeast(manifest.ApiVersion, 2, 0))
+            {
+                throw new InvalidDataException(
+                    $"Plugin shortcut setting '{setting.Id}' requires apiVersion 2.0 or newer.");
+            }
+            if (setting.Type == "shortcut" && setting.ShortcutAction.Length == 0)
+            {
+                throw new InvalidDataException(
+                    $"Plugin shortcut setting '{setting.Id}' has an invalid shortcutAction.");
+            }
+            if (setting.Type == "shortcut" &&
+                PluginShortcutActions.IsCustomAction(setting.ShortcutAction) &&
+                !hasAppRuntime)
+            {
+                throw new InvalidDataException(
+                    $"Plugin shortcut setting '{setting.Id}' uses custom action '{setting.ShortcutAction}' but the plugin does not declare the appRuntime capability.");
             }
             if (setting.Quick && ++quickCount > 3)
             {
@@ -115,6 +141,8 @@ internal sealed partial class PaperBodyPluginRegistry
                 JsonSerializer.SerializeToElement(NormalizeNumber(setting, number)),
             "select" when value.ValueKind == JsonValueKind.String =>
                 NormalizeSelect(setting, value.GetString() ?? ""),
+            "shortcut" when value.ValueKind == JsonValueKind.String =>
+                JsonSerializer.SerializeToElement(NormalizeShortcut(value.GetString() ?? "")),
             _ => DefaultSettingValueWithoutDeclaredDefault(setting)
         };
     }
@@ -125,6 +153,7 @@ internal sealed partial class PaperBodyPluginRegistry
         "boolean" => JsonSerializer.SerializeToElement(false),
         "number" => JsonSerializer.SerializeToElement(NormalizeNumber(setting, 0d)),
         "select" => JsonSerializer.SerializeToElement(setting.Options[0].Value),
+        "shortcut" => JsonSerializer.SerializeToElement(""),
         _ => JsonSerializer.SerializeToElement(NormalizeString(setting, ""))
     };
 
@@ -137,6 +166,18 @@ internal sealed partial class PaperBodyPluginRegistry
             return value[..setting.MaxLength.Value];
         }
         return value;
+    }
+
+    private static string NormalizeShortcut(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        return ShortcutGesture.TryParse(value, out var gesture) && gesture.Key != Key.None
+            ? gesture.ToStorageString()
+            : "";
     }
 
     private static double NormalizeNumber(
@@ -199,6 +240,7 @@ internal sealed class PaperBodyPluginSettingManifest
     public int? MaxLength { get; set; }
     public string Suffix { get; set; } = "";
     public string Placeholder { get; set; } = "";
+    public string ShortcutAction { get; set; } = PluginShortcutActions.Default;
     public PaperBodyPluginSettingOptionManifest[] Options { get; set; } = [];
 }
 

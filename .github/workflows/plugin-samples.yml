@@ -6,6 +6,17 @@ on:
       - "PaperTodo.Plugin.Abstractions/**"
       - "plugin-samples/**"
       - "plugins/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "PaperTodo.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperAppRuntime*.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
       - ".github/workflows/plugin-samples.yml"
   push:
     branches:
@@ -14,6 +25,17 @@ on:
       - "PaperTodo.Plugin.Abstractions/**"
       - "plugin-samples/**"
       - "plugins/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "PaperTodo.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperAppRuntime*.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
       - ".github/workflows/plugin-samples.yml"
 
 permissions:
@@ -24,12 +46,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Build PaperTodo plugin host
+        shell: pwsh
+        run: dotnet build .\PaperTodo.csproj -c Release
+
+      - name: Run protocol policy checks
+        shell: pwsh
+        run: dotnet run --project .\tests\PaperTodo.ProtocolPolicyChecks\PaperTodo.ProtocolPolicyChecks.csproj -c Release
 
       - name: Validate plugin manifests
         shell: pwsh
@@ -44,7 +77,7 @@ jobs:
               ConvertFrom-Json -Depth 100
           }
 
-      - name: Validate capsule protocol sample coverage
+      - name: Validate capsule sample coverage
         shell: pwsh
         run: |
           $sampleDirectories = Get-ChildItem plugin-samples -Directory -Filter "PaperTodo.Plugin.*"
@@ -59,7 +92,7 @@ jobs:
               ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 } |
               Out-String
             if ($source -notmatch 'setCapsulePresentation\s*\(') {
-              throw "$($directory.Name) does not exercise protocol 1.6 capsule presentation."
+              throw "$($directory.Name) does not exercise host-rendered capsule presentation."
             }
             if ($source -notmatch 'PaperCapsulePresentation\.AutomaticWidth' -and
                 $source -notmatch 'preferredWidth\s*:\s*0') {
@@ -70,7 +103,73 @@ jobs:
           $clockSource = Get-Content "plugin-samples/PaperTodo.Plugin.SampleClock/SampleClockPlugin.cs" -Raw -Encoding UTF8
           if ($clockSource -notmatch 'IPaperCapsuleViewProvider' -or
               $clockSource -notmatch 'CreateCapsuleView\s*\(') {
-            throw "SampleClock must exercise protocol 1.7 native capsule views."
+            throw "SampleClock must exercise native custom capsule views."
+          }
+
+      - name: Validate protocol 2.0 top bar sample
+        shell: pwsh
+        run: |
+          $root = "plugin-samples/PaperTodo.Plugin.TopBarWeb"
+          $manifest = Get-Content (Join-Path $root "plugin.json") -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+          $bodySource = Get-Content (Join-Path $root "web/index.html") -Raw -Encoding UTF8
+          $runtimeSource = Get-Content (Join-Path $root "web/runtime.html") -Raw -Encoding UTF8
+
+          if ($manifest.apiVersion -ne "2.0") {
+            throw "TopBarWeb must target apiVersion 2.0."
+          }
+          if ($manifest.capabilities -notcontains "appRuntime") {
+            throw "TopBarWeb must declare the appRuntime capability."
+          }
+          if ($bodySource -notmatch "topbar\.paper\.set" -or
+              $bodySource -match "topbar\.global\.set") {
+            throw "TopBarWeb body must stay paper-scoped."
+          }
+          $runtimePatterns = @(
+            "globalTopBar\.setActions",
+            "topBarActionInvoked",
+            "targetPaperId",
+            "papertodo\.workspace\.request\('papers\.get'",
+            "renderMode\s*:\s*'stroke'",
+            "strokeWidth\s*:\s*1\.5",
+            "shortcutInvoked",
+            "runtime\.ping"
+          )
+          foreach ($pattern in $runtimePatterns) {
+            if ($runtimeSource -notmatch $pattern) {
+              throw "TopBarWeb app runtime is missing required protocol 2.0 coverage: $pattern"
+            }
+          }
+
+          $shortcutSettings = @($manifest.settings | Where-Object { $_.type -eq "shortcut" })
+          if ($shortcutSettings.Count -lt 2) {
+            throw "TopBarWeb must cover both host-owned and custom plugin shortcuts."
+          }
+          if (-not ($shortcutSettings | Where-Object { $_.shortcutAction -eq "paper.toggle" })) {
+            throw "TopBarWeb must cover the host-owned paper.toggle shortcut action."
+          }
+          if (-not ($shortcutSettings | Where-Object { $_.shortcutAction -eq "runtime.ping" })) {
+            throw "TopBarWeb must cover a custom app-runtime shortcut action."
+          }
+          if ($bodySource -notmatch "papertodo\.paper\.toggleCollapsed" -or
+              $bodySource -notmatch "papertodo\.paper\.hide") {
+            throw "TopBarWeb body must exercise own-paper presentation controls."
+          }
+
+          $workspaceContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperTodoHostContracts.cs" -Raw -Encoding UTF8
+          $paperContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs" -Raw -Encoding UTF8
+          $presentationContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperPresentationContracts.cs" -Raw -Encoding UTF8
+          $appContract = Get-Content "PaperTodo.Plugin.Abstractions/PaperAppRuntimeContracts.cs" -Raw -Encoding UTF8
+          if ($workspaceContract -match 'TopBar') {
+            throw "Top Bar must not be exposed through IPaperTodoHostApi/Workspace."
+          }
+          if ($paperContract -notmatch 'interface\s+IPaperTopBarApi' -or
+              $paperContract -notmatch 'PaperTopBarSvgRenderMode' -or
+              $paperContract -notmatch 'IPaperPresentationApi' -or
+              $presentationContract -notmatch 'interface\s+IPaperPresentationApi' -or
+              $appContract -notmatch 'interface\s+IPaperGlobalTopBarApi' -or
+              $appContract -notmatch 'interface\s+IPaperGlobalShortcutApi' -or
+              $appContract -notmatch 'interface\s+IPaperAppRuntimeProvider') {
+            throw "Protocol 2.0 top-bar/app-runtime/shortcut/presentation contracts are incomplete."
           }
 
       - name: Validate Web source and runtime copies

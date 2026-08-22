@@ -14,6 +14,7 @@ PaperTodo 是 Windows 桌面“纸片”应用。当前技术路线围绕几个�
 - **每个职责尽量只有一个 authority。** 状态、几何、队列 placement、presentation、持久化和外部 mutation 不各自复制第二套“近似真相”。
 - **复杂 UI 状态优先走显式状态与单通道 reconcile。** Edge Capsule 使用 Intent → Reducer → Presenter；窗口和 controller 不通过并行 bool/临时 setter 绕过它。
 - **WPF 是主 UI / shape owner，native/DirectComposition 只承担确有必要的 Windows 边界能力。** 不把 compositor 扩成第二套 UI renderer。
+- **插件贡献内容/动作意图，宿主持有产品 chrome 与关键生命周期 authority。** Capsule、Edge Mini、Top Bar 都沿用这一方向；插件不能因为获得扩展点就接管 PaperWindow、Edge HWND 或顶栏 WPF tree。
 - **持久化按数据生命周期和失败语义分域。** 核心状态、图片资产、插件状态分别由各自 store 管理；破坏性恢复/回收采用保守策略。
 - **当前 Architecture 只记录已经确立的方向。** 未确认的未来方案、实验候选和一次性 workaround 不写成当前架构。
 
@@ -41,9 +42,12 @@ PaperTodo.exe
         ├─ NoteImageStore (LMDB)
         ├─ PaperBodyPluginRegistry / PaperBodyPluginDataStore
         ├─ PaperCommandService
+        ├─ plugin app runtime[providerId] → Global Top Bar
+        ├─ paper Top Bar session registry
         ├─ PaperWindow[paperId]
         │   ├─ paper shell / Todo / built-in Note
         │   ├─ PaperBodyHost
+        │   ├─ host-owned Top Bar renderer
         │   └─ EdgeCapsulePresenter + EdgeCapsuleHost
         ├─ MasterCapsuleWindow[queue]
         ├─ EdgeCapsuleDragWindow (process-global pooled host)
@@ -64,7 +68,10 @@ PaperTodo.exe
 | 外部 Paper/Todo/Note 命令 | `PaperCommandService` | 插件/MCP 共用的验证、mutation、同步提交/回滚和事件发布 |
 | 单纸片 UI | `PaperWindow` | paper WPF shell、普通交互、provider 选择、子系统适配 |
 | paper-body session | `PaperBodyHost` | 当前 `IPaperBodySession` 的 attach / invoke / commit / dispose |
+| plugin app runtime | `AppController.PluginAppRuntime` | `startupPaper` 处理后按最终实体插件 paper 集合 reconcile；provider 0→1 时启动、1→0 时释放，持有 Global Top Bar 与 app-runtime Workspace facade |
 | 插件发现与合同 | `PaperBodyPluginRegistry` | builtin / Native / Web provider 发现、校验、激活 |
+| 插件 Top Bar 注册 | `AppController.PluginTopBar` | Paper session action 与 app-runtime Global action 的分域注册、输入校验 |
+| 插件 Top Bar 绘制 | `PaperWindow.PluginTopBar` | 宿主按钮、字符/SVG 图标、主题/字体/响应式与 suppression reconcile |
 | Edge 单纸片业务状态 | `EdgeCapsuleReducer` + `EdgeCapsuleModel` | 单纸片 typed intent 到完整 model 的原子变化 |
 | Edge 单纸片呈现 | `EdgeCapsulePresenter` | desired model、target plan、transition、applied frame、reconcile |
 | Edge 队列级协调 | `AppController` edge partials | preview owner/corridor、arrange、visual transaction、proxy lifecycle |
@@ -89,9 +96,15 @@ PaperTodo.exe
 
 MCP 的 transport、权限策略和 bridge 生命周期不拥有 Paper/Todo/Note 的第二套业务写入逻辑；真正的业务 mutation 仍回到 GUI 主宿主和共享命令边界。
 
-### 3.3 辅助进程
+### 3.3 辅助进程与插件 app runtime
 
 Web 插件使用 WebView2 runtime；脚本胶囊可以启动 PowerShell 子进程。这些进程/运行时只提供对应能力，不成为核心 `AppState` authority。
+
+插件协议以 **2.0** 为新开发目标，同时兼容加载既有 **1.8** 插件。2.0 把 Top Bar 明确拆成两个生命周期：Paper action 属于 paper-body session；Global action 属于显式声明 `appRuntime` 的 provider 级 app runtime。兼容 1.8 不意味着向旧协议开放 2.0 Top Bar。
+
+`appRuntime` **不会因为插件仅被安装就启动**。启动流程先处理已启用的 `startupPaper`，让它有机会创建或恢复真实插件 paper；该阶段完成后，宿主以最终 `State.Papers` 为 authority，只有至少存在一张 `Note` paper 且其 `BodyProviderId` 指向该 provider 时，才启动这个 provider 的 app runtime。运行中同样按实体 paper 集合 reconcile：0→1 启动，1→0 释放；隐藏、折叠、没有展开正文或没有 live body session 都不改变 runtime lifetime。Native provider 只有声明 `appRuntime` 且满足实体 paper 条件时才会因此加载 DLL；未声明的 Native provider 继续保持按 paper 使用时懒加载。Web app runtime 使用与 body 同一插件 origin 下的 `runtime.html`，但获得独立 app-scope bridge，不获得 Paper/Body/Mini presentation API。
+
+PaperTodo 不提供插件热重载入口。插件 manifest、DLL、Web body/mini/runtime 等文件的安装、删除或修改统一在下次启动 PaperTodo 时重新发现并生效，避免同时维护 Web 热替换和 Native CLR 已加载版本两套运行规则。
 
 ## 4. 状态与持久化架构
 
@@ -155,11 +168,11 @@ Provider 当前分三类：
 
 `PaperBodyPluginRegistry` 负责 provider 发现和合同校验；`PaperBodyHost` 负责一张纸当前 session 的 attach / invoke / commit / dispose；`PaperWindow` 仍拥有窗口 placement、paper chrome 和 provider 选择。
 
-Native assembly 一旦载入 CLR，不按 Web provider 的方式做进程内热替换；需要重启才能稳定切换已加载版本。
+插件文件不在当前进程中做热重载。安装、删除或修改插件目录后统一重启 PaperTodo，让下一进程重新完成 manifest discovery 和所需 runtime/DLL 激活。
 
 ### 5.3 外部读写
 
-插件 Host API 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务 mutation 统一进入 `PaperCommandService`。该边界负责：
+插件 `Workspace` 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务 mutation 统一进入 `PaperCommandService`。该边界负责：
 
 - 参数和类型约束；
 - mutation 前提交仍停留在 UI/provider session 的待提交内容；
@@ -167,9 +180,32 @@ Native assembly 一旦载入 CLR，不按 Web provider 的方式做进程内热�
 - 保存失败回滚内存状态；
 - 提交后刷新必要 UI 并发布外部变更事件。
 
-transport 权限、Web/Native surface 生命周期和 MCP protocol 不下沉到 `PaperCommandService`；反过来，transport 层也不建立另一套核心 mutation 实现。
+transport 权限、Web/Native surface 生命周期、Top Bar presentation 和 MCP protocol 不下沉到 `PaperCommandService`；反过来，transport/presentation 层也不建立另一套核心 mutation 实现。
 
-### 5.4 Edge mini
+### 5.4 Protocol 2.0 Top Bar
+
+Top Bar 是宿主 chrome/presentation capability，不是 Workspace 数据 API，而且 **Paper 与 Global 有不同 owner**：
+
+- **Paper scope**：属于当前 `PaperBodyContext.TopBar` / paper-body session，只作用于承载该 session 的纸片。
+- **Global scope**：属于 `PaperAppRuntimeContext.GlobalTopBar` / provider app runtime。该 runtime 只在 provider 当前至少有一张实体插件 paper 时存在；它不属于其中任意一张具体 paper，也不依赖 paper 的可见性、展开状态或 body session。
+
+当前稳定边界：
+
+- `startupPaper` 在启动阶段先决定是否创建/恢复真实插件 paper；之后才按最终实体 paper 集合 reconcile Global app runtime。
+- 运行中 provider 从 0→1 张实体插件 paper 时启动 app runtime，从 1→0 时 Dispose；删除、隐藏、折叠非最后一张不会撤销 Global action。
+- `PaperWindow` 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout；插件只提交 action descriptor。
+- 图标只接受短字符或受限 SVG/WPF Path Data；Path 可以按宿主前景色 Fill 或 Stroke，不接受完整 SVG document、WebView 或任意 WPF tree。
+- Paper scope 只作用于承载当前 session 的纸片；插件只能请求隐藏 `NewTodoPaper` / `NewNotePaper`，关闭、置顶、标题拖动和窗口生命周期不属于插件可删减区域。
+- Global scope 每 provider 只有一个 app-runtime owner；仅安装插件、但没有实体插件 paper 时不产生 Global UI。
+- Global 点击带目标 `PaperId` / `Type` / `BodyProviderId`；需要读取或修改目标正文时仍走 app-runtime Workspace → `PaperCommandService`，Top Bar 不复制业务 mutation。
+- app-runtime Workspace / GlobalTopBar facade 会把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper session presentation 仍沿用自己的 WPF Dispatcher 生命周期。
+- 用户设置决定宿主按钮 base visibility，插件 suppression 是最终 paper-local reconcile 层。
+- Paper session Dispose 自动回收 Paper contribution。Web body 的 Paper contribution 进一步绑定当前 body document generation；导航、renderer failure 或 body document replacement 会撤销旧 Paper contribution。
+- Web Global action 由独立 `runtime.html` app surface 注册。runtime document 导航、renderer failure、最后一张实体插件 paper 消失或 app-runtime Dispose 都会撤销 Global contribution；Web Mini 不拥有 Top Bar 注册权。
+
+为什么选择 host-rendered descriptor、Paper/session 与 Global/app-runtime 分域，而不是插件直接拥有顶栏控件或把 Top Bar 塞进 Workspace，见 D-022。
+
+### 5.5 Edge mini
 
 插件可以提供专属 mini、允许迁移的纯 WPF 正文 View、custom/standard capsule presentation 或 plain-text fallback，但 **Edge 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主**。
 

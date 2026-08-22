@@ -34,6 +34,7 @@
 | D-019 | Note 编辑与浏览共享 `MarkdownTextBox` | Accepted | Note |
 | D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
 | D-021 | 插件与 MCP 共用 `PaperCommandService` | Accepted | 外部命令 / 一致性 |
+| D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域 | Accepted | 插件 / UI ownership |
 
 ## 维护规则
 
@@ -707,3 +708,72 @@ MCP transport 继续拥有 JSON/MCP 参数映射和 MCP 授权；plugin host 继
 - `src/PaperBodyPluginHostApi.cs`：只做 plugin permission/session 边界，并把业务读写委托给同一 service。
 - `16cfdb76672390df28a8445937f994af0a0cdc2f` — `feat: add reviewed MCP architecture`，形成最初外部命令事务边界。
 - `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin v2 / MCP hardening，收敛外部写入失败与恢复语义。
+
+---
+
+## D-022 — Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域
+
+**Status:** Accepted
+
+### Context
+
+Protocol 2.0 要允许插件在自己的纸片顶栏贡献动作，也要允许插件在拥有真实纸片实例时向所有纸片贡献少量 Global 动作。两类动作出现在同一条顶栏上，但真实生命周期不同：Paper action 跟随某张 paper body session；Global action 跟随 provider 级 app runtime，而该 runtime 是否存在由这个 provider 当前是否至少拥有一张实体插件 paper 决定。
+
+如果直接让插件塞 `FrameworkElement` / Button / WebView，插件会同时获得尺寸、主题、Hover、DPI、focus、responsive layout 和 popup 等宿主 chrome ownership；如果把 Top Bar 方法塞进 `Workspace`，又会污染 D-021 已经收敛的 Paper/Todo/Note 数据命令边界。反过来，如果 Global 直接跟随某张 body session，就会因为纸片折叠、隐藏或正文未启动而误丢 Global UI；如果只凭插件安装状态又会让没有任何实体插件实例的 provider 永久占据全局 UI。
+
+### Decision
+
+Protocol 2.0 将 Top Bar 定义为**宿主绘制、并按真实 owner 生命周期分域的 presentation capability**：
+
+- Paper scope 使用 `PaperBodyContext.TopBar` / `IPaperTopBarApi`，只属于当前 paper body session。
+- Global scope 使用 `PaperAppRuntimeContext.GlobalTopBar` / `IPaperGlobalTopBarApi`，属于 provider 级 app runtime，但 app runtime 本身以**实体插件 paper 的存在性**为 owner：至少一张 `Note` paper 的 `BodyProviderId` 指向该 provider 时存在，0 张时不存在。
+- 启动时先处理已启用的 `startupPaper`，使其有机会创建/恢复真实插件 paper；startupPaper 阶段完成后再按最终 `State.Papers` reconcile app runtime。运行中 0→1 启动、1→0 Dispose；隐藏、折叠、没有展开正文或没有 live body session 都不影响 runtime。
+- 未声明 `appRuntime` 的 Native plugin 继续保持 manifest-only discovery 与按 paper 使用时懒加载；声明后也只有满足实体 paper 条件时才因此加载 Native DLL，并要求实现 `IPaperAppRuntimeProvider`。Web app runtime 使用同一插件 origin 下独立的 `runtime.html`。
+- PaperTodo 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout。插件只提交 action descriptor，不提交真实控件。
+- 图标只接受短字符或受限 SVG/WPF Path Data。Path 可以使用宿主当前前景色 Fill 或 Stroke；不接受完整 SVG document、WebView 或任意 WPF tree。
+- Paper scope 只能 suppression 宿主明确白名单中的 `NewTodoPaper` / `NewNotePaper`，不能删除关闭、置顶、标题拖动或窗口生命周期入口。
+- 每个 provider 至多有一个运行中的 Global Top Bar app-runtime owner。删除/改造非最后一张实体插件 paper 不影响 Global action；最后一张消失时 app runtime 和 Global contribution 一起结束。
+- Global 点击提供目标 `PaperId` / `Type` / `BodyProviderId`。插件若要读取或修改目标内容，仍通过 app-runtime Workspace → `PaperCommandService`，不在 Top Bar 再复制一套业务 mutation。
+- Web body 只拥有 Paper Top Bar，Web Mini 不拥有 Top Bar；Web `runtime.html` 只拥有 app-scope Workspace + GlobalTopBar。对应 document 导航、renderer failure、最后一张实体插件 paper 消失或 runtime/session Dispose 都撤销自己 scope 的 contribution。
+- app-runtime Workspace / GlobalTopBar facade 把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper-session presentation 继续遵守自己的 WPF Dispatcher 生命周期。
+- PaperTodo 不提供插件热重载入口。插件 manifest、DLL、Web body/mini/runtime 等文件的安装、删除或修改统一在下一次启动时重新发现并生效。
+
+### Why
+
+这套边界让插件获得“功能入口”，但不获得宿主 chrome 的结构 authority。主题、DPI、布局和交互一致性继续只维护一套；未来 PaperTodo 修改顶栏实现时，不需要把任意插件 WPF tree 当成 ABI。
+
+Global 的关键不是“某张纸片 session 是否正活着”，也不是“这个插件是否安装”，而是**这个 provider 当前是否真的有实体 paper 实例**。因此 startupPaper 必须先执行，再决定 runtime；已有实体 paper 即使隐藏、折叠或从未展开正文，Global 仍可在软件启动后正常注册；删除/改造最后一张时又能自然回收。这样既不会用隐藏 session 冒充全局生命周期，也不会让无实例插件静态占据全局按钮。
+
+把 Top Bar 与 Workspace 分开也保持了 D-021 的可理解性：Workspace/MCP 共享的是业务数据语义，Top Bar 是 presentation；app-runtime Workspace 仍复用相同 `PaperCommandService`，只是拥有 provider 级生命周期和线程适配。
+
+### Rejected / Do not reintroduce
+
+- 不开放 `AddGlobalTopBar(FrameworkElement)`、任意 Button/WebView 或完整 SVG DOM。
+- 不把 Global Top Bar 做成仅凭 manifest/安装状态就永久存在、没有实体 plugin paper owner 的静态 UI。
+- 不把 Global action 绑回某张 paper session、Web body 或 Web Mini。
+- 不为了维持 Global action 创建隐藏 paper/session；需要启动时产生实体插件实例时使用真实 `startupPaper`。
+- 不把 paper 可见性、折叠/展开状态或 body session 是否启动误当成 app-runtime existence truth。
+- 不把 Top Bar 方法塞回 `IPaperTodoHostApi` / Workspace 数据合同。
+- 不在 Top Bar callback 内复制 Note/Todo 读写、保存、rollback 或 UI reconcile；业务 mutation 继续走 `PaperCommandService`。
+
+### Consequences
+
+- Top Bar action descriptor 是公开协议，需要保持小而稳定；新增复杂控件能力前先判断是否会重新转移宿主 chrome ownership。
+- Global action 数量、字符/SVG 输入范围和可隐藏宿主 action 属于宿主保护边界；具体视觉尺寸仍由 PaperTodo 当前主题/布局实现决定。
+- `appRuntime` 是显式 opt-in 的 provider 生命周期，但其存在性由实体插件 paper 集合派生；普通插件没有实体 paper 时不会仅因安装而运行。
+- 插件没有 Reload/hot-replace UI；修改插件文件后统一重启 PaperTodo，避免同时维护 Web 热重载与 Native CLR 已加载版本两套语义。
+- Web body/Mini/app runtime 可以复用底层 request/response transport，但各 surface 的 API scope 必须由宿主来源决定，不能靠页面自己声明身份。
+- 旧 1.8 插件继续兼容加载；2.0 Paper/Global Top Bar 和 app runtime 不下放给 1.8。
+
+### Evidence
+
+- `PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs`：Paper action/icon/invocation contract 与 `IPaperTopBarApi`。
+- `PaperTodo.Plugin.Abstractions/PaperAppRuntimeContracts.cs`：`IPaperGlobalTopBarApi`、`PaperAppRuntimeContext`、`IPaperAppRuntimeProvider`。
+- `src/AppController.PluginStartup.cs`：startupPaper 先于 app-runtime ownership reconcile。
+- `src/AppController.PluginAppRuntime.cs`：实体 paper 0↔1 reconcile、provider runtime lifetime 与失败隔离。
+- `src/PaperAppRuntimeHostApi.cs`：app-runtime Workspace / GlobalTopBar facade 与 UI Dispatcher 边界。
+- `src/AppController.PluginTopBar.cs`：Paper session 与 Global app-runtime 注册分域、输入校验与统一渲染状态。
+- `src/PaperWindow.PluginTopBar.cs`：宿主绘制、主题/字体/响应式与 suppression reconcile。
+- `src/WebPaperBodySession.TopBar.cs`：Web body 的 Paper document-generation ownership。
+- `src/WebPluginAppRuntime.cs`：独立 Web app surface、Global action 与失效清理。
+- `plugin-samples/PaperTodo.Plugin.TopBarWeb/`：body Paper action + `runtime.html` Global action、字符/Stroke SVG、点击后复用 Workspace 的当前示例。
