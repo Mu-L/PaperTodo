@@ -13,7 +13,12 @@ namespace PaperTodo;
 
 public sealed partial class AppController
 {
+    private static readonly TimeSpan PluginTextSettingPropagationDebounce =
+        TimeSpan.FromMilliseconds(180);
+
     private readonly PaperBodyPluginRegistry _paperBodyPlugins;
+    private readonly Dictionary<string, System.Windows.Threading.DispatcherTimer>
+        _pluginSettingPropagationTimers = new(StringComparer.Ordinal);
 
     internal PaperBodyPluginRegistry PaperBodyPlugins => _paperBodyPlugins;
 
@@ -683,13 +688,56 @@ public sealed partial class AppController
             descriptor,
             setting,
             value);
-        var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
-        RetryFailedPluginAppRuntimeAfterSettingsChanged(descriptor.Id);
-        foreach (var window in _windows.Values.ToList())
+
+        if (setting.Type is "string" or "number")
         {
-            window.NotifyPaperBodyPluginSettingsChanged(descriptor.Id, settingsJson);
+            QueuePluginSettingPropagation(descriptor.Id);
+        }
+        else
+        {
+            PropagatePluginSettings(descriptor.Id);
         }
         return normalized;
+    }
+
+    private void QueuePluginSettingPropagation(string providerId)
+    {
+        if (!_pluginSettingPropagationTimers.TryGetValue(providerId, out var timer))
+        {
+            timer = new System.Windows.Threading.DispatcherTimer(
+                System.Windows.Threading.DispatcherPriority.Background,
+                Application.Current.Dispatcher)
+            {
+                Interval = PluginTextSettingPropagationDebounce
+            };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                if (!IsExiting)
+                {
+                    PropagatePluginSettings(providerId);
+                }
+            };
+            _pluginSettingPropagationTimers.Add(providerId, timer);
+        }
+
+        timer.Stop();
+        timer.Start();
+    }
+
+    private void PropagatePluginSettings(string providerId)
+    {
+        if (!_paperBodyPlugins.TryGet(providerId, out var descriptor))
+        {
+            return;
+        }
+
+        var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
+        RetryFailedPluginAppRuntimeAfterSettingsChanged(providerId);
+        foreach (var window in _windows.Values.ToList())
+        {
+            window.NotifyPaperBodyPluginSettingsChanged(providerId, settingsJson);
+        }
     }
 
     private static bool TryParsePluginNumber(string text, out double value)
@@ -797,6 +845,11 @@ public sealed partial class AppController
 
     private void DisposePaperBodyPlugins()
     {
+        foreach (var timer in _pluginSettingPropagationTimers.Values)
+        {
+            timer.Stop();
+        }
+        _pluginSettingPropagationTimers.Clear();
         DisposePluginShortcuts();
         DisposePaperPluginHostRuntime();
         _paperBodyPlugins.Dispose();
