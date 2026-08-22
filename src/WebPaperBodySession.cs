@@ -312,19 +312,25 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               let sequence = 0;
               let stateProvider = null;
               let documentToken = null;
+              let pendingState = null;
+              let hasPendingState = false;
               let markHostReady;
               const hostReady = new Promise(resolve => { markHostReady = resolve; });
               const rawPost = (type, payload = null) => {
                 window.chrome.webview.postMessage({ type, payload, documentToken });
               };
               const post = (type, payload = null) => {
-                if (type === 'saveState' && documentToken) {
-                  rawPost(type, payload);
-                  return;
-                }
                 void hostReady.then(() => rawPost(type, payload));
               };
-              const saveState = state => post('saveState', state ?? {});
+              const saveState = state => {
+                const nextState = state ?? {};
+                if (documentToken) {
+                  rawPost('saveState', nextState);
+                  return;
+                }
+                pendingState = nextState;
+                hasPendingState = true;
+              };
               const flushState = () => {
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
@@ -412,6 +418,11 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                   documentToken = typeof message.documentToken === 'string'
                     ? message.documentToken
                     : null;
+                  if (documentToken && hasPendingState) {
+                    rawPost('saveState', pendingState);
+                  }
+                  pendingState = null;
+                  hasPendingState = false;
                   markHostReady();
                 }
                 if (message?.type === 'commitRequested') flushState();
@@ -467,8 +478,11 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
 
         _documentNavigationId = e.NavigationId;
         _hasDocumentNavigation = true;
-        _departingDocumentToken = _activeDocumentToken;
-        _activeDocumentToken = null;
+        if (!string.IsNullOrWhiteSpace(_activeDocumentToken))
+        {
+            _departingDocumentToken = _activeDocumentToken;
+            _activeDocumentToken = null;
+        }
         _documentGeneration++;
         ClearHostSubscriptions();
         _documentReady = false;
@@ -518,10 +532,10 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
-        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) &&
-            TryOpenExternalNavigation(uri))
+        e.Handled = true;
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri))
         {
-            e.Handled = true;
+            _ = TryOpenExternalNavigation(uri);
         }
     }
 
