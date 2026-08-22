@@ -84,7 +84,7 @@ plugins/com.example.hello/
 Native 项目使用 .NET 10 + WPF，并引用：
 
 ```text
-PaperTodo.Plugin.Abstractions/PaperTodo.Plugin.Abstractions.csproj
+PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.csproj
 ```
 
 示例项目配置：
@@ -330,7 +330,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 - 隐藏、折叠、没有展开正文、没有 live body session 都不影响 runtime；只有实体 paper 是否存在/仍使用这个 provider 才影响它；
 - 未声明 `appRuntime` 的 Native 插件仍保持 manifest-only discovery，不会因为仅安装就加载 DLL；
 - Native 声明后必须实现 `IPaperAppRuntimeProvider`；
-- Web 声明后可以用 manifest `runtime` 指定入口；省略时默认使用 `entry` 同目录 `runtime.html`；显式路径必须仍位于 Web `entry` 静态目录内并在插件发现阶段通过存在性检查；
+- Web 声明后可以用 manifest `runtime` 指定入口；省略时默认使用 `entry` 同目录的 `runtime.html`；显式路径必须仍位于 Web `entry` 静态目录内并在插件发现阶段通过存在性检查；
 - PaperTodo 不等待第三方 runtime 完成才继续主程序自身启动；不同 provider 的 runtime 也独立启动；
 - 插件文件没有热重载入口；修改 `plugin.json`、DLL、Web body/mini/runtime 文件后统一重启 PaperTodo 生效。
 
