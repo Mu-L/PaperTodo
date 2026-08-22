@@ -839,24 +839,21 @@ internal static class GlobalHotkeyBroker
     public static void RemoveOwner(Guid ownerId)
     {
         VerifyAccess();
-        if (!Owners.TryGetValue(ownerId, out var owner))
+        if (!Owners.Remove(ownerId))
         {
             return;
         }
 
-        // Logical ownership ends with manager disposal even if Windows refuses one final native
-        // release. Any surviving registration stays in NativeByGesture/NativeById only as an inert
-        // residue: WindowHook cannot dispatch it after the owner is removed, and a future request
-        // for the same gesture will retry cleanup before registering a new owner.
-        _ = TryApply(
-            ownerId,
-            owner.Bindings,
-            Array.Empty<string>(),
-            Array.Empty<string>(),
-            _distinguishNumpadDigits,
-            out _,
-            out _);
-        Owners.Remove(ownerId);
+        // Disposal is monotonic: never roll back a native release that already succeeded just
+        // because Windows refused a later UnregisterHotKey. Failed releases remain in the native
+        // maps as inert residue; WindowHook cannot dispatch them after the logical owner is gone,
+        // and a future request for the same gesture retries cleanup before registration.
+        foreach (var pair in NativeByGesture
+                     .Where(pair => pair.Value.OwnerId == ownerId)
+                     .ToArray())
+        {
+            _ = TryUnregisterGesture(pair.Key);
+        }
     }
 
     private static void RollbackNewRegistrations(IEnumerable<ShortcutGesture> gestures)
