@@ -213,7 +213,16 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
 
         var stamp = CaptureChangeStamp();
-        if (stamp == _observedStamp && stamp == _scheduledStamp)
+        if (stamp == _observedStamp)
+        {
+            _scheduledStamp = stamp;
+            return;
+        }
+
+        // DispatcherHooks sees every completed UI operation. Once a mutation stamp is already
+        // scheduled, unrelated dispatcher traffic must not keep pushing the trailing debounce out
+        // forever; only a newer mutation stamp restarts the one-shot timer.
+        if (stamp == _scheduledStamp && _flushTimer.IsEnabled)
         {
             return;
         }
