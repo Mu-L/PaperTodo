@@ -12,8 +12,12 @@ public sealed partial class PaperWindow
     private static bool _pluginTopBarLoadedHandlerRegistered;
     private StackPanel? _pluginTopBarButtonsHost;
     private PluginTopBarActionBinding[] _pluginTopBarDesiredActions = [];
-    private readonly List<(FrameworkElement Element, PaperTopBarActionScope Scope)>
+    private readonly List<(FrameworkElement Element, PluginTopBarActionBinding Binding)>
         _pluginTopBarActionElements = [];
+    private readonly List<(FrameworkElement Element, PluginTopBarActionBinding Binding)>
+        _pluginTopBarDetachedPaperActionElements = [];
+    private (FrameworkElement Element, PluginTopBarActionBinding Binding)?
+        _pluginTopBarRejectedGlobalActionElement;
     private PaperHostTopBarActions _pluginHiddenHostTopBarActions;
     private bool _pluginHostActionVisibilityHooksInstalled;
     private bool _pluginTopBarCapacityHookInstalled;
@@ -58,6 +62,7 @@ public sealed partial class PaperWindow
         _pluginTopBarDesiredActions = state.Actions
             .Where(binding => binding.Action.Visible)
             .ToArray();
+        ResetPluginTopBarMaterialization();
         _pluginHiddenHostTopBarActions = state.HiddenHostActions;
         ReconcilePluginHiddenHostTopBarActions();
         ReconcilePluginTopBarCapacity();
@@ -92,10 +97,11 @@ public sealed partial class PaperWindow
         }
 
         _pluginTopBarCapacityHookInstalled = true;
-        _topBar.SizeChanged += (_, _) => ReconcilePluginTopBarCapacity();
+        _topBar.SizeChanged += (_, e) =>
+            ReconcilePluginTopBarCapacity(e.NewSize.Width > e.PreviousSize.Width);
     }
 
-    private void ReconcilePluginTopBarCapacity()
+    private void ReconcilePluginTopBarCapacity(bool allowExpansion = true)
     {
         if (_reconcilingPluginTopBarCapacity ||
             _pluginTopBarButtonsHost == null ||
@@ -107,41 +113,75 @@ public sealed partial class PaperWindow
         _reconcilingPluginTopBarCapacity = true;
         try
         {
-            // Rebuild only the visible prefix. Paper actions are bounded and keep their existing
-            // all-or-nothing behavior. Global descriptors are already in Priority order; create
-            // them one at a time and stop as soon as the next one would displace host controls.
-            _pluginTopBarButtonsHost.Children.Clear();
-            _pluginTopBarActionElements.Clear();
             UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
 
-            if (_paper.IsCollapsed ||
-                _pluginTopBarDesiredActions.Length == 0 ||
-                _topBarActionButtonsHost.Visibility != Visibility.Visible)
+            if (_paper.IsCollapsed || _pluginTopBarDesiredActions.Length == 0)
             {
+                ResetPluginTopBarMaterialization();
+                UpdateTopBarResponsiveLayout();
                 return;
             }
 
-            foreach (var binding in _pluginTopBarDesiredActions.Where(item =>
-                         item.Scope == PaperTopBarActionScope.Paper))
+            var paperActionCount = _pluginTopBarDesiredActions.Count(item =>
+                item.Scope == PaperTopBarActionScope.Paper);
+
+            // Shrink only the tail that no longer fits. Global actions are the flexible tail;
+            // paper actions keep their existing all-or-nothing rule.
+            while (_topBarActionButtonsHost.Visibility != Visibility.Visible &&
+                   _pluginTopBarActionElements.Count > paperActionCount)
             {
-                AddPluginTopBarActionElement(binding);
+                RemoveLastPluginTopBarActionElement(cacheForReuse: true);
+                UpdatePluginTopBarHostWidth();
+                UpdateTopBarResponsiveLayout();
             }
-            UpdatePluginTopBarHostWidth();
-            UpdateTopBarResponsiveLayout();
+
             if (_topBarActionButtonsHost.Visibility != Visibility.Visible)
             {
-                _pluginTopBarButtonsHost.Children.Clear();
-                _pluginTopBarActionElements.Clear();
+                while (_pluginTopBarActionElements.Count > 0)
+                {
+                    RemoveLastPluginTopBarActionElement(cacheForReuse: true);
+                }
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 return;
             }
 
-            foreach (var binding in _pluginTopBarDesiredActions.Where(item =>
-                         item.Scope == PaperTopBarActionScope.Global))
+            // A shrinking window can only reduce capacity. Do not probe actions that are already
+            // known not to fit; growth or a non-size state change will try the cached tail again.
+            if (!allowExpansion)
             {
-                var element = AddPluginTopBarActionElement(binding);
+                return;
+            }
+
+            if (_pluginTopBarActionElements.Count < paperActionCount)
+            {
+                while (_pluginTopBarActionElements.Count < paperActionCount)
+                {
+                    AddPluginTopBarActionElement(
+                        _pluginTopBarDesiredActions[_pluginTopBarActionElements.Count]);
+                }
+                UpdatePluginTopBarHostWidth();
+                UpdateTopBarResponsiveLayout();
+                if (_topBarActionButtonsHost.Visibility != Visibility.Visible)
+                {
+                    while (_pluginTopBarActionElements.Count > 0)
+                    {
+                        RemoveLastPluginTopBarActionElement(cacheForReuse: true);
+                    }
+                    UpdatePluginTopBarHostWidth();
+                    UpdateTopBarResponsiveLayout();
+                    return;
+                }
+            }
+
+            // Global descriptors are already in Priority order. Add only the missing tail and stop
+            // at the first action that would displace host controls. The rejected element is kept
+            // detached for reuse, so resize no longer recreates Buttons or reparses SVG geometry.
+            while (_pluginTopBarActionElements.Count < _pluginTopBarDesiredActions.Length)
+            {
+                AddPluginTopBarActionElement(
+                    _pluginTopBarDesiredActions[_pluginTopBarActionElements.Count]);
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 if (_topBarActionButtonsHost.Visibility == Visibility.Visible)
@@ -149,9 +189,7 @@ public sealed partial class PaperWindow
                     continue;
                 }
 
-                _pluginTopBarButtonsHost.Children.Remove(element);
-                _pluginTopBarActionElements.RemoveAt(
-                    _pluginTopBarActionElements.Count - 1);
+                RemoveLastPluginTopBarActionElement(cacheForReuse: true);
                 UpdatePluginTopBarHostWidth();
                 UpdateTopBarResponsiveLayout();
                 break;
@@ -164,6 +202,41 @@ public sealed partial class PaperWindow
     }
 
     private FrameworkElement AddPluginTopBarActionElement(
+        PluginTopBarActionBinding binding)
+    {
+        FrameworkElement element;
+        if (binding.Scope == PaperTopBarActionScope.Paper)
+        {
+            var cachedIndex = _pluginTopBarDetachedPaperActionElements.FindIndex(item =>
+                Equals(item.Binding, binding));
+            if (cachedIndex >= 0)
+            {
+                element = _pluginTopBarDetachedPaperActionElements[cachedIndex].Element;
+                _pluginTopBarDetachedPaperActionElements.RemoveAt(cachedIndex);
+            }
+            else
+            {
+                element = CreatePluginTopBarActionElement(binding);
+            }
+        }
+        else if (_pluginTopBarRejectedGlobalActionElement is { } cachedGlobal &&
+                 Equals(cachedGlobal.Binding, binding))
+        {
+            element = cachedGlobal.Element;
+            _pluginTopBarRejectedGlobalActionElement = null;
+        }
+        else
+        {
+            _pluginTopBarRejectedGlobalActionElement = null;
+            element = CreatePluginTopBarActionElement(binding);
+        }
+
+        _pluginTopBarButtonsHost!.Children.Add(element);
+        _pluginTopBarActionElements.Add((element, binding));
+        return element;
+    }
+
+    private FrameworkElement CreatePluginTopBarActionElement(
         PluginTopBarActionBinding binding)
     {
         var button = IconButton("", binding.Action.ToolTip);
@@ -187,9 +260,45 @@ public sealed partial class PaperWindow
                 _paper.Type == PaperTypes.Note
                     ? NormalizeBodyProviderId(_paper.BodyProviderId)
                     : string.Empty);
-        _pluginTopBarButtonsHost!.Children.Add(button);
-        _pluginTopBarActionElements.Add((button, binding.Scope));
         return button;
+    }
+
+    private void RemoveLastPluginTopBarActionElement(bool cacheForReuse)
+    {
+        if (_pluginTopBarButtonsHost == null || _pluginTopBarActionElements.Count == 0)
+        {
+            return;
+        }
+
+        var index = _pluginTopBarActionElements.Count - 1;
+        var entry = _pluginTopBarActionElements[index];
+        _pluginTopBarButtonsHost.Children.Remove(entry.Element);
+        _pluginTopBarActionElements.RemoveAt(index);
+
+        if (!cacheForReuse)
+        {
+            return;
+        }
+
+        if (entry.Binding.Scope == PaperTopBarActionScope.Paper)
+        {
+            _pluginTopBarDetachedPaperActionElements.Add(entry);
+        }
+        else
+        {
+            // Keep only the nearest missing Global action. If several are removed while shrinking,
+            // the last one removed is exactly the first action that should return on expansion.
+            _pluginTopBarRejectedGlobalActionElement = entry;
+        }
+    }
+
+    private void ResetPluginTopBarMaterialization()
+    {
+        _pluginTopBarButtonsHost?.Children.Clear();
+        _pluginTopBarActionElements.Clear();
+        _pluginTopBarDetachedPaperActionElements.Clear();
+        _pluginTopBarRejectedGlobalActionElement = null;
+        UpdatePluginTopBarHostWidth();
     }
 
     private void UpdatePluginTopBarHostWidth()
