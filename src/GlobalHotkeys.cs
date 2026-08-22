@@ -643,6 +643,7 @@ internal static class GlobalHotkeyBroker
 
     static GlobalHotkeyBroker()
     {
+        System.Windows.Application.Current?.Dispatcher.VerifyAccess();
         var parameters = new HwndSourceParameters("PaperTodo.GlobalHotkeyBroker")
         {
             Width = 0,
@@ -654,8 +655,11 @@ internal static class GlobalHotkeyBroker
         Source.AddHook(WindowHook);
     }
 
+    private static void VerifyAccess() => Source.Dispatcher.VerifyAccess();
+
     public static void AddOwner(Guid ownerId, Action<string> dispatch)
     {
+        VerifyAccess();
         ArgumentNullException.ThrowIfNull(dispatch);
         if (!Owners.TryAdd(ownerId, new OwnerState { Dispatch = dispatch }))
         {
@@ -665,6 +669,7 @@ internal static class GlobalHotkeyBroker
 
     public static IReadOnlyDictionary<string, string> ActiveBindings(Guid ownerId)
     {
+        VerifyAccess();
         if (!Owners.TryGetValue(ownerId, out var owner))
         {
             return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -693,6 +698,7 @@ internal static class GlobalHotkeyBroker
         out string? failedCommandId,
         out GlobalShortcutRegistrationFailure failure)
     {
+        VerifyAccess();
         failedCommandId = null;
         failure = GlobalShortcutRegistrationFailure.None;
         if (!Owners.ContainsKey(ownerId))
@@ -722,9 +728,23 @@ internal static class GlobalHotkeyBroker
         var newlyRegistered = new List<ShortcutGesture>();
         foreach (var pair in desiredNative)
         {
-            if (NativeByGesture.ContainsKey(pair.Key))
+            if (NativeByGesture.TryGetValue(pair.Key, out var existing))
             {
-                continue;
+                if (Owners.ContainsKey(existing.OwnerId))
+                {
+                    continue;
+                }
+
+                // A disposed manager may leave an inert native registration behind if Windows
+                // refused its final UnregisterHotKey. Retry that cleanup only when the gesture is
+                // needed again; never transfer an unverified stale registration to a new owner.
+                if (!TryUnregisterGesture(pair.Key))
+                {
+                    failure = GlobalShortcutRegistrationFailure.UnregistrationFailed;
+                    failedCommandId = pair.Value.CommandId;
+                    RollbackNewRegistrations(newlyRegistered);
+                    return false;
+                }
             }
 
             if (!TryRegisterGesture(pair.Key, out var nativeId, out failure))
@@ -750,6 +770,14 @@ internal static class GlobalHotkeyBroker
 
             if (!TryUnregisterGesture(pair.Key))
             {
+                if (!Owners.ContainsKey(pair.Value.OwnerId))
+                {
+                    // The logical owner is already gone. Keep this failed native release inert and
+                    // let a future request for the same gesture retry cleanup without blocking
+                    // unrelated hotkey changes.
+                    continue;
+                }
+
                 failure = GlobalShortcutRegistrationFailure.UnregistrationFailed;
                 failedCommandId = pair.Value.OwnerId == ownerId
                     ? pair.Value.CommandId
@@ -792,6 +820,7 @@ internal static class GlobalHotkeyBroker
 
     public static void SuspendOwner(Guid ownerId)
     {
+        VerifyAccess();
         if (!Owners.TryGetValue(ownerId, out var owner))
         {
             return;
@@ -809,25 +838,24 @@ internal static class GlobalHotkeyBroker
 
     public static void RemoveOwner(Guid ownerId)
     {
+        VerifyAccess();
         if (!Owners.TryGetValue(ownerId, out var owner))
         {
             return;
         }
 
-        if (!TryApply(
-                ownerId,
-                owner.Bindings,
-                Array.Empty<string>(),
-                Array.Empty<string>(),
-                _distinguishNumpadDigits,
-                out _,
-                out _))
-        {
-            // Keep the broker owner record if the OS refused to release one of its native hotkeys.
-            // The manager has already marked itself disposed, so the retained dispatch is inert and
-            // cannot execute a stale command. A later process teardown still releases the HWND.
-            return;
-        }
+        // Logical ownership ends with manager disposal even if Windows refuses one final native
+        // release. Any surviving registration stays in NativeByGesture/NativeById only as an inert
+        // residue: WindowHook cannot dispatch it after the owner is removed, and a future request
+        // for the same gesture will retry cleanup before registering a new owner.
+        _ = TryApply(
+            ownerId,
+            owner.Bindings,
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            _distinguishNumpadDigits,
+            out _,
+            out _);
         Owners.Remove(ownerId);
     }
 
