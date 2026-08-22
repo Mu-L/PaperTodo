@@ -8,6 +8,8 @@
 
 它存在的目的不是提前构造第二套 presentation engine，而是把首次真实 Edge hover/queue-composition 会触发的一部分 WPF HWND、DComp surface/visual、cloak/uncloak 与 compositor 首用成本提前支付。既有实测确认了这条预热对首次交互有实际价值，因此后续常规代码审查不应仅因为它会创建临时 HWND/DComp 资源就再次把“是否需要 A/B、是否应该直接删除”列为待办。
 
+这轮整理没有在仓库里找到当时 A/B 的原始数字，因此这里只记录**已经确认过的结论和边界**，不补造延迟、CPU 或 DWM 数据。以后如果找回原始记录，可以补充 Evidence；没有新实测反证时，不因为缺少旧数字而重复做同一轮验证。
+
 ## 边界
 
 - 这条结论只认可当前 **Lightweight**、一次性、启动 idle 后执行的预热方向。
