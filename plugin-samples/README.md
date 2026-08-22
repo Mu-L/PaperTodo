@@ -84,7 +84,7 @@ plugins/com.example.hello/
 Native 项目使用 .NET 10 + WPF，并引用：
 
 ```text
-PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.csproj
+PaperTodo.Plugin.Abstractions/PaperTodo.Plugin.Abstractions.csproj
 ```
 
 示例项目配置：
