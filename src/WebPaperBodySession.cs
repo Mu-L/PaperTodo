@@ -318,13 +318,13 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
                 window.chrome.webview.postMessage({ type, payload, documentToken });
               };
               const post = (type, payload = null) => {
-                if (type === 'saveState') {
+                if (type === 'saveState' && documentToken) {
                   rawPost(type, payload);
                   return;
                 }
                 void hostReady.then(() => rawPost(type, payload));
               };
-              const saveState = state => rawPost('saveState', state ?? {});
+              const saveState = state => post('saveState', state ?? {});
               const flushState = () => {
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
