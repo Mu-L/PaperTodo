@@ -258,7 +258,18 @@ Release notes are taken from the matching section in [`CHANGELOG.md`](CHANGELOG.
 
 ## Build And Dependencies
 
+Clone with submodules before building:
+
 ```powershell
+git clone --recurse-submodules https://github.com/snownico0722/PaperTodo.git
+cd PaperTodo
+dotnet build -c Release
+```
+
+For an existing clone, initialize the submodules first:
+
+```powershell
+git submodule update --init --recursive
 dotnet build -c Release
 ```
 
