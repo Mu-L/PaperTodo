@@ -309,10 +309,17 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
               let stateProvider = null;
               let markHostReady;
               const hostReady = new Promise(resolve => { markHostReady = resolve; });
-              const post = (type, payload = null) => {
+              const rawPost = (type, payload = null) => {
                 window.chrome.webview.postMessage({ type, payload });
               };
-              const saveState = state => post('saveState', state ?? {});
+              const post = (type, payload = null) => {
+                if (type === 'saveState') {
+                  rawPost(type, payload);
+                  return;
+                }
+                void hostReady.then(() => rawPost(type, payload));
+              };
+              const saveState = state => rawPost('saveState', state ?? {});
               const flushState = () => {
                 if (typeof stateProvider !== 'function') return;
                 try { saveState(stateProvider()); } catch { }
