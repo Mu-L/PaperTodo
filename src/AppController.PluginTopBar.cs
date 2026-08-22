@@ -17,6 +17,7 @@ internal sealed record PluginTopBarRenderState(
 public sealed partial class AppController
 {
     private const int MaximumPaperTopBarActions = 4;
+    private const int MaximumGlobalTopBarActions = 256;
     private const int MaximumTopBarActionIdLength = 64;
     private const int MaximumTopBarToolTipLength = 160;
     private const int MaximumTopBarCharacterLength = 8;
@@ -112,12 +113,11 @@ public sealed partial class AppController
         // The app-runtime manager validates protocol 2.0 before creating this capability. Once a
         // runtime is alive, it owns its process-lifetime lease even if the user rescans plugin
         // manifests; ordinary plugin Reload does not silently replace a running app runtime.
-        // Global action count is intentionally unbounded at the protocol layer. The window gives
-        // current-paper actions first claim on plugin space, then considers Global actions by
-        // Priority and shows only the prefix that still fits without displacing host controls.
+        // The protocol accepts a broad descriptor set, while the window still materializes only
+        // the fitting prefix after current-paper actions have taken first claim on plugin space.
         var normalized = NormalizePluginTopBarActions(
             actions,
-            maximumCount: null,
+            MaximumGlobalTopBarActions,
             "global");
 
         if (_pluginGlobalTopBars.TryGetValue(providerId, out var current) &&

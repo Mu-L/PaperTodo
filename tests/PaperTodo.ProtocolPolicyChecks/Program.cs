@@ -51,6 +51,14 @@ internal static class Program
         Assert(
             brokerType.GetMethod("TryRestoreGesture", BindingFlags.Static | BindingFlags.NonPublic) != null,
             "The broker must be able to restore registrations during rollback.");
+        Assert(
+            brokerType.GetMethod("IsCommittedNativeBinding", BindingFlags.Static | BindingFlags.NonPublic) != null,
+            "Native hotkey dispatch must validate rollback residue against the committed owner plan.");
+        var nativeBinding = brokerType.GetNestedType("NativeBinding", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("GlobalHotkeyBroker.NativeBinding was not found.");
+        Assert(
+            nativeBinding.GetProperty("Gesture") != null,
+            "Native hotkey bindings must retain their exact gesture so stale rollback residue can be rejected.");
 
         var tryApply = managerType
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
@@ -274,6 +282,21 @@ internal static class Program
         Assert(
             body.GetField("_hasDocumentNavigation", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType == typeof(bool),
             "Web body must track whether a current navigation identity exists.");
+
+        var canAccept = body.GetMethod(
+            "CanAcceptDocumentMessage",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Web body document-message guard was not found.");
+        Assert((bool)(canAccept.Invoke(null, ["saveState", false, false]) ?? false),
+            "A departing Web document must still be allowed to flush its final state.");
+        Assert(!(bool)(canAccept.Invoke(null, ["hostRequest", false, false]) ?? true),
+            "A stale or navigating Web document must not keep Workspace mutation authority.");
+        Assert((bool)(canAccept.Invoke(null, ["hostRequest", true, true]) ?? false),
+            "The current ready plugin document must retain normal host-request authority.");
+
+        Assert(
+            body.GetMethod("TryOpenExternalNavigation", BindingFlags.Static | BindingFlags.NonPublic) != null,
+            "Web body must have an explicit system-shell path for external top-level navigation.");
     }
 
     private static void CheckManifestRuntimeAndMiniContracts(Assembly host)
@@ -299,9 +322,14 @@ internal static class Program
             "PaperTopBarAction.Priority was not found.");
 
         var controller = RequireType(host, "PaperTodo.AppController");
+        var maximumGlobal = controller.GetField(
+            "MaximumGlobalTopBarActions",
+            BindingFlags.Static | BindingFlags.NonPublic);
         Assert(
-            controller.GetField("MaximumGlobalTopBarActions", BindingFlags.Static | BindingFlags.NonPublic) == null,
-            "Global Top Bar still has a hard action-count limit.");
+            maximumGlobal?.IsLiteral == true &&
+            maximumGlobal.GetRawConstantValue() is int limit &&
+            limit == 256,
+            "Global Top Bar must keep a broad but finite 256-action descriptor cap.");
 
         var window = RequireType(host, "PaperTodo.PaperWindow");
         Assert(
