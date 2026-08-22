@@ -10,6 +10,8 @@ namespace PaperTodo;
 
 internal sealed class WebPluginAppRuntime : IDisposable
 {
+    private const int MaximumGlobalTopBarActions = 256;
+
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
     private readonly IPaperAppRuntimeSettings _settings;
@@ -468,9 +470,19 @@ internal sealed class WebPluginAppRuntime : IDisposable
         PaperTopBarAction[] actions;
         try
         {
-            actions = parameters.ValueKind == JsonValueKind.Object &&
-                      parameters.TryGetProperty("actions", out var actionsValue) &&
-                      actionsValue.ValueKind != JsonValueKind.Null
+            var hasActions = parameters.ValueKind == JsonValueKind.Object &&
+                             parameters.TryGetProperty("actions", out var actionsValue) &&
+                             actionsValue.ValueKind != JsonValueKind.Null;
+            if (hasActions &&
+                actionsValue.ValueKind == JsonValueKind.Array &&
+                actionsValue.GetArrayLength() > MaximumGlobalTopBarActions)
+            {
+                throw new PaperTodoPluginException(
+                    "too_many_topbar_actions",
+                    $"A plugin can contribute at most {MaximumGlobalTopBarActions} global top-bar actions.");
+            }
+
+            actions = hasActions
                 ? actionsValue.Deserialize<PaperTopBarAction[]>(
                     WebPluginRuntimeInfrastructure.JsonOptions) ?? []
                 : [];
