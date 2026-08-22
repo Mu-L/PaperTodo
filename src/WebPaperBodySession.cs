@@ -11,8 +11,9 @@ using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
-// Web plugins are trusted. WebView2 keeps its normal navigation, frame, popup and permission
-// behavior; only PaperTodo's host bridge remains restricted to the plugin's local top-level origin.
+// Web plugins are trusted. Top-level body navigation stays on the plugin's local origin; normal
+// http/https/mailto external navigation is handed to the system shell. Frames, popups and permission
+// behavior remain WebView2-owned, and PaperTodo's host bridge is restricted to the local top-level origin.
 internal sealed partial class WebPaperBodySession : IPaperBodySession
 {
     private static readonly object EnvironmentGate = new();
@@ -428,10 +429,22 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             })();
             """;
     }
+
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
         if (!ReferenceEquals(sender, _webView.CoreWebView2))
         {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_expectedOrigin) &&
+            !IsAllowedDocumentUri(e.Uri))
+        {
+            e.Cancel = true;
+            if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var external))
+            {
+                TryOpenExternalNavigation(external);
+            }
             return;
         }
 
@@ -481,17 +494,9 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             return;
         }
 
-        try
+        if (TryOpenExternalNavigation(uri))
         {
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri)
-            {
-                UseShellExecute = true
-            });
             e.Cancel = true;
-        }
-        catch
-        {
-            // If the default browser could not be launched, keep WebView2's normal download.
         }
     }
 
@@ -499,6 +504,27 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
     {
         return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
             string.Equals(uri.GetLeftPart(UriPartial.Authority), _expectedOrigin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryOpenExternalNavigation(Uri uri)
+    {
+        if (uri.Scheme is not ("http" or "https" or "mailto"))
+        {
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri)
+            {
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void ShowWebView()
@@ -696,6 +722,14 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             }
 
             var type = typeElement.GetString() ?? "";
+            if (!CanAcceptDocumentMessage(
+                    type,
+                    _documentReady,
+                    _pluginDocumentReady))
+            {
+                return;
+            }
+
             var payload = root.TryGetProperty("payload", out var payloadElement)
                 ? payloadElement
                 : default;
@@ -743,6 +777,13 @@ internal sealed partial class WebPaperBodySession : IPaperBodySession
             // A malformed plugin message is isolated to the plugin body.
         }
     }
+
+    private static bool CanAcceptDocumentMessage(
+        string type,
+        bool documentReady,
+        bool pluginDocumentReady) =>
+        string.Equals(type, "saveState", StringComparison.Ordinal) ||
+        (documentReady && pluginDocumentReady);
 
     private void HandleHostRequest(JsonElement payload)
     {
