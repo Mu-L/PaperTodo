@@ -915,7 +915,7 @@ https://<plugin-id>.papertodo.local/
 
 只有该插件的本地 **top-level document** 获得 `window.papertodo`。远程页面、iframe 或其他 origin 不获得宿主 bridge。
 
-PaperTodo 把 Web 插件视为可信内容；WebView2 保持正常导航、frame、popup 和 permission 行为。普通 HTTP/HTTPS 下载优先交给系统默认浏览器；`blob:`、`data:` 等 session-local download 保留 WebView2 默认行为。
+PaperTodo 把 Web 插件视为可信内容；同源 frame/popup 和 permission 保持 WebView2 默认行为，外部顶层导航及外部新窗口请求交给系统默认程序。普通 HTTP/HTTPS 下载优先交给系统默认浏览器；`blob:`、`data:` 等 session-local download 保留 WebView2 默认行为。
 
 ### 10.2 Body bridge
 
