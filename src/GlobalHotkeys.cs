@@ -632,7 +632,11 @@ internal static class GlobalHotkeyBroker
         public HashSet<string> ReservedCommandIds { get; set; } = new(StringComparer.Ordinal);
     }
 
-    private sealed record NativeBinding(Guid OwnerId, string CommandId, int NativeId);
+    private sealed record NativeBinding(
+        Guid OwnerId,
+        string CommandId,
+        int NativeId,
+        ShortcutGesture Gesture);
 
     private static readonly HwndSource Source;
     private static readonly Dictionary<Guid, OwnerState> Owners = new();
@@ -681,7 +685,8 @@ internal static class GlobalHotkeyBroker
             if (owner.Bindings.TryGetValue(commandId, out var binding) &&
                 NativeByGesture.Values.Any(item =>
                     item.OwnerId == ownerId &&
-                    string.Equals(item.CommandId, commandId, StringComparison.Ordinal)))
+                    string.Equals(item.CommandId, commandId, StringComparison.Ordinal) &&
+                    IsCommittedNativeBinding(owner, item)))
             {
                 active[commandId] = binding;
             }
@@ -754,7 +759,11 @@ internal static class GlobalHotkeyBroker
                 return false;
             }
 
-            var native = new NativeBinding(pair.Value.OwnerId, pair.Value.CommandId, nativeId);
+            var native = new NativeBinding(
+                pair.Value.OwnerId,
+                pair.Value.CommandId,
+                nativeId,
+                pair.Key);
             NativeByGesture[pair.Key] = native;
             NativeById[nativeId] = native;
             newlyRegistered.Add(pair.Key);
@@ -805,7 +814,8 @@ internal static class GlobalHotkeyBroker
             var updated = new NativeBinding(
                 pair.Value.OwnerId,
                 pair.Value.CommandId,
-                current.NativeId);
+                current.NativeId,
+                pair.Key);
             NativeByGesture[pair.Key] = updated;
             NativeById[current.NativeId] = updated;
         }
@@ -860,6 +870,9 @@ internal static class GlobalHotkeyBroker
     {
         foreach (var gesture in gestures.Reverse())
         {
+            // A failed release can leave a native registration in the maps, but dispatch validates
+            // every WM_HOTKEY against the owner's last committed plan. Rollback residue is therefore
+            // inert immediately and a later apply retries the native cleanup.
             _ = TryUnregisterGesture(gesture);
         }
     }
@@ -884,8 +897,9 @@ internal static class GlobalHotkeyBroker
             return false;
         }
 
-        NativeByGesture[gesture] = binding;
-        NativeById[binding.NativeId] = binding;
+        var restored = binding with { Gesture = gesture };
+        NativeByGesture[gesture] = restored;
+        NativeById[restored.NativeId] = restored;
         return true;
     }
 
@@ -983,6 +997,26 @@ internal static class GlobalHotkeyBroker
         return gesture.RegistrationGestures(includeDigitAlias);
     }
 
+    private static bool IsCommittedNativeBinding(
+        OwnerState owner,
+        NativeBinding native)
+    {
+        if (!owner.ActiveCommandIds.Contains(native.CommandId) ||
+            !owner.Bindings.TryGetValue(native.CommandId, out var text) ||
+            string.IsNullOrWhiteSpace(text) ||
+            !ShortcutGesture.TryParse(text, out var gesture) ||
+            gesture.Key == Key.None)
+        {
+            return false;
+        }
+
+        return RegistrationGesturesFor(
+                native.CommandId,
+                gesture,
+                _distinguishNumpadDigits)
+            .Contains(native.Gesture);
+    }
+
     private static bool TryRegisterGesture(
         ShortcutGesture gesture,
         out int nativeId,
@@ -1031,7 +1065,8 @@ internal static class GlobalHotkeyBroker
     {
         if (msg == WmHotkey && NativeById.TryGetValue(wParam.ToInt32(), out var native))
         {
-            if (Owners.TryGetValue(native.OwnerId, out var owner))
+            if (Owners.TryGetValue(native.OwnerId, out var owner) &&
+                IsCommittedNativeBinding(owner, native))
             {
                 owner.Dispatch(native.CommandId);
             }
