@@ -60,7 +60,14 @@ jobs:
           $scriptLines = $lines[($start + 1)..($end - 1)] | ForEach-Object {
             $_ -replace '^          ', ''
           }
-          ($scriptLines -join "`n") | python -
+          $script = $scriptLines -join "`n"
+          $needle = 'save(mini, text)'
+          if (($script.Split($needle).Count - 1) -ne 1) {
+            throw "Expected exactly one mini save marker"
+          }
+          $injected = 'text = text.replace("        ResetMigratedPluginBodyPreview();\n", "")' + "`n" + $needle
+          $script = $script.Replace($needle, $injected)
+          $script | python -
 
       - name: Diff sanity
         run: git diff --check
