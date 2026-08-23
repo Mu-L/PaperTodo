@@ -1,0 +1,83 @@
+name: PR137 review fix observable
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pr137-review-fix-pr.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr137-review-fix
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'audit-4-0-slim-20260823'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+
+    steps:
+      - name: Check out PR head
+        uses: actions/checkout@v7
+        with:
+          ref: audit-4-0-slim-20260823
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Extract and run reviewed patch
+        run: |
+          $lines = Get-Content .github/workflows/pr137-review-fix.yml
+          $start = -1
+          $end = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($start -lt 0 -and $lines[$i].Trim() -eq "@'") {
+              $start = $i
+              continue
+            }
+            if ($start -ge 0 -and $lines[$i].Trim() -eq "'@ | python -") {
+              $end = $i
+              break
+            }
+          }
+          if ($start -lt 0 -or $end -le $start) {
+            throw "Could not locate embedded patch script"
+          }
+          $scriptLines = $lines[($start + 1)..($end - 1)] | ForEach-Object {
+            $_ -replace '^          ', ''
+          }
+          ($scriptLines -join "`n") | python -
+
+      - name: Diff sanity
+        run: git diff --check
+
+      - name: Restore
+        run: dotnet restore .\PaperTodo.csproj
+
+      - name: Build
+        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+
+      - name: Commit reviewed fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) {
+            throw "Patch produced no changes"
+          }
+          git commit -m "fix(plugin): close PR137 slim-down review findings"
+          git push origin HEAD:audit-4-0-slim-20260823
