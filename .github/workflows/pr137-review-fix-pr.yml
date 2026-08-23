@@ -33,6 +33,7 @@ jobs:
         with:
           ref: audit-4-0-slim-20260823
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
