@@ -69,6 +69,13 @@ jobs:
           $script = $script.Replace($needle, $injected)
           $script | python -
 
+          $decisionText = [System.IO.File]::ReadAllText("DECISIONS.md")
+          $decisionText = $decisionText.TrimEnd("`r", "`n") + "`n"
+          [System.IO.File]::WriteAllText(
+            "DECISIONS.md",
+            $decisionText,
+            [System.Text.UTF8Encoding]::new($false))
+
       - name: Diff sanity
         run: git diff --check
 
