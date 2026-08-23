@@ -1,0 +1,344 @@
+name: PR137 review fix
+
+on:
+  push:
+    branches:
+      - audit-4-0-slim-20260823
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Apply reviewed slim-down fixes
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          def load(path):
+              return Path(path).read_text(encoding="utf-8")
+
+          def save(path, text):
+              Path(path).write_text(text, encoding="utf-8", newline="\n")
+
+          def replace_once(path, old, new):
+              text = load(path)
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one literal match, got {count}: {old[:80]!r}")
+              save(path, text.replace(old, new, 1))
+
+          def sub_once(path, pattern, replacement, flags=0):
+              text = load(path)
+              text, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one regex match, got {count}: {pattern[:100]!r}")
+              save(path, text)
+
+          # EventHub: keep mutation stamps, but notify it only when a stamp actually advances.
+          # This removes the global DispatcherHooks.OperationCompleted observation layer.
+          event_hub = "src/PaperBodyPluginEventHub.cs"
+          text = load(event_hub)
+          text = text.replace("    private bool _watchingDispatcher;\n", "")
+          text = text.replace("            StartWatchingDispatcher();\n", "")
+          pattern = r"\n    private void StartWatchingDispatcher\(\)\n    \{.*?\n    private void QueueUserChangesIfNeeded\(\)"
+          replacement = r'''
+    public void NotifyMutationStampChanged()
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            QueueUserChangesIfNeeded();
+            return;
+        }
+
+        _ = _dispatcher.BeginInvoke(
+            (Action)QueueUserChangesIfNeeded,
+            DispatcherPriority.ContextIdle);
+    }
+
+    private void QueueUserChangesIfNeeded()'''
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise RuntimeError("EventHub dispatcher-hook block was not found exactly once")
+          text = text.replace("        StopWatchingDispatcher();\n", "")
+          text = text.replace(
+              "        // DispatcherHooks sees every completed UI operation. Once a mutation stamp is already\n"
+              "        // scheduled, unrelated dispatcher traffic must not keep pushing the trailing debounce out\n"
+              "        // forever; only a newer mutation stamp restarts the one-shot timer.\n",
+              "        // Once a mutation stamp is already scheduled, only a newer stamp restarts the\n"
+              "        // trailing debounce. Save/dirty notifications for the same stamp are idempotent.\n")
+          text = text.replace(
+              "/// persistence's monotonic state/save stamps; a short one-shot debounce coalesces edit bursts\n",
+              "/// persistence's monotonic state/save stamps; their mutation points notify this hub directly and\n"
+              "/// a short one-shot debounce coalesces edit bursts\n")
+          save(event_hub, text)
+
+          plugin_api = "src/AppController.PluginApi.cs"
+          replace_once(
+              plugin_api,
+              "    internal long PluginEventSaveVersion => Interlocked.Read(ref _saveVersion);\n",
+              "    internal long PluginEventSaveVersion => Interlocked.Read(ref _saveVersion);\n\n"
+              "    internal void NotifyPluginEventMutationStampChanged() =>\n"
+              "        _paperBodyPluginEvents?.NotifyMutationStampChanged();\n")
+
+          app_controller = "src/AppController.cs"
+          text = load(app_controller)
+          old = "        Interlocked.Increment(ref _stateRevision);\n        if (!_hasPendingDirty)"
+          if text.count(old) != 1:
+              raise RuntimeError("AppController MarkDirty mutation point changed unexpectedly")
+          text = text.replace(
+              old,
+              "        Interlocked.Increment(ref _stateRevision);\n"
+              "        NotifyPluginEventMutationStampChanged();\n"
+              "        if (!_hasPendingDirty)",
+              1)
+          save_marker = "            var version = Interlocked.Increment(ref _saveVersion);\n"
+          save_count = text.count(save_marker)
+          if save_count < 1:
+              raise RuntimeError("AppController saveVersion mutation point not found")
+          text = text.replace(
+              save_marker,
+              save_marker + "            NotifyPluginEventMutationStampChanged();\n")
+          save(app_controller, text)
+
+          # Settings: an immediate discrete propagation already contains the latest text/number
+          # state, so cancel an older provider debounce instead of broadcasting it again later.
+          replace_once(
+              "src/AppController.Plugins.cs",
+              "    private void PropagatePluginSettings(string providerId)\n"
+              "    {\n"
+              "        if (!_paperBodyPlugins.TryGet(providerId, out var descriptor))\n",
+              "    private void PropagatePluginSettings(string providerId)\n"
+              "    {\n"
+              "        if (_pluginSettingPropagationTimers.TryGetValue(providerId, out var pendingTimer))\n"
+              "        {\n"
+              "            pendingTimer.Stop();\n"
+              "        }\n\n"
+              "        if (!_paperBodyPlugins.TryGet(providerId, out var descriptor))\n")
+
+          # Retire the unpublished native body-tree migration convenience path completely.
+          contracts = "PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs"
+          text = load(contracts)
+          pattern = r"\n/// <summary>\n/// Optional native-session opt-in for moving the one real body view.*?public interface IPaperBodyViewMigrationProvider\n\{.*?\n\}\n"
+          text, count = re.subn(pattern, "\n", text, count=1, flags=re.S)
+          if count != 1:
+              raise RuntimeError("migration ABI block was not found exactly once")
+          save(contracts, text)
+
+          mini = "src/PaperWindow.PluginMiniView.cs"
+          text = load(mini)
+          pattern = r"\n        if \(_bodyDescriptor\?\.Kind == PaperBodyPluginKind\.Native &&\s*_paperBodyHost\.Current is IPaperBodyViewMigrationProvider migrationProvider &&\s*TryDescribeMigratedPluginBodyPreview\(.*?\n        \}\n"
+          text, count = re.subn(pattern, "\n", text, count=1, flags=re.S)
+          if count != 1:
+              raise RuntimeError("migration preview branch was not found exactly once")
+          pattern = r"\n    // Implemented in PaperWindow\.PluginBodyMigration\.cs\..*?private partial void ResetMigratedPluginBodyPreview\(\);\n"
+          text, count = re.subn(pattern, "\n", text, count=1, flags=re.S)
+          if count != 1:
+              raise RuntimeError("migration partial seam was not found exactly once")
+          text = text.replace(
+              "        // No 1.8 preview capability: the enlarged 1.7/1.6/plain capsule is the final preview, not\n",
+              "        // No dedicated preview capability: the enlarged capsule is the final preview, not\n")
+          save(mini, text)
+
+          plugin_bodies = "src/PaperWindow.PluginBodies.cs"
+          text = load(plugin_bodies)
+          text = text.replace("        host.MouseLeave += (_, _) => CaptureMigratedPluginBodyOnPointerLeave();\n", "")
+          text = text.replace("        ScheduleMigratedPluginBodyPreviewWarmup();\n", "")
+          text = text.replace("            _pluginBodyEverPresented = true;\n", "")
+          text = text.replace(
+              "        // A protocol 1.8 migration preview may temporarily parent the one real body view. Restore\n"
+              "        // it while the session is still current, before Commit/Dispose tears down that view tree.\n",
+              "")
+          text = text.replace(
+              "            // Expansion can come from a hotkey, tray action or another paper, not only a preview\n"
+              "            // background click. Return a migrated real View before any path presents the body.\n",
+              "            // Expansion can come from a hotkey, tray action or another paper. Settle any active\n"
+              "            // edge preview before the full body becomes presented and interactive.\n")
+          text = text.replace("        if (!visible)\n        {\n        }\n", "")
+          save(plugin_bodies, text)
+
+          # Remove migration lifecycle calls from the edge files. Empty blocks are cleaned where
+          # the old call was the only behavior.
+          edge_files = [
+              "src/PaperWindow.EdgeCapsuleAdapter.cs",
+              "src/PaperWindow.EdgeCapsulePlacement.cs",
+              "src/PaperWindow.EdgeCapsulePreview.cs",
+          ]
+          for path in edge_files:
+              text = load(path)
+              text = re.sub(r"^\s*RestorePrewarmedPluginBodyForActivation\([^\n]*\);\n", "", text, flags=re.M)
+              text = re.sub(r"^\s*ScheduleMigratedPluginBodyPreviewWarmup\(\);\n", "", text, flags=re.M)
+              save(path, text)
+
+          adapter = "src/PaperWindow.EdgeCapsuleAdapter.cs"
+          text = load(adapter)
+          text = text.replace(
+              "        var detached = DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());\n"
+              "        if (detached)\n"
+              "        {\n"
+              "        }\n"
+              "        return detached;\n",
+              "        return DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());\n")
+          save(adapter, text)
+
+          migration_file = Path("src/PaperWindow.PluginBodyMigration.cs")
+          if not migration_file.exists():
+              raise RuntimeError("migration implementation file already missing unexpectedly")
+          migration_file.unlink()
+
+          # Current plugin manual: only dedicated Native/Web minis are rich preview routes now.
+          readme = "plugin-samples/README.md"
+          text = load(readme)
+          old_paths = (
+              "当前路径：\n\n"
+              "1. Native dedicated mini：`IPaperMiniViewProvider`；\n"
+              "2. Web dedicated mini：manifest `miniEntry`；\n"
+              "3. Native body migration：`IPaperBodyViewMigrationProvider`；\n"
+              "4. 没有 dedicated/migration 时，宿主根据 custom/standard capsule 或 `plainText` 构造只读 preview。\n")
+          new_paths = (
+              "当前路径：\n\n"
+              "1. Native dedicated mini：`IPaperMiniViewProvider`；\n"
+              "2. Web dedicated mini：manifest `miniEntry`；\n"
+              "3. 没有 dedicated mini 时，宿主根据 custom/standard capsule 或 `plainText` 构造只读 preview。\n")
+          if text.count(old_paths) != 1:
+              raise RuntimeError("plugin manual preview path list changed unexpectedly")
+          text = text.replace(old_paths, new_paths, 1)
+          pattern = r"\n### 9\.4 Native body migration\n.*?(?=\n## 10\. Web 插件)"
+          text, count = re.subn(pattern, "\n", text, count=1, flags=re.S)
+          if count != 1:
+              raise RuntimeError("plugin manual migration section was not found exactly once")
+          save(readme, text)
+
+          # DECISIONS remains the single long-term owner for the prewarm A/B conclusion and for the
+          # historical fact that native body-tree migration was retired.
+          decisions = "DECISIONS.md"
+          text = load(decisions)
+          text = text.replace(
+              "Native mini、Web `miniEntry`、真实 WPF 正文迁移和旧 capsule fallback 的生命周期并不相同。",
+              "Native mini、Web `miniEntry`、曾试验的真实 WPF 正文迁移和旧 capsule fallback 的生命周期并不相同。")
+          text = text.replace(
+              "- Native 正文迁移：依据预热、真实 View 和 snapshot 状态安全切换，不维护第二份业务 UI。\n",
+              "- Native 正文迁移：该便利路线已退役；需要丰富 Native Edge Preview 时提供专属 `IPaperMiniViewProvider`，否则进入 capsule fallback。\n")
+          marker = "### Evidence\n\n- `51ca6393e96c8c40a73332aea50aac5440f28907` — protocol 1.8 edge mini views。"
+          retired_rule = (
+              "- 不重新引入把 authoritative body View 搬进 Edge Preview 的 reparent/snapshot/warmup/retry 路线；"
+              "需要 richer Native preview 时由插件提供 fresh dedicated mini tree。\n\n")
+          d18_start = text.find("## D-018 —")
+          d19_start = text.find("## D-019 —")
+          if d18_start < 0 or d19_start < 0 or d19_start <= d18_start:
+              raise RuntimeError("D-018/D-019 boundaries not found")
+          d18 = text[d18_start:d19_start]
+          if retired_rule.strip() not in d18:
+              if marker not in d18:
+                  raise RuntimeError("D-018 Evidence marker not found")
+              d18 = d18.replace(marker, retired_rule + marker, 1)
+              text = text[:d18_start] + d18 + text[d19_start:]
+
+          index_marker = "| D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域 | Accepted | 插件 / UI ownership |\n"
+          index_add = "| D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |\n"
+          if index_add not in text:
+              if index_marker not in text:
+                  raise RuntimeError("Decision index D-022 marker not found")
+              text = text.replace(index_marker, index_marker + index_add, 1)
+
+          if "## D-023 — Lightweight Prewarm 保留一次性首用预热" not in text:
+              text = text.rstrip() + r'''
+
+---
+
+## D-023 — Lightweight Prewarm 保留一次性首用预热
+
+**Status:** Accepted
+
+### Context
+
+V3 Lite 收敛后，`EdgeCapsuleQueueCompositionProxy.PrewarmLightweight` 仍会在启动 idle 阶段创建并释放一组临时 WPF HWND / DComp surface / visual，用于提前支付首次真实 Edge hover / queue composition 的一部分系统首用成本。因为这段代码本身看起来不“轻”，后续性能审查容易反复把它当成尚未验证的删除候选。
+
+### Decision
+
+保留当前 **Lightweight、一次性、启动 idle 后执行** 的预热。此前已经做过实际 A/B，对首次交互有可观察收益；没有新的可复现实测反证时，不因为它会临时创建 HWND/DComp 资源而重复要求同一轮“是否需要 A/B / 是否直接删除”的验证。
+
+这次整理没有在仓库中找回当时的原始数字，因此这里只记录已经确认的结论与边界，不补造延迟、CPU 或 DWM 数据。若以后找回原始记录，可以补充 Evidence。
+
+### Consequences / Boundaries
+
+- 预热不取得 presentation ownership；WPF/bounded host 继续拥有 shape/size/presentation，DComp 仍只承担 live HWND surface translation/handoff。
+- 不因为“预热有效”重新引入 bitmap snapshot、clip/scale/effect resize、Reveal/Conceal、第二套 presentation state 或长期 warm pool。
+- 如果未来预热实现明显扩张、Windows/DWM 行为改变，或出现新的可复现实测回归，可以重新 benchmark。
+
+### Evidence
+
+- `src/App.EdgeCapsuleComposition.cs`：启动 idle 条件与预热调度。
+- `src/EdgeCapsuleQueueCompositionProxy.LightPrewarm.cs`：Lightweight Prewarm 本体。
+- D-007～D-010：bounded live host、WPF owns shape、DComp translation-only 与 handoff authority 的长期架构边界。
+- PR #137：4.0 slim-down review 再次暴露了该实测结论此前没有进入长期知识 owner。
+''' + "\n"
+          save(decisions, text)
+
+          experience = Path("docs/edge-lightweight-prewarm-experience.md")
+          if not experience.exists():
+              raise RuntimeError("standalone prewarm experience file missing unexpectedly")
+          experience.unlink()
+
+          # Final static guards before compiling.
+          for path in Path("src").glob("PaperWindow*.cs"):
+              body = load(path)
+              forbidden = [
+                  "IPaperBodyViewMigrationProvider",
+                  "MigratedPluginBody",
+                  "ScheduleMigratedPluginBodyPreviewWarmup",
+                  "RestorePrewarmedPluginBodyForActivation",
+                  "CaptureMigratedPluginBodyOnPointerLeave",
+              ]
+              hits = [token for token in forbidden if token in body]
+              if hits:
+                  raise RuntimeError(f"{path}: retired migration symbols remain: {hits}")
+          if "IPaperBodyViewMigrationProvider" in load(contracts):
+              raise RuntimeError("retired migration ABI still exists")
+          if "IPaperBodyViewMigrationProvider" in load(readme):
+              raise RuntimeError("current plugin manual still advertises migration")
+          if Path("docs/edge-lightweight-prewarm-experience.md").exists():
+              raise RuntimeError("standalone prewarm experience doc still exists")
+          '@ | python -
+
+      - name: Diff sanity
+        run: git diff --check
+
+      - name: Restore
+        run: dotnet restore .\PaperTodo.csproj
+
+      - name: Build
+        run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+
+      - name: Commit reviewed fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) {
+            throw "Patch produced no changes"
+          }
+          git commit -m "fix(plugin): close PR137 slim-down review findings"
+          git push origin HEAD:audit-4-0-slim-20260823
