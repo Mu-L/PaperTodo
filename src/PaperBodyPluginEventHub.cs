@@ -22,7 +22,8 @@ internal readonly record struct PaperOperationContext(
 /// <summary>
 /// Session-scoped plugin event hub. The host keeps a baseline only while subscriptions exist and
 /// never polls the whole workspace on a recurring interval. User mutations are detected through
-/// persistence's monotonic state/save stamps; a short one-shot debounce coalesces edit bursts
+/// persistence's monotonic state/save stamps; their mutation points notify this hub directly and
+/// a short one-shot debounce coalesces edit bursts
 /// before the expensive snapshot/diff. MCP/plugin mutations still publish synchronously with their
 /// exact operation origin.
 /// </summary>
@@ -53,7 +54,6 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     private ChangeStamp _observedStamp;
     private ChangeStamp _scheduledStamp;
     private int _suppressionDepth;
-    private bool _watchingDispatcher;
     private bool _disposed;
 
     public PaperBodyPluginEventHub(AppController controller, Dispatcher dispatcher)
@@ -93,7 +93,6 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             _baseline = CaptureState();
             _observedStamp = CaptureChangeStamp();
             _scheduledStamp = _observedStamp;
-            StartWatchingDispatcher();
         }
         return new SubscriptionHandle(this, subscription.Id);
     }
@@ -174,35 +173,17 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     private ChangeStamp CaptureChangeStamp() =>
         new(_controller.PluginEventStateRevision, _controller.PluginEventSaveVersion);
 
-    private void StartWatchingDispatcher()
+    public void NotifyMutationStampChanged()
     {
-        if (_watchingDispatcher)
+        if (_dispatcher.CheckAccess())
         {
-            return;
+  QueueUserChangesIfNeeded();
+  return;
         }
-        _dispatcher.Hooks.OperationCompleted += OnDispatcherOperationCompleted;
-        _watchingDispatcher = true;
-    }
 
-    private void StopWatchingDispatcher()
-    {
-        if (!_watchingDispatcher)
-        {
-            return;
-        }
-        _dispatcher.Hooks.OperationCompleted -= OnDispatcherOperationCompleted;
-        _watchingDispatcher = false;
-    }
-
-    private void OnDispatcherOperationCompleted(
-        object? sender,
-        DispatcherHookEventArgs e)
-    {
-        if (_disposed || _subscriptions.Count == 0 || _suppressionDepth > 0)
-        {
-            return;
-        }
-        QueueUserChangesIfNeeded();
+        _ = _dispatcher.BeginInvoke(
+  (Action)QueueUserChangesIfNeeded,
+  DispatcherPriority.ContextIdle);
     }
 
     private void QueueUserChangesIfNeeded()
@@ -219,9 +200,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
             return;
         }
 
-        // DispatcherHooks sees every completed UI operation. Once a mutation stamp is already
-        // scheduled, unrelated dispatcher traffic must not keep pushing the trailing debounce out
-        // forever; only a newer mutation stamp restarts the one-shot timer.
+        // Once a mutation stamp is already scheduled, only a newer stamp restarts the
+        // trailing debounce. Save/dirty notifications for the same stamp are idempotent.
         if (stamp == _scheduledStamp && _flushTimer.IsEnabled)
         {
             return;
@@ -494,7 +474,6 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         }
 
         _flushTimer.Stop();
-        StopWatchingDispatcher();
         _baseline.Clear();
         _observedStamp = CaptureChangeStamp();
         _scheduledStamp = _observedStamp;
@@ -516,7 +495,6 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         _disposed = true;
         _flushTimer.Stop();
         _flushTimer.Tick -= OnFlushTimerTick;
-        StopWatchingDispatcher();
         _subscriptions.Clear();
         _baseline.Clear();
     }

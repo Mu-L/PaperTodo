@@ -26,6 +26,9 @@ public sealed partial class AppController
     internal long PluginEventStateRevision => Interlocked.Read(ref _stateRevision);
     internal long PluginEventSaveVersion => Interlocked.Read(ref _saveVersion);
 
+    internal void NotifyPluginEventMutationStampChanged() =>
+        _paperBodyPluginEvents?.NotifyMutationStampChanged();
+
     internal PaperSnapshot CapturePaperSnapshot(PaperData paper) =>
         new(
             paper.Id,

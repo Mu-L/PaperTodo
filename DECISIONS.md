@@ -35,6 +35,7 @@
 | D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
 | D-021 | 插件与 MCP 共用 `PaperCommandService` | Accepted | 外部命令 / 一致性 |
 | D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域 | Accepted | 插件 / UI ownership |
+| D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |
 
 ## 维护规则
 
@@ -571,7 +572,7 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 
 ### Context
 
-插件协议从结构化 capsule 发展到 1.8 mini 后，Native mini、Web `miniEntry`、真实 WPF 正文迁移和旧 capsule fallback 的生命周期并不相同。把它们强行做成一条“先显示旧 fallback、稍后替换”的统一流水线，会重新制造 surface ownership、冷启动和 publication 时序问题。
+插件协议从结构化 capsule 发展到 1.8 mini 后，Native mini、Web `miniEntry`、曾试验的真实 WPF 正文迁移和旧 capsule fallback 的生命周期并不相同。把它们强行做成一条“先显示旧 fallback、稍后替换”的统一流水线，会重新制造 surface ownership、冷启动和 publication 时序问题。
 
 ### Decision
 
@@ -581,7 +582,7 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 
 - Native 专属 mini：只接纳 fresh、unparented、pure-WPF tree；创建失败可以降级到 capsule fallback。
 - Web `miniEntry`：使用专属 Web mini host；当前实现不先画旧 1.6/1.7 capsule，准备期间使用透明占位，只有当前文档完成、`mini.ready()` challenge 通过并跨过真实 Rendering publication boundary 后才显示 Web surface。
-- Native 正文迁移：依据预热、真实 View 和 snapshot 状态安全切换，不维护第二份业务 UI。
+- Native 正文迁移：该便利路线已退役；需要丰富 Native Edge Preview 时提供专属 `IPaperMiniViewProvider`，否则进入 capsule fallback。
 - 没有专属 1.8 preview 能力时：才进入 custom/standard capsule/plain-text fallback。
 
 ### Why
@@ -595,6 +596,8 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 - 不让旧 same-origin Web document 仅凭 queued `miniReady` 获得新 generation publication authority。
 - 不为正文迁移维护持续截图循环或第二份 authoritative plugin state。
 - 不让插件复制宿主的自动宽度/queue placement 算法。
+
+- 不重新引入把 authoritative body View 搬进 Edge Preview 的 reparent/snapshot/warmup/retry 路线；需要 richer Native preview 时由插件提供 fresh dedicated mini tree。
 
 ### Evidence
 
@@ -777,3 +780,32 @@ Global 的关键不是“某张纸片 session 是否正活着”，也不是“�
 - `src/WebPaperBodySession.TopBar.cs`：Web body 的 Paper document-generation ownership。
 - `src/WebPluginAppRuntime.cs`：独立 Web app surface、Global action 与失效清理。
 - `plugin-samples/PaperTodo.Plugin.TopBarWeb/`：body Paper action + `runtime.html` Global action、字符/Stroke SVG、点击后复用 Workspace 的当前示例。
+
+---
+
+## D-023 — Lightweight Prewarm 保留一次性首用预热
+
+**Status:** Accepted
+
+### Context
+
+V3 Lite 收敛后，`EdgeCapsuleQueueCompositionProxy.PrewarmLightweight` 仍会在启动 idle 阶段创建并释放一组临时 WPF HWND / DComp surface / visual，用于提前支付首次真实 Edge hover / queue composition 的一部分系统首用成本。因为这段代码本身看起来不“轻”，后续性能审查容易反复把它当成尚未验证的删除候选。
+
+### Decision
+
+保留当前 **Lightweight、一次性、启动 idle 后执行** 的预热。此前已经做过实际 A/B，对首次交互有可观察收益；没有新的可复现实测反证时，不因为它会临时创建 HWND/DComp 资源而重复要求同一轮“是否需要 A/B / 是否直接删除”的验证。
+
+这次整理没有在仓库中找回当时的原始数字，因此这里只记录已经确认的结论与边界，不补造延迟、CPU 或 DWM 数据。若以后找回原始记录，可以补充 Evidence。
+
+### Consequences / Boundaries
+
+- 预热不取得 presentation ownership；WPF/bounded host 继续拥有 shape/size/presentation，DComp 仍只承担 live HWND surface translation/handoff。
+- 不因为“预热有效”重新引入 bitmap snapshot、clip/scale/effect resize、Reveal/Conceal、第二套 presentation state 或长期 warm pool。
+- 如果未来预热实现明显扩张、Windows/DWM 行为改变，或出现新的可复现实测回归，可以重新 benchmark。
+
+### Evidence
+
+- `src/App.EdgeCapsuleComposition.cs`：启动 idle 条件与预热调度。
+- `src/EdgeCapsuleQueueCompositionProxy.LightPrewarm.cs`：Lightweight Prewarm 本体。
+- D-007～D-010：bounded live host、WPF owns shape、DComp translation-only 与 handoff authority 的长期架构边界。
+- PR #137：4.0 slim-down review 再次暴露了该实测结论此前没有进入长期知识 owner。

@@ -261,16 +261,6 @@ public interface IPaperMiniViewProvider
     void OnMiniViewVisibilityChanged(bool visible) { }
 }
 
-/// <summary>
-/// Optional native-session opt-in for moving the one real body view into the first mini preview
-/// before the body has ever been presented. PaperTodo owns reparenting and screenshot hand-off.
-/// Only a pure-WPF body tree is eligible; unsupported surfaces fall back safely. Dedicated
-/// IPaperMiniViewProvider content always takes precedence over migration.
-/// </summary>
-public interface IPaperBodyViewMigrationProvider
-{
-    PaperMiniViewSize PreferredMigratedMiniViewSize => new(360, 260);
-}
 
 /// <summary>
 /// Marks a custom mini-view element as owning pointer input. Standard WPF buttons, selectors,

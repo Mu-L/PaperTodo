@@ -80,12 +80,7 @@ public sealed partial class PaperWindow
     {
         _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         CloseDeepCapsuleSlotContextMenu();
-        var detached = DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());
-        if (detached)
-        {
-            RestorePrewarmedPluginBodyForActivation("queue-detached");
-        }
-        return detached;
+        return DispatchEdgeCapsuleIntent(EdgeCapsuleIntent.Detached());
     }
 
     private bool SetEdgeCapsuleContextMenuOpen(bool open) =>

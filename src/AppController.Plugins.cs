@@ -727,6 +727,11 @@ public sealed partial class AppController
 
     private void PropagatePluginSettings(string providerId)
     {
+        if (_pluginSettingPropagationTimers.TryGetValue(providerId, out var pendingTimer))
+        {
+            pendingTimer.Stop();
+        }
+
         if (!_paperBodyPlugins.TryGet(providerId, out var descriptor))
         {
             return;

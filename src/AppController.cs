@@ -2980,6 +2980,7 @@ public sealed partial class AppController : IDisposable
         }
 
         Interlocked.Increment(ref _stateRevision);
+        NotifyPluginEventMutationStampChanged();
         if (!_hasPendingDirty)
         {
             _hasPendingDirty = true;
@@ -3006,6 +3007,7 @@ public sealed partial class AppController : IDisposable
             _hasPendingDirty = false;
             CommitPendingNoteContentsForSave();
             var version = Interlocked.Increment(ref _saveVersion);
+            NotifyPluginEventMutationStampChanged();
             attemptedVersion = version;
             var stateRevision = Interlocked.Read(ref _stateRevision);
             var json = _store.SerializeState(State);

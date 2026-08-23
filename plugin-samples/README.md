@@ -827,8 +827,7 @@ Edge Mini 是快速浏览 surface。**插件贡献内容，PaperTodo 始终拥�
 
 1. Native dedicated mini：`IPaperMiniViewProvider`；
 2. Web dedicated mini：manifest `miniEntry`；
-3. Native body migration：`IPaperBodyViewMigrationProvider`；
-4. 没有 dedicated/migration 时，宿主根据 custom/standard capsule 或 `plainText` 构造只读 preview。
+3. 没有 dedicated mini 时，宿主根据 custom/standard capsule 或 `plainText` 构造只读 preview。
 
 ### 9.1 Mini 尺寸
 
@@ -895,11 +894,6 @@ Web Mini 的 pointer 默认属于 PaperTodo。局部控件确实需要网页自�
 
 Web mini 不取得键盘焦点，也**不拥有 Top Bar 注册权**。
 
-### 9.4 Native body migration
-
-纯 WPF 正文如果没有第二套 dedicated mini，可以实现 `IPaperBodyViewMigrationProvider`，允许宿主在合适时机把**唯一真实正文 View**用于 Edge Mini，并由宿主负责 reparent 与 snapshot handoff。
-
-WebView2、`HwndHost`、原生子窗口等 foreign/native surface 不可迁移；dedicated `IPaperMiniViewProvider` 优先级高于 migration。snapshot 只用于 handoff/后续快速预览，不建立持续截图循环，也不是第二份业务 UI。
 
 ## 10. Web 插件
 
