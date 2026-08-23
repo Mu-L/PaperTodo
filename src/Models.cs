@@ -614,6 +614,10 @@ public sealed class PaperItem
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LinkedPath { get; private set; }
 
+    [JsonInclude]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LinkedPathIsDirectory { get; private set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? ReminderAt { get; set; }
 
@@ -624,11 +628,13 @@ public sealed class PaperItem
     {
         LinkedPaperId = NormalizeQuickLaunchValue(paperId);
         LinkedPath = null;
+        LinkedPathIsDirectory = null;
     }
 
-    public void LinkPath(string? path)
+    public void LinkPath(string? path, bool? isDirectory = null)
     {
         LinkedPath = NormalizeQuickLaunchValue(path);
+        LinkedPathIsDirectory = LinkedPath == null ? null : isDirectory;
         LinkedPaperId = null;
     }
 
@@ -636,20 +642,23 @@ public sealed class PaperItem
     {
         LinkedPaperId = null;
         LinkedPath = null;
+        LinkedPathIsDirectory = null;
     }
 
-    internal void RestoreQuickLaunch(string? paperId, string? path)
+    internal void RestoreQuickLaunch(string? paperId, string? path, bool? pathIsDirectory = null)
     {
         var normalizedPaperId = NormalizeQuickLaunchValue(paperId);
         if (normalizedPaperId != null)
         {
             LinkedPaperId = normalizedPaperId;
             LinkedPath = null;
+            LinkedPathIsDirectory = null;
             return;
         }
 
         LinkedPaperId = null;
         LinkedPath = NormalizeQuickLaunchValue(path);
+        LinkedPathIsDirectory = LinkedPath == null ? null : pathIsDirectory;
     }
 
     private static string? NormalizeQuickLaunchValue(string? value)

@@ -702,7 +702,7 @@ public sealed class StateStore
                     !paperIds.Contains(linkedPaperId) ||
                     string.Equals(linkedPaperId, paper.Id, StringComparison.Ordinal))
                 {
-                    item.LinkPath(item.LinkedPath);
+                    item.LinkPath(item.LinkedPath, item.LinkedPathIsDirectory);
                 }
                 else
                 {

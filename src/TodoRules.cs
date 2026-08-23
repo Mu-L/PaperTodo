@@ -34,7 +34,7 @@ internal static class TodoRules
             ReminderAt = item.ReminderAt,
             ReminderTriggered = item.ReminderTriggered
         };
-        clone.RestoreQuickLaunch(item.LinkedPaperId, item.LinkedPath);
+        clone.RestoreQuickLaunch(item.LinkedPaperId, item.LinkedPath, item.LinkedPathIsDirectory);
         return clone;
     }
 

@@ -982,7 +982,9 @@ public sealed partial class PaperWindow
                     }
 
                     var path = Path.GetFullPath(paths[0]);
-                    if (!File.Exists(path) && !Directory.Exists(path))
+                    var isFile = File.Exists(path);
+                    var isDirectory = !isFile && Directory.Exists(path);
+                    if (!isFile && !isDirectory)
                     {
                         MessageBox.Show(
                             this,
@@ -993,7 +995,7 @@ public sealed partial class PaperWindow
                         return;
                     }
 
-                    LinkPathToTodo(item, path);
+                    LinkPathToTodo(item, path, isDirectory);
                     e.Effects = DragDropEffects.Link;
                 }
                 catch (Exception ex)
@@ -1056,10 +1058,11 @@ public sealed partial class PaperWindow
         UpdateTodoRowBackground(row);
     }
 
-    private void LinkPathToTodo(PaperItem item, string path)
+    private void LinkPathToTodo(PaperItem item, string path, bool isDirectory)
     {
         if (string.Equals(item.LinkedPath, path, StringComparison.OrdinalIgnoreCase) &&
-            string.IsNullOrWhiteSpace(item.LinkedPaperId))
+            string.IsNullOrWhiteSpace(item.LinkedPaperId) &&
+            item.LinkedPathIsDirectory == isDirectory)
         {
             return;
         }
@@ -1067,7 +1070,7 @@ public sealed partial class PaperWindow
         var focusedId = CurrentFocusedTodoItemId() ?? item.Id;
         var previousItems = CloneItems(_paper.Items);
         PushUndoSnapshot();
-        item.LinkPath(path);
+        item.LinkPath(path, isDirectory);
         _controller.MarkDirty();
         ReconcileTodoRows([item.Id], focusedId);
         RefreshCapsuleEligibilityForLinkedPaperChanges(previousItems);
@@ -1099,7 +1102,7 @@ public sealed partial class PaperWindow
         var label = PathDisplayName(path);
 
         string LinkedPathButtonLabel(bool isTodoMultiline) =>
-            TodoLinkedPathLabel(path, label, allowLongName, isTodoMultiline);
+            TodoLinkedPathLabel(item, path, label, allowLongName, isTodoMultiline);
 
         double LegacyLinkedPathButtonWidth(bool isTodoMultiline) =>
             isTodoMultiline
@@ -1222,6 +1225,7 @@ public sealed partial class PaperWindow
     }
 
     private string TodoLinkedPathLabel(
+        PaperItem item,
         string path,
         string fileName,
         bool allowLongName,
@@ -1236,7 +1240,8 @@ public sealed partial class PaperWindow
                 limit);
         }
 
-        if (_controller.State.ShowLinkedPathExtensionOnly)
+        if (_controller.State.ShowLinkedPathExtensionOnly &&
+            item.LinkedPathIsDirectory == false)
         {
             try
             {
