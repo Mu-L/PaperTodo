@@ -19,6 +19,34 @@ internal sealed partial class PaperBodyPluginRegistry
     private static void ValidateSettings(PaperBodyPluginManifest manifest)
     {
         manifest.Settings ??= [];
+        manifest.SettingCategories ??= [];
+        if (!manifest.AdvancedSettings &&
+            (manifest.PrimarySettings.HasValue || manifest.SettingCategories.Length > 0))
+        {
+            throw new InvalidDataException(
+                "primarySettings and settingCategories require advancedSettings: true.");
+        }
+        if (manifest.PrimarySettings is < 1 or > 3)
+        {
+            throw new InvalidDataException("primarySettings must be between 1 and 3.");
+        }
+
+        var categoryNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var category in manifest.SettingCategories)
+        {
+            category.Name = category.Name?.Trim() ?? "";
+            category.Column = category.Column?.Trim().ToLowerInvariant() ?? "";
+            if (category.Name.Length == 0 || !categoryNames.Add(category.Name))
+            {
+                throw new InvalidDataException(
+                    "Plugin setting categories must have unique non-empty names.");
+            }
+            if (category.Column is not ("" or "left" or "right"))
+            {
+                throw new InvalidDataException(
+                    $"Plugin setting category '{category.Name}' has unsupported column '{category.Column}'.");
+            }
+        }
         // Settings may depend on provider-level capabilities (for example custom shortcut actions
         // require appRuntime). Normalize and validate the capability list before reading it here so
         // every feature consumes one canonical manifest representation.
@@ -34,12 +62,19 @@ internal sealed partial class PaperBodyPluginRegistry
                 ? setting.Id
                 : setting.Name.Trim();
             setting.Description = setting.Description?.Trim() ?? "";
+            setting.Category = setting.Category?.Trim() ?? "";
             setting.Suffix = setting.Suffix?.Trim() ?? "";
             setting.Placeholder = setting.Placeholder?.Trim() ?? "";
             setting.ShortcutAction = string.IsNullOrWhiteSpace(setting.ShortcutAction)
                 ? PluginShortcutActions.Default
                 : PluginShortcutActions.Normalize(setting.ShortcutAction);
             setting.Options ??= [];
+
+            if (setting.Category.Length > 0 && !manifest.AdvancedSettings)
+            {
+                throw new InvalidDataException(
+                    $"Plugin setting '{setting.Id}' category requires advancedSettings: true.");
+            }
 
             if (!SettingIdPattern.IsMatch(setting.Id) || !ids.Add(setting.Id))
             {
@@ -68,7 +103,7 @@ internal sealed partial class PaperBodyPluginRegistry
                 throw new InvalidDataException(
                     $"Plugin shortcut setting '{setting.Id}' uses custom action '{setting.ShortcutAction}' but the plugin does not declare the appRuntime capability.");
             }
-            if (setting.Quick && ++quickCount > 3)
+            if (!manifest.AdvancedSettings && setting.Quick && ++quickCount > 3)
             {
                 throw new InvalidDataException("A plugin may expose at most three quick settings.");
             }
@@ -234,6 +269,7 @@ internal sealed class PaperBodyPluginSettingManifest
     public string Description { get; set; } = "";
     public JsonElement Default { get; set; }
     public bool Quick { get; set; }
+    public string Category { get; set; } = "";
     public double? Min { get; set; }
     public double? Max { get; set; }
     public double? Step { get; set; }
@@ -242,6 +278,12 @@ internal sealed class PaperBodyPluginSettingManifest
     public string Placeholder { get; set; } = "";
     public string ShortcutAction { get; set; } = PluginShortcutActions.Default;
     public PaperBodyPluginSettingOptionManifest[] Options { get; set; } = [];
+}
+
+internal sealed class PaperBodyPluginSettingCategoryManifest
+{
+    public string Name { get; set; } = "";
+    public string Column { get; set; } = "";
 }
 
 internal sealed class PaperBodyPluginSettingOptionManifest

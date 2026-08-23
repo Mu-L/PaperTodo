@@ -7,8 +7,12 @@
   "apiVersion": "2.0",
   "stateVersion": 1,
   "entry": "web/index.html",
-  "capabilities": ["appRuntime"],
-  "permissions": ["papers.read"],
+  "capabilities": [
+    "appRuntime"
+  ],
+  "permissions": [
+    "papers.read"
+  ],
   "settings": [
     {
       "id": "togglePaperShortcut",

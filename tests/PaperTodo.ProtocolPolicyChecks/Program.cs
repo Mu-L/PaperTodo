@@ -15,6 +15,7 @@ internal static class Program
             CheckRuntimeSlotAuthority(host);
             CheckRuntimeTransitions(host);
             CheckCapabilityNormalization(host);
+            CheckSettingsLayoutManifest(host);
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
             CheckWebBodyNavigationIdentity(host);
@@ -248,6 +249,43 @@ internal static class Program
         var values = (string[]?)capabilities.GetValue(canonicalManifest) ?? [];
         Assert(values.SequenceEqual(new[] { "appRuntime", "textZoom", "noteLinks" }),
             "Capability normalization did not produce one canonical representation.");
+    }
+
+    private static void CheckSettingsLayoutManifest(Assembly host)
+    {
+        var registryType = RequireType(host, "PaperTodo.PaperBodyPluginRegistry");
+        var manifestType = RequireType(host, "PaperTodo.PaperBodyPluginManifest");
+        var settingType = RequireType(host, "PaperTodo.PaperBodyPluginSettingManifest");
+        var categoryType = RequireType(host, "PaperTodo.PaperBodyPluginSettingCategoryManifest");
+
+        Assert(
+            manifestType.GetProperty("AdvancedSettings")?.PropertyType == typeof(bool),
+            "Plugin manifest must expose explicit advancedSettings opt-in metadata.");
+        Assert(
+            manifestType.GetProperty("PrimarySettings")?.PropertyType == typeof(int?),
+            "Plugin manifest must expose optional primarySettings metadata.");
+        Assert(
+            manifestType.GetProperty("SettingCategories")?.PropertyType == categoryType.MakeArrayType(),
+            "Plugin manifest must expose settingCategories metadata.");
+        Assert(
+            settingType.GetProperty("Quick")?.PropertyType == typeof(bool),
+            "Legacy inline settings must retain per-setting quick metadata.");
+        Assert(
+            settingType.GetProperty("Category")?.PropertyType == typeof(string),
+            "Advanced plugin settings must expose an optional category name.");
+        Assert(
+            categoryType.GetProperty("Name")?.PropertyType == typeof(string) &&
+            categoryType.GetProperty("Column")?.PropertyType == typeof(string),
+            "Setting categories must carry their display name and optional column placement.");
+
+        var supported = registryType.GetField(
+            "SupportedPluginApiVersion",
+            BindingFlags.Static | BindingFlags.NonPublic)?.GetRawConstantValue()?.ToString();
+        var minimum = registryType.GetField(
+            "MinimumPluginApiVersion",
+            BindingFlags.Static | BindingFlags.NonPublic)?.GetRawConstantValue()?.ToString();
+        Assert(supported == "2.0" && minimum == "2.0",
+            "The plugin host must be 2.0-only; 1.8 compatibility must not remain enabled.");
     }
 
     private static void CheckProtocolBoundaries(Assembly host)
