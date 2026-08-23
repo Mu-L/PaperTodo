@@ -576,14 +576,14 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 
 ### Decision
 
-插件可以提供 Native 专属 mini、Web `miniEntry`、允许迁移的纯 WPF 正文 View、自定义/标准 capsule 或 plain text，但 Edge preview 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主。
+插件可以提供 Native 专属 mini、Web `miniEntry`、自定义/标准 capsule 或 plain text，但 Edge preview 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主。
 
 当前能力路径分别处理：
 
 - Native 专属 mini：只接纳 fresh、unparented、pure-WPF tree；创建失败可以降级到 capsule fallback。
 - Web `miniEntry`：使用专属 Web mini host；当前实现不先画旧 1.6/1.7 capsule，准备期间使用透明占位，只有当前文档完成、`mini.ready()` challenge 通过并跨过真实 Rendering publication boundary 后才显示 Web surface。
 - Native 正文迁移：该便利路线已退役；需要丰富 Native Edge Preview 时提供专属 `IPaperMiniViewProvider`，否则进入 capsule fallback。
-- 没有专属 1.8 preview 能力时：才进入 custom/standard capsule/plain-text fallback。
+- 没有专属 preview 能力时：进入 custom/standard capsule/plain-text fallback。
 
 ### Why
 
@@ -594,7 +594,6 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 - 不让插件拥有 edge queue HWND 或 placement authority。
 - 不把 `Window`、`HwndHost`、WindowsFormsHost、WebView2 或已挂载控件当作可迁移 Native mini tree。
 - 不让旧 same-origin Web document 仅凭 queued `miniReady` 获得新 generation publication authority。
-- 不为正文迁移维护持续截图循环或第二份 authoritative plugin state。
 - 不让插件复制宿主的自动宽度/queue placement 算法。
 
 - 不重新引入把 authoritative body View 搬进 Edge Preview 的 reparent/snapshot/warmup/retry 路线；需要 richer Native preview 时由插件提供 fresh dedicated mini tree。
@@ -606,7 +605,7 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 - `18c65047f7651d1d697b1fad21611ee65e99b940` — defer cold Web mini initialization。
 - `src/PaperWindow.PluginMiniView.cs`。
 - `src/WebPaperBodySession.Mini.cs`。
-- `src/PaperWindow.PluginBodyMigration.cs`。
+- PR #137 — 退役 Native body migration，删除 reparent/snapshot/warmup/retry 路线。
 
 ---
 

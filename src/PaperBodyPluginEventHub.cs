@@ -97,24 +97,6 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         return new SubscriptionHandle(this, subscription.Id);
     }
 
-    public void FlushUserChanges()
-    {
-        _dispatcher.VerifyAccess();
-        if (_disposed || _subscriptions.Count == 0 || _suppressionDepth > 0)
-        {
-            return;
-        }
-
-        var stamp = CaptureChangeStamp();
-        if (stamp == _observedStamp)
-        {
-            return;
-        }
-
-        _flushTimer.Stop();
-        ScanNowCore(PaperOperationContext.User(), stamp);
-    }
-
     public IDisposable SuppressScans()
     {
         _dispatcher.VerifyAccess();
@@ -177,13 +159,13 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     {
         if (_dispatcher.CheckAccess())
         {
-  QueueUserChangesIfNeeded();
-  return;
+            QueueUserChangesIfNeeded();
+            return;
         }
 
         _ = _dispatcher.BeginInvoke(
-  (Action)QueueUserChangesIfNeeded,
-  DispatcherPriority.ContextIdle);
+            (Action)QueueUserChangesIfNeeded,
+            DispatcherPriority.ContextIdle);
     }
 
     private void QueueUserChangesIfNeeded()
