@@ -890,7 +890,6 @@ public sealed partial class PaperWindow
 
     private void PrepareEdgeCapsulePreviewForActivation()
     {
-        RestorePrewarmedPluginBodyForActivation();
         try
         {
             _edgeCapsulePreviewRequest?.PrepareForActivation?.Invoke();
@@ -992,11 +991,9 @@ public sealed partial class PaperWindow
         if (_controller.State.ExperimentalEdgeCapsuleHoverPreview)
         {
             ScheduleEdgeCapsuleCompositionPrewarm();
-            ScheduleMigratedPluginBodyPreviewWarmup();
         }
         else
         {
-            RestorePrewarmedPluginBodyForActivation("preview-disabled");
         }
         InvalidateEdgeCapsulePointer();
     }

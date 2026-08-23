@@ -20,9 +20,12 @@ internal readonly record struct PaperOperationContext(
 }
 
 /// <summary>
-/// Session-scoped plugin event hub. No polling or snapshots exist until the first active
-/// subscription. The timer runs only while at least one visible plugin session is subscribed.
-/// All access occurs on PaperTodo's UI dispatcher.
+/// Session-scoped plugin event hub. The host keeps a baseline only while subscriptions exist and
+/// never polls the whole workspace on a recurring interval. User mutations are detected through
+/// persistence's monotonic state/save stamps; their mutation points notify this hub directly and
+/// a short one-shot debounce coalesces edit bursts
+/// before the expensive snapshot/diff. MCP/plugin mutations still publish synchronously with their
+/// exact operation origin.
 /// </summary>
 internal sealed class PaperBodyPluginEventHub : IDisposable
 {
@@ -38,13 +41,18 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         IReadOnlyDictionary<string, TodoSnapshot> Todos,
         string? NoteContent);
 
-    private readonly object _gate = new();
+    private readonly record struct ChangeStamp(long StateRevision, long SaveVersion);
+
+    private static readonly TimeSpan UserChangeDebounce = TimeSpan.FromMilliseconds(180);
+
     private readonly AppController _controller;
     private readonly Dispatcher _dispatcher;
-    private readonly DispatcherTimer _scanTimer;
+    private readonly DispatcherTimer _flushTimer;
     private readonly Dictionary<Guid, Subscription> _subscriptions = [];
     private Dictionary<string, PaperStateSnapshot> _baseline =
         new(StringComparer.Ordinal);
+    private ChangeStamp _observedStamp;
+    private ChangeStamp _scheduledStamp;
     private int _suppressionDepth;
     private bool _disposed;
 
@@ -52,12 +60,13 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     {
         _controller = controller;
         _dispatcher = dispatcher;
-        _scanTimer = new DispatcherTimer(
-            TimeSpan.FromMilliseconds(300),
+        _flushTimer = new DispatcherTimer(
             DispatcherPriority.ContextIdle,
-            (_, _) => ScanNowCore(PaperOperationContext.User()),
-            dispatcher);
-        _scanTimer.Stop();
+            dispatcher)
+        {
+            Interval = UserChangeDebounce
+        };
+        _flushTimer.Tick += OnFlushTimerTick;
     }
 
     public IDisposable Subscribe(
@@ -69,31 +78,23 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         ArgumentNullException.ThrowIfNull(filter);
         ArgumentNullException.ThrowIfNull(handler);
         _dispatcher.VerifyAccess();
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
+        var wasEmpty = _subscriptions.Count == 0;
         var subscription = new Subscription(
             Guid.NewGuid(),
             sessionId,
             providerId,
             filter,
             handler);
-        lock (_gate)
+        _subscriptions.Add(subscription.Id, subscription);
+        if (wasEmpty)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            var wasEmpty = _subscriptions.Count == 0;
-            _subscriptions.Add(subscription.Id, subscription);
-            if (wasEmpty)
-            {
-                _baseline = CaptureState();
-                _scanTimer.Start();
-            }
+            _baseline = CaptureState();
+            _observedStamp = CaptureChangeStamp();
+            _scheduledStamp = _observedStamp;
         }
         return new SubscriptionHandle(this, subscription.Id);
-    }
-
-    public void FlushUserChanges()
-    {
-        _dispatcher.VerifyAccess();
-        ScanNowCore(PaperOperationContext.User());
     }
 
     public IDisposable SuppressScans()
@@ -104,80 +105,139 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         {
             _dispatcher.VerifyAccess();
             _suppressionDepth = Math.Max(0, _suppressionDepth - 1);
+            if (_suppressionDepth == 0)
+            {
+                QueueUserChangesIfNeeded();
+            }
         });
     }
 
     public void ScanNow(PaperOperationContext context)
     {
         _dispatcher.VerifyAccess();
-        ScanNowCore(context);
+        if (_disposed || _subscriptions.Count == 0 || _suppressionDepth > 0)
+        {
+            return;
+        }
+
+        _flushTimer.Stop();
+        ScanNowCore(context, CaptureChangeStamp());
     }
 
     public void ResetBaseline()
     {
         _dispatcher.VerifyAccess();
-        lock (_gate)
+        _flushTimer.Stop();
+        if (_subscriptions.Count == 0)
         {
-            _baseline = _subscriptions.Count == 0
-                ? new Dictionary<string, PaperStateSnapshot>(StringComparer.Ordinal)
-                : CaptureState();
+            _baseline.Clear();
+            return;
         }
+
+        _baseline = CaptureState();
+        _observedStamp = CaptureChangeStamp();
+        _scheduledStamp = _observedStamp;
     }
 
     public void RemoveSession(Guid sessionId)
     {
         _dispatcher.VerifyAccess();
-        lock (_gate)
+        foreach (var id in _subscriptions
+                     .Where(pair => pair.Value.SessionId == sessionId)
+                     .Select(pair => pair.Key)
+                     .ToArray())
         {
-            foreach (var id in _subscriptions
-                         .Where(pair => pair.Value.SessionId == sessionId)
-                         .Select(pair => pair.Key)
-                         .ToArray())
-            {
-                _subscriptions.Remove(id);
-            }
-            StopWhenIdle();
+            _subscriptions.Remove(id);
         }
+        StopWhenIdle();
     }
 
-    private void ScanNowCore(PaperOperationContext context)
+    private ChangeStamp CaptureChangeStamp() =>
+        new(_controller.PluginEventStateRevision, _controller.PluginEventSaveVersion);
+
+    public void NotifyMutationStampChanged()
     {
-        _dispatcher.VerifyAccess();
-        Subscription[] subscribers;
-        Dictionary<string, PaperStateSnapshot> previous;
-        lock (_gate)
+        if (_dispatcher.CheckAccess())
         {
-            if (_disposed || _suppressionDepth > 0 || _subscriptions.Count == 0)
-            {
-                return;
-            }
-            subscribers = _subscriptions.Values.ToArray();
-            previous = _baseline;
+            QueueUserChangesIfNeeded();
+            return;
         }
 
+        _ = _dispatcher.BeginInvoke(
+            (Action)QueueUserChangesIfNeeded,
+            DispatcherPriority.ContextIdle);
+    }
+
+    private void QueueUserChangesIfNeeded()
+    {
+        if (_disposed || _subscriptions.Count == 0 || _suppressionDepth > 0)
+        {
+            return;
+        }
+
+        var stamp = CaptureChangeStamp();
+        if (stamp == _observedStamp)
+        {
+            _scheduledStamp = stamp;
+            return;
+        }
+
+        // Once a mutation stamp is already scheduled, only a newer stamp restarts the
+        // trailing debounce. Save/dirty notifications for the same stamp are idempotent.
+        if (stamp == _scheduledStamp && _flushTimer.IsEnabled)
+        {
+            return;
+        }
+
+        _scheduledStamp = stamp;
+        _flushTimer.Stop();
+        _flushTimer.Start();
+    }
+
+    private void OnFlushTimerTick(object? sender, EventArgs e)
+    {
+        _flushTimer.Stop();
+        if (_disposed || _subscriptions.Count == 0 || _suppressionDepth > 0)
+        {
+            return;
+        }
+
+        var stamp = CaptureChangeStamp();
+        if (stamp == _observedStamp)
+        {
+            _scheduledStamp = stamp;
+            return;
+        }
+        ScanNowCore(PaperOperationContext.User(), stamp);
+    }
+
+    private void ScanNowCore(PaperOperationContext context, ChangeStamp observedStamp)
+    {
+        _dispatcher.VerifyAccess();
+        if (_disposed || _suppressionDepth > 0 || _subscriptions.Count == 0)
+        {
+            return;
+        }
+
+        var subscribers = _subscriptions.Values.ToArray();
+        var previous = _baseline;
         var current = CaptureState();
         var events = BuildEvents(previous, current, context);
-        lock (_gate)
+        if (_disposed || _subscriptions.Count == 0)
         {
-            if (_disposed || _subscriptions.Count == 0)
-            {
-                return;
-            }
-            _baseline = current;
+            return;
         }
+
+        _baseline = current;
+        _observedStamp = observedStamp;
+        _scheduledStamp = observedStamp;
 
         foreach (var value in events)
         {
             foreach (var subscriber in subscribers)
             {
-                lock (_gate)
-                {
-                    if (_disposed || !_subscriptions.ContainsKey(subscriber.Id))
-                    {
-                        continue;
-                    }
-                }
-                if (!Matches(subscriber, value))
+                if (_disposed || !_subscriptions.ContainsKey(subscriber.Id) ||
+                    !Matches(subscriber, value))
                 {
                     continue;
                 }
@@ -191,6 +251,10 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
                 }
             }
         }
+
+        // A handler may synchronously mutate or save PaperTodo. Do not lose that newer stamp just
+        // because this scan installed a fresh baseline before invoking listeners.
+        QueueUserChangesIfNeeded();
     }
 
     private Dictionary<string, PaperStateSnapshot> CaptureState()
@@ -380,11 +444,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     private void Unsubscribe(Guid id)
     {
         _dispatcher.VerifyAccess();
-        lock (_gate)
-        {
-            _subscriptions.Remove(id);
-            StopWhenIdle();
-        }
+        _subscriptions.Remove(id);
+        StopWhenIdle();
     }
 
     private void StopWhenIdle()
@@ -393,8 +454,11 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
         {
             return;
         }
-        _scanTimer.Stop();
+
+        _flushTimer.Stop();
         _baseline.Clear();
+        _observedStamp = CaptureChangeStamp();
+        _scheduledStamp = _observedStamp;
     }
 
     public void Dispose()
@@ -411,7 +475,8 @@ internal sealed class PaperBodyPluginEventHub : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _scanTimer.Stop();
+        _flushTimer.Stop();
+        _flushTimer.Tick -= OnFlushTimerTick;
         _subscriptions.Clear();
         _baseline.Clear();
     }

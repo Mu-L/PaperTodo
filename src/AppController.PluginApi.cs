@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using PaperTodo.Plugin;
 
@@ -17,6 +18,16 @@ public sealed partial class AppController
 
     internal PaperCommandService PaperCommands =>
         _paperCommands ??= new PaperCommandService(this);
+
+    // Plugin event subscriptions reuse persistence's monotonic stamps. Most mutations increment
+    // stateRevision through MarkDirty; a few intentional immediate-save paths only advance
+    // saveVersion. Watching both lets the event hub wake after real mutations without a recurring
+    // full-workspace poll.
+    internal long PluginEventStateRevision => Interlocked.Read(ref _stateRevision);
+    internal long PluginEventSaveVersion => Interlocked.Read(ref _saveVersion);
+
+    internal void NotifyPluginEventMutationStampChanged() =>
+        _paperBodyPluginEvents?.NotifyMutationStampChanged();
 
     internal PaperSnapshot CapturePaperSnapshot(PaperData paper) =>
         new(
@@ -57,8 +68,13 @@ public sealed partial class AppController
 
     internal void PrepareExternalPaperOperation()
     {
+        // Markdown edits live in the editor until CommitPendingNoteContentsForSave() copies them
+        // into PaperData. A prior mutation-stamp scan may already have observed the revision before
+        // that copy happened, so the external-operation boundary must diff unconditionally here.
+        // Otherwise the newly committed user edit can be misattributed to the following MCP/plugin
+        // operation.
         CommitPendingNoteContentsForSave();
-        _paperBodyPluginEvents?.FlushUserChanges();
+        _paperBodyPluginEvents?.ScanNow(PaperOperationContext.User());
     }
 
     internal IDisposable SuppressPaperPluginEventScans() =>

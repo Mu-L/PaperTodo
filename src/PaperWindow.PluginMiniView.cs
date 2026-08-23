@@ -85,23 +85,8 @@ public sealed partial class PaperWindow
             };
         }
 
-        if (_bodyDescriptor?.Kind == PaperBodyPluginKind.Native &&
-            _paperBodyHost.Current is IPaperBodyViewMigrationProvider migrationProvider &&
-            TryDescribeMigratedPluginBodyPreview(
-                migrationProvider,
-                context,
-                out var migrationDescriptor))
-        {
-            // Migration is also an explicitly declared 1.8 preview capability. Stage its real
-            // preview wrapper in the opening transaction instead of showing the old capsule first
-            // and replacing it on a later background dispatcher turn.
-            return migrationDescriptor with
-            {
-                DeferContentCreation = false
-            };
-        }
 
-        // No 1.8 preview capability: the enlarged 1.7/1.6/plain capsule is the final preview, not
+        // No dedicated preview capability: the enlarged capsule is the final preview, not
         // an intermediate loading view that will later be replaced.
         return DescribePluginCapsuleFallback(context);
     }
@@ -253,7 +238,6 @@ public sealed partial class PaperWindow
         _pluginMiniViewAttempted = false;
         _pluginMiniViewActive = false;
         _pluginMiniViewVisible = false;
-        ResetMigratedPluginBodyPreview();
     }
 
     private EdgeCapsulePreviewDescriptor DescribePluginCapsuleFallback(
@@ -456,12 +440,4 @@ public sealed partial class PaperWindow
         }
     }
 
-    // Implemented in PaperWindow.PluginBodyMigration.cs. Keeping the decision behind this seam
-    // prevents migration bookkeeping from leaking into the edge-capsule presenter.
-    private partial bool TryDescribeMigratedPluginBodyPreview(
-        IPaperBodyViewMigrationProvider provider,
-        EdgeCapsulePreviewContext context,
-        out EdgeCapsulePreviewDescriptor descriptor);
-
-    private partial void ResetMigratedPluginBodyPreview();
 }

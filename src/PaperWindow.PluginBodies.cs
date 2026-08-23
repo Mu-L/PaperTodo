@@ -335,7 +335,6 @@ public sealed partial class PaperWindow
             ClipToBounds = true
         };
         host.Children.Add(view);
-        host.MouseLeave += (_, _) => CaptureMigratedPluginBodyOnPointerLeave();
         host.SizeChanged += (_, _) => QueuePluginBodyClipRefresh();
         _pluginBodyClipHost = host;
         _pluginBodyClipGeometry = new StreamGeometry();
@@ -700,8 +699,6 @@ public sealed partial class PaperWindow
         // The edge host may currently own a protocol 1.8 mini tree created by this exact session.
         // Restore compact presentation and detach that tree before invalidating or disposing it.
         _controller.CloseEdgeCapsulePreviewForBodySessionReset(this);
-        // A protocol 1.8 migration preview may temporarily parent the one real body view. Restore
-        // it while the session is still current, before Commit/Dispose tears down that view tree.
         ResetPluginMiniViewCache();
         _paperBodyHost.CommitCancelDispose(cancelInteractions);
         _bodyHostApi?.Dispose();
@@ -1046,10 +1043,9 @@ public sealed partial class PaperWindow
              BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
         if (visible)
         {
-            // Expansion can come from a hotkey, tray action or another paper, not only a preview
-            // background click. Return a migrated real View before any path presents the body.
+            // Expansion can come from a hotkey, tray action or another paper. Settle any active
+            // edge preview before the full body becomes presented and interactive.
             PrepareEdgeCapsulePreviewForActivation();
-            _pluginBodyEverPresented = true;
         }
         var runtimeStatusChanged = _bodyRuntimeVisible != runtimeVisible;
         _bodyRuntimeVisible = runtimeVisible;
@@ -1066,8 +1062,7 @@ public sealed partial class PaperWindow
         }
         if (!visible)
         {
-            ScheduleMigratedPluginBodyPreviewWarmup();
-        }
+            }
     }
 
     internal void NotifyCurrentPaperBodyActivated()
@@ -1083,19 +1078,16 @@ public sealed partial class PaperWindow
     internal void NotifyCurrentPaperBodyThemeChanged()
     {
         InvokeBodySession(item => item.OnThemeChanged(CurrentPaperBodyTheme()));
-        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyCurrentPaperBodyTypographyChanged()
     {
         InvokeBodySession(item => item.OnTypographyChanged(CurrentPaperBodyTheme()));
-        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyCurrentPaperBodyDpiChanged()
     {
         InvokeBodySession(item => item.OnDpiChanged());
-        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void NotifyPaperBodyPluginSettingsChanged(
@@ -1114,13 +1106,11 @@ public sealed partial class PaperWindow
         }
 
         InvokeBodySession(item => item.OnSettingsChanged(settingsJson));
-        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void RefreshCurrentPaperBodyFromModel()
     {
         InvokeBodySession(item => item.RefreshFromModel());
-        ScheduleMigratedPluginBodyPreviewWarmup();
     }
 
     internal void DisposeCurrentPaperBody()
