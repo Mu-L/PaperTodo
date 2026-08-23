@@ -65,8 +65,13 @@ public sealed partial class AppController
 
     internal void PrepareExternalPaperOperation()
     {
+        // Markdown edits live in the editor until CommitPendingNoteContentsForSave() copies them
+        // into PaperData. A prior mutation-stamp scan may already have observed the revision before
+        // that copy happened, so the external-operation boundary must diff unconditionally here.
+        // Otherwise the newly committed user edit can be misattributed to the following MCP/plugin
+        // operation.
         CommitPendingNoteContentsForSave();
-        _paperBodyPluginEvents?.FlushUserChanges();
+        _paperBodyPluginEvents?.ScanNow(PaperOperationContext.User());
     }
 
     internal IDisposable SuppressPaperPluginEventScans() =>
