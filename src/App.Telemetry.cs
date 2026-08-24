@@ -6,11 +6,11 @@ namespace PaperTodo;
 
 public partial class App
 {
-    private readonly TelemetryBootstrap _telemetryBootstrap;
+    private TelemetryBootstrap? _telemetryBootstrap;
 
-    public App()
+    private void InitializeTelemetry()
     {
-        _telemetryBootstrap = new TelemetryBootstrap(this);
+        _telemetryBootstrap ??= new TelemetryBootstrap(this);
     }
 }
 
