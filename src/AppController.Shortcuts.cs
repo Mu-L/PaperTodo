@@ -437,7 +437,7 @@ public sealed partial class AppController
         {
             rows.Children.Add(BuildShortcutRow(
                 GlobalShortcutCatalog.EdgeSequenceUiDefinition(group),
-                edgeQueueTipLabelMinWidth: edgeQueueTipLabelWidth));
+                edgeTipLabelMinWidth: edgeQueueTipLabelWidth));
         }
 
         var openAtCursorToggle = SettingsToggle(
