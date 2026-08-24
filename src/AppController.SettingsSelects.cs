@@ -20,12 +20,18 @@ public sealed partial class AppController
 
     private UIElement CreateUiLanguageSettingsRow()
     {
-        return CompactSettingsField(
+        var panel = new StackPanel();
+        panel.Children.Add(CompactSettingsField(
             Strings.Get("SettingsUiLanguage"),
             CreateUiLanguageSelector(),
             editorWidth: 156,
             tipKey: "TipSettingsUiLanguage",
-            topMargin: 4);
+            topMargin: 4));
+        if (State.AdvancedSettingsMode)
+        {
+            panel.Children.Add(CreateAnonymousUsageStatisticsSettingsCard());
+        }
+        return panel;
     }
 
     private UIElement CreateUiLanguageSelector()
