@@ -480,6 +480,7 @@ internal readonly record struct ShortcutGesture(Key Key, ModifierKeys Modifiers)
 
         if (!Enum.TryParse(text, ignoreCase: true, out key) ||
             !Enum.IsDefined(key) ||
+            key is Key.System or Key.ImeProcessed or Key.DeadCharProcessed ||
             KeyInterop.VirtualKeyFromKey(key) == 0)
         {
             key = Key.None;

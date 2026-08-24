@@ -263,6 +263,17 @@ public sealed partial class AppController
         ClearShortcutApplyFailure();
     }
 
+    private static Key ResolveShortcutEventKey(KeyEventArgs e)
+    {
+        return e.Key switch
+        {
+            Key.System => e.SystemKey,
+            Key.ImeProcessed => e.ImeProcessedKey,
+            Key.DeadCharProcessed => e.DeadCharProcessedKey,
+            _ => e.Key
+        };
+    }
+
     private void OnSettingsWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (!SupportsShortcutRecording(_settingsPage) ||
@@ -272,7 +283,7 @@ public sealed partial class AppController
         }
 
         var commandId = _shortcutRecordingCommandId;
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var key = ResolveShortcutEventKey(e);
         e.Handled = true;
 
         if (key == Key.Escape)
@@ -317,7 +328,7 @@ public sealed partial class AppController
             return;
         }
 
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var key = ResolveShortcutEventKey(e);
         var releasedModifier = key switch
         {
             Key.LeftCtrl or Key.RightCtrl => ModifierKeys.Control,
@@ -426,7 +437,7 @@ public sealed partial class AppController
         {
             rows.Children.Add(BuildShortcutRow(
                 GlobalShortcutCatalog.EdgeSequenceUiDefinition(group),
-                edgeQueueTipLabelWidth));
+                edgeQueueTipLabelMinWidth: edgeQueueTipLabelWidth));
         }
 
         var openAtCursorToggle = SettingsToggle(
