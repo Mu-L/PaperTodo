@@ -333,29 +333,7 @@ public sealed partial class AppController
     {
         State.ExperimentalCollapsePaperOnDeactivate =
             !State.ExperimentalCollapsePaperOnDeactivate;
-        if (!State.ExperimentalCollapsePaperOnDeactivate)
-        {
-            foreach (var window in _windows.Values.ToList())
-            {
-                window.CancelStrictAutoCollapse();
-            }
-        }
         SaveNow();
-        RefreshSettingsRegions("labs.focus");
-    }
-
-    private void ToggleExperimentalStrictCollapsePaperAfterShow()
-    {
-        State.ExperimentalStrictCollapsePaperAfterShow =
-            !State.ExperimentalStrictCollapsePaperAfterShow;
-        SaveNow();
-        if (!State.ExperimentalStrictCollapsePaperAfterShow)
-        {
-            foreach (var window in _windows.Values.ToList())
-            {
-                window.CancelStrictAutoCollapse();
-            }
-        }
         RefreshSettingsRegions("labs.focus");
     }
 
@@ -1355,10 +1333,6 @@ public sealed partial class AppController
                 BuildLabsDockedCapsuleBehaviorSettings));
         AddLabsMajorSection(
             rightColumn,
-            Strings.Get("LabsVirtualDesktops"),
-            BuildSettingsLiveRegion("labs.virtualDesktop", BuildLabsVirtualDesktopSettings));
-        AddLabsMajorSection(
-            rightColumn,
             Strings.Get("LabsTodoReminders"),
             BuildSettingsLiveRegion("labs.reminders", BuildLabsTodoReminderSettings));
         AddLabsMajorSection(
@@ -1522,22 +1496,6 @@ public sealed partial class AppController
         content.Children.Add(WrapWithHint(
             autoCollapse,
             "TipLabsCollapsePaperOnDeactivate"));
-
-        var strictCollapse = SettingsToggle(
-            Strings.Get("LabsStrictCollapsePaperAfterShow"),
-            State.ExperimentalStrictCollapsePaperAfterShow,
-            ToggleExperimentalStrictCollapsePaperAfterShow);
-        strictCollapse.IsEnabled =
-            State.UseCapsuleMode &&
-            State.ExperimentalCollapsePaperOnDeactivate;
-        strictCollapse.Opacity = strictCollapse.IsEnabled ? 1.0 : 0.55;
-        content.Children.Add(new Border
-        {
-            Margin = new Thickness(22, 0, 0, 0),
-            Child = WrapWithHint(
-                strictCollapse,
-                "TipLabsStrictCollapsePaperAfterShow")
-        });
 
         content.Children.Add(WrapWithHint(
             SettingsToggle(
@@ -1981,78 +1939,6 @@ public sealed partial class AppController
         return container;
     }
 
-    private UIElement BuildLabsVirtualDesktopSettings()
-    {
-        var compatible = !State.HidePapersFromWindowSwitcher;
-        var enabled =
-            State.ExperimentalVirtualDesktopIntegration && compatible;
-        var card = new Border
-        {
-            Background = Brushes.Transparent,
-            Padding = new Thickness(0, 3, 0, 5),
-            Margin = new Thickness(0, 1, 0, 3)
-        };
-        var content = new StackPanel();
-        var integrationToggle = SettingsToggle(
-            Strings.Get("LabsEnableVirtualDesktopIntegration"),
-            State.ExperimentalVirtualDesktopIntegration,
-            ToggleExperimentalVirtualDesktopIntegration);
-        integrationToggle.IsEnabled = compatible;
-        content.Children.Add(WrapWithHint(
-            integrationToggle,
-            "TipLabsVirtualDesktopIntegration"));
-
-        var options = new StackPanel
-        {
-            IsEnabled = enabled,
-            Opacity = enabled ? 1.0 : 0.55
-        };
-        options.Children.Add(SettingsToggle(
-            Strings.Get("LabsVirtualDesktopMoveOnShow"),
-            State.ExperimentalVirtualDesktopMoveOnShow,
-            ToggleExperimentalVirtualDesktopMoveOnShow));
-        options.Children.Add(SettingsToggle(
-            Strings.Get("LabsVirtualDesktopMoveOnCapsuleActivation"),
-            State.ExperimentalVirtualDesktopMoveOnCapsuleActivation,
-            ToggleExperimentalVirtualDesktopMoveOnCapsuleActivation));
-        var statusRow = new Grid
-        {
-            Margin = new Thickness(2, 7, 2, 0)
-        };
-        statusRow.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = GridLength.Auto
-        });
-        statusRow.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(1, GridUnitType.Star)
-        });
-        var statusLabel = new TextBlock
-        {
-            Text = Strings.Get("LabsVirtualDesktopStatus"),
-            Foreground = TrayWeakTextBrush,
-            FontSize = AppTypography.Scale(11.5),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var status = new TextBlock
-        {
-            Text = ExperimentalVirtualDesktopStatusText(),
-            Foreground = TrayTextBrush,
-            FontSize = AppTypography.Scale(11.5),
-            FontWeight = FontWeights.SemiBold,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(statusLabel, 0);
-        Grid.SetColumn(status, 1);
-        statusRow.Children.Add(statusLabel);
-        statusRow.Children.Add(status);
-        options.Children.Add(statusRow);
-        content.Children.Add(options);
-        card.Child = content;
-        return card;
-    }
-
     private UIElement BuildLabsTodoReminderSettings()
     {
         var card = new Border
@@ -2417,7 +2303,6 @@ public sealed partial class AppController
         State.ExperimentalRestingCapsuleOpacityIncludesMaster = false;
         State.ExperimentalRestingCapsuleOpacityAlways = false;
         State.ExperimentalCollapsePaperOnDeactivate = false;
-        State.ExperimentalStrictCollapsePaperAfterShow = false;
         State.ExperimentalHideInactiveTopBarButtons = false;
         State.ExperimentalHideInactiveTitleBar = false;
         State.ExperimentalDockedCapsulesNonTopmost = false;
@@ -2452,14 +2337,10 @@ public sealed partial class AppController
         State.ExperimentalTetherVisibilityLink = false;
         State.ExperimentalTetherMinimizedBehavior =
             ExperimentalTetherVisibilityModes.Hide;
-        State.ExperimentalVirtualDesktopIntegration = false;
-        State.ExperimentalVirtualDesktopMoveOnShow = true;
-        State.ExperimentalVirtualDesktopMoveOnCapsuleActivation = true;
         RestoreLabsShortcutDefaults();
 
         foreach (var window in _windows.Values.ToList())
         {
-            window.CancelStrictAutoCollapse();
             window.RefreshDeepCapsuleSlotTopmost();
             window.DisableExperimentalCapsuleMagnet();
             window.DisableExperimentalTetherVisibilityLink();
@@ -2470,7 +2351,6 @@ public sealed partial class AppController
             master.RefreshEffectiveTopmost();
         }
         RefreshExperimentalWindowRuntime();
-        RefreshExperimentalVirtualDesktopRuntime();
         RefreshEdgeCapsuleHoverIntentRuntime();
         RefreshMcpRuntime();
         SaveNow();
@@ -2961,7 +2841,6 @@ public sealed partial class AppController
         }
 
         RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
-        RefreshExperimentalVirtualDesktopRuntime();
         RefreshTopBarNewPaperButtonsSetting();
         RefreshTopmostForForegroundWindow();
 
@@ -4021,7 +3900,6 @@ public sealed partial class AppController
 
         SaveNow();
         RefreshPaperSystemVisibility(reapplyTaskbarShellState: true);
-        RefreshExperimentalVirtualDesktopRuntime();
         RefreshSettingsSystemVisibilityToggleStates();
     }
 
