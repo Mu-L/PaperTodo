@@ -8,7 +8,7 @@ internal enum ExperimentalVirtualDesktopWakeReason
 
 public sealed partial class AppController
 {
-    // Transitional compile bridge while obsolete virtual-desktop call sites are removed.
+    // Legacy call-site bridge only. PaperTodo no longer probes, tracks, or moves Windows virtual desktops.
     private void RefreshExperimentalVirtualDesktopRuntime()
     {
     }
