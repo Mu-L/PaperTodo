@@ -152,6 +152,12 @@ def clean_cs(path: Path) -> None:
 
     text = remove_call_statement(text, "PreparePaperForCurrentVirtualDesktop(")
 
+    # Explicitly remove the lifecycle cleanup hook as a full statement. This is deliberately
+    # redundant with SIMPLE_CALLS: the final purge should not depend on line filtering for the
+    # one call site that survived the first guarded run.
+    text = text.replace("        TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);\n", "")
+    text = text.replace("        TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);\r\n", "")
+
     lines = []
     for line in text.splitlines(keepends=True):
         if any(field in line for field in STATE_FIELDS):
@@ -244,7 +250,7 @@ def main() -> None:
     if not status.strip():
         print("No cleanup changes to commit.")
         return
-    run("git", "commit", "-m", "cleanup: purge obsolete experiments")
+    run("git", "commit", "-m", "[ci] cleanup: purge obsolete experiments")
     run("git", "push", "origin", "HEAD")
 
 
