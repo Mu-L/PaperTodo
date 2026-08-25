@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace PaperTodo;
@@ -198,15 +197,6 @@ internal sealed class ExperimentalTetherCapsuleWindow : Window
                 effectiveTopmost,
                 avoidanceWindow);
         }
-    }
-
-    public bool TryMoveToVirtualDesktop(
-        VirtualDesktopAdapter adapter,
-        Guid desktopId)
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        return handle == IntPtr.Zero ||
-            adapter.TryMoveWindowToDesktop(handle, desktopId);
     }
 
     public void UpdateRestingOpacity(double opacity, bool alwaysTransparent)

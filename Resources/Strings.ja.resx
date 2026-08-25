@@ -921,36 +921,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>クリックして「{0}」を復元してアクティブにします</value>
   </data>
-  <data name="LabsVirtualDesktops" xml:space="preserve">
-    <value>Windows 仮想デスクトップ</value>
-  </data>
-  <data name="LabsEnableVirtualDesktopIntegration" xml:space="preserve">
-    <value>現在のデスクトップでの呼び出しを有効にする</value>
-  </data>
-  <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>付箋を表示するかカプセルを開いたとき、PaperTodo 自身のウィンドウを現在のデスクトップへ移動します。システムのデスクトップ切り替えや外部アプリの移動は行いません。「ウィンドウ切り替えから紙片を隠す」とは併用できません。オフにすると連携を停止しますが、完了済みの移動は元に戻しません。</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
-    <value>表示またはトレイから呼び出すときに移動</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnCapsuleActivation" xml:space="preserve">
-    <value>通常または端カプセルを開くときに移動</value>
-  </data>
-  <data name="LabsVirtualDesktopStatus" xml:space="preserve">
-    <value>互換性</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusOff" xml:space="preserve">
-    <value>未確認</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusReady" xml:space="preserve">
-    <value>利用可能</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
-    <value>このシステムでは利用できません</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
-    <value>先にウィンドウ切り替えでの非表示をオフにしてください</value>
-  </data>
   <data name="LabsTodoReminders" xml:space="preserve">
     <value>ToDo リマインダー</value>
   </data>

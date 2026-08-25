@@ -265,7 +265,6 @@ public sealed partial class AppController : IDisposable
         RefreshFullscreenAvoidanceRuntime();
         RefreshTodoReminderSchedule();
         RefreshExperimentalWindowRuntime();
-        RefreshExperimentalVirtualDesktopRuntime();
 
         if (State.Papers.Count == 0)
         {
@@ -1016,9 +1015,6 @@ public sealed partial class AppController : IDisposable
                 RestoreExistingPaperWindowSurface(paper, window);
             }
 
-            _ = PreparePaperForCurrentVirtualDesktop(
-                window,
-                ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
             ForceWindowToFront(window);
             RefreshTodoRowsForLinkedPaper(paper.Id);
             RefreshTrayMenu();
@@ -1323,12 +1319,6 @@ public sealed partial class AppController : IDisposable
             paper,
             deferShellConstruction: showAsDeepCapsuleOnly);
         window.RestoreExperimentalTetherPresentationForExplicitShow();
-        if (!_isRestoringStartupPapers)
-        {
-            _ = PreparePaperForCurrentVirtualDesktop(
-                window,
-                ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
-        }
         window.CancelPendingVisibilityTransitions();
         if (!showAsDeepCapsuleOnly)
         {
@@ -1434,10 +1424,6 @@ public sealed partial class AppController : IDisposable
         RefreshTrayMenu();
         if (!_suppressDirty) RefreshTodoRowsForLinkedPaper(paper.Id);
         MarkDirty();
-        if (!paper.IsCollapsed)
-        {
-            window.ArmStrictAutoCollapseAfterShow();
-        }
     }
 
     private static void ForceWindowToFront(PaperWindow window)
@@ -1498,9 +1484,6 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        _ = PreparePaperForCurrentVirtualDesktop(
-            window,
-            ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
         RestoreWindowIfMinimized(window);
         if (!paper.IsCollapsed)
         {
@@ -3779,7 +3762,6 @@ public sealed partial class AppController : IDisposable
         TryExitCleanup(DisposeGlobalHotkeys);
         TryExitCleanup(DisposeMcpRuntime);
         TryExitCleanup(DisposeExperimentalWindowRuntime);
-        TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);
         TryExitCleanup(DisposeTrayIcon);
         TryExitCleanup(() => _settingsWindow?.Close());
         _settingsWindow = null;

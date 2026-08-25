@@ -150,21 +150,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         ? IntPtr.Zero
         : new WindowInteropHelper(Window).Handle;
 
-    public bool TryMoveToVirtualDesktop(
-        VirtualDesktopAdapter adapter,
-        Guid desktopId)
-    {
-        if (_disposed)
-        {
-            return false;
-        }
-
-        var handle = new WindowInteropHelper(Window).Handle;
-        return handle == IntPtr.Zero ||
-            adapter.TryMoveWindowToDesktop(handle, desktopId);
-    }
-
-
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
     {
         if (_disposed)

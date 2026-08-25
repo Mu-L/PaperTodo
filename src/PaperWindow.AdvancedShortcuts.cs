@@ -62,52 +62,10 @@ public sealed partial class PaperWindow
         if (changed && locked)
         {
             CancelExperimentalAutoCollapse();
-            CancelStrictAutoCollapse();
         }
 
         _edgeCapsuleHost?.SetInteractionLocked(locked);
         UpdateAdvancedInteractionLockVisuals();
-        if (changed && !locked)
-        {
-            CollapseAfterAdvancedInteractionUnlock();
-        }
-    }
-
-    private void CollapseAfterAdvancedInteractionUnlock()
-    {
-        CancelExperimentalAutoCollapse();
-        CancelStrictAutoCollapse();
-        if (!_controller.State.ExperimentalCollapsePaperOnDeactivate ||
-            !_controller.State.UseCapsuleMode ||
-            _paper.IsCollapsed ||
-            !_paper.IsVisible ||
-            !IsVisible ||
-            WindowState == WindowState.Minimized ||
-            !CanDisplayAsCapsule())
-        {
-            return;
-        }
-
-        Dispatcher.BeginInvoke(
-            (Action)(() =>
-            {
-                if (_advancedInteractionLocked ||
-                    _windowLifecycle != PaperWindowLifecycleState.Alive ||
-                    !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
-                    !_controller.State.UseCapsuleMode ||
-                    _paper.IsCollapsed ||
-                    !_paper.IsVisible ||
-                    !IsVisible ||
-                    WindowState == WindowState.Minimized ||
-                    HasExperimentalAutoCollapseBlocker() ||
-                    !CanDisplayAsCapsule())
-                {
-                    return;
-                }
-
-                SetCollapsedState(true);
-            }),
-            System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void EnsureAdvancedInteractionLockVisuals()

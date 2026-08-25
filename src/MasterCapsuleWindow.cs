@@ -387,15 +387,6 @@ public sealed class MasterCapsuleWindow : Window
                 : 1.0;
     }
 
-    internal bool TryMoveToVirtualDesktop(
-        VirtualDesktopAdapter adapter,
-        Guid desktopId)
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        return handle == IntPtr.Zero ||
-            adapter.TryMoveWindowToDesktop(handle, desktopId);
-    }
-
     public void RefreshEffectiveTopmost()
     {
         var avoidanceWindow = _controller.FullscreenAvoidanceWindowForQueue(

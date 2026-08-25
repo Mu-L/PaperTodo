@@ -666,7 +666,6 @@ public sealed partial class PaperWindow : Window
             IsPointInsideDeepCapsuleOwnerSurface,
             OnDeepCapsuleContextMenuOpenChanged);
         InitializePaperPresentationState();
-        InitializeStrictAutoCollapseTracking();
 
         ConfigureWindow();
         if (deferShellConstruction)
