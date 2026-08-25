@@ -54,6 +54,11 @@ public sealed partial class PaperWindow
         _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
         _experimentalPassiveReasons = next;
 
+        if (!wasPassive && IsExperimentalPassive)
+        {
+            CancelExperimentalAutoCollapse();
+        }
+
         if (_experimentalPassiveReasons != ExperimentalPassiveReason.None)
         {
             AbortAllInteractions(InteractionAbortReason.Deactivated);
@@ -226,10 +231,10 @@ public sealed partial class PaperWindow
         _experimentalAutoCollapseGeneration++;
     }
 
-    private void ScheduleExperimentalAutoCollapse(bool interactionWasActive)
+    private void ScheduleExperimentalAutoCollapse(bool blockedAtDeactivation)
     {
         var generation = ++_experimentalAutoCollapseGeneration;
-        if (interactionWasActive ||
+        if (blockedAtDeactivation ||
             !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
             !_controller.State.UseCapsuleMode ||
             _paper.IsCollapsed)
@@ -253,16 +258,7 @@ public sealed partial class PaperWindow
             }
 
             if (generation != _experimentalAutoCollapseGeneration ||
-                _windowLifecycle != PaperWindowLifecycleState.Alive ||
-                IsActive ||
-                !IsVisible ||
-                !_paper.IsVisible ||
-                _paper.IsCollapsed ||
-                WindowState == WindowState.Minimized ||
-                !_controller.State.ExperimentalCollapsePaperOnDeactivate ||
-                !_controller.State.UseCapsuleMode ||
-                HasExperimentalAutoCollapseBlocker() ||
-                !CanDisplayAsCapsule())
+                !CanAutomaticallyCollapseNow())
             {
                 return;
             }
@@ -273,7 +269,20 @@ public sealed partial class PaperWindow
         timer.Start();
     }
 
+    private bool CanAutomaticallyCollapseNow() =>
+        _windowLifecycle == PaperWindowLifecycleState.Alive &&
+        _controller.State.ExperimentalCollapsePaperOnDeactivate &&
+        _controller.State.UseCapsuleMode &&
+        !IsActive &&
+        IsVisible &&
+        _paper.IsVisible &&
+        !_paper.IsCollapsed &&
+        WindowState != WindowState.Minimized &&
+        !HasExperimentalAutoCollapseBlocker() &&
+        CanDisplayAsCapsule();
+
     private bool HasExperimentalAutoCollapseBlocker() =>
+        IsExperimentalPassive ||
         _advancedInteractionLocked ||
         _isEditingTitle ||
         _titleBarDragSession != null ||
