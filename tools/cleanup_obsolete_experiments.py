@@ -21,11 +21,11 @@ STATE_FIELDS = [
 ]
 
 SIMPLE_CALLS = [
-    "InitializeStrictAutoCollapseTracking();",
-    "CancelStrictAutoCollapse();",
-    "ArmStrictAutoCollapseAfterShow();",
-    "RefreshExperimentalVirtualDesktopRuntime();",
-    "DisposeExperimentalVirtualDesktopRuntime();",
+    "InitializeStrictAutoCollapseTracking",
+    "CancelStrictAutoCollapse",
+    "ArmStrictAutoCollapseAfterShow",
+    "RefreshExperimentalVirtualDesktopRuntime",
+    "DisposeExperimentalVirtualDesktopRuntime",
 ]
 
 RESOURCE_TOKENS = (
@@ -216,10 +216,11 @@ def main() -> None:
     for path in (ROOT / "Resources").glob("Strings*.resx"):
         clean_resx(path)
 
-    # Remove temporary trigger artifacts from the final tree.
+    # Remove temporary cleanup machinery from the final tree.
     for temp in [
         ROOT / ".ci-cleanup-trigger",
         ROOT / ".github/workflows/cleanup-obsolete-experiments.yml",
+        ROOT / ".github/workflows/source-scrub-obsolete-experiments.yml",
         ROOT / "tools/cleanup_obsolete_experiments.py",
     ]:
         if temp.exists():
