@@ -690,7 +690,7 @@ public sealed partial class PaperWindow
         double finalTargetHeight = RoundToDevicePixelY(targetHeight);
 
         _paper.IsCollapsed = collapsed;
-RefreshExperimentalOpacity();
+        RefreshExperimentalOpacity();
         if (!collapsed)
         {
             ChangeEdgeCapsulePaperForm(

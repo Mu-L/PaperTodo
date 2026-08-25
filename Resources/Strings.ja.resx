@@ -921,16 +921,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>クリックして「{0}」を復元してアクティブにします</value>
   </data>
-
-
-
-
-
-
-
-
-
-<data name="LabsTodoReminders" xml:space="preserve">
+  <data name="LabsTodoReminders" xml:space="preserve">
     <value>ToDo リマインダー</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">

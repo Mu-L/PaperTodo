@@ -1319,9 +1319,6 @@ public sealed partial class AppController : IDisposable
             paper,
             deferShellConstruction: showAsDeepCapsuleOnly);
         window.RestoreExperimentalTetherPresentationForExplicitShow();
-        if (!_isRestoringStartupPapers)
-        {
-        }
         window.CancelPendingVisibilityTransitions();
         if (!showAsDeepCapsuleOnly)
         {
@@ -1427,9 +1424,6 @@ public sealed partial class AppController : IDisposable
         RefreshTrayMenu();
         if (!_suppressDirty) RefreshTodoRowsForLinkedPaper(paper.Id);
         MarkDirty();
-        if (!paper.IsCollapsed)
-        {
-        }
     }
 
     private static void ForceWindowToFront(PaperWindow window)

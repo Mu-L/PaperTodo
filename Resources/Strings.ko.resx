@@ -921,16 +921,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>클릭하여 “{0}” 복원 및 활성화</value>
   </data>
-
-
-
-
-
-
-
-
-
-<data name="LabsTodoReminders" xml:space="preserve">
+  <data name="LabsTodoReminders" xml:space="preserve">
     <value>할 일 알림</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">

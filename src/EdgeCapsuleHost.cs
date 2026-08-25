@@ -150,7 +150,6 @@ internal sealed partial class EdgeCapsuleHost : IDisposable
         ? IntPtr.Zero
         : new WindowInteropHelper(Window).Handle;
 
-
     public void AttachNativeHooks(HwndSourceHook hook, Action deactivated)
     {
         if (_disposed)
