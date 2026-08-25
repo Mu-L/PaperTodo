@@ -71,7 +71,6 @@ jobs:
                   raise SystemExit(f'{resource}: expected 1 reminder-boundary cleanup, got {count}')
               write(resource, text2)
 
-          # Assert the specific artifacts found during review are gone.
           checks = {
               'src/AppController.cs': [
                   'if (!_isRestoringStartupPapers)\n        {\n        }',
@@ -91,6 +90,7 @@ jobs:
           subprocess.run(['dotnet', 'build', '.\\PaperTodo.csproj', '-c', 'Release', '--no-restore'], check=True)
 
           Path('.github/workflows/polish-obsolete-cleanup.yml').unlink()
+          Path('.cleanup_polish.py').unlink(missing_ok=True)
           subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
           subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
           subprocess.run(['git', 'add', '-A'], check=True)
