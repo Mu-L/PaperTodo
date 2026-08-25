@@ -45,8 +45,6 @@ public static class Strings
             ["TipLabsAllCapsulesTransparent"] = ["显式透明优先于空闲半透明，并统一作用于全部胶囊。", "Explicit transparency overrides idle transparency and applies to all capsules.", "明示的な透明度はアイドル透明度より優先され、全カプセルに適用されます。", "명시적 투명도는 유휴 투명도보다 우선하며 모든 캡슐에 적용됩니다."],
             ["LabsCurrentPaperTransparent"] = ["切换当前焦点纸片透明", "Toggle focused paper transparent", "フォーカス中の紙の透明を切替", "현재 포커스 메모 투명 전환"],
             ["TipLabsCurrentPaperTransparent"] = ["只作用于快捷键触发时拥有焦点的普通或插件纸片。", "Affects only the regular or plugin paper focused when the shortcut fires.", "ショートカット実行時にフォーカス中の通常またはプラグインの紙だけに作用します。", "단축키 실행 시 포커스된 일반 또는 플러그인 메모에만 적용됩니다."],
-            ["LabsStrictCollapsePaperAfterShow"] = ["严格收起", "Strict collapse", "厳格な自動折りたたみ", "엄격한 자동 접기"],
-            ["TipLabsStrictCollapsePaperAfterShow"] = ["新建或显示纸片后，若未使用它便进行了其他操作，立即收起。无需全局键鼠 Hook。", "After a paper is created or shown, collapse it when another action happens before the paper is used. No global input hook is used.", "紙を作成または表示した後、使用せず別の操作をすると直ちに折りたたみます。グローバル入力フックは使用しません。", "메모를 만들거나 표시한 뒤 사용하지 않고 다른 작업을 하면 즉시 접습니다. 전역 입력 훅은 사용하지 않습니다."],
             ["LabsHideInactiveTopBarButtons"] = ["失焦隐藏顶栏按钮", "Hide inactive top-bar buttons", "非アクティブ時に上部ボタンを隠す", "비활성 상단 버튼 숨기기"],
             ["TipLabsHideInactiveTopBarButtons"] = ["纸片失去焦点时隐藏顶栏操作按钮；悬停或重新激活时显示，并保留原布局空间。", "Hide top-bar action buttons while the paper is inactive; reveal them on hover or activation without changing layout.", "紙が非アクティブな間は上部の操作ボタンを隠し、ホバーまたは再アクティブ化で表示します。レイアウト幅は保持します。", "메모가 비활성일 때 상단 작업 버튼을 숨기고, 마우스를 올리거나 다시 활성화하면 표시합니다. 레이아웃 공간은 유지합니다."],
             ["LabsHideInactiveTitleBar"] = ["失焦隐藏标题栏", "Hide inactive title bar", "非アクティブ時にタイトルバーを隠す", "비활성 제목 표시줄 숨기기"],

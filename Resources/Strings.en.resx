@@ -921,37 +921,16 @@ When off, only hides those items; selected values stay unchanged.</value>
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>Click to restore and activate “{0}”</value>
   </data>
-  <data name="LabsVirtualDesktops" xml:space="preserve">
-    <value>Windows virtual desktops</value>
-  </data>
-  <data name="LabsEnableVirtualDesktopIntegration" xml:space="preserve">
-    <value>Enable wake on current desktop</value>
-  </data>
-  <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>Moves PaperTodo's own windows to the current desktop when you show a paper or open a capsule. It never switches the system desktop or moves external apps. This is incompatible with hiding papers from the window switcher. Turning it off stops integration; completed moves are not reversed.</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
-    <value>Move on show or tray wake</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnCapsuleActivation" xml:space="preserve">
-    <value>Move when an ordinary or edge capsule is opened</value>
-  </data>
-  <data name="LabsVirtualDesktopStatus" xml:space="preserve">
-    <value>Compatibility</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusOff" xml:space="preserve">
-    <value>Not checked</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusReady" xml:space="preserve">
-    <value>Available</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
-    <value>Unavailable on this system</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
-    <value>Turn off window-switcher hiding first</value>
-  </data>
-  <data name="LabsTodoReminders" xml:space="preserve">
+
+
+
+
+
+
+
+
+
+<data name="LabsTodoReminders" xml:space="preserve">
     <value>Todo reminders</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">

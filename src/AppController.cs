@@ -265,7 +265,6 @@ public sealed partial class AppController : IDisposable
         RefreshFullscreenAvoidanceRuntime();
         RefreshTodoReminderSchedule();
         RefreshExperimentalWindowRuntime();
-        RefreshExperimentalVirtualDesktopRuntime();
 
         if (State.Papers.Count == 0)
         {
@@ -1016,9 +1015,6 @@ public sealed partial class AppController : IDisposable
                 RestoreExistingPaperWindowSurface(paper, window);
             }
 
-            _ = PreparePaperForCurrentVirtualDesktop(
-                window,
-                ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
             ForceWindowToFront(window);
             RefreshTodoRowsForLinkedPaper(paper.Id);
             RefreshTrayMenu();
@@ -1325,9 +1321,6 @@ public sealed partial class AppController : IDisposable
         window.RestoreExperimentalTetherPresentationForExplicitShow();
         if (!_isRestoringStartupPapers)
         {
-            _ = PreparePaperForCurrentVirtualDesktop(
-                window,
-                ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
         }
         window.CancelPendingVisibilityTransitions();
         if (!showAsDeepCapsuleOnly)
@@ -1436,7 +1429,6 @@ public sealed partial class AppController : IDisposable
         MarkDirty();
         if (!paper.IsCollapsed)
         {
-            window.ArmStrictAutoCollapseAfterShow();
         }
     }
 
@@ -1498,9 +1490,6 @@ public sealed partial class AppController : IDisposable
             return;
         }
 
-        _ = PreparePaperForCurrentVirtualDesktop(
-            window,
-            ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);
         RestoreWindowIfMinimized(window);
         if (!paper.IsCollapsed)
         {
@@ -3779,7 +3768,6 @@ public sealed partial class AppController : IDisposable
         TryExitCleanup(DisposeGlobalHotkeys);
         TryExitCleanup(DisposeMcpRuntime);
         TryExitCleanup(DisposeExperimentalWindowRuntime);
-        TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);
         TryExitCleanup(DisposeTrayIcon);
         TryExitCleanup(() => _settingsWindow?.Close());
         _settingsWindow = null;

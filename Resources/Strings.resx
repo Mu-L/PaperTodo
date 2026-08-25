@@ -934,37 +934,16 @@
   <data name="LabsTetherCapsuleTargetTipFormat" xml:space="preserve">
     <value>点击恢复并激活“{0}”</value>
   </data>
-  <data name="LabsVirtualDesktops" xml:space="preserve">
-    <value>Windows 多桌面</value>
-  </data>
-  <data name="LabsEnableVirtualDesktopIntegration" xml:space="preserve">
-    <value>启用当前桌面唤醒</value>
-  </data>
-  <data name="TipLabsVirtualDesktopIntegration" xml:space="preserve">
-    <value>主动显示纸片或打开胶囊时，把 PaperTodo 自有窗口移到当前桌面；不会切换系统桌面，也不会移动外部软件。与「从窗口切换中隐藏纸片」不兼容；关闭后停止接入，已完成的移动不会回滚。</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnShow" xml:space="preserve">
-    <value>显示或从托盘唤醒时移到当前桌面</value>
-  </data>
-  <data name="LabsVirtualDesktopMoveOnCapsuleActivation" xml:space="preserve">
-    <value>点击普通或贴边胶囊时移到当前桌面</value>
-  </data>
-  <data name="LabsVirtualDesktopStatus" xml:space="preserve">
-    <value>兼容性</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusOff" xml:space="preserve">
-    <value>未检测</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusReady" xml:space="preserve">
-    <value>可用</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusUnavailable" xml:space="preserve">
-    <value>当前系统不可用</value>
-  </data>
-  <data name="LabsVirtualDesktopStatusWindowSwitcherConflict" xml:space="preserve">
-    <value>需先关闭窗口切换隐藏</value>
-  </data>
-  <data name="LabsTodoReminders" xml:space="preserve">
+
+
+
+
+
+
+
+
+
+<data name="LabsTodoReminders" xml:space="preserve">
     <value>待办提醒</value>
   </data>
   <data name="LabsEnableTodoReminders" xml:space="preserve">

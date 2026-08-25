@@ -93,9 +93,6 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _ = _controller.PreparePaperForCurrentVirtualDesktop(
-            this,
-            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
         if (_paper.IsCollapsed)
         {
             if (TryGetEdgeShortcutCursorOrigin(out var placement))
@@ -163,9 +160,6 @@ public sealed partial class PaperWindow
             return;
         }
 
-        _ = _controller.PreparePaperForCurrentVirtualDesktop(
-            this,
-            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);
         if (_paper.IsCollapsed)
         {
             ShowMainWindowForDeepCapsuleActivation();
