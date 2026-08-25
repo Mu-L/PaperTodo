@@ -1,0 +1,187 @@
+name: Source scrub obsolete experiments
+
+on:
+  push:
+    branches:
+      - cleanup/remove-obsolete-collapse-and-virtual-desktop
+
+permissions:
+  contents: write
+
+jobs:
+  scrub:
+    if: github.event.head_commit.message == 'chore: run source scrubber'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Remove obsolete experiment remnants
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='\n')
+
+          def replace_exact(path, old, new='', expected=None, minimum=1):
+              text = read(path)
+              count = text.count(old)
+              if expected is not None and count != expected:
+                  raise SystemExit(f'{path}: expected {expected} exact matches, found {count}: {old!r}')
+              if expected is None and count < minimum:
+                  raise SystemExit(f'{path}: expected at least {minimum} exact matches, found {count}: {old!r}')
+              write(path, text.replace(old, new))
+              print(f'{path}: replaced {count} exact block(s)')
+
+          def sub_regex(path, pattern, repl='', expected=None, minimum=1, flags=0):
+              text = read(path)
+              text2, count = re.subn(pattern, repl, text, flags=flags)
+              if expected is not None and count != expected:
+                  raise SystemExit(f'{path}: expected {expected} regex matches, found {count}: {pattern}')
+              if expected is None and count < minimum:
+                  raise SystemExit(f'{path}: expected at least {minimum} regex matches, found {count}: {pattern}')
+              write(path, text2)
+              print(f'{path}: removed {count} regex block(s)')
+
+          for dead in [
+              'src/AppController.VirtualDesktops.cs',
+              'src/VirtualDesktopAdapter.cs',
+              'src/PaperWindow.StrictAutoCollapse.cs',
+              'src/PaperWindow.VirtualDesktop.cs',
+          ]:
+              p = Path(dead)
+              if p.exists():
+                  p.unlink()
+                  print(f'deleted {dead}')
+
+          app = 'src/AppController.cs'
+          replace_exact(app, '        RefreshExperimentalVirtualDesktopRuntime();\n', expected=1)
+          replace_exact(
+              app,
+              '        if (!_isRestoringStartupPapers)\n'
+              '        {\n'
+              '            _ = PreparePaperForCurrentVirtualDesktop(\n'
+              '                window,\n'
+              '                ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);\n'
+              '        }\n',
+              expected=1)
+          replace_exact(
+              app,
+              '        _ = PreparePaperForCurrentVirtualDesktop(\n'
+              '            window,\n'
+              '            ExperimentalVirtualDesktopWakeReason.ShowOrBringToFront);\n',
+              expected=2)
+          replace_exact(
+              app,
+              '        if (!paper.IsCollapsed)\n'
+              '        {\n'
+              '            window.ArmStrictAutoCollapseAfterShow();\n'
+              '        }\n',
+              expected=1)
+          replace_exact(app, '        TryExitCleanup(DisposeExperimentalVirtualDesktopRuntime);\n', expected=1)
+
+          replace_exact(
+              'src/PaperWindow.Note.cs',
+              '        _ = _controller.PreparePaperForCurrentVirtualDesktop(\n'
+              '            this,\n'
+              '            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);\n',
+              expected=2)
+
+          replace_exact(
+              'src/PaperWindow.EdgeCapsuleSurface.cs',
+              '        _ = _controller.PreparePaperForCurrentVirtualDesktop(\n'
+              '            this,\n'
+              '            ExperimentalVirtualDesktopWakeReason.CapsuleActivation);\n',
+              expected=2)
+
+          replace_exact(
+              'src/PaperWindow.Capsule.cs',
+              '        if (collapsed)\n'
+              '        {\n'
+              '            CancelStrictAutoCollapse();\n'
+              '        }\n'
+              '        else\n'
+              '        {\n'
+              '            ArmStrictAutoCollapseAfterShow();\n'
+              '        }\n',
+              expected=1)
+
+          replace_exact('src/PaperWindow.cs', '        InitializeStrictAutoCollapseTracking();\n', expected=1)
+
+          replace_exact('src/Models.cs', '    public bool ExperimentalStrictCollapsePaperAfterShow { get; set; }\n', expected=1)
+          replace_exact('src/Models.cs', '    public bool ExperimentalVirtualDesktopIntegration { get; set; }\n', expected=1)
+          replace_exact('src/Models.cs', '    public bool ExperimentalVirtualDesktopMoveOnShow { get; set; } = true;\n', expected=1)
+          replace_exact('src/Models.cs', '    public bool ExperimentalVirtualDesktopMoveOnCapsuleActivation { get; set; } = true;\n', expected=1)
+
+          sub_regex(
+              'src/EdgeCapsuleHost.cs',
+              r'\n    public bool TryMoveToVirtualDesktop\(\n.*?^    \}\n',
+              expected=1,
+              flags=re.MULTILINE | re.DOTALL)
+          sub_regex(
+              'src/MasterCapsuleWindow.cs',
+              r'\n    internal bool TryMoveToVirtualDesktop\(\n.*?^    \}\n',
+              expected=1,
+              flags=re.MULTILINE | re.DOTALL)
+
+          sub_regex(
+              'src/Strings.cs',
+              r'^\s*\["(?:Tip)?LabsStrictCollapsePaperAfterShow"\].*\n',
+              expected=2,
+              flags=re.MULTILINE)
+
+          for resource in [
+              'Resources/Strings.resx',
+              'Resources/Strings.en.resx',
+              'Resources/Strings.ja.resx',
+              'Resources/Strings.ko.resx',
+          ]:
+              sub_regex(
+                  resource,
+                  r'^[ \t]*<data name="[^"]*(?:VirtualDesktop|StrictCollapsePaperAfterShow)[^"]*"[^>]*>\n.*?^[ \t]*</data>\n',
+                  minimum=1,
+                  flags=re.MULTILINE | re.DOTALL)
+
+          residual_pattern = re.compile(
+              r'VirtualDesktop|StrictAutoCollapse|StrictCollapsePaperAfterShow|ExperimentalStrictCollapse')
+          residuals = []
+          allowed = Path('.github/workflows/source-scrub-obsolete-experiments.yml')
+          for root in [Path('src'), Path('Resources'), Path('docs')]:
+              if not root.exists():
+                  continue
+              for p in root.rglob('*'):
+                  if not p.is_file() or p == allowed:
+                      continue
+                  try:
+                      text = p.read_text(encoding='utf-8')
+                  except UnicodeDecodeError:
+                      continue
+                  for lineno, line in enumerate(text.splitlines(), 1):
+                      if residual_pattern.search(line):
+                          residuals.append(f'{p}:{lineno}:{line.strip()}')
+          if residuals:
+              print('Residual obsolete symbols found:')
+              print('\n'.join(residuals))
+              raise SystemExit(1)
+
+      - name: Review diff integrity
+        run: |
+          git diff --check
+          git status --short
+          git diff --stat
+
+      - name: Commit scrubbed source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 1
+          git commit -m "[ci] cleanup: remove obsolete experiment remnants"
+          git push origin HEAD:cleanup/remove-obsolete-collapse-and-virtual-desktop
