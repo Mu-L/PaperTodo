@@ -156,7 +156,7 @@ public sealed partial class PaperWindow
             ? _pluginDisplayTitle
             : _paper.BodyHeaderText;
         return !IsCurrentBodyProviderMarkdown &&
-            !_bodyFailed &&
+            (!_bodyFailed || HasWebPaperRuntimePresentationOwner) &&
             !string.IsNullOrWhiteSpace(title);
     }
 
@@ -164,7 +164,7 @@ public sealed partial class PaperWindow
     {
         title = _paper.BodyCapsuleText;
         return !IsCurrentBodyProviderMarkdown &&
-            !_bodyFailed &&
+            (!_bodyFailed || HasWebPaperRuntimePresentationOwner) &&
             !string.IsNullOrWhiteSpace(title);
     }
 
@@ -264,7 +264,18 @@ public sealed partial class PaperWindow
                         $"Saved plugin state version {stored.Version} is newer than supported version {descriptor.StateVersion}.");
                 }
                 var context = CreatePluginContext(descriptor, generation, stored);
-                return new WebPaperBodySession(context, descriptor.Manifest);
+                return new WebPaperBodySession(
+                    context,
+                    descriptor.Manifest,
+                    payload => _controller.PostBodyMessageToWebPaperRuntime(
+                        _paper.Id,
+                        descriptor.Id,
+                        payload),
+                    paperRuntimeOwnsPresentation:
+                        (descriptor.RuntimeRequirements &
+                         PaperBodyRuntimeRequirements.BackgroundUpdates) != 0 &&
+                        !string.IsNullOrWhiteSpace(
+                            descriptor.Manifest.PaperRuntimePath));
             }
 
             throw new InvalidOperationException("Plugin descriptor has no usable body factory.");
@@ -755,9 +766,13 @@ public sealed partial class PaperWindow
             _paper.Id,
             stateVersion,
             normalized);
+        _controller.NotifyWebPaperRuntimeStateChanged(
+            _paper.Id,
+            providerId,
+            normalized);
     }
 
-    private static string NormalizePluginDisplayText(string? text)
+    internal static string NormalizePluginDisplayText(string? text)
     {
         var normalized = string.Join(
             " ",
@@ -795,10 +810,18 @@ public sealed partial class PaperWindow
 
     private void ResetPluginRuntimeState(bool refreshTitle)
     {
-        var hadDisplayTitle = !string.IsNullOrEmpty(_pluginDisplayTitle);
-        var hadCapsulePresentation = _pluginCapsulePresentation != null;
-        _pluginDisplayTitle = "";
-        _pluginCapsulePresentation = null;
+        var preservePaperPresentation = HasWebPaperRuntimePresentationOwner;
+        var hadDisplayTitle =
+            !preservePaperPresentation &&
+            !string.IsNullOrEmpty(_pluginDisplayTitle);
+        var hadCapsulePresentation =
+            !preservePaperPresentation &&
+            _pluginCapsulePresentation != null;
+        if (!preservePaperPresentation)
+        {
+            _pluginDisplayTitle = "";
+            _pluginCapsulePresentation = null;
+        }
         ResetPluginCapsuleCustomViews();
         ResetPluginMiniViewCache();
         _bodyInputClaims = PaperBodyInputClaims.None;
@@ -856,8 +879,11 @@ public sealed partial class PaperWindow
         }
 
         CommitPendingEditsForSave();
+        var previousProviderId = NormalizeBodyProviderId(_paper.BodyProviderId);
+        ClearWebPaperRuntimePresentation(previousProviderId);
         RemoveCurrentPaperBody();
         _paper.BodyProviderId = normalized;
+        _controller.ReconcileWebPaperRuntimes();
         _paper.BodyHeaderText = "";
         _paper.BodyCapsuleText = "";
         AttachCurrentPaperBody();
@@ -998,6 +1024,11 @@ public sealed partial class PaperWindow
 
     private void ClearPluginPresentationOnFailure()
     {
+        if (HasWebPaperRuntimePresentationOwner)
+        {
+            return;
+        }
+
         var hadHeader = !string.IsNullOrEmpty(_paper.BodyHeaderText);
         var hadCapsule = !string.IsNullOrEmpty(_paper.BodyCapsuleText);
         _paper.BodyHeaderText = "";
@@ -1038,9 +1069,11 @@ public sealed partial class PaperWindow
             return;
         }
 
+        var keepNativeBodyRuntimeAlive =
+            _bodyDescriptor?.Kind == PaperBodyPluginKind.Native &&
+            BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates);
         var runtimeVisible = _paper.IsVisible &&
-            (visible ||
-             BodyRequires(PaperBodyRuntimeRequirements.BackgroundUpdates));
+            (visible || keepNativeBodyRuntimeAlive);
         if (visible)
         {
             // Expansion can come from a hotkey, tray action or another paper. Settle any active
@@ -1051,8 +1084,6 @@ public sealed partial class PaperWindow
         _bodyRuntimeVisible = runtimeVisible;
         InvokeBodySession(item =>
         {
-            // Presentation first avoids briefly starting a cold background controller when a
-            // folded paper is being expanded in the same dispatcher turn.
             item.OnPresentationChanged(visible);
             item.OnVisibilityChanged(runtimeVisible);
         });
@@ -1060,9 +1091,6 @@ public sealed partial class PaperWindow
         {
             _controller.QueuePluginStatusRefresh();
         }
-        if (!visible)
-        {
-            }
     }
 
     internal void NotifyCurrentPaperBodyActivated()

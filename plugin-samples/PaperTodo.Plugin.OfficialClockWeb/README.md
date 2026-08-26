@@ -19,3 +19,9 @@ plugins\official.clock.web\
 ```
 
 修改源码后，将本目录的 `plugin.json` 和 `web/` 同步到上述目录即可重载。PaperTodo 的本地发布和 GitHub Release 不携带该插件。
+
+## Paper Runtime
+
+`requires: ["backgroundUpdates"]` 的 Web 插件通过 `paperRuntime` 声明每张 Paper 独立的后台入口。时钟的定时器、标题与胶囊更新运行在 `web/paper-runtime.html`；`web/index.html` 只负责展开后的可见 UI，因此 Body 重建不会重启后台计时。
+
+Paper Runtime 的文档实例有独立 authority：宿主在初始化后发放 document token，renderer reload 时旧文档只能提交最后一次 state，不能继续写入新的 runtime 文档；成功保存的 state/version 同时更新 runtime 内存快照，因此恢复不会退回启动时的旧状态。
