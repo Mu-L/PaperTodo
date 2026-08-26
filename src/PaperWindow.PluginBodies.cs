@@ -264,6 +264,11 @@ public sealed partial class PaperWindow
                         $"Saved plugin state version {stored.Version} is newer than supported version {descriptor.StateVersion}.");
                 }
                 var context = CreatePluginContext(descriptor, generation, stored);
+                var hasPaperRuntime =
+                    (descriptor.RuntimeRequirements &
+                     PaperBodyRuntimeRequirements.BackgroundUpdates) != 0 &&
+                    !string.IsNullOrWhiteSpace(
+                        descriptor.Manifest.PaperRuntimePath);
                 return new WebPaperBodySession(
                     context,
                     descriptor.Manifest,
@@ -271,11 +276,8 @@ public sealed partial class PaperWindow
                         _paper.Id,
                         descriptor.Id,
                         payload),
-                    paperRuntimeOwnsPresentation:
-                        (descriptor.RuntimeRequirements &
-                         PaperBodyRuntimeRequirements.BackgroundUpdates) != 0 &&
-                        !string.IsNullOrWhiteSpace(
-                            descriptor.Manifest.PaperRuntimePath));
+                    paperRuntimeOwnsPresentation: hasPaperRuntime,
+                    paperRuntimeOwnsState: hasPaperRuntime);
             }
 
             throw new InvalidOperationException("Plugin descriptor has no usable body factory.");
@@ -875,6 +877,21 @@ public sealed partial class PaperWindow
                 normalized,
                 StringComparison.Ordinal))
         {
+            return;
+        }
+        if (_controller.PaperBodyPlugins.TryGet(normalized, out var targetDescriptor) &&
+            targetDescriptor.Kind != PaperBodyPluginKind.BuiltIn &&
+            !_controller.CanAssignPluginProvider(_paper, targetDescriptor))
+        {
+            MessageBox.Show(
+                this,
+                Strings.Format(
+                    "PluginInstanceLimitMessage",
+                    targetDescriptor.DisplayName,
+                    targetDescriptor.Manifest?.MaxPaperInstances ?? 1),
+                Strings.Get("PluginInstanceLimitTitle"),
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
             return;
         }
 

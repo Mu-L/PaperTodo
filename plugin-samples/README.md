@@ -238,6 +238,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 | `version` | 插件版本，必须能解析为 `Version` |
 | `apiVersion` | 必须为 `"2.0"` |
 | `stateVersion` | per-paper state 版本，至少为 1 |
+| `maxPaperInstances` | 可选；同一 Provider 最多允许存在的真实 Paper 数。省略默认 `1`，`0` 表示不限制；隐藏/折叠 Paper 仍计数 |
 | `entry` | Web 主页面或 Native 入口 DLL，必须位于插件目录内 |
 | `miniEntry` | 可选，仅 Web；专属 Edge Mini 页面 |
 | `miniSize` | 可选，仅与 `miniEntry` 一起使用；Mini 首选尺寸 |
@@ -252,6 +253,8 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 | `settingCategories` | 可选；仅 `advancedSettings: true` 时有效，声明完整设置页分类及可选 `left` / `right` 列位置 |
 | `settings` | 可选；由宿主绘制和保存的全局设置；高级模式下设置项可写 `category` |
 | `startupPaper` | 可选；按用户设置自动创建/恢复一张插件纸片 |
+
+`maxPaperInstances` 是 Paper/provider 级产品约束，对 Native 与 Web 一致生效；插件更新后如果已有实例超过新上限，宿主不会删除现有 Paper，只会阻止继续新增。
 
 未知 `requires` 或 `permissions` 会拒绝加载。`appRuntime` 是 provider 生命周期声明，不会变成 `PaperBodyCapabilities` 的 body flag。
 
@@ -419,6 +422,14 @@ Native `IPaperBodySession` 可以实现：
 Native Paper/Body/TopBar presentation API 沿用 WPF session 的 Dispatcher 线程模型；后台任务需要更新这些 presentation 能力时，应切回对应 View/Dispatcher 后再调用。
 
 `IPaperBodyPlugin` 应当是无 paper 实例状态的 factory。PaperTodo 为每个正文会话创建新的插件对象；未声明 `appRuntime` 且未被任何纸片实际使用的 Native 插件启动时只扫描 manifest，不加载 DLL，也不执行构造函数。
+
+### 4.6 Web PaperRuntime 的 state 与消息
+
+Web 插件声明 `backgroundUpdates` + `paperRuntime` 后，PaperRuntime 是这张 Paper **持久 state 的唯一 writer**。`paper-runtime.html` 在业务状态变化时直接调用 `papertodo.saveState(...)`；Body/Mini 只消费 `initialize` / `stateChanged` snapshot，需要改变业务状态时通过 `papertodo.runtime.post(message)` 把消息交给 PaperRuntime。Body/Mini 上的 `saveState` / `registerStateProvider` 不再承担持久状态写入。
+
+`papertodo.runtime.post(...)` 与 PaperRuntime 的 `papertodo.body.post(...)` 返回 Promise，只表示宿主是否接受这次发送。目标正在短暂初始化/reload 时宿主保持一个有界有序队列；目标不存在、失败或队列已满时 Promise 以 `runtime_unavailable` / `body_unavailable` 明确失败。PaperTodo 不理解消息的业务语义，也不提供自动 retry、ACK、exactly-once 或 durable message bus；这些属于插件自己的 Web App。
+
+`commitRequested` 是 best-effort 生命周期通知，不保证 Dispose 前完成。可靠持久化只依赖状态变化时主动 `saveState()`。可见 Body/Mini 与后台 AppRuntime/PaperRuntime 也不应依赖共享 localStorage/cookie；跨 surface 数据流使用 state snapshot 与 bridge 消息。
 
 ### 4.6 App runtime 生命周期
 

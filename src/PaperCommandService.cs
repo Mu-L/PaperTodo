@@ -231,6 +231,7 @@ internal sealed class PaperCommandService
         var item = RequireTodo(
             paper,
             RequiredId(request.TodoId, "todoId"));
+        var wasDone = item.Done;
         var text = request.Text == null
             ? null
             : RequiredText(
@@ -268,6 +269,31 @@ internal sealed class PaperCommandService
             if (request.Order.HasValue)
             {
                 MoveTodo(paper, item, request.Order.Value);
+            }
+            var doneChanged = request.Done.HasValue && item.Done != wasDone;
+            if (doneChanged && item.Done && _controller.State.AutoClearCompletedTodos)
+            {
+                TodoRules.ApplyCompletionPolicy(
+                    paper.Items,
+                    [item.Id],
+                    done: true,
+                    autoClearCompleted: true,
+                    autoMoveCompletedToBottom:
+                        _controller.State.AutoMoveCompletedTodosToBottom);
+            }
+            else if (doneChanged)
+            {
+                TodoRules.ApplyDoneTransitionOrdering(
+                    paper.Items,
+                    [item.Id],
+                    item.Done,
+                    _controller.State.AutoMoveCompletedTodosToBottom);
+            }
+            else
+            {
+                TodoRules.ApplyCompletedOrdering(
+                    paper.Items,
+                    _controller.State.AutoMoveCompletedTodosToBottom);
             }
             NormalizeOrders(paper);
 
@@ -565,6 +591,27 @@ internal sealed class PaperCommandService
             paper.Items.Add(item);
             added.Add(item);
         }
+        if (_controller.State.AutoClearCompletedTodos)
+        {
+            var completedIds = added
+                .Where(item => item.Done)
+                .Select(item => item.Id)
+                .ToArray();
+            if (completedIds.Length > 0)
+            {
+                TodoRules.ApplyCompletionPolicy(
+                    paper.Items,
+                    completedIds,
+                    done: true,
+                    autoClearCompleted: true,
+                    autoMoveCompletedToBottom:
+                        _controller.State.AutoMoveCompletedTodosToBottom);
+                added.RemoveAll(item => item.Done);
+            }
+        }
+        TodoRules.ApplyCompletedOrdering(
+            paper.Items,
+            _controller.State.AutoMoveCompletedTodosToBottom);
         NormalizeOrders(paper);
         return added;
     }
