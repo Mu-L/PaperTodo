@@ -37,6 +37,7 @@
 | D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域 | Accepted | 插件 / UI ownership |
 | D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |
 | D-024 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
+| D-025 | Note 图片若干限制为已接受取舍 | Accepted | Note / 图片 |
 
 ## 维护规则
 
@@ -886,3 +887,21 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 - Web Runtime renderer 恢复期间不缓存业务消息；不能真实投递就返回 `runtime_unavailable`。宿主不提供 exactly-once 或延迟业务命令队列。
 - Backoff 保留最后展示；最终 Failed 清 Runtime 动态 Header/Capsule 并回退静态 Paper 展示。
 - Runtime 启动读取 `Papers.List()` 全量，之后 `Subscribe()` 只接增量。
+
+---
+
+## D-025 — Note 图片若干限制为已接受取舍
+
+**Status:** Accepted
+
+### Decision
+
+以下行为属于当前已接受的产品/实现取舍，普通代码审查、性能审查和架构审查不要再把它们作为 bug / finding 提出；只有明确要求重新评估，或实现偏离这些既定行为时再讨论：
+
+- 自动压缩可能拒绝“理论上还能以其他方式存下”的图片。
+- 删除图片后，不要求在当前进程中立即归还 120 MB 图片配额。
+- 50 MB / 20 张是普通解码缓存控制，不是任何情况下都不可超过的硬上限；当前可见图片可以被保护并暂时超过。
+- 当前不要求支持先降采样再导入 5K/8K 等超过源尺寸限制的图片。
+- 外部 Markdown 导出允许按当前实现重建图片目录，不要求增加临时目录和原子替换协议。
+
+这些限制本身不是 bug；不要仅因为存在“更完整、更宽松或更原子”的实现方案就重复提出。
