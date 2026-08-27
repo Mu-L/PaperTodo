@@ -26,13 +26,12 @@ public sealed partial class AppController
 
         // Per-paper Web runtimes are owned by real PaperData, including papers that start hidden.
         // They do not wait for visible shell construction or startupPaper presentation readiness.
-        EnableWebPaperRuntimeReconciliation();
 
         // Explicit --hide keeps the existing startup-paper behavior (do not create/show one), but
         // entity plugin papers already persisted in State still own their provider-level runtime.
         if (visibilityCommand == StartupCommandKind.Hide)
         {
-            EnablePluginAppRuntimeReconciliation();
+            EnablePluginRuntimeReconciliation();
             return;
         }
 
@@ -48,14 +47,14 @@ public sealed partial class AppController
             .ToArray();
         if (candidates.Length == 0)
         {
-            EnablePluginAppRuntimeReconciliation();
+            EnablePluginRuntimeReconciliation();
             return;
         }
 
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null)
         {
-            EnablePluginAppRuntimeReconciliation();
+            EnablePluginRuntimeReconciliation();
             return;
         }
 
@@ -86,8 +85,8 @@ public sealed partial class AppController
             StopPluginStartupPaperTimer(timer);
             EnsurePluginStartupPapers(candidates);
             // startupPaper has now had first chance to create/restore its real plugin paper. Only
-            // after that do we derive process-level app runtime ownership from final State.Papers.
-            EnablePluginAppRuntimeReconciliation();
+            // after that do we derive process-level plugin runtime ownership from final State.Papers.
+            EnablePluginRuntimeReconciliation();
         };
         _pluginStartupPaperTimer = timer;
         timer.Start();
@@ -184,6 +183,8 @@ public sealed partial class AppController
                 paper.IsCollapsed = collapsed;
                 changed = true;
             }
+            // A startup Paper becomes a Runtime owner before its visible Body is attached.
+            EnablePluginRuntimeReconciliation();
             ShowPaper(paper, activate: false);
         }
 

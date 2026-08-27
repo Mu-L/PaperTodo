@@ -1059,9 +1059,8 @@ public sealed partial class AppController
         }
 
         var settingsJson = _paperBodyPlugins.DataStore.GetSettingsJson(descriptor);
-        RetryFailedPluginAppRuntimeAfterSettingsChanged(providerId);
-        RetryFailedWebPaperRuntimesAfterSettingsChanged(providerId);
-        NotifyWebPaperRuntimeSettingsChanged(providerId, settingsJson);
+        RetryFailedPluginRuntimeAfterSettingsChanged(providerId);
+        NotifyPluginRuntimeSettingsChanged(providerId, settingsJson);
         foreach (var window in _windows.Values.ToList())
         {
             window.NotifyPaperBodyPluginSettingsChanged(providerId, settingsJson);
@@ -1090,9 +1089,6 @@ public sealed partial class AppController
 
     private UIElement BuildPluginIssueCard(PaperBodyPluginLoadIssue issue)
     {
-        var label = issue.RestartRequired
-            ? $"{issue.Message} · {Strings.Get("PluginsRestartRequired")}"
-            : issue.Message;
         return new Border
         {
             BorderBrush = Theme.Danger(72),
@@ -1122,7 +1118,7 @@ public sealed partial class AppController
                     },
                     new TextBlock
                     {
-                        Text = label,
+                        Text = issue.Message,
                         Foreground = TrayWeakTextBrush,
                         FontSize = AppTypography.Scale(11.5),
                         TextWrapping = TextWrapping.Wrap,

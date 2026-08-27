@@ -32,7 +32,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private readonly Button _exportButton;
     private readonly Button _clearButton;
     private readonly List<Button> _buttons;
-    private readonly IDisposable _subscription;
     private readonly DispatcherTimer _refreshTimer;
 
     private ReviewArchiveSettings _settings;
@@ -40,8 +39,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
     private PaperBodyTheme _theme;
     private bool _disposed;
     private bool _compactLayout;
-    private string _lastDisplayTitle = "";
-    private string _lastCapsuleSignature = "";
 
     public ReviewArchiveSession(PaperBodyContext context)
     {
@@ -195,22 +192,8 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             }
         };
 
-        _subscription = context.Workspace.Subscribe(
-            new PaperTodoEventFilter
-            {
-                Kinds = new HashSet<PaperTodoEventKind>
-                {
-                    PaperTodoEventKind.PaperChanged,
-                    PaperTodoEventKind.PaperDeleted,
-                    PaperTodoEventKind.TodoCreated,
-                    PaperTodoEventKind.TodoChanged,
-                    PaperTodoEventKind.TodoDeleted
-                }
-            },
-            value => ReviewArchiveStore.Apply(value, _settings));
         ReviewArchiveStore.Changed += OnArchiveChanged;
 
-        _ = ReviewArchiveStore.ImportCurrent(context.Workspace, _settings, manual: false);
         ReviewArchiveStore.ApplyRetention(_settings);
         ApplyTheme(context.Body.Theme);
         Refresh();
@@ -424,17 +407,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
             ? new object[] { _emptyText }
             : filtered.Select(record => (object)BuildRow(record)).ToArray();
 
-        var title = _settings.TitleMode switch
-        {
-            "today" => $"今日完成 {todayCount}",
-            "streak" => streak > 0 ? $"连续 {streak} 天" : "等待今日完成",
-            "open" => $"进行中 {openCount}",
-            "fixed" => string.IsNullOrWhiteSpace(_settings.FixedTitle)
-                ? "复盘记录"
-                : _settings.FixedTitle,
-            _ => $"复盘 · {completedRecords} 项"
-        };
-        SetPaperStatus(title, openCount);
         ApplyTheme(_theme);
     }
 
@@ -802,54 +774,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         }
     }
 
-    private void SetPaperStatus(string title, int openCount)
-    {
-        if (!string.Equals(_lastDisplayTitle, title, StringComparison.Ordinal))
-        {
-            _lastDisplayTitle = title;
-            _context.Paper.SetHeaderText(title);
-        }
-
-        var signature =
-            $"{title}\u001f{openCount}\u001f{_settings.ShowInsights}";
-        if (string.Equals(_lastCapsuleSignature, signature, StringComparison.Ordinal))
-        {
-            return;
-        }
-        _lastCapsuleSignature = signature;
-        _context.Paper.SetCapsulePresentation(new PaperCapsulePresentation
-        {
-            PreferredWidth = PaperCapsulePresentation.AutomaticWidth,
-            PlainText = title,
-            ToolTip = $"{title} · 进行中 {openCount}",
-            Components = _settings.ShowInsights
-                ? new PaperCapsuleComponent[]
-                {
-                    new PaperCapsuleComponent
-                    {
-                        Kind = PaperCapsuleComponentKind.Text,
-                        Text = title,
-                        Fill = true
-                    },
-                    new PaperCapsuleComponent
-                    {
-                        Kind = PaperCapsuleComponentKind.Text,
-                        Text = $"{openCount} 未完",
-                        Tone = PaperCapsuleTone.Muted
-                    }
-                }
-                : new PaperCapsuleComponent[]
-                {
-                    new PaperCapsuleComponent
-                    {
-                        Kind = PaperCapsuleComponentKind.Text,
-                        Text = title,
-                        Fill = true
-                    }
-                }
-        });
-    }
-
     private void SaveViewState() =>
         _context.SaveStateJson(JsonSerializer.Serialize(_viewState, JsonOptions));
 
@@ -886,7 +810,6 @@ internal sealed class ReviewArchiveSession : IPaperBodySession
         _disposed = true;
         _refreshTimer.Stop();
         ReviewArchiveStore.Changed -= OnArchiveChanged;
-        _subscription.Dispose();
         ReviewArchiveStore.Flush();
     }
 }

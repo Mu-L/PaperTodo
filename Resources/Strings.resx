@@ -1283,9 +1283,6 @@
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>打开目录</value>
   </data>
-  <data name="PluginsReload" xml:space="preserve">
-    <value>重新扫描</value>
-  </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
     <value>发现 {0} 个正文插件</value>
   </data>
@@ -1300,15 +1297,6 @@
   </data>
   <data name="PluginsBuiltIn" xml:space="preserve">
     <value>内置</value>
-  </data>
-  <data name="PluginsRestartRequired" xml:space="preserve">
-    <value>重启后生效</value>
-  </data>
-  <data name="PluginsNativeChangedRestart" xml:space="preserve">
-    <value>该原生插件已在本次运行中加载，目录内容变化需要重启 PaperTodo。</value>
-  </data>
-  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
-    <value>该原生插件目录已删除；本次运行仍使用内存中已加载版本，重启 PaperTodo 后将不可用。</value>
   </data>
   <data name="PluginsWebLoading" xml:space="preserve">
     <value>正在加载 Web 插件…</value>
@@ -1427,7 +1415,7 @@
     <value>插件有问题</value>
   </data>
   <data name="PluginsStatusStopped" xml:space="preserve">
-    <value>插件未启动</value>
+    <value>当前未使用</value>
   </data>
   <data name="PluginsStatusRunning" xml:space="preserve">
     <value>插件运行中</value>

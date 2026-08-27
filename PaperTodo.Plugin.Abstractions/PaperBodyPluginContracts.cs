@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -19,12 +20,6 @@ public enum PaperBodyInputClaims
     ContextMenu = 1 << 1
 }
 
-[Flags]
-public enum PaperBodyRuntimeRequirements
-{
-    None = 0,
-    BackgroundUpdates = 1 << 0
-}
 
 public sealed record PaperBodyTheme(
     bool IsDark,
@@ -127,7 +122,7 @@ public sealed record PaperTopBarAction
 
 /// <summary>
 /// Describes a top-bar click. Global actions can be rendered on any paper while their owning plugin
-/// app runtime is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
+/// plugin runtime is alive, so TargetPaperId/Type/BodyProviderId identify the paper whose button was
 /// clicked rather than any plugin-owned paper. TargetBodyProviderId is empty for non-Note papers.
 /// </summary>
 public sealed record PaperTopBarActionInvocation(
@@ -139,7 +134,7 @@ public sealed record PaperTopBarActionInvocation(
 
 /// <summary>
 /// Paper-session-scoped Top Bar capability. It can contribute actions only to the paper carrying
-/// this body session. Process-level Global actions belong to PaperAppRuntimeContext.GlobalTopBar.
+/// this body session. Process-level Global actions belong to PaperPluginRuntimeContext.GlobalTopBar.
 /// PaperTodo owns rendering and automatically removes these Paper actions when the session ends.
 /// </summary>
 public interface IPaperTopBarApi
@@ -337,12 +332,14 @@ public sealed class PaperBodyContext
     public required PaperBodyPaperContext Paper { get; init; }
     public required PaperBodySurfaceContext Body { get; init; }
     public required IPaperTodoHostApi Workspace { get; init; }
+    public required IPaperPluginRuntimeClient Runtime { get; init; }
     public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
         ?? throw new InvalidOperationException(
             "This PaperTodo host does not expose the protocol 2.0 paper top-bar capability.");
     public IPaperPresentationApi Presentation => Workspace as IPaperPresentationApi
         ?? throw new InvalidOperationException(
             "This PaperTodo host does not expose own-paper presentation controls.");
+    // Per-Paper frontend/body state is independently limited to 10 MiB UTF-8.
     public required Action<string> SaveStateJson { get; init; }
 
     // Convenience views for non-ambiguous values. Presentation writes stay in Paper / Body /
@@ -360,24 +357,16 @@ public sealed class PaperBodyContext
 
 /// <summary>
 /// A fully trusted, unsandboxed native plugin loaded from one self-contained
-/// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions. Implementations must provide a
-/// public parameterless constructor and act as stateless factories. PaperTodo creates a fresh plugin
-/// object for every body session.
+/// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions. plugin.json is the single
+/// authority for id/name/version/protocol/state/capability/runtime metadata. Implementations provide
+/// only behavior, must have a public parameterless constructor and act as stateless factories.
+/// PaperTodo creates a fresh plugin object for every body session or app-runtime activation.
 /// </summary>
 public interface IPaperBodyPlugin
 {
-    string Id { get; }
-    string DisplayName { get; }
-    string Description => string.Empty;
-    Version Version => new(1, 0);
-    string ApiVersion { get; }
-    int StateVersion => 1;
-    PaperBodyRuntimeRequirements RuntimeRequirements { get; }
-    PaperBodyCapabilities Capabilities { get; }
-
     /// <summary>
-    /// Migrate persisted JSON before Create is called. Return valid JSON for StateVersion. The
-    /// default implementation keeps the old JSON unchanged.
+    /// Migrate persisted JSON before Create is called. The target version comes from plugin.json.
+    /// The default implementation keeps the old JSON unchanged.
     /// </summary>
     string MigrateState(string stateJson, int fromVersion) => stateJson;
 
@@ -407,6 +396,9 @@ public interface IPaperBodySession : IDisposable
     void OnThemeChanged(PaperBodyTheme theme) { }
     void OnTypographyChanged(PaperBodyTheme theme) { }
     void OnDpiChanged() { }
+
+    // Message sent by the one provider Runtime to this Paper frontend.
+    bool OnRuntimeMessage(JsonElement message) => false;
 
     // Host-rendered global settings changed for this plugin.
     void OnSettingsChanged(string settingsJson) { }

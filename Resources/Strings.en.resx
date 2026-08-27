@@ -1270,9 +1270,6 @@ When off, open at the docked edge or remembered position.</value>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>Open folder</value>
   </data>
-  <data name="PluginsReload" xml:space="preserve">
-    <value>Rescan</value>
-  </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
     <value>{0} body plugins found</value>
   </data>
@@ -1287,15 +1284,6 @@ When off, open at the docked edge or remembered position.</value>
   </data>
   <data name="PluginsBuiltIn" xml:space="preserve">
     <value>Built-in</value>
-  </data>
-  <data name="PluginsRestartRequired" xml:space="preserve">
-    <value>Restart required</value>
-  </data>
-  <data name="PluginsNativeChangedRestart" xml:space="preserve">
-    <value>This native plugin is already loaded in this run. Restart PaperTodo to use changes in its folder.</value>
-  </data>
-  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
-    <value>This native plugin folder was removed. The already loaded in-memory version remains available for this run and disappears after PaperTodo restarts.</value>
   </data>
   <data name="PluginsWebLoading" xml:space="preserve">
     <value>Loading Web plugin…</value>
@@ -1378,7 +1366,7 @@ When off, open at the docked edge or remembered position.</value>
     <value>Plugin has an issue</value>
   </data>
   <data name="PluginsStatusStopped" xml:space="preserve">
-    <value>Plugin is not running</value>
+    <value>Not in use</value>
   </data>
   <data name="PluginsStatusRunning" xml:space="preserve">
     <value>Plugin is running</value>

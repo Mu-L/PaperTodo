@@ -1270,9 +1270,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>フォルダーを開く</value>
   </data>
-  <data name="PluginsReload" xml:space="preserve">
-    <value>再スキャン</value>
-  </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
     <value>本文プラグイン {0} 件を検出</value>
   </data>
@@ -1287,15 +1284,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   </data>
   <data name="PluginsBuiltIn" xml:space="preserve">
     <value>内蔵</value>
-  </data>
-  <data name="PluginsRestartRequired" xml:space="preserve">
-    <value>再起動が必要</value>
-  </data>
-  <data name="PluginsNativeChangedRestart" xml:space="preserve">
-    <value>このネイティブプラグインはすでに読み込まれています。フォルダーの変更を反映するには PaperTodo を再起動してください。</value>
-  </data>
-  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
-    <value>このネイティブプラグインのフォルダーは削除されました。この実行中は読み込み済みのメモリ内バージョンを使用でき、PaperTodo の再起動後は利用できなくなります。</value>
   </data>
   <data name="PluginsWebLoading" xml:space="preserve">
     <value>Web プラグインを読み込み中…</value>
@@ -1378,7 +1366,7 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
     <value>プラグインに問題があります</value>
   </data>
   <data name="PluginsStatusStopped" xml:space="preserve">
-    <value>プラグインは未起動です</value>
+    <value>現在未使用</value>
   </data>
   <data name="PluginsStatusRunning" xml:space="preserve">
     <value>プラグインは実行中です</value>

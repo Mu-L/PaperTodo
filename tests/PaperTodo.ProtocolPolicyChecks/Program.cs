@@ -18,11 +18,12 @@ internal static class Program
             CheckSettingsLayoutManifest(host);
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
-            CheckWebPaperRuntimeAuthority(host);
+            CheckUnifiedPluginRuntime(host, abstractions);
             CheckWebBodyNavigationIdentity(host);
             CheckManifestRuntimeAndMiniContracts(host);
             CheckGlobalTopBarPriority(host, abstractions);
-            CheckAppRuntimeSettings(host, abstractions);
+            CheckPluginRuntimeSettings(host, abstractions);
+            CheckPluginRuntimePersistenceGuards(host);
             Console.WriteLine("PaperTodo protocol policy checks passed.");
             return 0;
         }
@@ -145,14 +146,14 @@ internal static class Program
     {
         var controller = RequireType(host, "PaperTodo.AppController");
         Assert(
-            controller.GetNestedType("PluginAppRuntimeSlot", BindingFlags.NonPublic) != null,
+            controller.GetNestedType("PluginRuntimeSlot", BindingFlags.NonPublic) != null,
             "Plugin app runtime must use one provider slot state object.");
         Assert(
-            controller.GetField("_pluginAppRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            controller.GetField("_pluginRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) != null,
             "Plugin app runtime slot dictionary was not found.");
 
-        var lifetime = controller.GetNestedType("PluginAppRuntimeLifetime", BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("PluginAppRuntimeLifetime was not found.");
+        var lifetime = controller.GetNestedType("PluginRuntimeLifetime", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PluginRuntimeLifetime was not found.");
         Assert(lifetime.GetField("_active", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType == typeof(int),
             "App runtime lifetime must expose one atomic integer active token to worker-side APIs.");
         Assert(lifetime.GetMethod("TryDeactivate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null,
@@ -160,12 +161,12 @@ internal static class Program
 
         var obsoleteParallelState = new[]
         {
-            "_pluginAppRuntimes",
-            "_pluginAppRuntimeStarts",
-            "_pluginAppRuntimeStartFailures",
-            "_pluginAppRuntimeStartFailureCounts",
-            "_pluginAppRuntimeRetryTokens",
-            "_pluginAppRuntimeRestartRequests"
+            "_pluginRuntimes",
+            "_pluginRuntimeStarts",
+            "_pluginRuntimeStartFailures",
+            "_pluginRuntimeStartFailureCounts",
+            "_pluginRuntimeRetryTokens",
+            "_pluginRuntimeRestartRequests"
         };
         foreach (var fieldName in obsoleteParallelState)
         {
@@ -178,10 +179,10 @@ internal static class Program
     private static void CheckRuntimeTransitions(Assembly host)
     {
         var controller = RequireType(host, "PaperTodo.AppController");
-        var stateType = controller.GetNestedType("PluginAppRuntimeState", BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("PluginAppRuntimeState was not found.");
-        var transitions = controller.GetNestedType("PluginAppRuntimeTransitions", BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("PluginAppRuntimeTransitions was not found.");
+        var stateType = controller.GetNestedType("PluginRuntimeState", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PluginRuntimeState was not found.");
+        var transitions = controller.GetNestedType("PluginRuntimeTransitions", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("PluginRuntimeTransitions was not found.");
 
         object State(string name) => Enum.Parse(stateType, name);
         string InvokeState(string methodName, params object[] args) =>
@@ -245,10 +246,10 @@ internal static class Program
             ?? throw new InvalidOperationException("Could not create canonical plugin manifest.");
         capabilities.SetValue(
             canonicalManifest,
-            new[] { " APPRUNTIME ", "textzoom", "noteLinks", "appRuntime" });
+            new[] { " RUNTIME ", "textzoom", "noteLinks", "runtime" });
         normalize.Invoke(null, new[] { canonicalManifest });
         var values = (string[]?)capabilities.GetValue(canonicalManifest) ?? [];
-        Assert(values.SequenceEqual(new[] { "appRuntime", "textZoom", "noteLinks" }),
+        Assert(values.SequenceEqual(new[] { "runtime", "textZoom", "noteLinks" }),
             "Capability normalization did not produce one canonical representation.");
     }
 
@@ -300,53 +301,57 @@ internal static class Program
     private static void CheckSharedWebInfrastructure(Assembly host)
     {
         var infrastructure = RequireType(host, "PaperTodo.WebPluginRuntimeInfrastructure");
-        var appRuntime = RequireType(host, "PaperTodo.WebPluginAppRuntime");
+        var runtime = RequireType(host, "PaperTodo.WebPluginRuntime");
         Assert(
             infrastructure.GetProperty("JsonOptions", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic) != null,
             "Shared Web runtime serialization policy was not found.");
         Assert(
-            appRuntime.GetField("JsonOptions", BindingFlags.Static | BindingFlags.NonPublic) == null,
-            "WebPluginAppRuntime still owns a duplicate JSON bridge policy.");
+            runtime.GetField("JsonOptions", BindingFlags.Static | BindingFlags.NonPublic) == null,
+            "WebPluginRuntime still owns a duplicate JSON bridge policy.");
         Assert(
-            appRuntime.GetField("_startupReady", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            runtime.GetField("_startupReady", BindingFlags.Instance | BindingFlags.NonPublic) != null,
             "Web app runtime must wait for document readiness before it enters Running.");
     }
 
-    private static void CheckWebPaperRuntimeAuthority(Assembly host)
+    private static void CheckUnifiedPluginRuntime(Assembly host, Assembly abstractions)
     {
         var controller = RequireType(host, "PaperTodo.AppController");
-        var window = RequireType(host, "PaperTodo.PaperWindow");
-        var runtime = RequireType(host, "PaperTodo.WebPaperRuntime");
+        var webRuntime = RequireType(host, "PaperTodo.WebPluginRuntime");
         var manifest = RequireType(host, "PaperTodo.PaperBodyPluginManifest");
+        var context = RequireType(abstractions, "PaperTodo.Plugin.PaperPluginRuntimeContext");
+        var papers = RequireType(abstractions, "PaperTodo.Plugin.IPaperPluginRuntimePapers");
+        var runtimeState = RequireType(abstractions, "PaperTodo.Plugin.IPaperPluginRuntimeState");
+        var bodyContext = RequireType(abstractions, "PaperTodo.Plugin.PaperBodyContext");
+        var runtimeClient = RequireType(abstractions, "PaperTodo.Plugin.IPaperPluginRuntimeClient");
 
         Assert(
-            controller.GetField("_webPaperRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) != null,
-            "Per-paper Web runtime ownership must live on AppController by paper id.");
+            controller.GetField("_pluginRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "Provider Runtime must retain one provider-keyed lifecycle slot dictionary.");
         Assert(
-            window.GetField("_webPaperRuntime", BindingFlags.Instance | BindingFlags.NonPublic) == null,
-            "PaperWindow must not own the persistent Web paper runtime.");
-        Assert(
-            runtime.GetField("_startupReady", BindingFlags.Instance | BindingFlags.NonPublic) != null,
-            "Web paper runtime must wait for its hidden document to become ready.");
-        Assert(
-            runtime.GetField("_pendingBodyMessages", BindingFlags.Instance | BindingFlags.NonPublic) != null,
-            "Body-to-paper-runtime startup messages need a bounded pre-ready queue.");
-        Assert(
-            runtime.GetField("_activeDocumentToken", BindingFlags.Instance | BindingFlags.NonPublic) != null &&
-            runtime.GetField("_departingDocumentToken", BindingFlags.Instance | BindingFlags.NonPublic) != null &&
-            runtime.GetField("_documentGeneration", BindingFlags.Instance | BindingFlags.NonPublic) != null,
-            "Web paper runtime must reject stale documents across reload/recovery.");
-        var stateVersion = runtime.GetField("_stateVersion", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert(stateVersion != null && !stateVersion.IsInitOnly,
-            "Web paper runtime must advance its in-memory state version after a successful save.");
-        var body = RequireType(host, "PaperTodo.WebPaperBodySession");
-        Assert(
-            body.GetField("_pendingRuntimeMessages", BindingFlags.Instance | BindingFlags.NonPublic) != null,
-            "Paper-runtime-to-body startup messages need a bounded pre-ready queue.");
-        Assert(manifest.GetProperty("PaperRuntime") != null,
-            "Web per-paper runtime entry is not represented in the parsed manifest.");
-        Assert(manifest.GetProperty("PaperRuntimePath") != null,
-            "Web per-paper runtime resolved path is not cached by discovery.");
+            controller.GetField("_webPaperRuntimeSlots", BindingFlags.Instance | BindingFlags.NonPublic) == null,
+            "Host-managed per-Paper Web Runtime slots must not return.");
+        Assert(host.GetType("PaperTodo.WebPaperRuntime", throwOnError: false) == null,
+            "WebPaperRuntime must not return; Web uses the one provider Runtime.");
+        Assert(manifest.GetProperty("PaperRuntime") == null &&
+               manifest.GetProperty("PaperRuntimePath") == null,
+            "paperRuntime manifest fields must not return.");
+        Assert(manifest.GetProperty("Requires") == null,
+            "Body requires/backgroundUpdates must not return as a host lifecycle mode.");
+        Assert(abstractions.GetType("PaperTodo.Plugin.PaperBodyRuntimeRequirements", throwOnError: false) == null,
+            "PaperBodyRuntimeRequirements must stay deleted; guaranteed background work belongs to Runtime.");
+        Assert(context.GetProperty("Papers")?.PropertyType == papers &&
+               context.GetProperty("State")?.PropertyType == runtimeState,
+            "The provider Runtime must own logical Paper routing and provider-scoped backend state.");
+        Assert(bodyContext.GetProperty("Runtime")?.PropertyType == runtimeClient,
+            "Body/Mini frontends must address the one provider Runtime through a thin client.");
+        Assert(papers.GetMethod("List") != null &&
+               papers.GetMethod("SetHeaderText") != null &&
+               papers.GetMethod("SetCapsulePresentation") != null &&
+               papers.GetMethod("PostToBody") != null,
+            "Provider Runtime Paper routing is incomplete.");
+        Assert(webRuntime.GetField("_papers", BindingFlags.Instance | BindingFlags.NonPublic) != null &&
+               webRuntime.GetField("_state", BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "The Web provider Runtime must use the same logical Paper/state contract as Native.");
     }
 
     private static void CheckWebBodyNavigationIdentity(Assembly host)
@@ -382,9 +387,9 @@ internal static class Program
             "Web app runtime entry is not represented in the canonical parsed manifest.");
         Assert(manifest.GetProperty("RuntimePath") != null,
             "Web app runtime resolved path is not cached by plugin discovery.");
-        Assert(manifest.GetProperty("PaperRuntime") != null &&
-               manifest.GetProperty("PaperRuntimePath") != null,
-            "Web per-paper runtime manifest fields are missing.");
+        Assert(manifest.GetProperty("PaperRuntime") == null &&
+               manifest.GetProperty("PaperRuntimePath") == null,
+            "Retired Web per-Paper runtime manifest fields must stay deleted.");
         Assert(manifest.GetProperty("MiniMaxSize") != null,
             "miniMaxSize is not represented in the canonical parsed manifest.");
 
@@ -416,20 +421,60 @@ internal static class Program
             "Top Bar must retain action scope per button so Global actions can be fitted individually.");
     }
 
-    private static void CheckAppRuntimeSettings(Assembly host, Assembly abstractions)
+    private static void CheckPluginRuntimePersistenceGuards(Assembly host)
     {
-        var settings = RequireType(abstractions, "PaperTodo.Plugin.IPaperAppRuntimeSettings");
-        Assert(settings.GetProperty("Json")?.PropertyType == typeof(string),
-            "App runtime settings must expose the current normalized JSON.");
+        var dataStore = RequireType(host, "PaperTodo.PaperBodyPluginDataStore");
+        var paperLimit = dataStore.GetField(
+            "MaximumPaperStateBytes",
+            BindingFlags.Static | BindingFlags.NonPublic)?.GetRawConstantValue();
+        var runtimeLimit = dataStore.GetField(
+            "MaximumPluginRuntimeStateBytes",
+            BindingFlags.Static | BindingFlags.NonPublic)?.GetRawConstantValue();
+        Assert(
+            paperLimit is int paperBytes && paperBytes == 10 * 1024 * 1024,
+            "Each Paper frontend state must allow exactly 10 MiB.");
+        Assert(
+            runtimeLimit is int runtimeBytes && runtimeBytes == 20 * 1024 * 1024,
+            "Each provider PluginRuntime state must allow exactly 20 MiB.");
 
-        var context = RequireType(abstractions, "PaperTodo.Plugin.PaperAppRuntimeContext");
-        Assert(context.GetProperty("Settings")?.PropertyType == settings,
-            "PaperAppRuntimeContext.Settings was not found.");
+        var controller = RequireType(host, "PaperTodo.AppController");
+        var versionGuard = controller.GetMethod(
+            "PluginRuntimeStateVersionIsSupported",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "PluginRuntime state downgrade guard was not found.");
+        Assert((bool)(versionGuard.Invoke(null, new object[] { 2, 2 }) ?? false),
+            "Equal PluginRuntime state versions must be accepted.");
+        Assert((bool)(versionGuard.Invoke(null, new object[] { 1, 2 }) ?? false),
+            "Older PluginRuntime state must remain readable for plugin-owned migration.");
+        Assert(!(bool)(versionGuard.Invoke(null, new object[] { 3, 2 }) ?? true),
+            "Newer PluginRuntime state must be rejected instead of being downgraded.");
+
+        var webRuntime = RequireType(host, "PaperTodo.WebPluginRuntime");
+        Assert(
+            webRuntime.GetProperty(
+                "CanAcceptPaperMessages",
+                BindingFlags.Instance | BindingFlags.NonPublic) != null,
+            "Web PluginRuntime must expose document readiness to prevent false-success message loss.");
+    }
+
+    private static void CheckPluginRuntimeSettings(Assembly host, Assembly abstractions)
+    {
+        var settings = RequireType(abstractions, "PaperTodo.Plugin.IPaperPluginRuntimeSettings");
+        Assert(settings.GetProperty("Json")?.PropertyType == typeof(string) &&
+               settings.GetMethod("Subscribe") != null,
+            "Provider Runtime settings must expose current JSON and change subscription.");
+
+        var context = RequireType(abstractions, "PaperTodo.Plugin.PaperPluginRuntimeContext");
+        Assert(context.GetProperty("Settings")?.PropertyType == settings &&
+               context.GetProperty("State") != null &&
+               context.GetProperty("Papers") != null,
+            "PaperPluginRuntimeContext must expose Settings, backend State and logical Papers.");
 
         var controller = RequireType(host, "PaperTodo.AppController");
         Assert(
             controller.GetMethod(
-                "RetryFailedPluginAppRuntimeAfterSettingsChanged",
+                "RetryFailedPluginRuntimeAfterSettingsChanged",
                 BindingFlags.Instance | BindingFlags.NonPublic) != null,
             "A Failed/Backoff app runtime must have a settings-change recovery path.");
     }

@@ -148,6 +148,14 @@ public sealed partial class AppController
                 continue;
             }
 
+            // Runtime Backoff has no live lease to reconcile. Remove any retained rich
+            // presentation for the now-deleted Paper here as part of the independent post-commit
+            // plugin cleanup, so a provider with zero Papers cannot keep stale volatile snapshots.
+            foreach (var providerId in _pluginRuntimePresentationCache.Keys.ToArray())
+            {
+                RemovePluginRuntimePresentationCache(providerId, paperId);
+            }
+
             try
             {
                 _paperBodyPlugins.DataStore.RemovePaperStateEverywhere(paperId);
@@ -161,15 +169,13 @@ public sealed partial class AppController
         }
 
         // Deletion is committed before this cleanup pass. Reconcile from the final entity-paper
-        // set so provider-level and per-paper runtimes lose deleted owners promptly.
-        ReconcilePluginAppRuntimes();
-        ReconcileWebPaperRuntimes();
+        // set so the provider Runtime loses deleted logical Paper instances promptly.
+        ReconcilePluginRuntimes();
     }
 
     internal void DisposePaperPluginHostRuntime()
     {
-        DisposeWebPaperRuntimes();
-        DisposePluginAppRuntimes();
+        DisposePluginRuntimes();
         _paperBodyPluginEvents?.Dispose();
         _paperBodyPluginEvents = null;
         _paperCommands = null;

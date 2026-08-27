@@ -1270,9 +1270,6 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   <data name="PluginsOpenFolder" xml:space="preserve">
     <value>폴더 열기</value>
   </data>
-  <data name="PluginsReload" xml:space="preserve">
-    <value>다시 검색</value>
-  </data>
   <data name="PluginsLoadedCountFormat" xml:space="preserve">
     <value>본문 플러그인 {0}개 발견됨</value>
   </data>
@@ -1287,15 +1284,6 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
   </data>
   <data name="PluginsBuiltIn" xml:space="preserve">
     <value>기본 제공</value>
-  </data>
-  <data name="PluginsRestartRequired" xml:space="preserve">
-    <value>재시작 필요</value>
-  </data>
-  <data name="PluginsNativeChangedRestart" xml:space="preserve">
-    <value>이 네이티브 플러그인은 현재 실행에서 이미 로드되었습니다. 폴더 변경 사항을 사용하려면 PaperTodo를 다시 시작하세요.</value>
-  </data>
-  <data name="PluginsNativeRemovedRestart" xml:space="preserve">
-    <value>이 네이티브 플러그인 폴더가 삭제되었습니다. 현재 실행에서는 이미 로드된 메모리 버전을 계속 사용할 수 있으며 PaperTodo를 다시 시작하면 사용할 수 없습니다.</value>
   </data>
   <data name="PluginsWebLoading" xml:space="preserve">
     <value>Web 플러그인 로드 중…</value>
@@ -1378,7 +1366,7 @@ papertodo와 PaperTodo_Bold(.ttf/.otf)를 함께 두세요.</value>
     <value>플러그인에 문제가 있음</value>
   </data>
   <data name="PluginsStatusStopped" xml:space="preserve">
-    <value>플러그인이 시작되지 않음</value>
+    <value>현재 사용하지 않음</value>
   </data>
   <data name="PluginsStatusRunning" xml:space="preserve">
     <value>플러그인 실행 중</value>

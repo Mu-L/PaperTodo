@@ -5,17 +5,17 @@ using PaperTodo.Plugin;
 namespace PaperTodo;
 
 /// <summary>
-/// Hides paper-session presentation capabilities from app runtimes while reusing the same reviewed
+/// Hides paper-session presentation capabilities from plugin runtimes while reusing the same reviewed
 /// Workspace implementation and permission/event semantics. Unlike a paper body context, an app
 /// runtime has no View.Dispatcher, so this facade marshals synchronous Workspace calls to the UI
 /// dispatcher before entering PaperCommandService.
 /// </summary>
-internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposable
+internal sealed class PaperPluginRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposable
 {
     private readonly PaperBodyPluginHostApi _inner;
     private readonly Dispatcher _dispatcher;
 
-    public PaperAppRuntimeWorkspaceApi(
+    public PaperPluginRuntimeWorkspaceApi(
         AppController controller,
         string providerId,
         IEnumerable<string> permissions,
@@ -89,13 +89,17 @@ internal sealed class PaperAppRuntimeWorkspaceApi : IPaperTodoHostApi, IDisposab
 /// so worker-thread reads do not need an extra UI-dispatch hop. The active-runtime predicate keeps
 /// a retained facade from becoming an accidental post-Dispose settings handle.
 /// </summary>
-internal sealed class PaperAppRuntimeSettingsApi : IPaperAppRuntimeSettings
+internal sealed class PaperPluginRuntimeSettingsApi : IPaperPluginRuntimeSettings, IDisposable
 {
     private readonly PaperBodyPluginDataStore _dataStore;
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly Func<bool> _isActive;
+    private readonly object _gate = new();
+    private readonly Dictionary<long, Action<string>> _handlers = [];
+    private long _nextHandlerId;
+    private bool _disposed;
 
-    public PaperAppRuntimeSettingsApi(
+    public PaperPluginRuntimeSettingsApi(
         PaperBodyPluginDataStore dataStore,
         PaperBodyPluginDescriptor descriptor,
         Func<bool> isActive)
@@ -109,18 +113,83 @@ internal sealed class PaperAppRuntimeSettingsApi : IPaperAppRuntimeSettings
     {
         get
         {
-            if (!_isActive())
-            {
-                throw new PaperTodoPluginException(
-                    "runtime_closed",
-                    "The plugin app runtime is no longer active.");
-            }
+            EnsureUsable();
             return _dataStore.GetSettingsJson(_descriptor);
         }
     }
+
+    public IDisposable Subscribe(Action<string> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        lock (_gate)
+        {
+            EnsureUsableLocked();
+            var id = ++_nextHandlerId;
+            _handlers.Add(id, handler);
+            return new Subscription(this, id);
+        }
+    }
+
+    internal void PublishChanged(string json)
+    {
+        Action<string>[] handlers;
+        lock (_gate)
+        {
+            if (_disposed || !_isActive())
+            {
+                return;
+            }
+            handlers = _handlers.Values.ToArray();
+        }
+        foreach (var handler in handlers)
+        {
+            try { handler(json); } catch { }
+        }
+    }
+
+    private void EnsureUsable()
+    {
+        lock (_gate)
+        {
+            EnsureUsableLocked();
+        }
+    }
+
+    private void EnsureUsableLocked()
+    {
+        if (_disposed || !_isActive())
+        {
+            throw new PaperTodoPluginException(
+                "runtime_closed",
+                "The plugin Runtime is no longer active.");
+        }
+    }
+
+    private void Unsubscribe(long id)
+    {
+        lock (_gate)
+        {
+            _handlers.Remove(id);
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            _disposed = true;
+            _handlers.Clear();
+        }
+    }
+
+    private sealed class Subscription(PaperPluginRuntimeSettingsApi owner, long id) : IDisposable
+    {
+        private PaperPluginRuntimeSettingsApi? _owner = owner;
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Unsubscribe(id);
+    }
 }
 
-internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, IDisposable
+internal sealed class PaperPluginRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, IDisposable
 {
     private readonly AppController _controller;
     private readonly Dispatcher _dispatcher;
@@ -130,7 +199,7 @@ internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, ID
     private Action<PaperTopBarActionInvocation>? _handler;
     private bool _disposed;
 
-    public PaperAppRuntimeGlobalTopBarApi(
+    public PaperPluginRuntimeGlobalTopBarApi(
         AppController controller,
         Guid runtimeId,
         string providerId,
@@ -199,7 +268,7 @@ internal sealed class PaperAppRuntimeGlobalTopBarApi : IPaperGlobalTopBarApi, ID
         {
             throw new PaperTodoPluginException(
                 "runtime_closed",
-                "The plugin app runtime is no longer active.");
+                "The plugin runtime is no longer active.");
         }
     }
 
