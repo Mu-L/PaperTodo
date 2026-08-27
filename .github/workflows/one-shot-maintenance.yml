@@ -1,0 +1,66 @@
+name: One-shot maintenance patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-shot-maintenance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Configure Git
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          Copy-Item .github/maintenance_patch.py "$env:RUNNER_TEMP/maintenance_patch.py"
+
+      - name: Patch and validate main
+        shell: pwsh
+        run: |
+          git checkout main
+          git pull --ff-only origin main
+          python "$env:RUNNER_TEMP/maintenance_patch.py" main
+          git diff --check
+          dotnet restore .\PaperTodo.csproj
+          dotnet build .\PaperTodo.csproj -c Release --no-restore
+          git add CHANGELOG.md
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "docs: update v3.3 fixes and Protocol 2.1"
+            git push origin main
+          }
+
+      - name: Patch and validate 3.x
+        shell: pwsh
+        run: |
+          git fetch origin "feature/telemetry:refs/remotes/origin/feature/telemetry" "3.x:refs/remotes/origin/3.x"
+          git checkout -B 3.x origin/3.x
+          git checkout origin/feature/telemetry -- App.Telemetry.cs CLS_QUERIES.md TELEMETRY.md TelemetryIngest.py TelemetryService.cs TelemetryCrashMarkerMigration.cs
+          python "$env:RUNNER_TEMP/maintenance_patch.py" 3.x
+          git diff --check
+          dotnet restore .\PaperTodo.csproj
+          dotnet build .\PaperTodo.csproj -c Release --no-restore
+          git add App.Telemetry.cs CLS_QUERIES.md TELEMETRY.md TelemetryIngest.py TelemetryService.cs TelemetryCrashMarkerMigration.cs TodoRules.cs PaperWindow.Todo.cs CHANGELOG.md
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "fix: sync 3.x maintenance fixes and telemetry"
+            git push origin 3.x
+          }
