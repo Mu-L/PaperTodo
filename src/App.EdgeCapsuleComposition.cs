@@ -6,12 +6,13 @@ public partial class App
 {
     public App()
     {
-        // MCP is a stdio bridge process and never owns GUI edge surfaces. Keep the branch explicit
-        // here rather than relying on AppController.Current remaining null until the idle callback.
+        // MCP is a stdio bridge process and never owns GUI edge surfaces or usage telemetry.
         if (McpBridge.IsRequested(Environment.GetCommandLineArgs()))
         {
             return;
         }
+
+        InitializeTelemetry();
 
         // Pay known DComp publication and WPF HWND first-use costs during startup only when edge
         // browsing is enabled. Users who keep the feature off should not create any prewarm HWNDs
