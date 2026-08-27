@@ -345,6 +345,10 @@ internal sealed class WebPluginRuntime : IDisposable
         }
 
         _reloadRecoveryPending = false;
+        if (_papers is PaperPluginRuntimePapersApi runtimePapers)
+        {
+            runtimePapers.ResetWebDocumentPresentation();
+        }
         _documentReady = true;
         RegisterGlobalShortcutHandler();
         var runtimeState = ReadRuntimeState();

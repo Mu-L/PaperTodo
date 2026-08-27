@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
+using PaperTodo.Plugin;
 
 namespace PaperTodo;
 
@@ -8,7 +10,6 @@ public sealed partial class PaperWindow
 {
     private static bool _pluginTopBarLabelsLoadedHandlerRegistered;
     private StackPanel? _pluginTopBarLabelsHost;
-    private bool _pluginTopBarLabelCapacityHookInstalled;
 
     internal static void EnsurePluginTopBarLabelsLoadedHandler()
     {
@@ -29,6 +30,15 @@ public sealed partial class PaperWindow
             }));
     }
 
+    protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.Property == FontFamilyProperty || e.Property == FontSizeProperty)
+        {
+            RefreshPluginTopBarLabels();
+        }
+    }
+
     internal void RefreshPluginTopBarLabels()
     {
         if (IsClosed || !_isShellBuilt || _topBarActionButtonsHost == null)
@@ -36,6 +46,7 @@ public sealed partial class PaperWindow
             return;
         }
 
+        EnsurePluginTopBarButtonsHost();
         _pluginTopBarLabelsHost ??= new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -47,7 +58,6 @@ public sealed partial class PaperWindow
         }
 
         _pluginTopBarLabelsHost.Children.Clear();
-        var measuredWidth = 0.0;
         foreach (var binding in _controller.GetPluginTopBarLabels(_paper.Id))
         {
             var label = binding.Label;
@@ -59,15 +69,17 @@ public sealed partial class PaperWindow
             };
             if (label.Icon != null)
             {
-                content.Children.Add(CreatePluginTodoActionIcon(
+                var icon = CreatePluginTodoActionIcon(
                     label.Icon,
                     WeakTextBrush,
-                    AppTypography.Scale(10.5)));
+                    AppTypography.Scale(10.5));
+                ApplyPluginTopBarLabelTheme(icon, label.Icon);
+                content.Children.Add(icon);
             }
-            content.Children.Add(new TextBlock
+
+            var text = new TextBlock
             {
                 Text = label.Text,
-                Foreground = WeakTextBrush,
                 FontFamily = AppTypography.UiFontFamily,
                 FontSize = AppTypography.Scale(10.5),
                 FontWeight = FontWeights.Normal,
@@ -79,9 +91,11 @@ public sealed partial class PaperWindow
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxWidth = AppTypography.Scale(120),
                 IsHitTestVisible = false
-            });
+            };
+            text.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+            content.Children.Add(text);
 
-            var element = new Border
+            _pluginTopBarLabelsHost.Children.Add(new Border
             {
                 Padding = new Thickness(4, 1, 4, 1),
                 Margin = new Thickness(1, 0, 1, 0),
@@ -89,30 +103,53 @@ public sealed partial class PaperWindow
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = string.IsNullOrWhiteSpace(label.ToolTip) ? null : label.ToolTip,
                 Child = content
-            };
-            element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            measuredWidth += element.DesiredSize.Width;
-            _pluginTopBarLabelsHost.Children.Add(element);
+            });
         }
 
-        _pluginTopBarLabelsHost.Width = Math.Ceiling(measuredWidth);
         _pluginTopBarLabelsHost.Visibility = Visibility.Collapsed;
+        MeasurePluginTopBarLabelsWidth();
 
-        // Interactive controls settle first; labels only occupy width that remains afterwards.
-        RefreshPluginTopBarActions();
-        EnsurePluginTopBarLabelCapacityHook();
-        ReconcilePluginTopBarLabelCapacity();
+        // One layout authority: interactive controls settle first, then labels use the remainder.
+        ReconcilePluginTopBarCapacity();
     }
 
-    private void EnsurePluginTopBarLabelCapacityHook()
+    private static void ApplyPluginTopBarLabelTheme(
+        UIElement element,
+        PaperTopBarIcon icon)
     {
-        if (_pluginTopBarLabelCapacityHookInstalled || _topBar == null)
+        if (element is TextBlock text)
+        {
+            text.SetResourceReference(TextBlock.ForegroundProperty, "WeakTextBrushKey");
+            return;
+        }
+
+        if (element is not Path path)
         {
             return;
         }
 
-        _pluginTopBarLabelCapacityHookInstalled = true;
-        _topBar.SizeChanged += (_, _) => ReconcilePluginTopBarLabelCapacity();
+        if (icon.RenderMode == PaperTopBarSvgRenderMode.Stroke)
+        {
+            path.SetResourceReference(Shape.StrokeProperty, "WeakTextBrushKey");
+        }
+        else
+        {
+            path.SetResourceReference(Shape.FillProperty, "WeakTextBrushKey");
+        }
+    }
+
+    private void MeasurePluginTopBarLabelsWidth()
+    {
+        if (_pluginTopBarLabelsHost == null)
+        {
+            return;
+        }
+
+        _pluginTopBarLabelsHost.Width = double.NaN;
+        _pluginTopBarLabelsHost.Measure(
+            new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _pluginTopBarLabelsHost.Width =
+            Math.Ceiling(_pluginTopBarLabelsHost.DesiredSize.Width);
     }
 
     private void ReconcilePluginTopBarLabelCapacity()

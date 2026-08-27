@@ -150,6 +150,19 @@ internal sealed class PaperPluginRuntimePapersApi : IPaperPluginRuntimePapers, I
         }
     }
 
+    internal void ResetWebDocumentPresentation()
+    {
+        EnsureUsable();
+        lock (_gate)
+        {
+            EnsureUsableLocked();
+            _publishedHeaderPaperIds.Clear();
+            _publishedCapsulePaperIds.Clear();
+            _capsulePresentations.Clear();
+        }
+        OnUi(() => _controller.ClearPluginRuntimePresentation(_providerId));
+    }
+
     public bool PostToBody(string paperId, JsonElement message)
     {
         EnsureUsable();

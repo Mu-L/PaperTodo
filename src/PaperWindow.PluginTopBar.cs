@@ -113,6 +113,13 @@ public sealed partial class PaperWindow
         _reconcilingPluginTopBarCapacity = true;
         try
         {
+            // Labels are passive metadata. Always remove them from the capacity calculation first
+            // so host controls and interactive plugin actions get the available width before labels.
+            if (_pluginTopBarLabelsHost != null)
+            {
+                _pluginTopBarLabelsHost.Visibility = Visibility.Collapsed;
+            }
+
             UpdatePluginTopBarHostWidth();
             UpdateTopBarResponsiveLayout();
 
@@ -198,6 +205,7 @@ public sealed partial class PaperWindow
         finally
         {
             _reconcilingPluginTopBarCapacity = false;
+            ReconcilePluginTopBarLabelCapacity();
         }
     }
 
