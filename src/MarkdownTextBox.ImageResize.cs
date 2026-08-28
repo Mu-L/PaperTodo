@@ -12,6 +12,7 @@ public sealed partial class MarkdownTextBox
     private bool _imageRenderingSuspended;
     private bool _isImageViewportPreviewQueued;
     private bool _isViewportProtectedRefreshQueued;
+    private double _lastImageViewportWidth = -1;
 
     public void SetImageRenderingSuspended(bool suspended)
     {
@@ -25,6 +26,7 @@ public sealed partial class MarkdownTextBox
         {
             _imageResizeSettleTimer?.Stop();
             _isImageResizePreview = false;
+            _lastImageViewportWidth = -1;
             SetBitmapScalingMode(BitmapScalingMode.HighQuality);
             ClearViewportProtectedBitmaps();
         }
@@ -43,8 +45,20 @@ public sealed partial class MarkdownTextBox
             return;
         }
 
+        var currentWidth = ActualWidth;
+        if (currentWidth <= 0)
+        {
+            return;
+        }
+
+        if (Math.Abs(_lastImageViewportWidth - currentWidth) < 1.0)
+        {
+            return;
+        }
+
+        _lastImageViewportWidth = currentWidth;
         _isImageResizePreview = true;
-        SetBitmapScalingMode(BitmapScalingMode.HighQuality);
+        SetBitmapScalingMode(BitmapScalingMode.LowQuality);
 
         // During drag: keep the current decode and only retarget visible image block widths.
         QueueImageViewportPreviewLayout();
