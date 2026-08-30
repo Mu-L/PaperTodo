@@ -1,0 +1,213 @@
+name: Fix v3.31 shortcut and Markdown bugs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-v331-shortcut-markdown.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix-and-rerelease:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out 3.x
+        uses: actions/checkout@v7
+        with:
+          ref: 3.x
+          fetch-depth: 0
+          submodules: recursive
+          path: repo3x
+
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          path: repomain
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Patch 3.x
+        run: |
+          $shortcutPath = Join-Path $env:GITHUB_WORKSPACE "repo3x\AppController.Shortcuts.cs"
+          $shortcut = Get-Content -LiteralPath $shortcutPath -Raw
+          $oldShortcut = "            State.DistinguishNumpadShortcutDigits = true;"
+          $newShortcut = "            State.DistinguishNumpadShortcutDigits = false;"
+          $shortcutCount = ([regex]::Matches($shortcut, [regex]::Escape($oldShortcut))).Count
+          if ($shortcutCount -ne 1) {
+            throw "Expected exactly one incorrect numpad reset in 3.x, found $shortcutCount."
+          }
+          $shortcut = $shortcut.Replace($oldShortcut, $newShortcut)
+          Set-Content -LiteralPath $shortcutPath -Value $shortcut -Encoding utf8 -NoNewline
+
+          $mainMarkdownPath = Join-Path $env:GITHUB_WORKSPACE "repomain\src\MarkdownTextBox.cs"
+          $threeMarkdownPath = Join-Path $env:GITHUB_WORKSPACE "repo3x\MarkdownTextBox.cs"
+          $mainMarkdown = Get-Content -LiteralPath $mainMarkdownPath -Raw
+          $threeMarkdown = Get-Content -LiteralPath $threeMarkdownPath -Raw
+          $methodStart = "        private void MarkStyled("
+          $nextMethod = "        private void Change("
+
+          $mainStart = $mainMarkdown.IndexOf($methodStart, [System.StringComparison]::Ordinal)
+          $mainEnd = $mainMarkdown.IndexOf($nextMethod, $mainStart, [System.StringComparison]::Ordinal)
+          $threeStart = $threeMarkdown.IndexOf($methodStart, [System.StringComparison]::Ordinal)
+          $threeEnd = $threeMarkdown.IndexOf($nextMethod, $threeStart, [System.StringComparison]::Ordinal)
+          if ($mainStart -lt 0 -or $mainEnd -le $mainStart -or $threeStart -lt 0 -or $threeEnd -le $threeStart) {
+            throw "Could not locate MarkStyled/Change method boundaries."
+          }
+
+          $mainMethod = $mainMarkdown.Substring($mainStart, $mainEnd - $mainStart)
+          if (-not $mainMethod.Contains("var current = element.TextRunProperties.Typeface;")) {
+            throw "Main MarkStyled does not contain the expected composition implementation."
+          }
+          $threeMarkdown = $threeMarkdown.Substring(0, $threeStart) + $mainMethod + $threeMarkdown.Substring($threeEnd)
+          Set-Content -LiteralPath $threeMarkdownPath -Value $threeMarkdown -Encoding utf8 -NoNewline
+
+          $changelogPath = Join-Path $env:GITHUB_WORKSPACE "repo3x\CHANGELOG.md"
+          $changelog = Get-Content -LiteralPath $changelogPath -Raw
+          $shortcutNote = '- **修复快捷键页恢复默认设置**：点击“恢复本页默认”后，“区分小键盘数字键”会正确恢复为默认关闭，主键盘数字与小键盘数字继续混合响应。'
+          $markdownNote = '- **修复 Markdown 标题内行内样式字形**：标题中的斜体、删除线和下划线会保留标题原有的粗体与自定义粗体字形，不再只保留标题字号。'
+          if (-not $changelog.Contains($shortcutNote) -or -not $changelog.Contains($markdownNote)) {
+            $marker = "### v3.31"
+            $sectionStart = $changelog.IndexOf($marker, [System.StringComparison]::Ordinal)
+            if ($sectionStart -lt 0) { throw "Could not locate v3.31 changelog section." }
+            $bugMarker = "**bug修复**"
+            $bugStart = $changelog.IndexOf($bugMarker, $sectionStart, [System.StringComparison]::Ordinal)
+            if ($bugStart -lt 0) { throw "Could not locate v3.31 bug-fix heading." }
+            $insertAt = $bugStart + $bugMarker.Length
+            $newline = if ($changelog.Contains("`r`n")) { "`r`n" } else { "`n" }
+            $addition = "$newline$shortcutNote$newline$markdownNote"
+            $changelog = $changelog.Insert($insertAt, $addition)
+          }
+          Set-Content -LiteralPath $changelogPath -Value $changelog -Encoding utf8 -NoNewline
+
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repo3x")
+          try {
+            git diff --check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build 3.x
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repo3x")
+          try {
+            .\native\lmdb\build.ps1 -Configuration Release -ForceRebuild
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dotnet restore .\PaperTodo.csproj
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dotnet build .\PaperTodo.csproj -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Commit 3.x fixes
+        id: commit3x
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repo3x")
+          try {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add AppController.Shortcuts.cs MarkdownTextBox.cs CHANGELOG.md
+            git commit -m "fix: correct shortcut defaults and heading inline styles"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $sha = (git rev-parse HEAD).Trim()
+            "sha=$sha" >> $env:GITHUB_OUTPUT
+            git push origin HEAD:3.x
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Patch main shortcut reset
+        run: |
+          $shortcutPath = Join-Path $env:GITHUB_WORKSPACE "repomain\src\AppController.Shortcuts.cs"
+          $shortcut = Get-Content -LiteralPath $shortcutPath -Raw
+          $old = "            State.OpenEdgeCapsuleShortcutAtCursor = true;`r`n            State.PreserveLinkedPaperHiddenStateInVisibilityShortcuts = true;"
+          $new = "            State.OpenEdgeCapsuleShortcutAtCursor = true;`r`n            State.DistinguishNumpadShortcutDigits = false;`r`n            State.PreserveLinkedPaperHiddenStateInVisibilityShortcuts = true;"
+          if (-not $shortcut.Contains($old)) {
+            $old = "            State.OpenEdgeCapsuleShortcutAtCursor = true;`n            State.PreserveLinkedPaperHiddenStateInVisibilityShortcuts = true;"
+            $new = "            State.OpenEdgeCapsuleShortcutAtCursor = true;`n            State.DistinguishNumpadShortcutDigits = false;`n            State.PreserveLinkedPaperHiddenStateInVisibilityShortcuts = true;"
+          }
+          $count = ([regex]::Matches($shortcut, [regex]::Escape($old))).Count
+          if ($count -ne 1) {
+            throw "Expected exactly one main shortcut reset insertion point, found $count."
+          }
+          $shortcut = $shortcut.Replace($old, $new)
+          Set-Content -LiteralPath $shortcutPath -Value $shortcut -Encoding utf8 -NoNewline
+
+          $changelogPath = Join-Path $env:GITHUB_WORKSPACE "repomain\CHANGELOG.md"
+          $changelog = Get-Content -LiteralPath $changelogPath -Raw
+          $note = '- 修复快捷键页“恢复本页默认”未正确恢复“小键盘数字键区分”默认状态的问题。'
+          if (-not $changelog.Contains($note)) {
+            $heading = "**优化与修复**"
+            $start = $changelog.IndexOf($heading, [System.StringComparison]::Ordinal)
+            if ($start -lt 0) { throw "Could not locate main Unreleased optimization/fix heading." }
+            $insertAt = $start + $heading.Length
+            $newline = if ($changelog.Contains("`r`n")) { "`r`n" } else { "`n" }
+            $changelog = $changelog.Insert($insertAt, "$newline$newline$note")
+          }
+          Set-Content -LiteralPath $changelogPath -Value $changelog -Encoding utf8 -NoNewline
+
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repomain")
+          try {
+            git diff --check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build main
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repomain")
+          try {
+            .\native\lmdb\build.ps1 -Configuration Release -ForceRebuild
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dotnet restore .\PaperTodo.csproj
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dotnet build .\PaperTodo.csproj -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Commit main fix
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE "repomain")
+          try {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/AppController.Shortcuts.cs CHANGELOG.md
+            git commit -m "fix: restore numpad shortcut default correctly"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push origin HEAD:main
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Re-release v3.31
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run release.yml `
+            --repo snownico0722/PaperTodo `
+            --ref 3.x `
+            -f release_tag=v3.31 `
+            -f prerelease=false `
+            -f stable_release_confirmed=true `
+            -f retarget_existing_tag=true
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
