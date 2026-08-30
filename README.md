@@ -4,9 +4,11 @@
 
 **让桌面上有几张安静、可用、不打扰人的纸。**
 
-一个极简的 Windows 桌面便签工具，只用 WPF 原生实现，没有主窗口、没有账号、没有管理器。
+一个轻量、自由共创的 Windows 桌面便签。
 
-![version](https://img.shields.io/badge/version-v3.1-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
+每个人都可以停在自己最舒服的位置。
+
+![version](https://img.shields.io/badge/version-v3.31-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
 
 **官网**：[https://snownico0722.github.io/PaperTodo/](https://snownico0722.github.io/PaperTodo/) 
 
@@ -39,7 +41,7 @@
 
 - **纸片优先** — 每张纸都是独立窗口，直接放在桌面上，不需要打开管理界面。
 - **即时使用** — 想记就写，完成就勾掉；所有内容都会自动保存。
-- **无需管理** — 不做分类、标签、搜索、归档、同步、账号、统计、提醒。
+- **无需管理** — 不需要学习复杂的逻辑，软件不需要天然承载复杂度。
 - **原生实现** — 基于 WPF 原生控件，不是 Web 套壳，也没有 MSIX 的复杂权限。
 - **交互优先** — 轻不只是性能，更是操作路径短、认知负担小、界面干扰少。
 
