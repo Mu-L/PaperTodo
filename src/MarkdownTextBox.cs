@@ -4277,16 +4277,24 @@ public sealed partial class MarkdownTextBox : TextEditor
             NoteTypography.FontWeight,
             NoteTypography.FontStretch);
 
+        private static FontFamily SemanticBoldFontFamily =>
+            AppTypography.FontFamilyFor(content: true, bold: true);
+
+        private static FontWeight SemanticBoldFontWeight =>
+            AppTypography.UsesCustomBoldFace(true)
+                ? AppTypography.FontWeightFor(true)
+                : NoteTypography.HeadingFontWeight;
+
         private static Typeface HeadingTypeface => new(
-            NoteTypography.FontFamily,
+            SemanticBoldFontFamily,
             NoteTypography.FontStyle,
-            NoteTypography.HeadingFontWeight,
+            SemanticBoldFontWeight,
             NoteTypography.FontStretch);
 
         private static Typeface StrongTypeface => new(
-            NoteTypography.FontFamily,
+            SemanticBoldFontFamily,
             NoteTypography.FontStyle,
-            NoteTypography.HeadingFontWeight,
+            SemanticBoldFontWeight,
             NoteTypography.FontStretch);
 
         private static Typeface EmphasisTypeface => new(
@@ -4296,9 +4304,9 @@ public sealed partial class MarkdownTextBox : TextEditor
             NoteTypography.FontStretch);
 
         private static Typeface StrongEmphasisTypeface => new(
-            NoteTypography.FontFamily,
+            SemanticBoldFontFamily,
             FontStyles.Italic,
-            NoteTypography.HeadingFontWeight,
+            SemanticBoldFontWeight,
             NoteTypography.FontStretch);
 
         private static Typeface CodeTypeface => new(
@@ -4904,11 +4912,20 @@ public sealed partial class MarkdownTextBox : TextEditor
                 var style = typeface.Style == FontStyles.Italic
                     ? FontStyles.Italic
                     : current.Style;
-                var weight = typeface.Weight == NoteTypography.HeadingFontWeight
-                    ? NoteTypography.HeadingFontWeight
+                var requestsBold =
+                    typeface.Weight == SemanticBoldFontWeight &&
+                    string.Equals(
+                        typeface.FontFamily.Source,
+                        SemanticBoldFontFamily.Source,
+                        System.StringComparison.OrdinalIgnoreCase);
+                var family = requestsBold && AppTypography.UsesCustomBoldFace(true)
+                    ? SemanticBoldFontFamily
+                    : current.FontFamily;
+                var weight = requestsBold
+                    ? SemanticBoldFontWeight
                     : current.Weight;
                 element.TextRunProperties.SetTypeface(new Typeface(
-                    current.FontFamily,
+                    family,
                     style,
                     weight,
                     current.Stretch));
