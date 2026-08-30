@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      retarget_existing_tag:
+        description: "Allow an existing release tag to move to this commit before replacing assets."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -204,6 +209,11 @@ jobs:
             throw "Stable release '$tag' requires stable_release_confirmed=true."
           }
 
+          $retargetRequested = "${{ inputs.retarget_existing_tag }}" -eq "true"
+          if ($retargetRequested -and "${{ github.event_name }}" -ne "workflow_dispatch") {
+            throw "retarget_existing_tag can only be used with workflow_dispatch."
+          }
+
           "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Write release notes
@@ -263,6 +273,31 @@ jobs:
         run: |
           $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
           $tag = "${{ steps.release.outputs.tag }}"
+          $retargetRequested = "${{ inputs.retarget_existing_tag }}" -eq "true"
+
+          # Existing release tags are immutable by default. Repointing one requires an explicit
+          # workflow_dispatch opt-in so an accidental rebuild cannot silently rewrite a release.
+          git fetch --force --tags origin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) {
+            $tagCommit = (git rev-list -n 1 $tag).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagCommit)) {
+              throw "Could not resolve existing release tag $tag."
+            }
+            if ($tagCommit -ne $env:GITHUB_SHA) {
+              if (-not $retargetRequested) {
+                throw "Release tag $tag already points to $tagCommit, not $env:GITHUB_SHA. Re-run manually with retarget_existing_tag=true only if replacing that published version is intentional."
+              }
+
+              Write-Host "Retargeting existing release tag $tag from $tagCommit to $env:GITHUB_SHA"
+              git tag -f $tag $env:GITHUB_SHA
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              git push origin "refs/tags/$tag" --force
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
           $selfContained = "${{ steps.meta.outputs.self_contained_exe }}"
           $frameworkDependent = "${{ steps.meta.outputs.framework_dependent_exe }}"
           $assets = @(
@@ -293,9 +328,12 @@ jobs:
               }
             }
             gh release upload $tag @assets --clobber
-            gh release edit $tag --title "PaperTodo $tag" --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release edit $tag --target $env:GITHUB_SHA --title "PaperTodo $tag" --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if ($isPrerelease) {
               gh release edit $tag --prerelease
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           } else {
             $createArgs = @(
@@ -311,4 +349,5 @@ jobs:
             }
 
             gh @createArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
