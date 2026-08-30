@@ -384,6 +384,7 @@ public sealed partial class AppController
             }
 
             State.OpenEdgeCapsuleShortcutAtCursor = true;
+            State.DistinguishNumpadShortcutDigits = false;
             State.PreserveLinkedPaperHiddenStateInVisibilityShortcuts = true;
             ClearVisibilityShortcutRestoreSnapshot();
             _shortcutRecordingCommandId = null;
