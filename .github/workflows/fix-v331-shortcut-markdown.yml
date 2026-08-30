@@ -82,8 +82,12 @@ jobs:
             $marker = "### v3.31"
             $sectionStart = $changelog.IndexOf($marker, [System.StringComparison]::Ordinal)
             if ($sectionStart -lt 0) { throw "Could not locate v3.31 changelog section." }
-            $bugMarker = "**bug修复**"
+            $bugMarker = "**bug修复和优化**"
             $bugStart = $changelog.IndexOf($bugMarker, $sectionStart, [System.StringComparison]::Ordinal)
+            if ($bugStart -lt 0) {
+              $bugMarker = "**bug修复**"
+              $bugStart = $changelog.IndexOf($bugMarker, $sectionStart, [System.StringComparison]::Ordinal)
+            }
             if ($bugStart -lt 0) { throw "Could not locate v3.31 bug-fix heading." }
             $insertAt = $bugStart + $bugMarker.Length
             $newline = if ($changelog.Contains("`r`n")) { "`r`n" } else { "`n" }
