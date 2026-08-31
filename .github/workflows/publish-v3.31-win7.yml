@@ -1,4 +1,4 @@
-name: Publish v3.31 Win7 best-effort
+name: Repair v3.31 release notes
 
 on:
   push:
@@ -11,71 +11,56 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  repair:
     runs-on: windows-latest
-    timeout-minutes: 20
 
     defaults:
       run:
         shell: pwsh
 
-    env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-      DOTNET_NOLOGO: "true"
-      SOURCE_COMMIT: "6d998958aad6c86f67a4419edb7bd8ae59d3789e"
-      RELEASE_TAG: "v3.31"
-      WIN7_VERSION: "3.31-win7BestEffort"
-      WIN7_EXE: "PaperTodo-v3.31-win7BestEffort-win-x64-self-contained.exe"
-
     steps:
-      - name: Check out current 3.x Win7 compatibility branch
+      - name: Check out current 3.x
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.SOURCE_COMMIT }}
-          fetch-depth: 0
-          submodules: recursive
+          ref: 6d998958aad6c86f67a4419edb7bd8ae59d3789e
+          fetch-depth: 1
 
-      - name: Verify v3.31 base and version
-        run: |
-          git merge-base --is-ancestor 8de746d03052e1cda14c44b3debf32548476a489 $env:SOURCE_COMMIT
-          if ($LASTEXITCODE -ne 0) {
-            throw "3.x source is not based on the v3.31 release commit."
-          }
-
-          $project = [xml](Get-Content -LiteralPath .\PaperTodo.csproj -Raw)
-          $version = ([string]$project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText).Trim()
-          if ($version -ne '3.31') {
-            throw "Expected 3.x to remain version 3.31, got '$version'."
-          }
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Build Win7 best-effort single file
-        run: .\build-win7.ps1 -SelfContained
-
-      - name: Verify output
-        run: |
-          $output = ".\输出\PaperTodo-v$env:WIN7_VERSION"
-          $exe = Join-Path $output $env:WIN7_EXE
-          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-            throw "Win7 best-effort build did not produce $env:WIN7_EXE."
-          }
-
-          $files = @(Get-ChildItem -LiteralPath $output -File -Recurse)
-          if ($files.Count -ne 1) {
-            $files | Select-Object FullName, Length | Format-Table
-            throw "Win7 best-effort output is not a true single-file package."
-          }
-
-          Get-Item -LiteralPath $exe | Format-Table Name, Length
-
-      - name: Replace Win7 executable in v3.31 Release
+      - name: Restore v3.31 release notes formatting
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $exe = ".\输出\PaperTodo-v$env:WIN7_VERSION\$env:WIN7_EXE"
-          gh release upload $env:RELEASE_TAG $exe --clobber
+          $tag = 'v3.31'
+          $lines = Get-Content -LiteralPath .\CHANGELOG.md
+          $headingPattern = '^\s*###\s+' + [regex]::Escape($tag) + '(\s|$)'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $headingPattern) {
+              $start = $i
+              break
+            }
+          }
+          if ($start -lt 0) { throw "CHANGELOG.md does not contain $tag" }
+
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\s*###\s+v') {
+              $end = $i
+              break
+            }
+          }
+
+          $changelogNotes = (($lines[($start + 1)..($end - 1)] -join "`n").Trim())
+          $notes = @(
+            $changelogNotes,
+            '',
+            '下载:',
+            '',
+            '- 完整版（含 .NET 运行库）：PaperTodo-v3.31-win-x64-self-contained.exe',
+            '- 精简版（需自行安装 .NET 运行库）：PaperTodo-v3.31-win-x64-no-runtime.exe',
+            '- Windows 7 SP1 x64 Best Effort（含 .NET 运行库）：PaperTodo-v3.31-win7BestEffort-win-x64-self-contained.exe'
+          ) -join "`n"
+
+          $notesPath = Join-Path $env:RUNNER_TEMP 'v3.31-release-notes.md'
+          Set-Content -LiteralPath $notesPath -Value $notes -Encoding utf8
+          gh release edit $tag --notes-file $notesPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
