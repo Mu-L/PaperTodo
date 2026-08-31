@@ -1029,12 +1029,7 @@ public sealed partial class PaperWindow
                     return;
                 }
 
-                if (!IsActive && !Activate())
-                {
-                    return;
-                }
-
-                Focus();
+                TryActivateAfterCapsuleInteraction();
             }),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
     }

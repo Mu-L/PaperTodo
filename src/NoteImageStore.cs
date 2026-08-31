@@ -111,6 +111,30 @@ public sealed class NoteImageStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the stored encoded image bytes after the same length/SHA validation used by
+    /// rendering and export. The returned byte array is detached from LMDB and safe to keep only
+    /// for the lifetime of a clipboard operation.
+    /// </summary>
+    public bool TryGetEncodedImageBytes(
+        string imageId,
+        out NoteImageAsset asset,
+        out byte[] bytes)
+    {
+        lock (_gate)
+        {
+            bytes = Array.Empty<byte>();
+            if (_corruptedImageIds.Contains(imageId) ||
+                !_images.TryGetValue(imageId, out asset!))
+            {
+                asset = null!;
+                return false;
+            }
+
+            return TryReadImageBytesLocked(asset, out bytes);
+        }
+    }
+
     public BitmapSource? GetBitmapSource(
         string imageId,
         double targetPixelWidth = 0,

@@ -259,6 +259,7 @@ public sealed partial class PaperWindow
         _liveIsScriptCapsule = IsScriptCapsuleDocument(box);
         box.ImageImportFailed += ShowNoteImageImportFailure;
         box.PasteRejected += ShowNotePasteRejected;
+        box.ImageCopyDegradedToText += ShowNoteCopyTextOnly;
         // New MarkdownTextBox defaults to rendering images; re-apply hide/collapse/minimize policy.
         SyncNoteImagePresentationState();
 
@@ -1723,4 +1724,12 @@ public sealed partial class PaperWindow
             }
         }
     }
+    private void ShowNoteCopyTextOnly()
+    {
+        PaperNoticeDialog.Show(
+            this,
+            Strings.Get("NoteCopyTextOnlyTitle"),
+            Strings.Get("NoteCopyTextOnlyMessage"));
+    }
+
 }
