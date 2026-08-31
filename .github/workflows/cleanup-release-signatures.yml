@@ -1,0 +1,36 @@
+name: Cleanup historical release signatures
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cleanup-release-signatures.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete .sig and .crt release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t assets < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | .assets[] | select((.name | endswith(".sig")) or (.name | endswith(".crt"))) | [.id, .name] | @tsv'
+          )
+
+          echo "Found ${#assets[@]} signature/certificate assets"
+
+          for asset in "${assets[@]}"; do
+            IFS=$'\t' read -r id name <<< "$asset"
+            echo "Deleting $name ($id)"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
+          done
