@@ -22,24 +22,30 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "true"
-      SOURCE_COMMIT: "f82509d324b1d9e7a8d54a749718d758de3d167d"
+      SOURCE_COMMIT: "6d998958aad6c86f67a4419edb7bd8ae59d3789e"
       RELEASE_TAG: "v3.31"
       WIN7_VERSION: "3.31-win7BestEffort"
       WIN7_EXE: "PaperTodo-v3.31-win7BestEffort-win-x64-self-contained.exe"
 
     steps:
-      - name: Check out v3.31 Win7 compatibility snapshot
+      - name: Check out current 3.x Win7 compatibility branch
         uses: actions/checkout@v7
         with:
           ref: ${{ env.SOURCE_COMMIT }}
           fetch-depth: 0
           submodules: recursive
 
-      - name: Verify source ancestry
+      - name: Verify v3.31 base and version
         run: |
           git merge-base --is-ancestor 8de746d03052e1cda14c44b3debf32548476a489 $env:SOURCE_COMMIT
           if ($LASTEXITCODE -ne 0) {
-            throw "Win7 compatibility snapshot is not based on the v3.31 release commit."
+            throw "3.x source is not based on the v3.31 release commit."
+          }
+
+          $project = [xml](Get-Content -LiteralPath .\PaperTodo.csproj -Raw)
+          $version = ([string]$project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText).Trim()
+          if ($version -ne '3.31') {
+            throw "Expected 3.x to remain version 3.31, got '$version'."
           }
 
       - name: Set up .NET
@@ -66,26 +72,10 @@ jobs:
 
           Get-Item -LiteralPath $exe | Format-Table Name, Length
 
-      - name: Add executable to v3.31 Release
+      - name: Replace Win7 executable in v3.31 Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $exe = ".\输出\PaperTodo-v$env:WIN7_VERSION\$env:WIN7_EXE"
           gh release upload $env:RELEASE_TAG $exe --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Add Win7 download line to release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $body = gh release view $env:RELEASE_TAG --json body --jq '.body'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          if ($body -notlike "*$env:WIN7_EXE*") {
-            $line = "- Windows 7 SP1 x64 Best Effort（含 .NET 运行库）：$env:WIN7_EXE"
-            $newBody = $body.TrimEnd() + "`n" + $line + "`n"
-            $releaseId = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" --jq '.id'
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            gh api --method PATCH "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" -f body="$newBody" | Out-Null
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
