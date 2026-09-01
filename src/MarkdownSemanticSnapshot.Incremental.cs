@@ -43,14 +43,16 @@ internal sealed partial class MarkdownSemanticSnapshot
             return true;
         }
 
-        var oldLine = GetLineBounds(oldSource, changedStart);
-        var newLine = GetLineBounds(newSource, changedStart);
-
-        if (IsPotentialReferenceDefinition(oldSource, oldLine.Start, oldLine.End) ||
-            IsPotentialReferenceDefinition(newSource, newLine.Start, newLine.End) ||
-            (oldSnapshot._hasReferenceDefinitions &&
-             (LineContainsSquareBracket(oldSource, oldLine.Start, oldLine.End) ||
-              LineContainsSquareBracket(newSource, newLine.Start, newLine.End))))
+        if (RangeContainsReferenceDependency(
+                oldSource,
+                changedStart,
+                oldChangedEnd,
+                oldSnapshot._hasReferenceDefinitions) ||
+            RangeContainsReferenceDependency(
+                newSource,
+                changedStart,
+                newChangedEnd,
+                oldSnapshot._hasReferenceDefinitions))
         {
             return false;
         }
@@ -174,21 +176,11 @@ internal sealed partial class MarkdownSemanticSnapshot
             oldSource,
             Math.Min(oldSource.Length, Math.Max(oldChangedEnd, changedStart + rightBudget)));
 
-        while (true)
-        {
-            var previousStart = oldStart;
-            var previousEnd = oldEnd;
-
-            ExpandToOverlappingSemantics(oldSnapshot._spans, ref oldStart, ref oldEnd);
-            ExpandToOverlappingSemantics(oldSnapshot._links, ref oldStart, ref oldEnd);
-            oldStart = FindLineStart(oldSource, oldStart);
-            oldEnd = AlignLineEndExclusive(oldSource, oldEnd);
-
-            if (oldStart == previousStart && oldEnd == previousEnd)
-            {
-                break;
-            }
-        }
+        ExpandWindowToCompleteOldSemantics(
+            oldSource,
+            oldSnapshot,
+            ref oldStart,
+            ref oldEnd);
 
         if (oldStart > changedStart || oldEnd < oldChangedEnd)
         {
@@ -223,9 +215,52 @@ internal sealed partial class MarkdownSemanticSnapshot
                 newStart,
                 ref oldEnd,
                 ref newEnd);
+
+            // Fence-state convergence can land inside another semantic container from the old
+            // snapshot. Close the window again before splicing so a container whose start is
+            // replaced is never preserved only in part.
+            ExpandWindowToCompleteOldSemantics(
+                oldSource,
+                oldSnapshot,
+                ref oldStart,
+                ref oldEnd);
+            newStart = oldStart;
+            newEnd = oldEnd == oldSource.Length
+                ? newSource.Length
+                : oldEnd + delta;
+            if (newStart < 0 ||
+                newStart > changedStart ||
+                newEnd < newChangedEnd ||
+                newEnd > newSource.Length)
+            {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    private static void ExpandWindowToCompleteOldSemantics(
+        string oldSource,
+        MarkdownSemanticSnapshot oldSnapshot,
+        ref int oldStart,
+        ref int oldEnd)
+    {
+        while (true)
+        {
+            var previousStart = oldStart;
+            var previousEnd = oldEnd;
+
+            ExpandToOverlappingSemantics(oldSnapshot._spans, ref oldStart, ref oldEnd);
+            ExpandToOverlappingSemantics(oldSnapshot._links, ref oldStart, ref oldEnd);
+            oldStart = FindLineStart(oldSource, oldStart);
+            oldEnd = AlignLineEndExclusive(oldSource, oldEnd);
+
+            if (oldStart == previousStart && oldEnd == previousEnd)
+            {
+                return;
+            }
+        }
     }
 
     private static bool ChangeMayAffectFenceState(
@@ -521,6 +556,41 @@ internal sealed partial class MarkdownSemanticSnapshot
     private static int ShiftOptionalOffset(int offset, int delta) =>
         offset < 0 ? offset : offset + delta;
 
+    private static bool RangeContainsReferenceDependency(
+        string source,
+        int start,
+        int end,
+        bool includeReferenceUses)
+    {
+        if (source.Length == 0)
+        {
+            return false;
+        }
+
+        var normalizedStart = Math.Clamp(start, 0, source.Length);
+        var normalizedEnd = Math.Clamp(end, normalizedStart, source.Length);
+        var cursor = FindLineStart(source, normalizedStart);
+        var limit = FindLineEndExclusive(source, normalizedEnd);
+        while (cursor < limit)
+        {
+            var lineEnd = FindLineDelimiterStart(source, cursor);
+            if (IsPotentialReferenceDefinition(source, cursor, lineEnd) ||
+                (includeReferenceUses && LineContainsSquareBracket(source, cursor, lineEnd)))
+            {
+                return true;
+            }
+
+            var next = FindLineEndExclusive(source, cursor);
+            if (next <= cursor)
+            {
+                break;
+            }
+            cursor = next;
+        }
+
+        return false;
+    }
+
     private static bool IsPotentialReferenceDefinition(string source, int lineStart, int lineEnd)
     {
         var index = lineStart;
@@ -557,16 +627,6 @@ internal sealed partial class MarkdownSemanticSnapshot
             }
         }
         return false;
-    }
-
-    private static (int Start, int End) GetLineBounds(string source, int offset)
-    {
-        var normalized = Math.Clamp(offset, 0, source.Length);
-        var start = FindLineStart(source, normalized);
-        var end = normalized >= source.Length
-            ? source.Length
-            : FindLineDelimiterStart(source, normalized);
-        return (start, end);
     }
 
     private static int FindLineStart(string source, int offset)
