@@ -106,6 +106,96 @@ internal sealed partial class MarkdownSemanticPresentation
             ApplyEscapeSemantics(line, snapshot);
         }
 
+        private bool TryHideImageReference(DocumentLine line)
+        {
+            var semantic = _owner.CurrentSnapshot().GetLine(Math.Max(0, line.LineNumber - 1));
+            if (semantic.IsCode ||
+                !_owner._editor.ShouldHideImageReferenceTextForSemanticPresentation ||
+                !_owner._editor.IsImageReferenceLineForSemanticPresentation(line))
+            {
+                return false;
+            }
+
+            // Preserve the source line's metrics exactly as the mature colorizer did. The image
+            // element generator still belongs to MarkdownTextBox; only its reference text styling
+            // moves into the semantic presentation authority.
+            ApplyAbsolute(line, line.Offset, line.EndOffset, element =>
+            {
+                element.TextRunProperties.SetTypeface(NormalTypeface);
+                var size = _owner.ScaledFontSize(NoteTypography.FontSize);
+                element.TextRunProperties.SetFontRenderingEmSize(size);
+                element.TextRunProperties.SetFontHintingEmSize(size);
+                element.TextRunProperties.SetForegroundBrush(Brushes.Transparent);
+            });
+            return true;
+        }
+
+        private void ApplyLinkSemantics(
+            DocumentLine line,
+            MarkdownSemanticSnapshot snapshot)
+        {
+            var lineStart = line.Offset;
+            var lineEnd = line.EndOffset;
+            if (lineEnd <= lineStart)
+            {
+                return;
+            }
+
+            var isPreviewMode = _owner._editor.IsPreviewMode;
+            var syntaxBrush = _owner.FadeSyntax
+                ? Theme.SyntaxFadeBrush
+                : Theme.ActiveBrush;
+            var destinationBrush = _owner.FadeSyntax
+                ? Theme.SyntaxFadeBrush
+                : Theme.WeakTextBrush;
+
+            foreach (var link in snapshot.LinksForLine(Math.Max(0, line.LineNumber - 1)))
+            {
+                if (link.End <= lineStart || link.Start >= lineEnd)
+                {
+                    continue;
+                }
+
+                if (!link.IsAuto)
+                {
+                    // Color only syntax around the label. Painting the whole source span first would
+                    // incorrectly recolor the label in edit mode (and inside quote styling).
+                    ApplyAbsolute(
+                        line,
+                        link.Start,
+                        Math.Min(link.LabelStart, link.End),
+                        element => element.TextRunProperties.SetForegroundBrush(syntaxBrush));
+                    ApplyAbsolute(
+                        line,
+                        Math.Max(link.LabelEnd, link.Start),
+                        link.End,
+                        element => element.TextRunProperties.SetForegroundBrush(syntaxBrush));
+
+                    if (link.DestinationStart >= 0 && link.DestinationLength > 0)
+                    {
+                        ApplyAbsolute(
+                            line,
+                            link.DestinationStart,
+                            link.DestinationEnd,
+                            element => element.TextRunProperties.SetForegroundBrush(destinationBrush));
+                    }
+                }
+
+                if (isPreviewMode && link.LabelLength > 0)
+                {
+                    ApplyAbsolute(
+                        line,
+                        link.LabelStart,
+                        link.LabelEnd,
+                        element =>
+                        {
+                            element.TextRunProperties.SetForegroundBrush(Theme.LinkBrush);
+                            MergeDecoration(element, TextDecorations.Underline);
+                        });
+                }
+            }
+        }
+
         private void ApplyInlineSemantics(
             DocumentLine line,
             MarkdownSemanticSnapshot snapshot)

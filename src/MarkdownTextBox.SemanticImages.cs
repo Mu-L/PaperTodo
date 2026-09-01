@@ -6,6 +6,7 @@ namespace PaperTodo;
 public sealed partial class MarkdownTextBox
 {
     private SemanticMarkdownImageElementGenerator? _semanticImageElementGenerator;
+    private bool _semanticTrackingEnabled;
 
     internal bool ShouldHideImageReferenceTextForSemanticPresentation =>
         ShouldHideImageReferenceText;
@@ -38,6 +39,42 @@ public sealed partial class MarkdownTextBox
             TextArea.TextView.ElementGenerators.Remove(_semanticImageElementGenerator);
         }
         RefreshTextView();
+    }
+
+    private void EnableSemanticTracking()
+    {
+        if (_semanticTrackingEnabled)
+        {
+            return;
+        }
+
+        Document.Changed += OnSemanticDocumentChanged;
+        _semanticTrackingEnabled = true;
+    }
+
+    private void DisableSemanticTracking()
+    {
+        if (!_semanticTrackingEnabled)
+        {
+            return;
+        }
+
+        Document.Changed -= OnSemanticDocumentChanged;
+        _semanticTrackingEnabled = false;
+    }
+
+    private void OnSemanticDocumentChanged(object? sender, DocumentChangeEventArgs e)
+    {
+        if (_hadInternalImageReferences || e.InsertedText.TextLength <= 0)
+        {
+            return;
+        }
+
+        _hadInternalImageReferences = e.InsertedText.IndexOf(
+            MarkdownImageReferences.UriPrefix,
+            0,
+            e.InsertedText.TextLength,
+            StringComparison.Ordinal) >= 0;
     }
 
     private bool TryGetImageReferenceForLine(
