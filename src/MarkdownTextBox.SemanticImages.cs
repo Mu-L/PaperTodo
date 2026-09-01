@@ -72,6 +72,14 @@ public sealed partial class MarkdownTextBox
         return true;
     }
 
+    private bool TryGetImageReferenceForStableEditingLine(
+        DocumentLine line,
+        out MarkdownImageReference reference,
+        out NoteImageAsset? asset)
+    {
+        return TryGetImageReferenceForLine(line, out reference, out asset);
+    }
+
     private sealed class SemanticMarkdownImageElementGenerator : VisualLineElementGenerator
     {
         private readonly MarkdownTextBox _owner;
