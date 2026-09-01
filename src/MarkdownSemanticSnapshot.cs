@@ -309,27 +309,51 @@ internal sealed partial class MarkdownSemanticSnapshot
         int[] lineStarts,
         IReadOnlyList<MarkdownSemanticSpan> spans)
     {
-        var buckets = new List<MarkdownSemanticSpan>?[lineStarts.Length];
+        var result = new MarkdownSemanticSpan[lineStarts.Length][];
+        if (lineStarts.Length == 0)
+        {
+            return result;
+        }
+
+        var counts = new int[lineStarts.Length];
         foreach (var span in spans)
         {
-            if (span.Length <= 0 || lineStarts.Length == 0)
+            if (span.Length <= 0)
             {
                 continue;
             }
 
             var first = FindLineIndex(source, lineStarts, span.Start);
             var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
-            for (var line = first; line <= last && line < buckets.Length; line++)
+            for (var line = first; line <= last && line < counts.Length; line++)
             {
-                (buckets[line] ??= new List<MarkdownSemanticSpan>()).Add(span);
+                counts[line]++;
             }
         }
 
-        var result = new MarkdownSemanticSpan[lineStarts.Length][];
         for (var line = 0; line < result.Length; line++)
         {
-            result[line] = buckets[line]?.ToArray() ?? Array.Empty<MarkdownSemanticSpan>();
+            result[line] = counts[line] == 0
+                ? Array.Empty<MarkdownSemanticSpan>()
+                : new MarkdownSemanticSpan[counts[line]];
         }
+
+        Array.Clear(counts);
+        foreach (var span in spans)
+        {
+            if (span.Length <= 0)
+            {
+                continue;
+            }
+
+            var first = FindLineIndex(source, lineStarts, span.Start);
+            var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
+            for (var line = first; line <= last && line < result.Length; line++)
+            {
+                result[line][counts[line]++] = span;
+            }
+        }
+
         return result;
     }
 
@@ -338,27 +362,51 @@ internal sealed partial class MarkdownSemanticSnapshot
         int[] lineStarts,
         IReadOnlyList<MarkdownSemanticLink> links)
     {
-        var buckets = new List<MarkdownSemanticLink>?[lineStarts.Length];
+        var result = new MarkdownSemanticLink[lineStarts.Length][];
+        if (lineStarts.Length == 0)
+        {
+            return result;
+        }
+
+        var counts = new int[lineStarts.Length];
         foreach (var link in links)
         {
-            if (link.Length <= 0 || lineStarts.Length == 0)
+            if (link.Length <= 0)
             {
                 continue;
             }
 
             var first = FindLineIndex(source, lineStarts, link.Start);
             var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
-            for (var line = first; line <= last && line < buckets.Length; line++)
+            for (var line = first; line <= last && line < counts.Length; line++)
             {
-                (buckets[line] ??= new List<MarkdownSemanticLink>()).Add(link);
+                counts[line]++;
             }
         }
 
-        var result = new MarkdownSemanticLink[lineStarts.Length][];
         for (var line = 0; line < result.Length; line++)
         {
-            result[line] = buckets[line]?.ToArray() ?? Array.Empty<MarkdownSemanticLink>();
+            result[line] = counts[line] == 0
+                ? Array.Empty<MarkdownSemanticLink>()
+                : new MarkdownSemanticLink[counts[line]];
         }
+
+        Array.Clear(counts);
+        foreach (var link in links)
+        {
+            if (link.Length <= 0)
+            {
+                continue;
+            }
+
+            var first = FindLineIndex(source, lineStarts, link.Start);
+            var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
+            for (var line = first; line <= last && line < result.Length; line++)
+            {
+                result[line][counts[line]++] = link;
+            }
+        }
+
         return result;
     }
 }
