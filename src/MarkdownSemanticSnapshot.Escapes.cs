@@ -11,6 +11,8 @@ internal sealed partial class MarkdownSemanticSnapshot
             return;
         }
 
+        var protectedRanges = BuildProtectedEscapeRanges(spans);
+        var protectedRangeIndex = 0;
         var slashRun = 0;
         for (var index = 0; index < source.Length; index++)
         {
@@ -20,11 +22,19 @@ internal sealed partial class MarkdownSemanticSnapshot
                 continue;
             }
 
+            while (protectedRangeIndex < protectedRanges.Length &&
+                   protectedRanges[protectedRangeIndex].End <= index)
+            {
+                protectedRangeIndex++;
+            }
+
+            var isProtected = protectedRangeIndex < protectedRanges.Length &&
+                protectedRanges[protectedRangeIndex].Start <= index;
             var escapedSlash = (slashRun & 1) != 0;
             if (!escapedSlash &&
+                !isProtected &&
                 index + 1 < source.Length &&
-                IsSemanticEscapable(source[index + 1]) &&
-                !IsProtectedEscapePosition(spans, index))
+                IsSemanticEscapable(source[index + 1]))
             {
                 spans.Add(new MarkdownSemanticSpan(
                     MarkdownSemanticSpanKind.EscapeMarker,
@@ -36,27 +46,26 @@ internal sealed partial class MarkdownSemanticSnapshot
         }
     }
 
-    private static bool IsProtectedEscapePosition(
-        IReadOnlyList<MarkdownSemanticSpan> spans,
-        int offset)
+    private static SourceInterval[] BuildProtectedEscapeRanges(
+        IReadOnlyList<MarkdownSemanticSpan> spans)
     {
+        var ranges = new List<SourceInterval>();
         foreach (var span in spans)
         {
             if (span.Kind is not (
                     MarkdownSemanticSpanKind.Code or
                     MarkdownSemanticSpanKind.FencedCode or
                     MarkdownSemanticSpanKind.InlineCode or
-                    MarkdownSemanticSpanKind.HtmlContainer))
+                    MarkdownSemanticSpanKind.HtmlContainer) ||
+                span.End <= span.Start)
             {
                 continue;
             }
 
-            if (offset >= span.Start && offset < span.End)
-            {
-                return true;
-            }
+            ranges.Add(new SourceInterval(span.Start, span.End));
         }
-        return false;
+
+        return SortAndMergeIntervals(ranges);
     }
 
     private static bool IsSemanticEscapable(char value) =>
