@@ -1,5 +1,6 @@
 using Markdig;
 using Markdig.Extensions.EmphasisExtras;
+using Markdig.Syntax;
 
 namespace PaperTodo;
 
@@ -121,31 +122,63 @@ internal sealed partial class MarkdownSemanticSnapshot
         .UseTaskLists()
         .Build();
 
+    private readonly record struct MarkdownLineIndexRange(int Start, int Count);
+
+    private readonly struct MarkdownLineIndex<T>
+    {
+        public static MarkdownLineIndex<T> Empty { get; } = new(
+            Array.Empty<T>(),
+            Array.Empty<MarkdownLineIndexRange>());
+
+        private readonly T[] _items;
+        private readonly MarkdownLineIndexRange[] _ranges;
+
+        public MarkdownLineIndex(T[] items, MarkdownLineIndexRange[] ranges)
+        {
+            _items = items;
+            _ranges = ranges;
+        }
+
+        public ReadOnlySpan<T> ForLine(int zeroBasedLine)
+        {
+            if ((uint)zeroBasedLine >= (uint)_ranges.Length)
+            {
+                return ReadOnlySpan<T>.Empty;
+            }
+
+            var range = _ranges[zeroBasedLine];
+            return _items.AsSpan(range.Start, range.Count);
+        }
+    }
+
     public static MarkdownSemanticSnapshot Empty { get; } = new(
         Array.Empty<MarkdownSemanticLine>(),
         Array.Empty<MarkdownSemanticSpan>(),
         Array.Empty<MarkdownSemanticLink>(),
-        Array.Empty<MarkdownSemanticSpan[]>(),
-        Array.Empty<MarkdownSemanticLink[]>());
+        MarkdownLineIndex<MarkdownSemanticSpan>.Empty,
+        MarkdownLineIndex<MarkdownSemanticLink>.Empty);
 
     private readonly MarkdownSemanticLine[] _lines;
     private readonly MarkdownSemanticSpan[] _spans;
     private readonly MarkdownSemanticLink[] _links;
-    private readonly MarkdownSemanticSpan[][] _spansByLine;
-    private readonly MarkdownSemanticLink[][] _linksByLine;
+    private readonly MarkdownLineIndex<MarkdownSemanticSpan> _spansByLine;
+    private readonly MarkdownLineIndex<MarkdownSemanticLink> _linksByLine;
+    private readonly bool _hasReferenceDefinitions;
 
     private MarkdownSemanticSnapshot(
         MarkdownSemanticLine[] lines,
         MarkdownSemanticSpan[] spans,
         MarkdownSemanticLink[] links,
-        MarkdownSemanticSpan[][] spansByLine,
-        MarkdownSemanticLink[][] linksByLine)
+        MarkdownLineIndex<MarkdownSemanticSpan> spansByLine,
+        MarkdownLineIndex<MarkdownSemanticLink> linksByLine,
+        bool hasReferenceDefinitions = false)
     {
         _lines = lines;
         _spans = spans;
         _links = links;
         _spansByLine = spansByLine;
         _linksByLine = linksByLine;
+        _hasReferenceDefinitions = hasReferenceDefinitions;
     }
 
     public IReadOnlyList<MarkdownSemanticSpan> Spans => _spans;
@@ -162,19 +195,11 @@ internal sealed partial class MarkdownSemanticSnapshot
         return _lines[zeroBasedLine];
     }
 
-    public ReadOnlySpan<MarkdownSemanticSpan> SpansForLine(int zeroBasedLine)
-    {
-        return zeroBasedLine >= 0 && zeroBasedLine < _spansByLine.Length
-            ? _spansByLine[zeroBasedLine]
-            : ReadOnlySpan<MarkdownSemanticSpan>.Empty;
-    }
+    public ReadOnlySpan<MarkdownSemanticSpan> SpansForLine(int zeroBasedLine) =>
+        _spansByLine.ForLine(zeroBasedLine);
 
-    public ReadOnlySpan<MarkdownSemanticLink> LinksForLine(int zeroBasedLine)
-    {
-        return zeroBasedLine >= 0 && zeroBasedLine < _linksByLine.Length
-            ? _linksByLine[zeroBasedLine]
-            : ReadOnlySpan<MarkdownSemanticLink>.Empty;
-    }
+    public ReadOnlySpan<MarkdownSemanticLink> LinksForLine(int zeroBasedLine) =>
+        _linksByLine.ForLine(zeroBasedLine);
 
     public bool TryGetLinkAtOffset(int offset, out MarkdownSemanticLink link)
     {
@@ -210,6 +235,8 @@ internal sealed partial class MarkdownSemanticSnapshot
         var spans = new List<MarkdownSemanticSpan>();
         var links = new List<MarkdownSemanticLink>();
         var document = Markdown.Parse(source, Pipeline);
+        var hasReferenceDefinitions =
+            document.GetLinkReferenceDefinitions(false).Links.Count != 0;
 
         CollectBlocks(document, source, lineStarts, spans, links);
         ApplyLegacyCompatibilityBoundaries(source, spans, links);
@@ -224,12 +251,15 @@ internal sealed partial class MarkdownSemanticSnapshot
             ApplySpanToLines(source, lineStarts, lines, span);
         }
 
+        var spanArray = spans.ToArray();
+        var linkArray = links.ToArray();
         return new MarkdownSemanticSnapshot(
             lines,
-            spans.ToArray(),
-            links.ToArray(),
-            BuildSpanLineIndex(source, lineStarts, spans),
-            BuildLinkLineIndex(source, lineStarts, links));
+            spanArray,
+            linkArray,
+            BuildSpanLineIndex(source, lineStarts, spanArray),
+            BuildLinkLineIndex(source, lineStarts, linkArray),
+            hasReferenceDefinitions);
     }
 
     /// <summary>
@@ -304,61 +334,121 @@ internal sealed partial class MarkdownSemanticSnapshot
             : StringComparer.Ordinal.Compare(left.Url, right.Url);
     }
 
-    private static MarkdownSemanticSpan[][] BuildSpanLineIndex(
+    private static MarkdownLineIndex<MarkdownSemanticSpan> BuildSpanLineIndex(
         string source,
         int[] lineStarts,
         IReadOnlyList<MarkdownSemanticSpan> spans)
     {
-        var buckets = new List<MarkdownSemanticSpan>?[lineStarts.Length];
+        var ranges = new MarkdownLineIndexRange[lineStarts.Length];
+        if (lineStarts.Length == 0 || spans.Count == 0)
+        {
+            return new MarkdownLineIndex<MarkdownSemanticSpan>(
+                Array.Empty<MarkdownSemanticSpan>(),
+                ranges);
+        }
+
+        var positions = new int[lineStarts.Length];
+        var itemCount = 0;
         foreach (var span in spans)
         {
-            if (span.Length <= 0 || lineStarts.Length == 0)
+            if (span.Length <= 0)
             {
                 continue;
             }
 
             var first = FindLineIndex(source, lineStarts, span.Start);
             var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
-            for (var line = first; line <= last && line < buckets.Length; line++)
+            for (var line = first; line <= last && line < positions.Length; line++)
             {
-                (buckets[line] ??= new List<MarkdownSemanticSpan>()).Add(span);
+                positions[line]++;
+                itemCount++;
             }
         }
 
-        var result = new MarkdownSemanticSpan[lineStarts.Length][];
-        for (var line = 0; line < result.Length; line++)
+        var offset = 0;
+        for (var line = 0; line < ranges.Length; line++)
         {
-            result[line] = buckets[line]?.ToArray() ?? Array.Empty<MarkdownSemanticSpan>();
+            var count = positions[line];
+            ranges[line] = new MarkdownLineIndexRange(offset, count);
+            positions[line] = offset;
+            offset += count;
         }
-        return result;
+
+        var items = new MarkdownSemanticSpan[itemCount];
+        foreach (var span in spans)
+        {
+            if (span.Length <= 0)
+            {
+                continue;
+            }
+
+            var first = FindLineIndex(source, lineStarts, span.Start);
+            var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
+            for (var line = first; line <= last && line < positions.Length; line++)
+            {
+                items[positions[line]++] = span;
+            }
+        }
+
+        return new MarkdownLineIndex<MarkdownSemanticSpan>(items, ranges);
     }
 
-    private static MarkdownSemanticLink[][] BuildLinkLineIndex(
+    private static MarkdownLineIndex<MarkdownSemanticLink> BuildLinkLineIndex(
         string source,
         int[] lineStarts,
         IReadOnlyList<MarkdownSemanticLink> links)
     {
-        var buckets = new List<MarkdownSemanticLink>?[lineStarts.Length];
+        var ranges = new MarkdownLineIndexRange[lineStarts.Length];
+        if (lineStarts.Length == 0 || links.Count == 0)
+        {
+            return new MarkdownLineIndex<MarkdownSemanticLink>(
+                Array.Empty<MarkdownSemanticLink>(),
+                ranges);
+        }
+
+        var positions = new int[lineStarts.Length];
+        var itemCount = 0;
         foreach (var link in links)
         {
-            if (link.Length <= 0 || lineStarts.Length == 0)
+            if (link.Length <= 0)
             {
                 continue;
             }
 
             var first = FindLineIndex(source, lineStarts, link.Start);
             var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
-            for (var line = first; line <= last && line < buckets.Length; line++)
+            for (var line = first; line <= last && line < positions.Length; line++)
             {
-                (buckets[line] ??= new List<MarkdownSemanticLink>()).Add(link);
+                positions[line]++;
+                itemCount++;
             }
         }
 
-        var result = new MarkdownSemanticLink[lineStarts.Length][];
-        for (var line = 0; line < result.Length; line++)
+        var offset = 0;
+        for (var line = 0; line < ranges.Length; line++)
         {
-            result[line] = buckets[line]?.ToArray() ?? Array.Empty<MarkdownSemanticLink>();
+            var count = positions[line];
+            ranges[line] = new MarkdownLineIndexRange(offset, count);
+            positions[line] = offset;
+            offset += count;
         }
-        return result;
+
+        var items = new MarkdownSemanticLink[itemCount];
+        foreach (var link in links)
+        {
+            if (link.Length <= 0)
+            {
+                continue;
+            }
+
+            var first = FindLineIndex(source, lineStarts, link.Start);
+            var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
+            for (var line = first; line <= last && line < positions.Length; line++)
+            {
+                items[positions[line]++] = link;
+            }
+        }
+
+        return new MarkdownLineIndex<MarkdownSemanticLink>(items, ranges);
     }
 }
