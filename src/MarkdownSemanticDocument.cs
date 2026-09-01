@@ -1,5 +1,3 @@
-using ICSharpCode.AvalonEdit.Document;
-
 namespace PaperTodo;
 
 /// <summary>
@@ -8,22 +6,23 @@ namespace PaperTodo;
 /// control returns to WPF rendering. Ordinary edits use the bounded incremental parser first;
 /// edits that cannot be proven local fall back to a full parse on the same thread.
 ///
-/// The previous source is retained only for the duration of one edit transaction as AvalonEdit's
-/// cheap immutable Rope snapshot. No permanent worker, semaphore, generation queue, stale semantic
-/// generation or duplicate full-source string is kept while the editor is idle.
+/// One current source string is retained beside the semantic snapshot so the next edit can compare
+/// against the exact published generation without rematerializing the previous AvalonEdit Rope on
+/// every keystroke. There is no worker, semaphore, pending queue, stale generation or concurrent
+/// publication path.
 /// </summary>
 internal sealed class MarkdownSemanticDocument : IDisposable
 {
-    private readonly TextDocument _document;
+    private readonly ICSharpCode.AvalonEdit.Document.TextDocument _document;
     private MarkdownSemanticSnapshot _snapshot;
-    private ITextSource? _sourceBeforeChange;
+    private string _snapshotSource;
     private bool _disposed;
 
-    public MarkdownSemanticDocument(TextDocument document)
+    public MarkdownSemanticDocument(ICSharpCode.AvalonEdit.Document.TextDocument document)
     {
         _document = document ?? throw new ArgumentNullException(nameof(document));
-        _snapshot = MarkdownSemanticSnapshot.Parse(_document.Text);
-        _document.Changing += OnDocumentChanging;
+        _snapshotSource = _document.Text;
+        _snapshot = MarkdownSemanticSnapshot.Parse(_snapshotSource);
         _document.TextChanged += OnDocumentTextChanged;
     }
 
@@ -45,20 +44,6 @@ internal sealed class MarkdownSemanticDocument : IDisposable
         return false;
     }
 
-    private void OnDocumentChanging(object? sender, DocumentChangeEventArgs e)
-    {
-        if (_disposed || _sourceBeforeChange != null)
-        {
-            return;
-        }
-
-        // TextDocument may batch several primitive mutations inside BeginUpdate/EndUpdate. Capture
-        // the source only before the first mutation so the semantic snapshot and old source describe
-        // the same complete pre-edit generation. RopeTextSource shares immutable rope nodes and does
-        // not materialize another whole-document string here.
-        _sourceBeforeChange = _document.CreateSnapshot();
-    }
-
     private void OnDocumentTextChanged(object? sender, EventArgs e)
     {
         if (_disposed)
@@ -66,26 +51,17 @@ internal sealed class MarkdownSemanticDocument : IDisposable
             return;
         }
 
-        var sourceBeforeChange = _sourceBeforeChange;
-        _sourceBeforeChange = null;
         var source = _document.Text;
+        var next = MarkdownSemanticSnapshot.TryParseIncremental(
+            _snapshotSource,
+            _snapshot,
+            source,
+            out var incremental,
+            out _)
+            ? incremental
+            : MarkdownSemanticSnapshot.Parse(source);
 
-        MarkdownSemanticSnapshot next;
-        if (sourceBeforeChange != null &&
-            MarkdownSemanticSnapshot.TryParseIncremental(
-                sourceBeforeChange.Text,
-                _snapshot,
-                source,
-                out var incremental,
-                out _))
-        {
-            next = incremental;
-        }
-        else
-        {
-            next = MarkdownSemanticSnapshot.Parse(source);
-        }
-
+        _snapshotSource = source;
         _snapshot = next;
         SnapshotChanged?.Invoke();
     }
@@ -98,9 +74,8 @@ internal sealed class MarkdownSemanticDocument : IDisposable
         }
 
         _disposed = true;
-        _document.Changing -= OnDocumentChanging;
         _document.TextChanged -= OnDocumentTextChanged;
-        _sourceBeforeChange = null;
+        _snapshotSource = string.Empty;
         _snapshot = MarkdownSemanticSnapshot.Empty;
         SnapshotChanged = null;
     }
