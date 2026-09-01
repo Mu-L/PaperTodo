@@ -13,7 +13,6 @@ internal sealed partial class MarkdownSemanticSnapshot
     private const int IncrementalPrimaryWindowChars = 1024;
     private const int IncrementalRetryWindowChars = 16384;
     private const int IncrementalMaxWindowChars = IncrementalRetryWindowChars;
-    private const int IncrementalMaxChangedChars = 2048;
     private const int IncrementalGuardChars = 1024;
 
     private readonly record struct GuardSpan(
@@ -34,9 +33,8 @@ internal sealed partial class MarkdownSemanticSnapshot
     /// Attempts one small local reparse before paying for a larger local retry or a full-document
     /// Markdig pass. The first target is 1K and may expand to complete semantic containers and safe
     /// block boundaries. If its unchanged outer guard regions are not stable, one 16K target is tried.
-    /// Global reference dependencies, oversized edits, windows that exceed 16K, or an unstable 16K
-    /// retry return false so the caller performs the synchronous full parse. Markdig remains the only
-    /// Markdown authority.
+    /// Global reference dependencies, windows that exceed 16K, or an unstable 16K retry return false
+    /// so the caller performs the synchronous full parse. Markdig remains the only Markdown authority.
     /// </summary>
     internal static bool TryParseIncremental(
         string oldSource,
@@ -52,8 +50,7 @@ internal sealed partial class MarkdownSemanticSnapshot
         snapshot = null!;
         info = default;
 
-        if (ReferenceEquals(oldSource, newSource) ||
-            string.Equals(oldSource, newSource, StringComparison.Ordinal))
+        if (ReferenceEquals(oldSource, newSource))
         {
             snapshot = oldSnapshot;
             return true;
@@ -66,20 +63,25 @@ internal sealed partial class MarkdownSemanticSnapshot
             out var oldChangedEnd,
             out var newChangedEnd);
 
+        if (changedStart == oldSource.Length &&
+            changedStart == newSource.Length)
+        {
+            snapshot = oldSnapshot;
+            return true;
+        }
+
         var changedOldLength = oldChangedEnd - changedStart;
         var changedNewLength = newChangedEnd - changedStart;
-        if (changedOldLength + changedNewLength > IncrementalMaxChangedChars)
-        {
-            return false;
-        }
 
         var oldLine = GetLineBounds(oldSource, changedStart);
         var newLine = GetLineBounds(newSource, changedStart);
+        var touchesSquareBracket =
+            ChangeTouchesSquareBracket(oldSource, changedStart, oldChangedEnd) ||
+            ChangeTouchesSquareBracket(newSource, changedStart, newChangedEnd);
         var hasGlobalReferenceDependency =
             IsPotentialReferenceDefinition(oldSource, oldLine.Start, oldLine.End) ||
             IsPotentialReferenceDefinition(newSource, newLine.Start, newLine.End) ||
-            ChangeTouchesSquareBracket(oldSource, changedStart, oldChangedEnd) ||
-            ChangeTouchesSquareBracket(newSource, changedStart, newChangedEnd) ||
+            (oldSnapshot._hasReferenceDefinitions && touchesSquareBracket) ||
             ReferenceStyleLinkOverlapsChange(
                 oldSource,
                 oldSnapshot._links,
@@ -88,9 +90,8 @@ internal sealed partial class MarkdownSemanticSnapshot
 
         if (hasGlobalReferenceDependency)
         {
-            // Reference definitions/uses can affect arbitrarily distant source. Do not grow a local
-            // resolver or hide a whole-document parse inside the incremental path; the caller owns
-            // the single synchronous full-parse fallback.
+            // Existing reference definitions/uses can affect arbitrarily distant source. Do not
+            // grow a second resolver or hide a whole-document parse inside the local path.
             return false;
         }
 
@@ -134,6 +135,14 @@ internal sealed partial class MarkdownSemanticSnapshot
                     changedOldLength,
                     changedNewLength);
                 return true;
+            }
+
+            if (!oldSnapshot._hasReferenceDefinitions &&
+                local._hasReferenceDefinitions)
+            {
+                // A newly introduced definition can activate unresolved reference-style links
+                // anywhere in the document. Only a whole-document parse can prove the result.
+                return false;
             }
 
             var referenceStable = ReferenceLinksRemainStable(
@@ -192,7 +201,8 @@ internal sealed partial class MarkdownSemanticSnapshot
                 spans,
                 links,
                 BuildSpanLineIndex(newSource, lineStarts, spans),
-                BuildLinkLineIndex(newSource, lineStarts, links));
+                BuildLinkLineIndex(newSource, lineStarts, links),
+                oldSnapshot._hasReferenceDefinitions);
             info = new MarkdownIncrementalUpdateInfo(
                 oldStart,
                 oldEnd - oldStart,
