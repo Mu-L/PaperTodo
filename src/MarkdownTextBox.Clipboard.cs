@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Input;
+using ICSharpCode.AvalonEdit.Editing;
 
 namespace PaperTodo;
 
@@ -100,6 +101,16 @@ public sealed partial class MarkdownTextBox
         string clipboardText)
     {
         var replacementTarget = CaptureDocumentReplacementTarget();
+        if (!TryBuildSafePasteText(
+                clipboardText,
+                replacementTarget.SelectionLength,
+                out _))
+        {
+            e.CancelCommand();
+            PasteRejected?.Invoke();
+            return;
+        }
+
         var pasteText = EnsureContextAwareImageReferencePasteIsBlock(
             clipboardText,
             replacementTarget);
@@ -243,6 +254,14 @@ public sealed partial class MarkdownTextBox
 
     private ImageAwareCopyResult CopySelectionWithImagesToClipboard()
     {
+        // AvalonEdit exposes rectangular selections through the surrounding source segment.
+        // Rich image copy only supports one continuous source range; let AvalonEdit preserve its
+        // native rectangular-copy semantics instead of including unselected text between rows.
+        if (TextArea.Selection is RectangleSelection)
+        {
+            return ImageAwareCopyResult.NotApplicable;
+        }
+
         var documentText = Text ?? "";
         var selectionStart = Math.Clamp(SelectionStart, 0, documentText.Length);
         var selectionLength = Math.Clamp(SelectionLength, 0, documentText.Length - selectionStart);
