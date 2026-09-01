@@ -188,6 +188,12 @@ internal static class InitialWindowProbeChecks
         ProbeRandomDistribution("ordinary98k", ordinary, 700, 0xA110, false);
         ProbeRandomDistribution("dense98k-text", dense, 500, 0xD351, false);
         ProbeRandomDistribution("dense98k-delimiter", dense, 350, 0xB17E, true);
+
+        Console.WriteLine("WINDOW-PROBE full-parse equivalence");
+        ProbeFullParseEquivalence("ordinary98k", ordinary, 120, 0xA111, false);
+        ProbeFullParseEquivalence("dense98k-text", dense, 120, 0xD352, false);
+        ProbeFullParseEquivalence("dense98k-delimiter", dense, 160, 0xB17F, true);
+        ProbeStructuralEquivalence();
     }
 
     private static void ProfileSequence(string label, string initialSource, int probe, int initialTarget)
@@ -196,7 +202,6 @@ internal static class InitialWindowProbeChecks
         var snapshot = MarkdownSemanticSnapshot.Parse(source);
         var inserted = false;
 
-        // Warm both directions.
         for (var i = 0; i < 4; i++)
         {
             var nextSource = !inserted ? source.Insert(probe, "Z") : source.Remove(probe, 1);
@@ -297,6 +302,137 @@ internal static class InitialWindowProbeChecks
                 $"success-targets=[{buckets}] window-p50={p50Window} window-p95={p95Window}");
         }
     }
+
+    private static void ProbeFullParseEquivalence(
+        string label,
+        string source,
+        int count,
+        int seed,
+        bool delimiterStress)
+    {
+        var oldSnapshot = MarkdownSemanticSnapshot.Parse(source);
+        var random = new Random(seed);
+        var delimiters = new[] { "*", "_", "`", "~", ">", "-", "#" };
+        var mismatchCounts = Targets.ToDictionary(target => target, _ => 0);
+        var localMismatchCounts = Targets.ToDictionary(target => target, _ => 0);
+        var examples = new List<string>();
+
+        for (var index = 0; index < count; index++)
+        {
+            var position = PickTextPosition(source, random);
+            var token = delimiterStress ? delimiters[index % delimiters.Length] : ((index & 1) == 0 ? "x" : " ");
+            var changed = source.Insert(position, token);
+            var expected = MarkdownSemanticSnapshot.Parse(changed);
+
+            foreach (var target in Targets)
+            {
+                var result = MarkdownSemanticSnapshot.ParseWithInitialWindowForTests(
+                    source, oldSnapshot, changed, target, out var actual);
+                if (SnapshotsEquivalent(expected, actual))
+                {
+                    continue;
+                }
+
+                mismatchCounts[target]++;
+                if (result.LocalSuccess)
+                {
+                    localMismatchCounts[target]++;
+                }
+                if (examples.Count < 12)
+                {
+                    examples.Add(
+                        $"{label} case={index} pos={position} token={EscapeToken(token)} initial={target} " +
+                        $"local={result.LocalSuccess} successTarget={result.SuccessfulTarget} " +
+                        $"window={result.ActualWindow} attempts={result.Attempts}");
+                }
+            }
+        }
+
+        foreach (var target in Targets)
+        {
+            Console.WriteLine(
+                $"WINDOW-CORRECT {label} initial={target} total={count} " +
+                $"mismatch={mismatchCounts[target]} local-mismatch={localMismatchCounts[target]}");
+        }
+        foreach (var example in examples)
+        {
+            Console.WriteLine($"WINDOW-MISMATCH {example}");
+        }
+    }
+
+    private static void ProbeStructuralEquivalence()
+    {
+        var cases = new List<(string Label, string Source, Func<string, string> Mutate)>();
+        foreach (var length in new[] { 3000, 5000, 7000, 9000, 12000, 18000 })
+        {
+            var fence = "```text\n" + new string('a', length) + "\n```\nend\n";
+            cases.Add(($"fence-marker-{length}", fence, source => source.Remove(0, 1)));
+            cases.Add(($"fence-content-{length}", fence,
+                source => source.Insert(source.IndexOf('a') + (length / 2), "x")));
+        }
+
+        var quote = new StringBuilder();
+        for (var i = 0; i < 700; i++)
+        {
+            quote.Append("> item ").Append(i).Append(" with **bold** content and `code`\n");
+        }
+        cases.Add(("long-quote", quote.ToString(), source => source.Insert(source.Length / 2, "x")));
+
+        var list = new StringBuilder();
+        for (var i = 0; i < 700; i++)
+        {
+            list.Append("- item ").Append(i).Append(" with **bold** content and `code`\n");
+        }
+        cases.Add(("long-list", list.ToString(), source => source.Insert(source.Length / 2, "x")));
+
+        foreach (var testCase in cases)
+        {
+            var oldSnapshot = MarkdownSemanticSnapshot.Parse(testCase.Source);
+            var changed = testCase.Mutate(testCase.Source);
+            var expected = MarkdownSemanticSnapshot.Parse(changed);
+            foreach (var target in Targets)
+            {
+                var result = MarkdownSemanticSnapshot.ParseWithInitialWindowForTests(
+                    testCase.Source, oldSnapshot, changed, target, out var actual);
+                var equal = SnapshotsEquivalent(expected, actual);
+                Console.WriteLine(
+                    $"WINDOW-STRUCT {testCase.Label} initial={target} exact={equal} " +
+                    $"local={result.LocalSuccess} successTarget={result.SuccessfulTarget} " +
+                    $"window={result.ActualWindow} attempts={result.Attempts}");
+            }
+        }
+    }
+
+    private static bool SnapshotsEquivalent(
+        MarkdownSemanticSnapshot expected,
+        MarkdownSemanticSnapshot actual)
+    {
+        if (expected.LineCount != actual.LineCount ||
+            !expected.Spans.SequenceEqual(actual.Spans) ||
+            !expected.Links.SequenceEqual(actual.Links))
+        {
+            return false;
+        }
+
+        for (var line = 0; line < expected.LineCount; line++)
+        {
+            if (expected.GetLine(line) != actual.GetLine(line) ||
+                !expected.SpansForLine(line).SequenceEqual(actual.SpansForLine(line)) ||
+                !expected.LinksForLine(line).SequenceEqual(actual.LinksForLine(line)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static string EscapeToken(string token) => token switch
+    {
+        " " => "<space>",
+        "\t" => "<tab>",
+        "\n" => "<newline>",
+        _ => token
+    };
 
     private static int FindProbe(string source, string needle)
     {
