@@ -298,7 +298,7 @@ internal static class IncrementalSnapshotChecks
             newDefinitionSource,
             source => source.Insert(
                 source.IndexOf("definition insertion anchor", StringComparison.Ordinal),
-                "ordinary inserted row\n[new-id]: https://example.com/new\n"));
+                "ordinary inserted row\n\n[new-id]: https://example.com/new\n"));
     }
 
     private static void CheckReferenceDefinitionStateSurvivesIncremental()
