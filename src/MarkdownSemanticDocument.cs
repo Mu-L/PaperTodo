@@ -1,18 +1,16 @@
 namespace PaperTodo;
 
 /// <summary>
-/// Per-editor semantic cache owned by the same thread as AvalonEdit's TextDocument. The initial
-/// document and every completed text change synchronously publish exact Markdig semantics before
-/// control returns to WPF rendering. Ordinary edits use the bounded incremental parser first;
-/// edits that cannot be proven local fall back to a full parse on the same thread.
-///
-/// One current source string is retained beside the semantic snapshot so the next edit can compare
-/// against the exact published generation without rematerializing the previous AvalonEdit Rope on
-/// every keystroke. There is no worker, semaphore, pending queue, stale generation or concurrent
-/// publication path.
+/// Per-editor semantic cache owned by the same thread as AvalonEdit's TextDocument. Opening a note
+/// always publishes one exact full-document Markdig snapshot. Completed edits below 2K characters
+/// are also parsed in full; larger notes use the lightweight local reparse path and synchronously
+/// fall back to a full parse only for the few global reference-definition cases it declines.
+/// There is no worker, semaphore, pending queue, stale generation or concurrent publication path.
 /// </summary>
 internal sealed class MarkdownSemanticDocument : IDisposable
 {
+    internal const int FullParseThresholdChars = 2000;
+
     private readonly ICSharpCode.AvalonEdit.Document.TextDocument _document;
     private MarkdownSemanticSnapshot _snapshot;
     private string _snapshotSource;
@@ -52,14 +50,24 @@ internal sealed class MarkdownSemanticDocument : IDisposable
         }
 
         var source = _document.Text;
-        var next = MarkdownSemanticSnapshot.TryParseIncremental(
-            _snapshotSource,
-            _snapshot,
-            source,
-            out var incremental,
-            out _)
-            ? incremental
-            : MarkdownSemanticSnapshot.Parse(source);
+        MarkdownSemanticSnapshot next;
+        if (source.Length < FullParseThresholdChars)
+        {
+            next = MarkdownSemanticSnapshot.Parse(source);
+        }
+        else if (MarkdownSemanticSnapshot.TryParseIncremental(
+                     _snapshotSource,
+                     _snapshot,
+                     source,
+                     out var incremental,
+                     out _))
+        {
+            next = incremental;
+        }
+        else
+        {
+            next = MarkdownSemanticSnapshot.Parse(source);
+        }
 
         _snapshotSource = source;
         _snapshot = next;

@@ -7,7 +7,6 @@ internal readonly record struct MarkdownIncrementalStageProfile(
     double DiffMs,
     double WindowMs,
     double LocalParseMs,
-    double ValidateMs,
     double SpliceMs,
     double LineStartsMs,
     double LinesMs,
@@ -27,11 +26,6 @@ internal sealed partial class MarkdownSemanticSnapshot
             MarkdownSemanticSnapshot oldSnapshot,
             string newSource)
     {
-        if (oldSnapshot._lineStarts.Length != oldSnapshot._lines.Length)
-        {
-            throw new InvalidOperationException("Published snapshot did not retain its line-start index.");
-        }
-
         var totalStart = Stopwatch.GetTimestamp();
         var stageStart = totalStart;
 
@@ -53,44 +47,18 @@ internal sealed partial class MarkdownSemanticSnapshot
                 oldChangedEnd,
                 newChangedEnd,
                 delta,
-                IncrementalPrimaryWindowChars,
                 out var oldStart,
                 out var oldEnd,
                 out var newStart,
                 out var newEnd))
         {
-            throw new InvalidOperationException("Dense incremental profile failed to build the primary window.");
+            throw new InvalidOperationException("Dense incremental profile failed to build its local window.");
         }
         var windowMs = ElapsedMs(stageStart);
 
         stageStart = Stopwatch.GetTimestamp();
         var local = Parse(newSource[newStart..newEnd]);
         var localParseMs = ElapsedMs(stageStart);
-
-        stageStart = Stopwatch.GetTimestamp();
-        if (!ReferenceLinksRemainStable(
-                oldSource,
-                oldSnapshot._links,
-                local._links,
-                oldStart,
-                oldEnd,
-                newStart,
-                changedStart,
-                oldChangedEnd,
-                delta) ||
-            !GuardRegionsMatch(
-                oldSnapshot,
-                local,
-                oldStart,
-                oldEnd,
-                newStart,
-                changedStart,
-                oldChangedEnd,
-                delta))
-        {
-            throw new InvalidOperationException("Dense incremental profile primary-window validation was not stable.");
-        }
-        var validateMs = ElapsedMs(stageStart);
 
         stageStart = Stopwatch.GetTimestamp();
         var spans = SpliceSpans(oldSnapshot._spans, local._spans, oldStart, oldEnd, newStart, delta);
@@ -133,7 +101,6 @@ internal sealed partial class MarkdownSemanticSnapshot
                 diffMs,
                 windowMs,
                 localParseMs,
-                validateMs,
                 spliceMs,
                 lineStartsMs,
                 linesMs,
@@ -180,7 +147,6 @@ internal static class IncrementalProfileChecks
         Print("Diff", median.DiffMs);
         Print("Window", median.WindowMs);
         Print("LocalParse", median.LocalParseMs);
-        Print("Validate", median.ValidateMs);
         Print("Splice", median.SpliceMs);
         Print("BuildLineStarts", median.LineStartsMs);
         Print("ApplyLines", median.LinesMs);
