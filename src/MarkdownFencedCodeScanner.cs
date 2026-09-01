@@ -15,9 +15,9 @@ internal readonly record struct MarkdownFencedCodeState(char Marker, int Opening
     public bool IsInside => Marker is '`' or '~' && OpeningLength >= 3;
 }
 
-// The single fenced-code recognizer used by both document rendering and persisted image-reference
-// scans. It implements the CommonMark fence rules relevant to PaperTodo: up to three leading
-// spaces, matching marker characters, and a closing run at least as long as its opener.
+// Lightweight fenced-code recognizer retained only for the bounded Edge Mini navigation
+// preview. Built-in Note body semantics and persisted image-reference scans use Markdig instead.
+// It implements the CommonMark fence rules needed by that deliberately approximate preview.
 internal static class MarkdownFencedCodeScanner
 {
     internal static MarkdownFenceLineKind ClassifyLine(

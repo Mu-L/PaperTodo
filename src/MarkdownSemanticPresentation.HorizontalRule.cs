@@ -1,0 +1,122 @@
+using System.Windows;
+using System.Windows.Media;
+using ICSharpCode.AvalonEdit;
+using ICSharpCode.AvalonEdit.Rendering;
+
+namespace PaperTodo;
+
+internal sealed partial class MarkdownSemanticPresentation
+{
+    private sealed class SemanticHorizontalRuleRenderer : IBackgroundRenderer
+    {
+        private readonly MarkdownSemanticPresentation _owner;
+
+        public SemanticHorizontalRuleRenderer(MarkdownSemanticPresentation owner)
+        {
+            _owner = owner;
+        }
+
+        public KnownLayer Layer => KnownLayer.Caret;
+
+        public void Draw(TextView textView, DrawingContext drawingContext)
+        {
+            var document = textView.Document;
+            if (!_owner.RenderHorizontalRules || document == null || !textView.VisualLinesValid)
+            {
+                return;
+            }
+
+            var width = textView.ActualWidth;
+            if (width <= 0)
+            {
+                return;
+            }
+
+            var snapshot = _owner.CurrentSnapshot();
+            var pen = new Pen(Theme.PaperBorderBrush, 1);
+            foreach (var visualLine in textView.VisualLines)
+            {
+                for (var line = visualLine.FirstDocumentLine;
+                     line != null && line.LineNumber <= visualLine.LastDocumentLine.LineNumber;
+                     line = line.NextLine)
+                {
+                    var semantic = snapshot.GetLine(Math.Max(0, line.LineNumber - 1));
+                    if (!semantic.IsHorizontalRule)
+                    {
+                        continue;
+                    }
+
+                    var text = document.GetText(line);
+                    var ruleStart = 0;
+                    while (ruleStart < text.Length && char.IsWhiteSpace(text[ruleStart]))
+                    {
+                        ruleStart++;
+                    }
+                    var ruleEnd = text.Length;
+                    while (ruleEnd > ruleStart && char.IsWhiteSpace(text[ruleEnd - 1]))
+                    {
+                        ruleEnd--;
+                    }
+
+                    if (!TryGetTextPoint(textView, line, ruleStart, VisualYPosition.TextMiddle, out var startPoint) ||
+                        !TryGetTextPoint(textView, line, ruleEnd, VisualYPosition.TextMiddle, out var endPoint))
+                    {
+                        continue;
+                    }
+
+                    var top = textView.GetVisualTopByDocumentLine(line.LineNumber) -
+                        textView.VerticalOffset;
+                    var height = visualLine.Height;
+                    if (line.NextLine != null)
+                    {
+                        var nextTop = textView.GetVisualTopByDocumentLine(line.NextLine.LineNumber) -
+                            textView.VerticalOffset;
+                        height = Math.Max(textView.DefaultLineHeight, nextTop - top);
+                    }
+
+                    if (_owner.FadeSyntax)
+                    {
+                        drawingContext.DrawRectangle(
+                            Theme.PaperBrush,
+                            null,
+                            new Rect(0, top, width, Math.Max(1, height)));
+                    }
+
+                    var left = _owner.FadeSyntax
+                        ? startPoint.X
+                        : endPoint.X + 8;
+                    left = Math.Max(0, left);
+                    var y = Math.Round(startPoint.Y) + 0.5;
+                    drawingContext.DrawLine(
+                        pen,
+                        new Point(left, y),
+                        new Point(Math.Max(left, width - 4), y));
+                }
+            }
+        }
+
+        private static bool TryGetTextPoint(
+            TextView textView,
+            ICSharpCode.AvalonEdit.Document.DocumentLine line,
+            int indexInLine,
+            VisualYPosition yPosition,
+            out Point point)
+        {
+            point = default;
+            try
+            {
+                var column = Math.Clamp(indexInLine, 0, line.Length) + 1;
+                point = textView.GetVisualPosition(
+                    new TextViewPosition(line.LineNumber, column),
+                    yPosition);
+                point.X -= textView.HorizontalOffset;
+                point.Y -= textView.VerticalOffset;
+                return double.IsFinite(point.X) && double.IsFinite(point.Y);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+}

@@ -47,3 +47,6 @@ jobs:
 
       - name: Build
         run: dotnet build .\PaperTodo.csproj -c Release --no-restore
+
+      - name: Markdown semantic checks
+        run: dotnet run --project .\tests\PaperTodo.MarkdownSemanticChecks\PaperTodo.MarkdownSemanticChecks.csproj -c Release

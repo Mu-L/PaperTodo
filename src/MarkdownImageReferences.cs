@@ -83,9 +83,20 @@ public static class MarkdownImageReferences
     public static HashSet<string> CollectImageIds(string? markdown)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var reference in Enumerate(markdown))
+        if (string.IsNullOrEmpty(markdown))
         {
-            ids.Add(reference.ImageId);
+            return ids;
+        }
+
+        // This method feeds destructive startup protection/GC. Be conservative: any complete
+        // PaperTodo image reference line protects its blob even when Markdown semantics classify
+        // the line as code. Semantic consumers that must ignore code use Enumerate instead.
+        foreach (var (lineStart, lineLength) in EnumeratePhysicalLines(markdown))
+        {
+            if (TryParseReferenceLine(markdown.Substring(lineStart, lineLength), out var reference))
+            {
+                ids.Add(reference.ImageId);
+            }
         }
 
         return ids;
@@ -146,43 +157,52 @@ public static class MarkdownImageReferences
             yield break;
         }
 
-        var fencedCodeState = default(MarkdownFencedCodeState);
-        var lineStart = 0;
-        while (lineStart <= markdown.Length)
+        var snapshot = MarkdownSemanticSnapshot.Parse(markdown);
+        var lineIndex = 0;
+        foreach (var (lineStart, lineLength) in EnumeratePhysicalLines(markdown))
         {
-            var lineEnd = lineStart;
-            while (lineEnd < markdown.Length && markdown[lineEnd] is not '\r' and not '\n')
+            var semantic = snapshot.GetLine(lineIndex++);
+            if (semantic.IsCode)
             {
-                lineEnd++;
+                continue;
             }
 
-            var line = markdown[lineStart..lineEnd];
-            var fenceKind = MarkdownFencedCodeScanner.ClassifyLine(
-                line,
-                fencedCodeState,
-                out var nextFencedCodeState);
-            var wasInsideFencedCodeBlock = fencedCodeState.IsInside;
-            fencedCodeState = nextFencedCodeState;
-            if (fenceKind == MarkdownFenceLineKind.None &&
-                !wasInsideFencedCodeBlock &&
-                TryParseReferenceLine(line, out var reference))
+            var line = markdown.Substring(lineStart, lineLength);
+            if (TryParseReferenceLine(line, out var reference))
             {
                 yield return reference with
                 {
                     LineStart = lineStart,
-                    LineLength = lineEnd - lineStart
+                    LineLength = lineLength
                 };
             }
+        }
+    }
 
-            if (lineEnd >= markdown.Length)
+    private static IEnumerable<(int Start, int Length)> EnumeratePhysicalLines(string text)
+    {
+        var lineStart = 0;
+        while (lineStart <= text.Length)
+        {
+            var lineEnd = lineStart;
+            while (lineEnd < text.Length && text[lineEnd] is not '\r' and not '\n')
+            {
+                lineEnd++;
+            }
+
+            yield return (lineStart, lineEnd - lineStart);
+            if (lineEnd >= text.Length)
             {
                 yield break;
             }
 
-            lineStart = lineEnd + 1;
-            if (markdown[lineEnd] == '\r' && lineStart < markdown.Length && markdown[lineStart] == '\n')
+            if (text[lineEnd] == '\r' && lineEnd + 1 < text.Length && text[lineEnd + 1] == '\n')
             {
-                lineStart++;
+                lineStart = lineEnd + 2;
+            }
+            else
+            {
+                lineStart = lineEnd + 1;
             }
         }
     }

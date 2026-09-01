@@ -378,3 +378,36 @@ Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：ow
 - `.github/workflows/`：CI / Release。
 
 根目录保留项目入口和仓库级知识入口：`README`、`CHANGELOG`、`AGENTS.md`、`ARCHITECTURE.md`、`DECISIONS.md`。
+
+---
+
+## Built-in Note Markdown semantic / presentation
+
+内置 Markdown Note 只有一份 `MarkdownTextBox` / AvalonEdit `TextDocument`。编辑态与浏览态不创建第二份 rendered document，也不走 HTML/WebView。
+
+```text
+MarkdownTextBox
+    ├─ input / caret / selection / undo / paste / image interaction
+    │
+    └─ TextDocument
+         ↓
+MarkdownSemanticDocument
+    └─ same DocumentVersion parses once
+         ↓
+MarkdownSemanticSnapshot
+    └─ PaperTodo-owned source spans / line traits / links
+         ↓
+IMarkdownRendererProvider / IMarkdownRendererSession
+         ↓
+MarkdownSemanticPresentation
+         ↓
+same AvalonEdit TextView
+```
+
+- **Markdig 是内置 Note 的唯一 Markdown 语义 authority。** renderer、链接交互、列表 Enter、code/fence 判断和图片是否位于 code 区都读取同一份 semantic snapshot，不保留第二套手写 Markdown parser/fallback。
+- `MarkdownSemanticDocument` 按 source generation 缓存；AvalonEdit immutable snapshot 进入单一后台 worker，始终最多一个 parse 正在运行、一个最新 source 待处理。已有已发布 snapshot 时，普通修改先从约 4K 的行对齐窗口交给 Markdig，并按旧 semantic container 与边缘 guard 自适应扩大到 8K / 16K / 32K；只有引用定义等全局依赖、超大修改或 32K 仍不能证明边界稳定时才回退全文 parse。普通输入、hover 和 presentation 不同步全量 parse；只有明确需要即时语义的点击等命令允许强制取得当前 snapshot。
+- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`，live editor 不长期持有 AST。
+- pipeline 刻意保持最小：precise source location + strikethrough + task list；PaperTodo 既有 bare HTTP(S)、inline HTML 白名单、图片协议等兼容边界在 snapshot/host 层显式处理，不直接启用整包 advanced extensions。
+- syntax fading 不删除源码字符，也不创建 source/rendered offset mapping；`#`、`**`、`[]()` 等 marker 仍占据原布局，只改变 presentation。
+- 图片 `i:` 协议、URL 打开白名单、原生保存仍属于 PaperTodo host concern；图片是否位于 code/container 等 Markdown 语义由同一 Markdig snapshot 决定。启动图片 GC 额外采用保守保护扫描，允许多保留但不因 parser 分歧误删 blob。
+- Edge Mini 是受 4096 字符/有限 block 约束的导航近似预览，可保留轻量 scanner/regex；它不是正文、持久化或数据回收的 Markdown authority。

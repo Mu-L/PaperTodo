@@ -7,10 +7,32 @@ namespace PaperTodo;
 
 public sealed partial class MarkdownTextBox
 {
-    public bool TryGetOpenableLinkFromTextViewPointFast(Point point, out string url)
+    public bool TryGetOpenableLinkFromTextViewPoint(Point point, out string url) =>
+        TryGetOpenableLinkFromTextViewPointCore(point, requireCurrentSnapshot: true, out url);
+
+    public bool TryGetOpenableLinkFromTextViewPointFast(Point point, out string url) =>
+        TryGetOpenableLinkFromTextViewPointCore(point, requireCurrentSnapshot: false, out url);
+
+    private bool TryGetOpenableLinkFromTextViewPointCore(
+        Point point,
+        bool requireCurrentSnapshot,
+        out string url)
     {
         url = "";
         if (Document == null)
+        {
+            return false;
+        }
+
+        MarkdownSemanticSnapshot snapshot;
+        if (requireCurrentSnapshot)
+        {
+            if (!TryGetSemanticSnapshot(out snapshot))
+            {
+                return false;
+            }
+        }
+        else if (!TryGetPublishedSemanticSnapshot(out snapshot))
         {
             return false;
         }
@@ -31,53 +53,59 @@ public sealed partial class MarkdownTextBox
             }
 
             var offset = Math.Clamp(characterIndex, 0, Document.TextLength);
-            var line = Document.GetLineByOffset(offset);
-            var relativeOffset = Math.Clamp(offset - line.Offset, 0, line.Length);
-
-            if (RenderOptions.HighlightLinks)
-            {
-                var text = Document.GetText(line);
-                foreach (var link in EnumerateInlineLinks(text))
-                {
-                    if (relativeOffset >= link.Start &&
-                        relativeOffset <= link.End &&
-                        IsLinkSegmentHit(
-                            point,
-                            line.Offset + link.Start,
-                            link.End - link.Start))
-                    {
-                        url = link.Url;
-                        return true;
-                    }
-                }
-            }
-
-            var analysis = GetLineAnalysis(Document, line);
-            if (analysis.Style.Kind is MarkdownLineKind.CodeFence or MarkdownLineKind.CodeBlock)
+            if (!TryResolveLinkAtVisualOffset(snapshot, offset, out var link))
             {
                 return false;
             }
 
-            foreach (var link in EnumerateBareWebLinks(analysis.Text))
+            var highlightLinks = !string.Equals(
+                MarkdownRenderMode,
+                MarkdownRenderModes.Off,
+                StringComparison.Ordinal);
+            if (!highlightLinks && !IsLiteralBareHttpLink(link))
             {
-                if (relativeOffset >= link.Start &&
-                    relativeOffset <= link.End &&
-                    IsLinkSegmentHit(
-                        point,
-                        line.Offset + link.Start,
-                        link.End - link.Start))
-                {
-                    url = link.Url;
-                    return true;
-                }
+                return false;
             }
+
+            if (!IsLinkSegmentHit(point, link.Start, link.Length) ||
+                !TryNormalizeMarkdownUrl(link.Url, out var normalizedUrl))
+            {
+                return false;
+            }
+
+            url = normalizedUrl;
+            return true;
         }
         catch
         {
             return false;
         }
+    }
 
-        return false;
+    private static bool TryResolveLinkAtVisualOffset(
+        MarkdownSemanticSnapshot snapshot,
+        int offset,
+        out MarkdownSemanticLink link)
+    {
+        if (snapshot.TryGetLinkAtOffset(offset, out link))
+        {
+            return true;
+        }
+
+        return offset > 0 && snapshot.TryGetLinkAtOffset(offset - 1, out link);
+    }
+
+    private bool IsLiteralBareHttpLink(MarkdownSemanticLink link)
+    {
+        if (!link.IsAuto || link.Length <= 0 || Document == null ||
+            link.Start < 0 || link.End > Document.TextLength)
+        {
+            return false;
+        }
+
+        var source = Document.GetText(link.Start, link.Length);
+        return source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            source.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsLinkSegmentHit(Point point, int startOffset, int length)

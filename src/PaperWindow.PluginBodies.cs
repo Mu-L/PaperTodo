@@ -78,11 +78,6 @@ public sealed partial class PaperWindow
         get => _markdownBodySession?.CancelPresenterInteractions;
         set => RequireMarkdownBodySession().CancelPresenterInteractions = value;
     }
-    private Action? _settlePendingNoteBodyRebuild
-    {
-        get => _markdownBodySession?.SettlePendingBodyRebuild;
-        set => RequireMarkdownBodySession().SettlePendingBodyRebuild = value;
-    }
     private bool _noteContentDirty
     {
         get => _markdownBodySession?.ContentDirty == true;

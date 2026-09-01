@@ -38,6 +38,7 @@
 | D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |
 | D-024 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
 | D-025 | Note 图片若干限制为已接受取舍 | Accepted | Note / 图片 |
+| D-026 | Built-in Note Markdown 使用 Markdig 单一语义 authority | Accepted | Note / Markdown |
 
 ## 维护规则
 
@@ -905,3 +906,50 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 - 外部 Markdown 导出允许按当前实现重建图片目录，不要求增加临时目录和原子替换协议。
 
 这些限制本身不是 bug；不要仅因为存在“更完整、更宽松或更原子”的实现方案就重复提出。
+
+---
+
+## D-026 — Built-in Note Markdown 使用 Markdig 单一语义 authority
+
+**Status:** Accepted
+
+### Context
+
+D-019 已经确定 Note 的编辑与浏览共用同一个 `MarkdownTextBox` / AvalonEdit `TextDocument`。随后 Markdown 能力继续增长时，旧实现把编辑行为、逐行手写 parser、inline scanner 和多个 AvalonEdit renderer 混在同一个控件中；heading、list、fence、link、HTML、图片等路径会各自形成一份“近似 Markdown 真相”。这既扩大 CommonMark 边界 bug，也让 renderer 与 editor helper 很难独立演进。
+
+### Decision
+
+- 内置 Note 继续遵守 D-019：编辑与浏览共享同一个 `MarkdownTextBox` / `TextDocument`，不生成 HTML/DOM 或第二份 rendered document。
+- 标准 Markdown 解析统一交给 Markdig；`MarkdownSemanticDocument` 对 source generation 缓存不可变 `MarkdownSemanticSnapshot`。AvalonEdit immutable snapshot 由单一后台 worker 处理，始终最多一个 parse 正在运行、一个最新 source 待处理；普通输入、hover 与 presentation 不同步阻塞 UI，只有明确需要即时语义的点击等命令允许强制取得当前 snapshot。
+- Markdig AST 只作为瞬时解析结果，立即压平为 PaperTodo 自己的 source span、line traits、link 等数据；renderer 和编辑 helper 不直接持有 AST。
+- `MarkdownSemanticPresentation` 在同一个 AvalonEdit `TextView` 上完成 typography、syntax fade、block background、list/rule、link 与图片源码 presentation。
+- 列表 Enter、链接 hit-test、fence/code 判断、图片是否位于 code 区等需要 Markdown 语义的编辑/交互逻辑同样消费 snapshot；不保留隐藏的手写 Markdown parser 作为 fallback。
+- Markdig pipeline 只启用当前产品需要的 extension，不用 `UseAdvancedExtensions()` 一次性扩大语法面。PaperTodo 的图片协议、URL allowlist/打开策略、原生持久化仍由宿主持有。
+- 当前 `IMarkdownRendererProvider` / `IMarkdownRendererSession` 先作为 internal boundary 使用；是否公开 renderer plugin ABI 是后续独立决策，不由本条提前冻结。
+
+### Why
+
+Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTodo 真正需要自己维护的是“如何把原始 Markdown source 映射成单控件 live presentation”，而不是再维护一套 Markdown grammar。把 semantic authority 收敛成一份 snapshot 后，renderer、编辑交互和未来扩展看到的是同一份事实；同时保留原 source offset，正好适合 PaperTodo 不删除 marker、只做淡化/样式化的交互模型。
+
+### Rejected / Do not reintroduce
+
+- 不让每个 AvalonEdit renderer 独立 parse/猜测 Markdown。
+- 不恢复 `MarkdownLineAnalysisCache` / `AnalyzeLineCore` 一类隐藏手写 parser 作为“保险 fallback”；历史实现需要回看时使用 Git 历史。
+- 不为了 Markdown preview 创建第二份 TextDocument、HTML DOM 或 WebView，并承担 caret/source mapping 与 scroll sync。
+- 不在没有明确产品需求时启用整包 Markdig advanced extensions，避免无意扩大 Markdown 方言和兼容面。
+
+### Consequences
+
+- 同一 source generation 只有一个已发布 semantic authority，Presentation 与 interaction 共享结果；后台 parse 与显式强制 parse 即使竞态计算，也只允许当前 generation 的 snapshot 被发布。
+- `MarkdownTextBox` 可以继续专注编辑、caret、paste、图片交互等 editor concern；Markdown presentation 位于独立 semantic/presentation 文件。
+- 增加新 Markdown 语法时，应先扩 semantic snapshot 与回归测试，再让 presentation 消费，不在 renderer 中临时加 parser。
+- 这条决策不要求 Markdig 永久锁定某个 package version；升级时以 source-span/兼容测试和性能 smoke 为门禁。
+
+### Evidence
+
+- `src/MarkdownSemanticDocument.cs`。
+- `src/MarkdownSemanticSnapshot*.cs`。
+- `src/MarkdownSemanticPresentation*.cs`。
+- `src/MarkdownListEditing.cs`。
+- `src/MarkdownPaperBodySession.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/`。

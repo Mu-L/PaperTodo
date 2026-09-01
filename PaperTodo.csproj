@@ -51,6 +51,8 @@
     <ProjectReference Include="PaperTodo.Plugin.Abstractions\PaperTodo.Plugin.Abstractions.csproj" />
     <ProjectReference Include="vendor\wpf-notifyicon\src\NotifyIconWpf\NotifyIconWpf.csproj" />
     <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
+    <!-- Markdig is the semantic parser only; AvalonEdit remains the source document and renderer. -->
+    <PackageReference Include="Markdig" Version="1.3.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
     <PackageReference Include="ModelContextProtocol" Version="2.0.0" />
