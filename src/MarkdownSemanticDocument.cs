@@ -238,7 +238,7 @@ internal sealed class MarkdownSemanticDocument : IDisposable
     {
         if (baseSnapshot != null &&
             baseSource != null &&
-            MarkdownSemanticSnapshot.TryParseIncremental(
+            MarkdownSemanticSnapshot.TryParseSegmentedIncremental(
                 baseSource,
                 baseSnapshot,
                 source,
