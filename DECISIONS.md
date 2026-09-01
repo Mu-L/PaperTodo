@@ -38,6 +38,9 @@
 | D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |
 | D-024 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
 | D-025 | Note 图片若干限制为已接受取舍 | Accepted | Note / 图片 |
+| D-026 | Built-in Note Markdown 使用 Markdig 单一语义 authority | Accepted | Note / Markdown |
+| D-027 | Built-in Note Markdown 语义更新使用同线程同步发布 | Accepted | Note / Markdown / performance |
+| D-028 | 大 Note 使用轻量局部重解析与 fence 状态扩窗 | Accepted | Note / Markdown / performance |
 
 ## 维护规则
 
@@ -905,3 +908,158 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 - 外部 Markdown 导出允许按当前实现重建图片目录，不要求增加临时目录和原子替换协议。
 
 这些限制本身不是 bug；不要仅因为存在“更完整、更宽松或更原子”的实现方案就重复提出。
+
+---
+
+## D-026 — Built-in Note Markdown 使用 Markdig 单一语义 authority
+
+**Status:** Accepted
+
+> D-026 的“Markdig 单一语义 authority”继续有效。早期为它配套的后台 worker、renderer provider/session 外壳和严格增量等价证明都属于后续已收敛实现；同步发布见 D-027，大 Note 局部策略见 D-028。
+
+### Context
+
+D-019 已经确定 Note 的编辑与浏览共用同一个 `MarkdownTextBox` / AvalonEdit `TextDocument`。随后 Markdown 能力继续增长时，旧实现把编辑行为、逐行手写 parser、inline scanner 和多个 AvalonEdit renderer 混在同一个控件中；heading、list、fence、link、HTML、图片等路径会各自形成一份“近似 Markdown 真相”。这既扩大 CommonMark 边界 bug，也让 renderer 与 editor helper 很难独立演进。
+
+### Decision
+
+- 内置 Note 继续遵守 D-019：编辑与浏览共享同一个 `MarkdownTextBox` / `TextDocument`，不生成 HTML/DOM 或第二份 rendered document。
+- 标准 Markdown grammar 统一交给 Markdig。`MarkdownSemanticDocument` 只维护当前 source 与当前不可变 `MarkdownSemanticSnapshot`；具体同步发布和大文档局部更新策略分别由 D-027 / D-028 约束。
+- Markdig AST 只作为瞬时解析结果，立即压平为 PaperTodo 自己的 source spans、line traits、links 与 derived indexes；renderer 和编辑 helper 不直接持有 AST。
+- `MarkdownSemanticPresentation` 直接附着同一个 AvalonEdit `TextView` 完成 typography、syntax fade、block background、list/rule、link 与图片源码 presentation；`MarkdownPaperBodySession` 直接拥有 semantic document 与 presentation，不再保留 `IMarkdownRendererProvider` / `IMarkdownRendererSession` 外壳。
+- 列表 Enter、链接 hit-test、fence/code 判断、图片是否位于 code 区等需要 Markdown 语义的编辑/交互逻辑消费同一 snapshot；不恢复隐藏的逐行手写 Markdown parser 作为正文 fallback。
+- Markdig pipeline 只启用当前产品需要的 extension，不用 `UseAdvancedExtensions()` 一次性扩大语法面。PaperTodo 的图片协议、URL allowlist/打开策略、原生持久化仍由宿主持有。
+
+### Why
+
+Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTodo 真正需要自己维护的是“如何把原始 Markdown source 映射成单控件 live presentation”，而不是再维护一套 Markdown grammar。把 semantic authority 收敛成一份 snapshot 后，renderer、编辑交互和未来扩展看到的是同一来源的事实；同时保留原 source offset，正好适合 PaperTodo 不删除 marker、只做淡化/样式化的交互模型。
+
+### Rejected / Do not reintroduce
+
+- 不让每个 AvalonEdit renderer 独立 parse/猜测 Markdown。
+- 不恢复 `MarkdownLineAnalysisCache` / `AnalyzeLineCore` 一类隐藏手写 parser 作为正文“保险 fallback”；历史实现需要回看时使用 Git 历史。
+- 不为了 Markdown preview 创建第二份 TextDocument、HTML DOM 或 WebView，并承担 caret/source mapping 与 scroll sync。
+- 不在没有明确产品需求时启用整包 Markdig advanced extensions，避免无意扩大 Markdown 方言和兼容面。
+- 轻量 `MarkdownFencedCodeScanner` 只能用于受限预览或局部窗口边界发现，不能升级成与 Markdig 并行发布正文语义的第二 authority。
+
+### Consequences
+
+- 当前 snapshot 中的 Markdown 语义都来自 Markdig parse 结果或上一份 Markdig snapshot 的局部 splice；大 Note 编辑期是否保证全文 exact 由 D-028 的产品取舍决定，而不是通过第二套 parser 补齐。
+- `MarkdownTextBox` 可以继续专注编辑、caret、paste、图片交互等 editor concern；Markdown presentation 位于独立 semantic/presentation 文件。
+- 增加新 Markdown 语法时，应先扩 semantic snapshot 与回归测试，再让 presentation 消费，不在 renderer 中临时加 parser。
+- 这条决策不要求 Markdig 永久锁定某个 package version；升级时以 source-span/兼容测试和性能 smoke 为门禁。
+
+### Evidence
+
+- `src/MarkdownSemanticDocument.cs`。
+- `src/MarkdownSemanticSnapshot*.cs`。
+- `src/MarkdownSemanticPresentation*.cs`。
+- `src/MarkdownListEditing.cs`。
+- `src/MarkdownPaperBodySession.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/`。
+
+---
+
+## D-027 — Built-in Note Markdown 语义更新使用同线程同步发布
+
+**Status:** Accepted
+
+### Context
+
+D-026 把内置 Note 的 Markdown 语义统一到 Markdig 后，第一版为了避免全文解析阻塞 UI，给每个 editor 建立后台 worker、generation/pending publication 和 stale/current snapshot 边界；随后又为压低大文档增量开销加入 segmented line-index、rebase 与 lazy materialization。实际 WPF 输入验证发现，这套异步 publication 会让 `TextDocument` 已经变化、而新 semantic snapshot 尚未发布的短窗口跨过一次 render，heading/code/image 等会先按缺失或旧语义布局，再按新语义重新 measure，表现为偶发输入抖动。
+
+端到端 `TextDocument -> semantic publication` probe 同时确认：即使接近 100K 字符，普通局部编辑的同步成本仍处于约毫秒级；语义密集压力文档通常也在单帧量级。此时把廉价解析搬到后台所引入的状态、调度和二次布局成本已经高于收益。
+
+### Decision
+
+- `MarkdownSemanticDocument` 与其 AvalonEdit `TextDocument` 由同一线程拥有；初次打开总是同步全文 parse，每次完整 `TextChanged` 也在返回 WPF 之前同步发布新的 current snapshot。
+- 正文少于 2000 字符时直接全文 parse；较大 Note 先使用 D-028 的轻量局部路径，只有该路径明确拒绝的 reference 等全局依赖才同步回退全文。
+- 不再为每个 Note 建 permanent parser worker，也不维护 semaphore、pending generation、stale/current 双语义或并发 publish 路径。
+- derived line query 使用简单的连续 buffer + per-line range compact index；`lineStarts` 只在本次 parse / rebuild 中临时使用，不作为 snapshot 常驻状态，也不恢复 segmented/rebase/lazy-cache 层。
+- 每个 live semantic session 保留一份与当前 snapshot 对应的 source string，供下一次差异定位和局部 splice 使用。AST 仍只在 parse 期间存在，不长期持有。
+
+### Why
+
+- 对会改变字体、行高、图片 block 和换行的 presentation，几毫秒同步计算比跨帧等待异步结果更稳定；WPF 第一次重绘就应看到本次编辑已经发布的语义。
+- 单线程 ownership 直接消除了 worker 与 UI parse 竞争、generation publication race、dispose/cancel 时序和 stale semantic 安全边界。
+- PaperTodo 的 Note 上限有限，真实端到端 probe 证明普通输入的同步成本足够低；继续为亚毫秒到数毫秒收益维护 segmented 状态机不符合复杂度收益比。
+- “同步发布”只约束时序，不要求大 Note 每个按键都全文 exact；局部正确性/性能取舍独立记录在 D-028，避免把两种问题重新绑在一起。
+
+### Rejected / Do not reintroduce
+
+- 不再仅为了把普通数毫秒 semantic work 移出 UI thread，就恢复 per-editor 常驻 parser worker、pending/stale generation 和双 publication 路径。
+- 不把“当前 generation 尚无 snapshot”重新表示成 `Empty` 并允许 WPF 先绘制一次无语义布局。
+- 不在缺少新的可观察性能证据时恢复 segmented line-index / offset rebase / lazy bucket materialization；如果未来文档上限或 Markdown 复杂度显著增长，先用端到端输入 profile 证明简单路径已经成为真实瓶颈。
+
+### Consequences
+
+- `TextDocument` mutation 返回前一定已经发布本次编辑对应的 current snapshot；presentation、链接、列表编辑和图片不会经历异步 semantic 空窗。
+- 对小 Note 和明确全文 fallback，snapshot 与全文 Markdig 一致；对较大 Note 的普通输入，snapshot 采用 D-028 明确接受的 best-effort 局部语义。
+- 语义 session 常驻一份 current source string；大文档端到端 allocation probe 与 full-fallback probe 作为 CI smoke 保留，用来防止后续优化再次以隐藏输入抖动换取纸面吞吐。
+
+### Evidence
+
+- `src/MarkdownSemanticDocument.cs`。
+- `src/MarkdownSemanticSnapshot.Incremental.cs`。
+- `src/MarkdownTextBox.Semantics.cs`、`src/MarkdownTextBox.SemanticEditing.cs`、`src/MarkdownTextBox.SemanticImages.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/SynchronousDocumentChecks.cs`。
+- `d624873`：移除 permanent worker 与 segmented production path。
+- `2b4b5a9`：移除 stale/current semantic compatibility path。
+- `419612b`：保留 current source string，降低真实 TextDocument 编辑临时分配。
+- `465b106`：覆盖同步 full-parse fallback。
+
+---
+
+## D-028 — 大 Note 使用轻量局部重解析与 fence 状态扩窗
+
+**Status:** Accepted
+
+### Context
+
+同步发布收敛后，大 Note 的第一版 incremental 为了证明“局部结果与全文 Markdig 完全等价”，逐渐加入 1K→16K retry、guard regions、reference stability proof、safe-block expansion 和大量 fuzz/equivalence 辅助逻辑。它能提高严格证明范围，但生产代码和测试开始承担一套接近“增量解析正确性证明器”的复杂度。
+
+PaperTodo 的产品需求更接近：打开 Note 时建立全文正确基线；普通大文档输入保持局部、稳定、足够正确；已有跨行结构不应因为硬切 1K 被明显截断；少数真正全局的 reference 依赖可以直接全文。为每个按键证明整个 100K 文档和全文 Markdig 全局等价，不值得继续维持前述复杂度。
+
+删除严格 proof 后最明显的实际缺口是**本次编辑新创建或破坏一个超长 fenced code block**：旧 snapshot 里没有这个新 container，裸 1K 窗口无法知道语义会传播到几万字符之外。该场景可以用比 Markdig 全文 parse 更便宜的 fence 状态扫描补边界，而不需要恢复完整 guard 系统。
+
+### Decision
+
+- 打开 Note 时仍全文 Markdig parse；小于 2000 字符的正文每次编辑也全文 parse。
+- 较大 Note 普通编辑使用单次约 1K 的行对齐目标窗口。窗口与上一份 snapshot 中已存在的 span/link 相交时，扩到这些已有 semantic container 的完整范围，再局部 Markdig parse + splice。
+- 删除 1K→16K retry、guard proof、窗口外 semantic 等价比较和“必须证明整篇 exact 才允许局部发布”的合同。大 Note 普通编辑明确是 **best-effort local**。
+- reference definition / reference use 仍保留便宜的显式 tripwire；局部窗口无法安全解析这些全局依赖时直接返回 full-parse fallback，不在局部路径内再造 reference resolver。
+- 当修改附近可能形成、删除或改变顶层 ``` / ~~~ fence（包括仅插删换行使 marker 获得/失去行首语义）时，使用轻量 `MarkdownFencedCodeScanner` 同步比较 old/new fenced-code state。两边在共同未修改 suffix 上逐行推进，一旦状态相同就停止扩窗；若始终不收敛则自然扩到 EOF，最终仍由 Markdig 解析扩后的真实窗口。
+- scanner 只负责 **window discovery**。它不发布 Note body semantics，也不扩展成 quote/list/HTML/container-aware 的第二套 Markdown parser；新建复杂嵌套长程结构等其他场景继续接受 best-effort。
+- 整条路径保持同线程同步，不引入后台 refresh、generation、固定“XK”自适应状态或文档级窗口缓存。
+
+### Why
+
+- 1K 作为目标窗口能覆盖普通局部输入；旧 snapshot 的 semantic overlap 已足以保护“在既有 4K/更长 fence 内修改正文”这类常见跨行结构，不需要额外语义快路径。
+- fence 是少数特别适合轻状态扫描的 Markdown 结构：状态只有 outside / marker / opening length，old/new 在同一未修改 suffix 上一旦重新相等，后续状态必然继续相等。用它发现窗口不会形成第二 semantic authority。
+- 实测接近 98K 的语义密集文档中，普通大 Note 仍保持局部毫秒级；新增 fence 很快遇到后续既有 fence 收敛时，动态窗口约 1K，明显低于全文 parse 的时间与分配。纯文本极端情况下状态可传播到数万字符甚至 EOF，此时局部与全文成本可能接近，但这是少数结构编辑，不值得再增加百分比阈值、后台预测或二次策略。
+- 把“同步 publication”“Markdown grammar authority”“大文档局部 exactness”拆成 D-027 / D-026 / D-028 三个独立边界，更容易判断未来优化到底改变了哪一项产品/架构合同。
+
+### Rejected / Do not reintroduce
+
+- 不仅为了恢复“每键全文 exact”就重新加入 guard regions、1K→16K retry、reference equivalence proof 和大规模窗口外 semantic proof。
+- 不为长 fence 再建后台扫描/刷新线程、per-note XK、generation 或 stale snapshot 校正机制。
+- 不针对“在既有长 fence 正文里改一个普通字符”再造一套 span 继承/marker 特判快路径；旧 container 扩窗已经足够简单且成本可接受。
+- 不把 `MarkdownFencedCodeScanner` 扩成完整 CommonMark parser。尤其新建 quote/list 中的复杂嵌套长 fence 不因为本条就获得全文 exact 保证。
+
+### Consequences
+
+- 已存在的长 semantic container 内编辑会根据旧 snapshot 扩窗；例如约 4K fenced block 中间输入会解析完整旧 container，而不是硬截 1K。
+- 新建/删除/改变普通顶层长 fence 会通过状态传播扩到实际受影响边界，包含删 closing、```/```` 长度变化、`~~~` 以及仅换行变化等情况。
+- 新创建的其他超远距离 Markdown 结构仍可能让窗口外 snapshot 暂时保留旧语义；这是大 Note 编辑期明确接受的 best-effort 行为。重新打开 Note 会再次全文建立 exact 基线。
+- 若某次 fence 影响直到 EOF，本次同步工作可以接近全文成本；保持逻辑直接优先于为了极少数尾部场景再加入阈值预测系统。
+
+### Evidence
+
+- `src/MarkdownSemanticSnapshot.Incremental.cs`。
+- `src/MarkdownFencedCodeScanner.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/IncrementalSnapshotChecks.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/FenceWindowChecks.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/FenceDenseProfileChecks.cs`。
+- `e16ecef` — 删除 guard / 16K retry，确立 <2K full + 大 Note best-effort local。
+- `db6b3dc` — 删除 snapshot 常驻 line starts 与 production incremental diagnostic state。
+- `e041ca7` — 增加 fence-state window propagation，并覆盖长 fence、marker length、换行创建/破坏 fence 与性能 profile。

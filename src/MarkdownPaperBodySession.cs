@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using PaperTodo.Plugin;
 
 namespace PaperTodo;
@@ -15,6 +16,9 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
     private readonly PaperData _paper;
     private readonly NoteImageStore _imageStore;
     private readonly Grid _root = new();
+    private MarkdownTextBox? _noteBox;
+    private MarkdownSemanticDocument? _semanticDocument;
+    private MarkdownSemanticPresentation? _semanticPresentation;
     private bool _disposed;
 
     internal MarkdownPaperBodySession(
@@ -25,6 +29,10 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
         _owner = owner;
         _paper = paper;
         _imageStore = imageStore;
+        _root.AddHandler(
+            UIElement.PreviewKeyDownEvent,
+            new KeyEventHandler(OnPreviewKeyDown),
+            handledEventsToo: true);
         owner.AttachMarkdownBodySession(this);
         try
         {
@@ -40,14 +48,40 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
 
     public FrameworkElement View => _root;
 
-    internal MarkdownTextBox? NoteBox { get; set; }
+    internal MarkdownTextBox? NoteBox
+    {
+        get => _noteBox;
+        set
+        {
+            if (ReferenceEquals(_noteBox, value))
+            {
+                return;
+            }
+
+            _semanticPresentation?.Dispose();
+            _semanticPresentation = null;
+            _noteBox?.SetSemanticDocument(null);
+            _semanticDocument?.Dispose();
+            _semanticDocument = null;
+
+            _noteBox = value;
+            if (value != null)
+            {
+                _semanticDocument = new MarkdownSemanticDocument(value.Document);
+                value.SetSemanticDocument(_semanticDocument);
+                _semanticPresentation = new MarkdownSemanticPresentation(
+                    value,
+                    _semanticDocument);
+            }
+        }
+    }
+
     internal UIElement? CurrentPresenter { get; set; }
     internal ContextMenu? PreviewContextMenu { get; set; }
     internal Action? ShowPreview { get; set; }
     internal int PresenterGeneration { get; set; }
     internal int DeferredWorkGeneration { get; set; }
     internal Action? CancelPresenterInteractions { get; set; }
-    internal Action? SettlePendingBodyRebuild { get; set; }
     internal bool ContentDirty { get; set; }
     internal bool ApplyingExternalChange { get; set; }
     internal bool LiveIsScriptCapsule { get; set; }
@@ -82,7 +116,6 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
         PreviewContextMenu = null;
         ShowPreview = null;
         CancelPresenterInteractions = null;
-        SettlePendingBodyRebuild = null;
         ContentDirty = false;
         ApplyingExternalChange = false;
         LiveIsScriptCapsule = false;
@@ -105,10 +138,6 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
 
     internal void CancelPresenterDeferredWork()
     {
-        var settleRebuild = SettlePendingBodyRebuild;
-        SettlePendingBodyRebuild = null;
-        settleRebuild?.Invoke();
-
         DeferredWorkGeneration++;
         CancelPresenterInteractions?.Invoke();
     }
@@ -128,6 +157,25 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
         if (!visible)
         {
             _imageStore.ReleaseNoteBitmapCache(_paper.Id);
+        }
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Handled || NoteBox == null)
+        {
+            return;
+        }
+
+        var handled = e.Key switch
+        {
+            Key.Enter => NoteBox.TryHandleSemanticEnter(),
+            Key.Back => NoteBox.TryHandleSemanticBackspace(),
+            _ => false
+        };
+        if (handled)
+        {
+            e.Handled = true;
         }
     }
 

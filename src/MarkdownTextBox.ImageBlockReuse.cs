@@ -24,7 +24,9 @@ public sealed partial class MarkdownTextBox
         }
 
         var generators = TextArea.TextView.ElementGenerators;
-        var generatorIndex = generators.IndexOf(_imageElementGenerator);
+        var generatorIndex = _semanticImageElementGenerator == null
+            ? -1
+            : generators.IndexOf(_semanticImageElementGenerator);
         if (generatorIndex < 0)
         {
             return;
@@ -45,9 +47,40 @@ public sealed partial class MarkdownTextBox
 
     private void OnImageBlockReuseDocumentChanged(object? sender, DocumentChangeEventArgs e)
     {
-        // Text edits are much rarer than resize-driven VisualLine rebuilds. Clearing here keeps
-        // anchor/context-menu lifetime simple while preserving the hot resize reuse path.
-        ClearImageBlockCache();
+        if (_cachedImageBlocks.Count == 0 || Document == null)
+        {
+            return;
+        }
+
+        var changeStart = e.Offset;
+        var changeEnd = e.Offset + Math.Max(1, Math.Max(e.RemovalLength, e.InsertionLength));
+        for (var index = _cachedImageBlocks.Count - 1; index >= 0; index--)
+        {
+            var cached = _cachedImageBlocks[index];
+            if (cached.ReferenceAnchor.IsDeleted)
+            {
+                _cachedImageBlocks.RemoveAt(index);
+                continue;
+            }
+
+            DocumentLine line;
+            try
+            {
+                line = Document.GetLineByOffset(
+                    Math.Clamp(cached.ReferenceAnchor.Offset, 0, Document.TextLength));
+            }
+            catch
+            {
+                _cachedImageBlocks.RemoveAt(index);
+                continue;
+            }
+
+            var lineEnd = line.EndOffset + line.DelimiterLength;
+            if (changeStart <= lineEnd && changeEnd >= line.Offset)
+            {
+                _cachedImageBlocks.RemoveAt(index);
+            }
+        }
     }
 
     private void ClearImageBlockCache()

@@ -55,9 +55,8 @@ public sealed partial class PaperWindow
             IsCurrentNotePresenter(presenterGeneration, box);
     }
 
-    // Window lifecycle code calls this before hiding/closing. Settling the structural body swap
-    // first leaves a complete body ready for a later Show(), while incrementing the callback
-    // generation prevents queued focus/image work from the old interaction from running.
+    // Window lifecycle code calls this before hiding/closing so queued focus/image work from
+    // the old interaction cannot run against a later presenter generation.
     private void CancelNotePresenterDeferredWork()
     {
         _markdownBodySession?.CancelPresenterDeferredWork();
@@ -68,8 +67,8 @@ public sealed partial class PaperWindow
         if (_paper.Type == PaperTypes.Note && _noteBox != null)
         {
             var mode = _controller.State.MarkdownRenderMode;
-            TraceNoteRender($"UpdateMarkdownRenderMode rebuild mode={mode}");
-            RebuildNoteBodyForMarkdownMode();
+            TraceNoteRender($"UpdateMarkdownRenderMode mode={mode}");
+            _noteBox.SetMarkdownRenderMode(mode);
         }
     }
 
@@ -98,112 +97,6 @@ public sealed partial class PaperWindow
             // Test-only diagnostics must never affect note interaction.
         }
 #endif
-    }
-
-    private void RebuildNoteBodyForMarkdownMode()
-    {
-        if (_paper.Type != PaperTypes.Note)
-        {
-            return;
-        }
-
-        var oldBox = _noteBox;
-        var text = oldBox?.PersistentText ?? _paper.Content ?? "";
-        var caret = oldBox?.CaretIndex ?? 0;
-        var verticalOffset = oldBox?.VerticalOffset ?? 0;
-        var horizontalOffset = oldBox?.HorizontalOffset ?? 0;
-        _paper.Content = text;
-        _noteContentDirty = false;
-
-        TraceNoteRender($"RebuildNoteBody start textLength={text.Length} caret={caret} v={verticalOffset:F1} h={horizontalOffset:F1}");
-
-        var oldBodies = new List<UIElement>();
-        if (_noteBodyElement != null)
-        {
-            oldBodies.Add(_noteBodyElement);
-        }
-        else
-        {
-            var zoomHost = _textZoomIndicator?.Parent as UIElement;
-            foreach (UIElement child in _shell.Children)
-            {
-                if (Grid.GetRow(child) == 1 && !ReferenceEquals(child, zoomHost))
-                {
-                    oldBodies.Add(child);
-                }
-            }
-        }
-
-        var body = BuildNoteBody();
-        body.Opacity = 0;
-        body.IsHitTestVisible = false;
-        Grid.SetRow(body, 1);
-        Panel.SetZIndex(body, 1);
-        _noteBodyElement = body;
-        _markdownBodySession?.AddPresenter(body);
-
-        var rebuiltBox = _noteBox;
-        if (rebuiltBox == null)
-        {
-            TraceNoteRender("RebuildNoteBody end: no note box");
-            return;
-        }
-
-        var presenterGeneration = _notePresenterGeneration;
-        var showPreview = _showNotePreview;
-        rebuiltBox.CaretIndex = Math.Clamp(caret, 0, rebuiltBox.Text.Length);
-        showPreview?.Invoke();
-        body.UpdateLayout();
-
-        void RemoveSupersededBodies()
-        {
-            foreach (var oldBody in oldBodies)
-            {
-                if (!ReferenceEquals(oldBody, _noteBodyElement))
-                {
-                    _markdownBodySession?.RemovePresenter(oldBody);
-                }
-            }
-        }
-
-        Action? settleRebuild = null;
-        settleRebuild = () =>
-        {
-            RemoveSupersededBodies();
-            if (!IsCurrentNotePresenter(presenterGeneration, rebuiltBox))
-            {
-                return;
-            }
-
-            body.Opacity = 1;
-            body.IsHitTestVisible = true;
-            rebuiltBox.ScrollToHorizontalOffset(horizontalOffset);
-            rebuiltBox.ScrollToVerticalOffset(verticalOffset);
-            showPreview?.Invoke();
-            if (ReferenceEquals(_settlePendingNoteBodyRebuild, settleRebuild))
-            {
-                _settlePendingNoteBodyRebuild = null;
-            }
-            TraceNoteRender($"RebuildNoteBody restored caret={rebuiltBox.CaretIndex} v={verticalOffset:F1} h={horizontalOffset:F1}");
-        };
-        _settlePendingNoteBodyRebuild = settleRebuild;
-        var deferredWorkGeneration = _noteDeferredWorkGeneration;
-
-        Dispatcher.BeginInvoke(
-            (Action)(() =>
-            {
-                if (!IsCurrentNoteDeferredWork(
-                        presenterGeneration,
-                        deferredWorkGeneration,
-                        rebuiltBox))
-                {
-                    RemoveSupersededBodies();
-                    return;
-                }
-
-                settleRebuild!();
-            }),
-            System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void ExitNoteEditor()
@@ -951,15 +844,7 @@ public sealed partial class PaperWindow
         var zoom = CurrentTextZoom();
         if (_noteBox != null)
         {
-            var expectedFontSize = Math.Round(NoteTypography.FontSize * zoom, 1);
-            if (IsLoaded && Math.Abs(_noteBox.FontSize - expectedFontSize) > 0.001)
-            {
-                RebuildNoteBodyForMarkdownMode();
-            }
-            else
-            {
-                _noteBox.SetTextZoom(zoom);
-            }
+            _noteBox.SetTextZoom(zoom);
         }
         else
         {

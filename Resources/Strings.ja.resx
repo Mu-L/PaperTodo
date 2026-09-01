@@ -1380,4 +1380,10 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="PluginInstanceLimitMessage" xml:space="preserve">
     <value>「{0}」で作成できる紙片は最大 {1} 個です。既存のインスタンスを削除してから作成してください。</value>
   </data>
+  <data name="NoteCopyTextOnlyTitle" xml:space="preserve">
+    <value>テキストのみコピーしました</value>
+  </data>
+  <data name="NoteCopyTextOnlyMessage" xml:space="preserve">
+    <value>選択した画像の内容が大きすぎるため、今回はテキストのみコピーしました。</value>
+  </data>
 </root>

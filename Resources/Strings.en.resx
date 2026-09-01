@@ -1380,4 +1380,10 @@ When off, open at the docked edge or remembered position.</value>
   <data name="PluginInstanceLimitMessage" xml:space="preserve">
     <value>“{0}” allows at most {1} paper instance(s). Delete an existing instance before creating another.</value>
   </data>
+  <data name="NoteCopyTextOnlyTitle" xml:space="preserve">
+    <value>Text copied only</value>
+  </data>
+  <data name="NoteCopyTextOnlyMessage" xml:space="preserve">
+    <value>The selected images are too large to include. Only the text was copied.</value>
+  </data>
 </root>
