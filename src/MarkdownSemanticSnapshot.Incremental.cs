@@ -6,10 +6,10 @@ internal sealed partial class MarkdownSemanticSnapshot
 
     /// <summary>
     /// Re-parses one local window around an edit. The 1K target may expand to complete semantics
-    /// already known by the previous full snapshot. This is a best-effort editing path for large
-    /// notes, not a proof that the entire new document is equivalent to a full Markdig parse.
-    /// Obvious global reference-definition dependencies decline the local path so the caller can
-    /// perform a synchronous full parse.
+    /// already known by the previous full snapshot. Fence-marker edits cheaply propagate the
+    /// window until old/new fenced-code state converges. Other long-range Markdown constructs
+    /// remain best-effort. Obvious global reference dependencies decline the local path so the
+    /// caller can synchronously parse the full document.
     /// </summary>
     internal static bool TryParseIncremental(
         string oldSource,
@@ -209,7 +209,133 @@ internal sealed partial class MarkdownSemanticSnapshot
             return false;
         }
 
+        if (ChangeMayAffectFenceState(
+                oldSource,
+                newSource,
+                changedStart,
+                oldChangedEnd,
+                newChangedEnd))
+        {
+            ExpandWindowForFenceStateChange(
+                oldSource,
+                newSource,
+                oldStart,
+                newStart,
+                ref oldEnd,
+                ref newEnd);
+        }
+
         return true;
+    }
+
+    private static bool ChangeMayAffectFenceState(
+        string oldSource,
+        string newSource,
+        int changedStart,
+        int oldChangedEnd,
+        int newChangedEnd) =>
+        RangeContainsPotentialFenceLine(oldSource, changedStart, oldChangedEnd) ||
+        RangeContainsPotentialFenceLine(newSource, changedStart, newChangedEnd);
+
+    private static bool RangeContainsPotentialFenceLine(string source, int start, int end)
+    {
+        if (source.Length == 0)
+        {
+            return false;
+        }
+
+        var normalizedStart = Math.Clamp(start, 0, source.Length);
+        var normalizedEnd = Math.Clamp(end, normalizedStart, source.Length);
+        var cursor = FindLineStart(source, Math.Max(0, normalizedStart - 1));
+        var limit = FindLineEndExclusive(source, normalizedEnd);
+        if (limit < source.Length)
+        {
+            limit = FindLineEndExclusive(source, limit);
+        }
+
+        while (cursor < limit)
+        {
+            var delimiter = FindLineDelimiterStart(source, cursor);
+            if (MarkdownFencedCodeScanner.ClassifyLine(
+                    source.AsSpan(cursor, delimiter - cursor),
+                    default,
+                    out _) == MarkdownFenceLineKind.Opening)
+            {
+                return true;
+            }
+
+            var next = FindLineEndExclusive(source, cursor);
+            if (next <= cursor)
+            {
+                break;
+            }
+            cursor = next;
+        }
+
+        return false;
+    }
+
+    private static void ExpandWindowForFenceStateChange(
+        string oldSource,
+        string newSource,
+        int oldStart,
+        int newStart,
+        ref int oldEnd,
+        ref int newEnd)
+    {
+        var stateBeforeWindow = ScanFenceState(oldSource, 0, oldStart, default);
+        var oldState = ScanFenceState(oldSource, oldStart, oldEnd, stateBeforeWindow);
+        var newState = ScanFenceState(newSource, newStart, newEnd, stateBeforeWindow);
+
+        // oldEnd/newEnd are corresponding line boundaries in the unchanged suffix. Once states
+        // match there, identical remaining source keeps them matched. Otherwise walk that suffix
+        // until they converge; if they never do, the window naturally reaches EOF.
+        while (!oldState.Equals(newState) && newEnd < newSource.Length)
+        {
+            var delimiter = FindLineDelimiterStart(newSource, newEnd);
+            var line = newSource.AsSpan(newEnd, delimiter - newEnd);
+            _ = MarkdownFencedCodeScanner.ClassifyLine(line, oldState, out oldState);
+            _ = MarkdownFencedCodeScanner.ClassifyLine(line, newState, out newState);
+
+            var next = FindLineEndExclusive(newSource, newEnd);
+            if (next <= newEnd)
+            {
+                oldEnd = oldSource.Length;
+                newEnd = newSource.Length;
+                break;
+            }
+
+            var advance = next - newEnd;
+            oldEnd = Math.Min(oldSource.Length, oldEnd + advance);
+            newEnd = next;
+        }
+    }
+
+    private static MarkdownFencedCodeState ScanFenceState(
+        string source,
+        int start,
+        int end,
+        MarkdownFencedCodeState state)
+    {
+        var cursor = Math.Clamp(start, 0, source.Length);
+        var limit = Math.Clamp(end, cursor, source.Length);
+        while (cursor < limit)
+        {
+            var delimiter = FindLineDelimiterStart(source, cursor);
+            var lineEnd = Math.Min(delimiter, limit);
+            _ = MarkdownFencedCodeScanner.ClassifyLine(
+                source.AsSpan(cursor, lineEnd - cursor),
+                state,
+                out state);
+
+            var next = FindLineEndExclusive(source, cursor);
+            if (next <= cursor)
+            {
+                break;
+            }
+            cursor = Math.Min(next, limit);
+        }
+        return state;
     }
 
     private static void ExpandToOverlappingSemantics(
