@@ -16,7 +16,7 @@ internal static class IncrementalSnapshotChecks
         CheckReferenceUseFallsBack();
         CheckOrdinaryReferenceDocumentEditStaysLocal();
         CheckNewReferenceDefinitionFallsBack();
-        CheckNewLongStructureIsBestEffort();
+        CheckNewLongFenceExpandsByStateScan();
     }
 
     private static void CheckSmallDocumentsUseFullParse()
@@ -158,7 +158,7 @@ internal static class IncrementalSnapshotChecks
         AssertFallsBack(oldSource, newSource, "new reference definition");
     }
 
-    private static void CheckNewLongStructureIsBestEffort()
+    private static void CheckNewLongFenceExpandsByStateScan()
     {
         var builder = new StringBuilder();
         builder.Append("before\n\n");
@@ -178,10 +178,10 @@ internal static class IncrementalSnapshotChecks
             oldSnapshot,
             newSource);
 
-        if (windowLength <= 0 || windowLength >= newSource.Length / 2)
+        if (windowLength < newSource.Length / 2)
         {
             throw new InvalidOperationException(
-                $"FAIL best-effort long structure: local edit expanded too far ({windowLength}/{newSource.Length})");
+                $"FAIL new long fence: fence-state scan did not expand far enough ({windowLength}/{newSource.Length})");
         }
         if (!MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
@@ -190,17 +190,12 @@ internal static class IncrementalSnapshotChecks
                 out var local))
         {
             throw new InvalidOperationException(
-                "FAIL best-effort long structure: local path unexpectedly demanded full equivalence");
+                "FAIL new long fence: local path unexpectedly fell back");
         }
 
-        var full = MarkdownSemanticSnapshot.Parse(newSource);
-        if (SnapshotsEquivalent(full, local))
-        {
-            throw new InvalidOperationException(
-                "FAIL best-effort long structure: test did not exercise the intentionally non-global path");
-        }
+        AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), local, "new long fence state scan");
         Console.WriteLine(
-            $"PASS new long structure remains best-effort window={windowLength} full={newSource.Length}");
+            $"PASS new long fence expands by state scan window={windowLength} full={newSource.Length}");
     }
 
     private static string BuildReferenceDocument()

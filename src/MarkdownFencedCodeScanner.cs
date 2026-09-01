@@ -15,18 +15,22 @@ internal readonly record struct MarkdownFencedCodeState(char Marker, int Opening
     public bool IsInside => Marker is '`' or '~' && OpeningLength >= 3;
 }
 
-// Lightweight fenced-code recognizer retained only for the bounded Edge Mini navigation
-// preview. Built-in Note body semantics and persisted image-reference scans use Markdig instead.
-// It implements the CommonMark fence rules needed by that deliberately approximate preview.
+// Lightweight fenced-code recognizer used only where a cheap fence state/boundary scan is useful:
+// bounded Edge Mini navigation and large-Note incremental window discovery. It never publishes
+// Note-body semantics; Markdig remains the body semantic authority.
 internal static class MarkdownFencedCodeScanner
 {
     internal static MarkdownFenceLineKind ClassifyLine(
         string text,
         MarkdownFencedCodeState stateBefore,
+        out MarkdownFencedCodeState stateAfter) =>
+        ClassifyLine((text ?? string.Empty).AsSpan(), stateBefore, out stateAfter);
+
+    internal static MarkdownFenceLineKind ClassifyLine(
+        ReadOnlySpan<char> text,
+        MarkdownFencedCodeState stateBefore,
         out MarkdownFencedCodeState stateAfter)
     {
-        text ??= "";
-
         if (stateBefore.IsInside)
         {
             if (IsClosingFence(text, stateBefore))
@@ -49,7 +53,9 @@ internal static class MarkdownFencedCodeScanner
         return MarkdownFenceLineKind.None;
     }
 
-    private static bool TryParseOpeningFence(string text, out MarkdownFencedCodeState opening)
+    private static bool TryParseOpeningFence(
+        ReadOnlySpan<char> text,
+        out MarkdownFencedCodeState opening)
     {
         opening = default;
         var start = FenceStart(text);
@@ -72,7 +78,7 @@ internal static class MarkdownFencedCodeScanner
 
         // A backtick info string may not itself contain a backtick. Tilde info strings have no
         // equivalent restriction. This prevents malformed lines from changing scanner state.
-        if (marker == '`' && text.AsSpan(start + length).IndexOf('`') >= 0)
+        if (marker == '`' && text[(start + length)..].IndexOf('`') >= 0)
         {
             return false;
         }
@@ -81,7 +87,9 @@ internal static class MarkdownFencedCodeScanner
         return true;
     }
 
-    private static bool IsClosingFence(string text, MarkdownFencedCodeState opening)
+    private static bool IsClosingFence(
+        ReadOnlySpan<char> text,
+        MarkdownFencedCodeState opening)
     {
         var start = FenceStart(text);
         if (start < 0 || start >= text.Length || text[start] != opening.Marker)
@@ -107,7 +115,7 @@ internal static class MarkdownFencedCodeScanner
         return true;
     }
 
-    private static int FenceStart(string text)
+    private static int FenceStart(ReadOnlySpan<char> text)
     {
         var start = 0;
         while (start < text.Length && start < 3 && text[start] == ' ')
@@ -121,7 +129,7 @@ internal static class MarkdownFencedCodeScanner
             : -1;
     }
 
-    private static int CountMarkerRun(string text, int start, char marker)
+    private static int CountMarkerRun(ReadOnlySpan<char> text, int start, char marker)
     {
         var length = 0;
         while (start + length < text.Length && text[start + length] == marker)
