@@ -373,6 +373,12 @@ Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：ow
 - 两种手势最终都向现有 `_closeButton` 发送同一个 routed `Click`，因此“关闭按钮此刻意味着折叠、隐藏还是其他既有策略”仍只有一个 owner，不在快捷手势中复制。
 - 从 `NOACTIVATE` 胶囊显式打开纸片时，激活路径以 OS foreground HWND 为最终 truth；必要时补 `Activate` / foreground 请求后再 `Focus`，避免 WPF `IsActive` / focus 状态残留在旧窗口。
 
+### 7.2 匿名使用统计
+
+`TelemetryService` 是可关闭的独立统计子系统：只聚合每日使用计数和粗粒度运行环境，不上传纸片/待办/Markdown 正文、图片、路径、剪贴板或机器/硬件标识；crash 只保留计数与粗粒度签名。关闭后停止采集并清除未发送统计。
+
+上传是异步 best-effort 的 `daily_usage` 批次，不影响产品正常行为。客户端使用随机安装 ID 和确定性 `report_id`；接收端只接受白名单字段，原始日志允许 at-least-once，分析时按 `report_id` 保留最新记录去重。
+
 ## 8. 仓库结构
 
 - `src/`：主程序 C# 源码。
@@ -383,10 +389,11 @@ Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：ow
 - `native/`：PaperTodo 自有 native 组件，例如 LMDB bridge。
 - `vendor/`：固定版本 vendored dependency / submodule。
 - `assets/`：图标和静态资源。
-- `docs/`：GitHub Pages 站点资源，不作为内部架构文档默认目录。
-- `.github/workflows/`：CI / Release。
+- `doc/`：当前架构与历史决策文档。
+- `website/`：GitHub Pages 站点资源。
+- `.github/workflows/`：CI / Release / Pages 部署。
 
-根目录保留项目入口和仓库级知识入口：`README`、`CHANGELOG`、`AGENTS.md`、`ARCHITECTURE.md`、`DECISIONS.md`。
+根目录保留项目入口和仓库级入口：`README`、`CHANGELOG`、`AGENTS.md`。
 
 ---
 

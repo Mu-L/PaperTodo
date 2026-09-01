@@ -6,8 +6,8 @@
 
 ## 项目知识入口
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)：**当前有效的技术选型、架构结构、ownership 和已确立技术方向**。回答“现在应该按什么原则设计”。
-- [`DECISIONS.md`](DECISIONS.md)：**历史取舍、失败路线、踩坑、trade-off 和 why**。回答“为什么会走到今天这条路”。
+- [`ARCHITECTURE.md`](doc/ARCHITECTURE.md)：**当前有效的技术选型、架构结构、ownership 和已确立技术方向**。回答“现在应该按什么原则设计”。
+- [`DECISIONS.md`](doc/DECISIONS.md)：**历史取舍、失败路线、踩坑、trade-off 和 why**。回答“为什么会走到今天这条路”。
 - `AGENTS.md`：**任务路由 + Agent 执行规则**。规定项目专用工作方式、禁区、提交/CI/发布等执行要求。
 - 当前代码与关键注释：**具体实现事实和局部 why**。真正修改前仍必须读代码，不能把任何文档当源码替代品。
 
