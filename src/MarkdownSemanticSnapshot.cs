@@ -1,3 +1,4 @@
+using System.Buffers;
 using Markdig;
 using Markdig.Extensions.EmphasisExtras;
 using Markdig.Syntax;
@@ -347,50 +348,67 @@ internal sealed partial class MarkdownSemanticSnapshot
                 ranges);
         }
 
-        var positions = new int[lineStarts.Length];
-        var itemCount = 0;
-        foreach (var span in spans)
+        var positions = ArrayPool<int>.Shared.Rent(lineStarts.Length);
+        var lineBounds = ArrayPool<int>.Shared.Rent(spans.Count * 2);
+        try
         {
-            if (span.Length <= 0)
+            Array.Clear(positions, 0, lineStarts.Length);
+            var itemCount = 0;
+            for (var index = 0; index < spans.Count; index++)
             {
-                continue;
+                var span = spans[index];
+                var boundIndex = index * 2;
+                if (span.Length <= 0)
+                {
+                    lineBounds[boundIndex] = -1;
+                    continue;
+                }
+
+                var first = FindLineIndex(source, lineStarts, span.Start);
+                var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
+                lineBounds[boundIndex] = first;
+                lineBounds[boundIndex + 1] = last;
+                for (var line = first; line <= last && line < lineStarts.Length; line++)
+                {
+                    positions[line]++;
+                    itemCount++;
+                }
             }
 
-            var first = FindLineIndex(source, lineStarts, span.Start);
-            var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
-            for (var line = first; line <= last && line < positions.Length; line++)
+            var offset = 0;
+            for (var line = 0; line < ranges.Length; line++)
             {
-                positions[line]++;
-                itemCount++;
+                var count = positions[line];
+                ranges[line] = new MarkdownLineIndexRange(offset, count);
+                positions[line] = offset;
+                offset += count;
             }
+
+            var items = new MarkdownSemanticSpan[itemCount];
+            for (var index = 0; index < spans.Count; index++)
+            {
+                var boundIndex = index * 2;
+                var first = lineBounds[boundIndex];
+                if (first < 0)
+                {
+                    continue;
+                }
+
+                var last = lineBounds[boundIndex + 1];
+                var span = spans[index];
+                for (var line = first; line <= last && line < lineStarts.Length; line++)
+                {
+                    items[positions[line]++] = span;
+                }
+            }
+
+            return new MarkdownLineIndex<MarkdownSemanticSpan>(items, ranges);
         }
-
-        var offset = 0;
-        for (var line = 0; line < ranges.Length; line++)
+        finally
         {
-            var count = positions[line];
-            ranges[line] = new MarkdownLineIndexRange(offset, count);
-            positions[line] = offset;
-            offset += count;
+            ArrayPool<int>.Shared.Return(lineBounds);
+            ArrayPool<int>.Shared.Return(positions);
         }
-
-        var items = new MarkdownSemanticSpan[itemCount];
-        foreach (var span in spans)
-        {
-            if (span.Length <= 0)
-            {
-                continue;
-            }
-
-            var first = FindLineIndex(source, lineStarts, span.Start);
-            var last = FindLineIndex(source, lineStarts, Math.Max(span.Start, span.End - 1));
-            for (var line = first; line <= last && line < positions.Length; line++)
-            {
-                items[positions[line]++] = span;
-            }
-        }
-
-        return new MarkdownLineIndex<MarkdownSemanticSpan>(items, ranges);
     }
 
     private static MarkdownLineIndex<MarkdownSemanticLink> BuildLinkLineIndex(
@@ -406,49 +424,66 @@ internal sealed partial class MarkdownSemanticSnapshot
                 ranges);
         }
 
-        var positions = new int[lineStarts.Length];
-        var itemCount = 0;
-        foreach (var link in links)
+        var positions = ArrayPool<int>.Shared.Rent(lineStarts.Length);
+        var lineBounds = ArrayPool<int>.Shared.Rent(links.Count * 2);
+        try
         {
-            if (link.Length <= 0)
+            Array.Clear(positions, 0, lineStarts.Length);
+            var itemCount = 0;
+            for (var index = 0; index < links.Count; index++)
             {
-                continue;
+                var link = links[index];
+                var boundIndex = index * 2;
+                if (link.Length <= 0)
+                {
+                    lineBounds[boundIndex] = -1;
+                    continue;
+                }
+
+                var first = FindLineIndex(source, lineStarts, link.Start);
+                var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
+                lineBounds[boundIndex] = first;
+                lineBounds[boundIndex + 1] = last;
+                for (var line = first; line <= last && line < lineStarts.Length; line++)
+                {
+                    positions[line]++;
+                    itemCount++;
+                }
             }
 
-            var first = FindLineIndex(source, lineStarts, link.Start);
-            var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
-            for (var line = first; line <= last && line < positions.Length; line++)
+            var offset = 0;
+            for (var line = 0; line < ranges.Length; line++)
             {
-                positions[line]++;
-                itemCount++;
+                var count = positions[line];
+                ranges[line] = new MarkdownLineIndexRange(offset, count);
+                positions[line] = offset;
+                offset += count;
             }
+
+            var items = new MarkdownSemanticLink[itemCount];
+            for (var index = 0; index < links.Count; index++)
+            {
+                var boundIndex = index * 2;
+                var first = lineBounds[boundIndex];
+                if (first < 0)
+                {
+                    continue;
+                }
+
+                var last = lineBounds[boundIndex + 1];
+                var link = links[index];
+                for (var line = first; line <= last && line < lineStarts.Length; line++)
+                {
+                    items[positions[line]++] = link;
+                }
+            }
+
+            return new MarkdownLineIndex<MarkdownSemanticLink>(items, ranges);
         }
-
-        var offset = 0;
-        for (var line = 0; line < ranges.Length; line++)
+        finally
         {
-            var count = positions[line];
-            ranges[line] = new MarkdownLineIndexRange(offset, count);
-            positions[line] = offset;
-            offset += count;
+            ArrayPool<int>.Shared.Return(lineBounds);
+            ArrayPool<int>.Shared.Return(positions);
         }
-
-        var items = new MarkdownSemanticLink[itemCount];
-        foreach (var link in links)
-        {
-            if (link.Length <= 0)
-            {
-                continue;
-            }
-
-            var first = FindLineIndex(source, lineStarts, link.Start);
-            var last = FindLineIndex(source, lineStarts, Math.Max(link.Start, link.End - 1));
-            for (var line = first; line <= last && line < positions.Length; line++)
-            {
-                items[positions[line]++] = link;
-            }
-        }
-
-        return new MarkdownLineIndex<MarkdownSemanticLink>(items, ranges);
     }
 }
