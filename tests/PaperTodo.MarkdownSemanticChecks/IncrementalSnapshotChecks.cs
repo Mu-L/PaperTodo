@@ -52,23 +52,26 @@ internal static class IncrementalSnapshotChecks
         var editAt = oldSource.IndexOf("plain row 450", StringComparison.Ordinal) + 10;
         var newSource = oldSource.Insert(editAt, "Z");
         var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        var windowLength = MarkdownSemanticSnapshot.GetIncrementalWindowLengthForTests(
+            oldSource,
+            oldSnapshot,
+            newSource);
 
+        if (windowLength < 0 || windowLength > 2_000)
+        {
+            throw new InvalidOperationException(
+                $"FAIL large plain edit: local window unexpectedly large ({windowLength})");
+        }
         if (!MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var incremental,
-                out var info))
+                out var incremental))
         {
             throw new InvalidOperationException("FAIL large plain edit: unexpectedly fell back");
         }
-        if (info.NewLength > 2_000)
-        {
-            throw new InvalidOperationException(
-                $"FAIL large plain edit: local window unexpectedly large ({info.NewLength})");
-        }
         AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), incremental, "large plain edit");
-        Console.WriteLine($"PASS large plain edit local window={info.NewLength}");
+        Console.WriteLine($"PASS large plain edit local window={windowLength}");
     }
 
     private static void CheckExistingLongFenceExpandsFromSnapshot()
@@ -77,23 +80,26 @@ internal static class IncrementalSnapshotChecks
         var editAt = oldSource.IndexOf(new string('x', 20), StringComparison.Ordinal) + 2_000;
         var newSource = oldSource.Insert(editAt, "Z");
         var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        var windowLength = MarkdownSemanticSnapshot.GetIncrementalWindowLengthForTests(
+            oldSource,
+            oldSnapshot,
+            newSource);
 
+        if (windowLength < 4_000)
+        {
+            throw new InvalidOperationException(
+                $"FAIL existing long fence: old semantic container was not expanded ({windowLength})");
+        }
         if (!MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var incremental,
-                out var info))
+                out var incremental))
         {
             throw new InvalidOperationException("FAIL existing long fence: unexpectedly fell back");
         }
-        if (info.NewLength < 4_000)
-        {
-            throw new InvalidOperationException(
-                $"FAIL existing long fence: old semantic container was not expanded ({info.NewLength})");
-        }
         AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), incremental, "existing long fence");
-        Console.WriteLine($"PASS existing long fence expands window={info.NewLength}");
+        Console.WriteLine($"PASS existing long fence expands window={windowLength}");
     }
 
     private static void CheckReferenceDefinitionFallsBack()
@@ -123,8 +129,7 @@ internal static class IncrementalSnapshotChecks
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var incremental,
-                out _))
+                out var incremental))
         {
             throw new InvalidOperationException(
                 "FAIL ordinary reference-document edit: unnecessarily fell back");
@@ -168,21 +173,24 @@ internal static class IncrementalSnapshotChecks
         var insertAt = oldSource.IndexOf("opening anchor", StringComparison.Ordinal);
         var newSource = oldSource.Insert(insertAt, "```text\n");
         var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        var windowLength = MarkdownSemanticSnapshot.GetIncrementalWindowLengthForTests(
+            oldSource,
+            oldSnapshot,
+            newSource);
 
+        if (windowLength <= 0 || windowLength >= newSource.Length / 2)
+        {
+            throw new InvalidOperationException(
+                $"FAIL best-effort long structure: local edit expanded too far ({windowLength}/{newSource.Length})");
+        }
         if (!MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var local,
-                out var info))
+                out var local))
         {
             throw new InvalidOperationException(
                 "FAIL best-effort long structure: local path unexpectedly demanded full equivalence");
-        }
-        if (info.NewLength >= newSource.Length / 2)
-        {
-            throw new InvalidOperationException(
-                $"FAIL best-effort long structure: local edit expanded too far ({info.NewLength}/{newSource.Length})");
         }
 
         var full = MarkdownSemanticSnapshot.Parse(newSource);
@@ -192,7 +200,7 @@ internal static class IncrementalSnapshotChecks
                 "FAIL best-effort long structure: test did not exercise the intentionally non-global path");
         }
         Console.WriteLine(
-            $"PASS new long structure remains best-effort window={info.NewLength} full={newSource.Length}");
+            $"PASS new long structure remains best-effort window={windowLength} full={newSource.Length}");
     }
 
     private static string BuildReferenceDocument()
@@ -214,7 +222,6 @@ internal static class IncrementalSnapshotChecks
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out _,
                 out _))
         {
             throw new InvalidOperationException($"FAIL {name}: local path should decline global reference work");

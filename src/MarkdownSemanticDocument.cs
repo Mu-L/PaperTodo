@@ -59,8 +59,7 @@ internal sealed class MarkdownSemanticDocument : IDisposable
                      _snapshotSource,
                      _snapshot,
                      source,
-                     out var incremental,
-                     out _))
+                     out var incremental))
         {
             next = incremental;
         }

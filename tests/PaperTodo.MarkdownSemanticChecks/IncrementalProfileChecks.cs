@@ -20,6 +20,34 @@ internal readonly record struct MarkdownIncrementalStageProfile(
 
 internal sealed partial class MarkdownSemanticSnapshot
 {
+    internal static int GetIncrementalWindowLengthForTests(
+        string oldSource,
+        MarkdownSemanticSnapshot oldSnapshot,
+        string newSource)
+    {
+        FindContiguousDifference(
+            oldSource,
+            newSource,
+            out var changedStart,
+            out var oldChangedEnd,
+            out var newChangedEnd);
+        var delta = newSource.Length - oldSource.Length;
+        return TryBuildIncrementalWindow(
+            oldSource,
+            oldSnapshot,
+            newSource,
+            changedStart,
+            oldChangedEnd,
+            newChangedEnd,
+            delta,
+            out _,
+            out _,
+            out var newStart,
+            out var newEnd)
+            ? newEnd - newStart
+            : -1;
+    }
+
     internal static (MarkdownSemanticSnapshot Snapshot, MarkdownIncrementalStageProfile Profile)
         ProfileIncrementalForTests(
             string oldSource,
@@ -91,8 +119,7 @@ internal sealed partial class MarkdownSemanticSnapshot
             spans,
             links,
             spansByLine,
-            linksByLine,
-            lineStarts: lineStarts);
+            linksByLine);
         var finalizeMs = ElapsedMs(stageStart);
 
         return (

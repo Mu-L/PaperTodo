@@ -1,13 +1,5 @@
 namespace PaperTodo;
 
-internal readonly record struct MarkdownIncrementalUpdateInfo(
-    int OldStart,
-    int OldLength,
-    int NewStart,
-    int NewLength,
-    int ChangedOldLength,
-    int ChangedNewLength);
-
 internal sealed partial class MarkdownSemanticSnapshot
 {
     private const int IncrementalWindowChars = 1024;
@@ -23,15 +15,13 @@ internal sealed partial class MarkdownSemanticSnapshot
         string oldSource,
         MarkdownSemanticSnapshot oldSnapshot,
         string newSource,
-        out MarkdownSemanticSnapshot snapshot,
-        out MarkdownIncrementalUpdateInfo info)
+        out MarkdownSemanticSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(oldSource);
         ArgumentNullException.ThrowIfNull(oldSnapshot);
         ArgumentNullException.ThrowIfNull(newSource);
 
         snapshot = null!;
-        info = default;
 
         if (ReferenceEquals(oldSource, newSource))
         {
@@ -53,8 +43,6 @@ internal sealed partial class MarkdownSemanticSnapshot
             return true;
         }
 
-        var changedOldLength = oldChangedEnd - changedStart;
-        var changedNewLength = newChangedEnd - changedStart;
         var oldLine = GetLineBounds(oldSource, changedStart);
         var newLine = GetLineBounds(newSource, changedStart);
 
@@ -106,13 +94,6 @@ internal sealed partial class MarkdownSemanticSnapshot
             newEnd == newSource.Length)
         {
             snapshot = local;
-            info = new MarkdownIncrementalUpdateInfo(
-                oldStart,
-                oldEnd - oldStart,
-                newStart,
-                newEnd - newStart,
-                changedOldLength,
-                changedNewLength);
             return true;
         }
 
@@ -144,15 +125,7 @@ internal sealed partial class MarkdownSemanticSnapshot
             links,
             BuildSpanLineIndex(newSource, lineStarts, spans),
             BuildLinkLineIndex(newSource, lineStarts, links),
-            oldSnapshot._hasReferenceDefinitions,
-            lineStarts);
-        info = new MarkdownIncrementalUpdateInfo(
-            oldStart,
-            oldEnd - oldStart,
-            newStart,
-            newEnd - newStart,
-            changedOldLength,
-            changedNewLength);
+            oldSnapshot._hasReferenceDefinitions);
         return true;
     }
 

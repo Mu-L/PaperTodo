@@ -40,20 +40,23 @@ internal static class IncrementalLargeChecks
             }
             offset += marker.Length;
             var next = source.Insert(offset, "Z");
+            var windowLength = MarkdownSemanticSnapshot.GetIncrementalWindowLengthForTests(
+                source,
+                snapshot,
+                next);
+            if (windowLength < 0 || windowLength > 2_000)
+            {
+                throw new InvalidOperationException(
+                    $"FAIL large local smoke step {step}: ordinary window too large ({windowLength})");
+            }
             if (!MarkdownSemanticSnapshot.TryParseIncremental(
                     source,
                     snapshot,
                     next,
-                    out var incremental,
-                    out var info))
+                    out var incremental))
             {
                 throw new InvalidOperationException(
                     $"FAIL large local smoke step {step}: ordinary edit unexpectedly fell back");
-            }
-            if (info.NewLength > 2_000)
-            {
-                throw new InvalidOperationException(
-                    $"FAIL large local smoke step {step}: ordinary window too large ({info.NewLength})");
             }
             ValidateRanges(incremental, next.Length, $"large local smoke step {step}");
             source = next;
@@ -74,13 +77,16 @@ internal static class IncrementalLargeChecks
         var editAt = probe + "- [ ] item ".Length;
         var newSource = oldSource.Insert(editAt, "Z");
         var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        var windowLength = MarkdownSemanticSnapshot.GetIncrementalWindowLengthForTests(
+            oldSource,
+            oldSnapshot,
+            newSource);
 
         if (!MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var warm,
-                out var info))
+                out var warm))
         {
             throw new InvalidOperationException("FAIL dense incremental profile: fallback");
         }
@@ -95,8 +101,7 @@ internal static class IncrementalLargeChecks
                     oldSource,
                     oldSnapshot,
                     newSource,
-                    out var result,
-                    out _))
+                    out var result))
             {
                 throw new InvalidOperationException("FAIL dense incremental profile: fallback during timing");
             }
@@ -109,7 +114,7 @@ internal static class IncrementalLargeChecks
         var p50 = samples[samples.Length / 2];
         var p95 = samples[(int)Math.Ceiling(samples.Length * 0.95) - 1];
         Console.WriteLine(
-            $"PROFILE IncrementalDense98k window={info.NewLength} p50={p50:F3}ms p95={p95:F3}ms");
+            $"PROFILE IncrementalDense98k window={windowLength} p50={p50:F3}ms p95={p95:F3}ms");
     }
 
     private static void ValidateRanges(
