@@ -246,7 +246,7 @@
 
     /* faithful WPF paper primitives - 细边框 + 阴影 */
     .app-paper{position:absolute;overflow:hidden;color:var(--paper-text);background:var(--paper);border:0.5px solid var(--paper-line);border-radius:10px;box-shadow:0 24px 48px rgba(62,50,32,.18),0 6px 16px rgba(62,50,32,.1);font-family:var(--ui);font-size:12px;transition:background .35s,border-color .35s,color .35s,box-shadow .35s,transform .25s cubic-bezier(.34,1.56,.64,1)}
-    .app-paper:hover{transform:translateY(-4px);box-shadow:0 30px 64px rgba(62,50,32,.22),0 10px 24px rgba(62,50,32,.13)}
+    .app-paper:hover{box-shadow:0 30px 64px rgba(62,50,32,.22),0 10px 24px rgba(62,50,32,.13)}
     .paper-bar{display:grid;height:24px;grid-template-columns:minmax(0,1fr) auto;align-items:center;padding:0 7px 0 9px;background:var(--bar);border-bottom:1px solid color-mix(in srgb,var(--paper-line),transparent 18%);border-radius:9px 9px 0 0;transition:background .3s}
     .paper-name{display:flex;min-width:0;align-items:center;gap:0;font-weight:650}
     .paper-name strong{max-width:76px;overflow:hidden;padding:0 5px 0 4px;border-bottom:1px solid color-mix(in srgb,var(--paper-line),transparent 28%);border-radius:8px;text-overflow:ellipsis;white-space:nowrap;font-size:12px;transition:border-color .2s,background .2s}
@@ -262,12 +262,14 @@
     .paper-tools .md{font-size:10px;letter-spacing:0}
     .paper-body{position:absolute;inset:24px 0 0;padding:12px 9px 10px}
     .todo-list{display:grid;align-content:start;gap:2px}
-    .todo-row{display:grid;min-height:30px;grid-template-columns:22px minmax(0,1fr) 18px;align-items:center;padding:1px 1px;border-radius:8px;transition:background .2s}
+    .todo-row{position:relative;display:grid;min-height:30px;grid-template-columns:22px minmax(0,1fr) 18px;align-items:center;padding:1px 1px;border-radius:8px;cursor:pointer;transition:background .2s}
     .todo-row:hover{background:color-mix(in srgb,var(--paper-text),transparent 93%)}
+    .demo-todo-input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none}
     .checkbox{position:relative;width:16px;height:16px;border:1.5px solid var(--paper-check);border-radius:4px;transition:all .2s cubic-bezier(.34,1.56,.64,1)}
-    .checkbox.checked{border-color:var(--paper-active);background:var(--paper-active);transform:scale(1.1)}
-    .checkbox.checked::after{content:"✓";position:absolute;inset:-4px 0 0;display:grid;place-items:center;color:var(--paper);font-size:10px;font-weight:800}
-    .todo-row.done .todo-text{color:var(--paper-weak);text-decoration:line-through;text-decoration-thickness:1px}
+    .demo-todo-input:focus-visible+.checkbox{outline:2px solid var(--paper-active);outline-offset:2px}
+    .demo-todo-input:checked+.checkbox{border-color:var(--paper-active);background:var(--paper-active);transform:scale(1.1)}
+    .demo-todo-input:checked+.checkbox::after{content:"✓";position:absolute;inset:-4px 0 0;display:grid;place-items:center;color:var(--paper);font-size:10px;font-weight:800}
+    .demo-todo-input:checked~.todo-text{color:var(--paper-weak);text-decoration:line-through;text-decoration-thickness:1px}
     .todo-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
     .drag-handle{color:var(--paper-weak);font-size:10px;text-align:center}
     .append-row{display:grid;height:38px;margin-top:7px;place-items:center;border:1px solid color-mix(in srgb,var(--paper-line),transparent 12%);border-radius:8px;color:var(--paper-weak);background:color-mix(in srgb,var(--paper-text),transparent 97%);font-size:16px}
@@ -286,14 +288,16 @@
 
     .zoom-mark{position:absolute;right:18px;bottom:8px;color:var(--paper-weak);font-size:10.5px;font-weight:600;opacity:.55}
     .resize-grip{position:absolute;right:-1px;bottom:-1px;width:14px;height:14px;opacity:.65;background:repeating-linear-gradient(135deg,transparent 0 3px,color-mix(in srgb,var(--paper-line),var(--paper-text) 12%) 3px 4px)}
-    .hero-todo,.hero-note{will-change:transform,opacity,border-radius;transform-origin:right center;transition:transform 220ms cubic-bezier(.22,.72,.24,1),opacity 120ms ease,filter 180ms ease,border-radius 220ms}
-    .hero-todo .paper-body,.hero-note .paper-body{transition:opacity 90ms ease}
-    .hero-todo{z-index:5;top:8%;left:8%;width:42%;height:auto;aspect-ratio:280/340;cursor:default}
-    .hero-note{z-index:6;bottom:15%;left:27%;width:48%;height:auto;aspect-ratio:320/360;cursor:default}
+    .paper-scene{position:absolute;z-index:4;top:50%;left:50%;width:600px;height:648px;pointer-events:none;transform:translate(-50%,-50%) scale(var(--paper-scene-scale,1));transform-origin:center}
+    .paper-scene .app-paper{pointer-events:auto}
+    .hero-todo,.hero-note{--capsule-x:0px;--capsule-y:0px;will-change:transform,opacity,border-radius;transform-origin:center;transition:transform 540ms cubic-bezier(.22,1,.36,1),opacity 220ms ease,filter 320ms ease,border-radius 420ms ease}
+    .hero-todo .paper-body,.hero-note .paper-body{transition:opacity 180ms ease}
+    .hero-todo{z-index:5;top:52px;left:48px;width:252px;height:auto;aspect-ratio:280/340;cursor:default}
+    .hero-note{z-index:6;top:227px;left:162px;width:288px;height:auto;aspect-ratio:320/360;cursor:default}
 
     /* 第三屏 Markdown 状态 - 隐藏待办，笔记扩大居中 */
     .hero-product.show-markdown .hero-todo{opacity:0!important;pointer-events:none!important;transition:opacity .4s ease}
-    .hero-product.show-markdown .hero-note{top:50%!important;left:50%!important;bottom:auto!important;width:min(820px,90%)!important;height:auto!important;aspect-ratio:820/780;transform:translate(-50%,-50%)!important;z-index:10;cursor:default;transition:all .5s cubic-bezier(.34,1.56,.64,1)}
+    .hero-product.show-markdown .hero-note{top:53px!important;left:15px!important;bottom:auto!important;width:570px!important;height:auto!important;aspect-ratio:820/780;transform:none!important;z-index:10;cursor:default;transition:top 540ms cubic-bezier(.22,1,.36,1),left 540ms cubic-bezier(.22,1,.36,1),width 540ms cubic-bezier(.22,1,.36,1),opacity 220ms ease}
     .hero-product.show-markdown .hero-edge-stack{opacity:0;pointer-events:none;transition:opacity .3s ease}
     .hero-product.show-markdown .palette-head{opacity:0!important;pointer-events:none!important;transition:opacity .3s ease}
 
@@ -337,8 +341,8 @@
     #hero-master-toggle:checked~.desktop-stage .hero-edge-child:nth-child(2){transform:translateY(-34px) scale(.82)}
     #hero-master-toggle:checked~.desktop-stage .hero-edge-child:nth-child(3){transform:translateY(-68px) scale(.82)}
     #hero-master-toggle:focus-visible~.desktop-stage .hero-master-pill{outline:2px solid #fff;outline-offset:3px}
-    #hero-todo-pill-toggle:checked~.desktop-stage .hero-todo{opacity:0;filter:none;transform:translate(120%,-28%) scale(.34,.22);border-radius:12px;pointer-events:none;border:none!important}
-    #hero-note-pill-toggle:checked~.desktop-stage .hero-note{opacity:0;filter:none;transform:translate(52%,-110%) scale(.33,.12);border-radius:12px;pointer-events:none;border:none!important}
+    #hero-todo-pill-toggle:checked~.desktop-stage .hero-todo,
+    #hero-note-pill-toggle:checked~.desktop-stage .hero-note{opacity:0;filter:none;transform:translate(var(--capsule-x),var(--capsule-y)) scale(.2);border-radius:12px;pointer-events:none;border:none!important;transition:transform 480ms cubic-bezier(.4,0,.2,1),opacity 170ms ease 260ms,filter 300ms ease,border-radius 360ms ease}
     #hero-todo-pill-toggle:checked~.desktop-stage .hero-todo .paper-body,
     #hero-note-pill-toggle:checked~.desktop-stage .hero-note .paper-body{opacity:.18}
     #hero-todo-pill-toggle:checked~.desktop-stage .hero-todo-pill,
@@ -498,23 +502,21 @@
       .boundary>p{max-width:720px}
     }
     @media(max-width:860px){
-      :root{--nav-height:64px}
+      :root{--nav-height:64px;--mobile-stage-height:clamp(400px,50svh,520px)}
       html{scroll-snap-type:none;scroll-padding-top:var(--nav-height)}
       .hero-capsule-wrapper{display:flex;flex-direction:column}
       .script-layout{grid-template-columns:1fr;min-height:0}
       .hero>.hero-copy{order:1;min-height:calc(92svh - var(--nav-height))}
-      .hero-product{order:2;position:sticky;z-index:5;top:var(--nav-height);height:clamp(400px,50svh,520px);min-height:400px;border-top:1px solid var(--line);border-right:0;border-bottom:1px solid var(--line)}
+      .hero-product{order:2;position:sticky;z-index:5;top:var(--nav-height);height:var(--mobile-stage-height);min-height:400px;border-top:1px solid var(--line);border-right:0;border-bottom:1px solid var(--line)}
       .capsule-section{order:3;scroll-margin-top:var(--nav-height)}
       .markdown-section{order:4;scroll-margin-top:var(--nav-height)}
-      .capsule-section .hero-copy,.markdown-section .hero-copy{min-height:100svh;padding:72px 34px 84px;justify-content:flex-end}
+      .capsule-section .hero-copy,.markdown-section .hero-copy{min-height:calc(100svh + var(--mobile-stage-height));padding:calc(var(--mobile-stage-height) + 56px) 34px 96px;justify-content:flex-start}
       .palette-head>span{display:none!important}
       .palette-head{right:18px;bottom:12px;left:18px;justify-content:center;padding:8px 12px}
       .palette-controls{width:min(260px,100%);justify-content:space-between;gap:8px}
       .palette-controls label:not(.theme-control){width:32px;height:32px;border-radius:8px}
       .palette-controls .theme-control{width:42px;height:30px}
       .palette-controls .theme-control::before{top:3px;left:3px}
-      .hero-todo{top:5%;left:7%;width:min(250px,62%)}
-      .hero-note{right:auto;bottom:28%;left:31%;width:min(270px,62%)}
       .hero-edge-stack{top:8%}
       .md-mode-switch-inline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
       .md-mode-switch-inline label{min-height:48px;justify-content:center;padding:8px 6px;text-align:center}
@@ -527,6 +529,7 @@
       .nav-links .github-link span{display:none}
       .nav-links .github-link{width:28px;justify-content:center}
       .hero-copy{padding:78px 20px 72px}
+      .capsule-section .hero-copy,.markdown-section .hero-copy{padding-right:20px;padding-left:20px}
       .hero h1,.capsule-section h2,.markdown-section h2{font-size:2.35rem;line-height:1.08}
       .script-copy h2,.boundary h2,.faq-grid h2{font-size:2.5rem;line-height:1.12}
       .hero-lead{font-size:.96rem}
@@ -550,8 +553,6 @@
       .hero-lead{margin-top:24px;font-size:1rem}
       .hero-actions{margin-top:28px}
       .hero-facts{margin-top:30px}
-      .hero-todo{top:5%;left:10%;width:36%}
-      .hero-note{bottom:20%;left:29%;width:42%}
       .hero-edge-stack{top:7%}
       .palette-head{right:20px;bottom:12px;left:20px;padding:9px 14px}
       .palette-controls label:not(.theme-control){width:30px;height:30px;border-radius:8px}
@@ -636,12 +637,13 @@
         </div>
         <div class="desktop-stage" role="group" aria-label="PaperTodo 待办、笔记与贴边胶囊的 CSS 实机复刻">
           <div class="desktop-grid" aria-hidden="true"></div>
+          <div class="paper-scene">
           <div class="app-paper hero-todo">
             <div class="paper-bar"><div class="paper-name"><span class="paper-pin"></span><strong data-zh>今日待办</strong><strong data-en>Today</strong></div><div class="paper-tools"><span aria-hidden="true">＋✓</span><span aria-hidden="true">＋✎</span><button class="paper-tool-button todo-collapse-btn" type="button" aria-label="折叠今日待办 / Collapse Today" title="折叠今日待办 / Collapse Today">─</button></div></div>
             <div class="paper-body todo-list">
-              <div class="todo-row done"><span class="checkbox checked"></span><span class="todo-text" data-zh>整理发布说明</span><span class="todo-text" data-en>Polish release notes</span><span class="drag-handle">≡</span></div>
-              <div class="todo-row"><span class="checkbox"></span><span class="todo-text" data-zh>回复产品反馈</span><span class="todo-text" data-en>Reply to feedback</span><span class="drag-handle">≡</span></div>
-              <div class="todo-row"><span class="checkbox"></span><span class="todo-text" data-zh>准备明天的演示</span><span class="todo-text" data-en>Prepare tomorrow's demo</span><span class="drag-handle">≡</span></div>
+              <label class="todo-row"><input class="demo-todo-input" type="checkbox" aria-label="整理发布说明 / Polish release notes" checked><span class="checkbox" aria-hidden="true"></span><span class="todo-text" data-zh>整理发布说明</span><span class="todo-text" data-en>Polish release notes</span><span class="drag-handle" aria-hidden="true">≡</span></label>
+              <label class="todo-row"><input class="demo-todo-input" type="checkbox" aria-label="回复产品反馈 / Reply to feedback"><span class="checkbox" aria-hidden="true"></span><span class="todo-text" data-zh>回复产品反馈</span><span class="todo-text" data-en>Reply to feedback</span><span class="drag-handle" aria-hidden="true">≡</span></label>
+              <label class="todo-row"><input class="demo-todo-input" type="checkbox" aria-label="准备明天的演示 / Prepare tomorrow's demo"><span class="checkbox" aria-hidden="true"></span><span class="todo-text" data-zh>准备明天的演示</span><span class="todo-text" data-en>Prepare tomorrow's demo</span><span class="drag-handle" aria-hidden="true">≡</span></label>
               <div class="append-row">＋</div>
             </div>
             <span class="resize-grip"></span>
@@ -694,6 +696,7 @@
               </div>
             </div>
             <span class="resize-grip"></span>
+          </div>
           </div>
           <div class="hero-edge-stack">
             <label class="hero-edge-pill hero-master-pill" for="hero-master-toggle" title="收起或展开全部边缘胶囊 / Fold or expand all edge capsules"><span class="expanded-icon">▾</span><span class="collapsed-icon">▸</span><span class="expanded-copy"><b data-zh>收起</b><b data-en>Fold</b></span><span class="collapsed-copy"><b data-zh>2个</b><b data-en>2</b></span></label>
@@ -897,6 +900,12 @@
       var scriptSection=document.querySelector('.script-section');
       var runScriptCheckbox=document.getElementById('run-script');
       var heroProduct=document.querySelector('.hero-product');
+      var desktopStage=document.querySelector('.desktop-stage');
+      var paperScene=document.querySelector('.paper-scene');
+      var heroTodoPaper=document.querySelector('.hero-todo');
+      var heroNotePaper=document.querySelector('.hero-note');
+      var todoPill=document.querySelector('.hero-todo-pill');
+      var notePill=document.querySelector('.hero-note-pill');
       var snapScreens=Array.prototype.slice.call(document.querySelectorAll('.snap-screen'));
       var pagingQuery=window.matchMedia?window.matchMedia('(min-width:861px) and (min-height:761px)'):null;
       var snapRestoreTimer=0;
@@ -911,6 +920,32 @@
 
       function prefersReducedMotion(){
         return Boolean(motionQuery&&motionQuery.matches);
+      }
+
+      function updateCapsuleTargets(){
+        if(!paperScene)return;
+        var sceneRect=paperScene.getBoundingClientRect();
+        var sceneScale=sceneRect.width/600;
+        if(!sceneScale)return;
+        function setTarget(paper,pill){
+          if(!paper||!pill)return;
+          var pillRect=pill.getBoundingClientRect();
+          var paperCenterX=paper.offsetLeft+paper.offsetWidth/2;
+          var paperCenterY=paper.offsetTop+paper.offsetHeight/2;
+          var pillCenterX=(pillRect.left+pillRect.width/2-sceneRect.left)/sceneScale;
+          var pillCenterY=(pillRect.top+pillRect.height/2-sceneRect.top)/sceneScale;
+          paper.style.setProperty('--capsule-x',(pillCenterX-paperCenterX)+'px');
+          paper.style.setProperty('--capsule-y',(pillCenterY-paperCenterY)+'px');
+        }
+        setTarget(heroTodoPaper,todoPill);
+        setTarget(heroNotePaper,notePill);
+      }
+
+      function updatePaperScene(){
+        if(!desktopStage||!paperScene)return;
+        var sceneScale=Math.min(desktopStage.clientWidth/600,desktopStage.clientHeight/648);
+        paperScene.style.setProperty('--paper-scene-scale',Math.max(.1,sceneScale));
+        requestAnimationFrame(updateCapsuleTargets);
       }
 
       function getNavHeight(){
@@ -972,7 +1007,7 @@
             capsuleAutoCollapsedNote=true;
             scheduleCapsuleReveal();
           }
-        },520);
+        },800);
       }
 
       function scheduleCapsuleReveal(){
@@ -983,7 +1018,7 @@
             noteCheckbox.checked=false;
             capsuleAutoCollapsedNote=false;
           }
-        },900);
+        },1650);
       }
 
       function setCapsuleDemoActive(active){
@@ -1147,7 +1182,10 @@
           if(mdSwitch)mdSwitch.classList.remove('is-manual');
           applyMarkdownMode(0);
         }
-        requestAnimationFrame(updateSlider);
+        requestAnimationFrame(function(){
+          updateSlider();
+          updateCapsuleTargets();
+        });
       }
 
       if(markdownSection&&heroProduct&&mdModeRawInline&&mdModeBasicInline&&mdModeEnhancedInline){
@@ -1196,6 +1234,10 @@
       var sliderContainer=document.querySelector('.md-mode-switch-inline');
       if(sliderContainer&&'ResizeObserver' in window){
         new ResizeObserver(updateSlider).observe(sliderContainer);
+      }
+      updatePaperScene();
+      if(desktopStage&&'ResizeObserver' in window){
+        new ResizeObserver(updatePaperScene).observe(desktopStage);
       }
 
       function refreshMarkdownRotation(){
@@ -1310,6 +1352,7 @@
         if(!scrollFrame)scrollFrame=requestAnimationFrame(updatePageState);
       },{passive:true});
       window.addEventListener('resize',function(){
+        updatePaperScene();
         updateSlider();
         updatePageState();
       });
