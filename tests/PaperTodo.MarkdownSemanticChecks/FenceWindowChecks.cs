@@ -14,6 +14,7 @@ internal static class FenceWindowChecks
         CheckFourBacktickChangePropagates();
         CheckRemovingLineBreakDestroysFence();
         CheckInsertingLineBreakCreatesFence();
+        CheckNewFenceConvergesInsideExistingFence();
         CheckInlineBackticksStayLocal();
         ProfileFenceStateExpansion();
     }
@@ -115,6 +116,28 @@ internal static class FenceWindowChecks
             newSource,
             minimumWindow: newSource.Length - insertAt,
             "inserted line break creates fence opener");
+    }
+
+    private static void CheckNewFenceConvergesInsideExistingFence()
+    {
+        var builder = new StringBuilder();
+        AppendPlain(builder, "prefix", 220);
+        var insertAt = builder.Length;
+        builder.Append("anchor\n");
+        AppendPlain(builder, "between", 220);
+        builder.Append("```csharp\n");
+        AppendPlain(builder, "existing-fence", 180);
+        var existingClosing = builder.Length;
+        builder.Append("```\n");
+        AppendPlain(builder, "tail", 220);
+
+        var oldSource = builder.ToString();
+        var newSource = oldSource.Insert(insertAt, "```text\n");
+        AssertExpandedEditMatchesFull(
+            oldSource,
+            newSource,
+            minimumWindow: existingClosing - insertAt,
+            "new fence convergence inside existing fence");
     }
 
     private static void CheckInlineBackticksStayLocal()
