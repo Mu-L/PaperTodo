@@ -4,10 +4,11 @@ using ICSharpCode.AvalonEdit.Document;
 namespace PaperTodo;
 
 /// <summary>
-/// Per-editor semantic cache. TextDocument changes publish immutable source snapshots to one
-/// background worker. At most one Markdig parse runs at a time; edits that arrive while it is busy
-/// replace a single pending source instead of starting overlapping work. Ordinary non-structural
-/// edits first attempt a conservative local Markdig reparse against the last published snapshot.
+/// Per-editor semantic cache. TextDocument changes first attempt the existing bounded segmented
+/// incremental parse on the editing thread so presentation can observe current semantics before the
+/// next WPF render. Changes that cannot be handled by that fast path publish immutable source
+/// snapshots to one background worker. At most one background Markdig parse runs at a time; edits
+/// that arrive while it is busy replace a single pending source instead of starting overlapping work.
 /// </summary>
 internal sealed class MarkdownSemanticDocument : IDisposable
 {
@@ -37,7 +38,8 @@ internal sealed class MarkdownSemanticDocument : IDisposable
 
     /// <summary>
     /// Raised after the semantic snapshot for the current source generation is published. The event
-    /// is raised from the parsing worker; WPF consumers must marshal through their Dispatcher.
+    /// may be raised either from the editing thread's incremental fast path or from the parsing worker;
+    /// WPF consumers must marshal through their Dispatcher.
     /// </summary>
     public event Action? SnapshotChanged;
 
@@ -144,7 +146,46 @@ internal sealed class MarkdownSemanticDocument : IDisposable
 
     private void OnDocumentTextChanged(object? sender, EventArgs e)
     {
-        QueueCurrentSource();
+        // AvalonEdit invalidates the edited visual line immediately. If semantics remain pending
+        // until the worker publishes, the line can render once without heading/code metrics and then
+        // render again with them, which is visible as a one-frame input wobble. The production
+        // segmented parser is already bounded to a small adaptive window for ordinary edits, so try
+        // that path synchronously and keep the worker as the fallback for expensive/global cases.
+        if (!TryPublishIncrementalCurrentSource())
+        {
+            QueueCurrentSource();
+        }
+    }
+
+    private bool TryPublishIncrementalCurrentSource()
+    {
+        int generation;
+        MarkdownSemanticSnapshot? baseSnapshot;
+        string? baseSource;
+        lock (_gate)
+        {
+            if (_disposed || _snapshot == null || _snapshotSource == null)
+            {
+                return false;
+            }
+
+            generation = _generation;
+            baseSnapshot = _snapshot;
+            baseSource = _snapshotSource;
+        }
+
+        var source = _document.CreateSnapshot().Text;
+        if (!MarkdownSemanticSnapshot.TryParseSegmentedIncremental(
+                baseSource,
+                baseSnapshot,
+                source,
+                out var incremental,
+                out _))
+        {
+            return false;
+        }
+
+        return TryPublish(generation, source, incremental);
     }
 
     private void QueueCurrentSource()
