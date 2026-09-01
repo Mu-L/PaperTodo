@@ -69,30 +69,8 @@ public sealed partial class MarkdownTextBox
     {
         reference = default;
         asset = null;
-        if (TryGetPublishedSemanticSnapshot(out var current))
-        {
-            return TryGetImageReferenceForLineWithSnapshot(
-                line,
-                current,
-                out reference,
-                out asset);
-        }
-
-        if (!TryGetLatestSemanticSnapshot(
-                out var latest,
-                out var earliestChangedOffset,
-                out var lineStructureChanged) ||
-            lineStructureChanged ||
-            earliestChangedOffset < line.EndOffset + line.DelimiterLength)
-        {
-            return false;
-        }
-
-        return TryGetImageReferenceForLineWithSnapshot(
-            line,
-            latest,
-            out reference,
-            out asset);
+        return TryGetSemanticSnapshot(out var snapshot) &&
+            TryGetImageReferenceForLineWithSnapshot(line, snapshot, out reference, out asset);
     }
 
     private bool TryGetImageReferenceForLineWithSnapshot(

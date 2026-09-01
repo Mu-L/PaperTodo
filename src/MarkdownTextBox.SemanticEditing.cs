@@ -36,7 +36,7 @@ public sealed partial class MarkdownTextBox
         if (SelectionLength == 0)
         {
             var text = Document.GetText(line);
-            if (TryBuildNonBlockingListContinuationPlan(line, text, out var plan))
+            if (TryBuildSemanticListContinuationPlan(line, text, out var plan))
             {
                 var indexInLine = Math.Clamp(caret - line.Offset, 0, text.Length);
                 if (indexInLine >= Math.Min(plan.ContentStart, text.Length))
@@ -84,38 +84,18 @@ public sealed partial class MarkdownTextBox
         return true;
     }
 
-    private bool TryBuildNonBlockingListContinuationPlan(
+    private bool TryBuildSemanticListContinuationPlan(
         DocumentLine line,
         string text,
         out MarkdownListContinuationPlan plan)
     {
         plan = default;
-        if (TryGetPublishedSemanticSnapshot(out var current))
-        {
-            return MarkdownListEditing.TryBuildContinuationPlan(
+        return TryGetSemanticSnapshot(out var snapshot) &&
+            MarkdownListEditing.TryBuildContinuationPlan(
                 text,
                 line.Offset,
-                current,
+                snapshot,
                 out plan);
-        }
-
-        if (!TryGetLatestSemanticSnapshot(
-                out var latest,
-                out var earliestChangedOffset,
-                out var lineStructureChanged) ||
-            lineStructureChanged ||
-            !MarkdownListEditing.TryBuildContinuationPlan(
-                text,
-                line.Offset,
-                latest,
-                out plan))
-        {
-            return false;
-        }
-
-        // The marker and optional task prefix remain at their published absolute offsets only when
-        // all pending edits begin in the content that follows them.
-        return earliestChangedOffset >= line.Offset + plan.EmptyContentStart;
     }
 
     internal bool TryHandleSemanticBackspace()

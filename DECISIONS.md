@@ -39,6 +39,7 @@
 | D-024 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
 | D-025 | Note 图片若干限制为已接受取舍 | Accepted | Note / 图片 |
 | D-026 | Built-in Note Markdown 使用 Markdig 单一语义 authority | Accepted | Note / Markdown |
+| D-027 | Built-in Note Markdown 语义更新使用同线程同步发布 | Accepted | Note / Markdown / performance |
 
 ## 维护规则
 
@@ -913,6 +914,8 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 
 **Status:** Accepted
 
+> D-026 的 Markdig 单一语义 authority 继续有效；其中最初采用的后台 worker / stale generation 调度后来由 D-027 收敛为同线程同步发布。
+
 ### Context
 
 D-019 已经确定 Note 的编辑与浏览共用同一个 `MarkdownTextBox` / AvalonEdit `TextDocument`。随后 Markdown 能力继续增长时，旧实现把编辑行为、逐行手写 parser、inline scanner 和多个 AvalonEdit renderer 混在同一个控件中；heading、list、fence、link、HTML、图片等路径会各自形成一份“近似 Markdown 真相”。这既扩大 CommonMark 边界 bug，也让 renderer 与 editor helper 很难独立演进。
@@ -953,3 +956,53 @@ Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTod
 - `src/MarkdownListEditing.cs`。
 - `src/MarkdownPaperBodySession.cs`。
 - `tests/PaperTodo.MarkdownSemanticChecks/`。
+
+---
+
+## D-027 — Built-in Note Markdown 语义更新使用同线程同步发布
+
+**Status:** Accepted
+
+### Context
+
+D-026 把内置 Note 的 Markdown 语义统一到 Markdig 后，第一版为了避免全文解析阻塞 UI，给每个 editor 建立后台 worker、generation/pending publication 和 stale/current snapshot 边界；随后又为压低大文档增量开销加入 segmented line-index、rebase 与 lazy materialization。实际 WPF 输入验证发现，这套异步 publication 会让 `TextDocument` 已经变化、而新 semantic snapshot 尚未发布的短窗口跨过一次 render，heading/code/image 等会先按缺失或旧语义布局，再按新语义重新 measure，表现为偶发输入抖动。
+
+端到端 `TextDocument -> semantic publication` probe 同时确认：即使接近 100K 字符，普通局部编辑的同步增量成本仍处于约毫秒级；语义密集压力文档通常也在单帧量级。此时把廉价解析搬到后台所引入的状态、调度和二次布局成本已经高于收益。
+
+### Decision
+
+- `MarkdownSemanticDocument` 与其 AvalonEdit `TextDocument` 由同一线程拥有；初次语义建立和每次完整 `TextChanged` 都在返回 WPF 之前发布唯一的 current snapshot。
+- 普通编辑继续使用 Markdig 驱动的 4K → 8K → 16K → 32K 自适应局部重解析和 guard 验证；无法证明局部安全时在同一线程回退全文 parse。
+- 不再为每个 Note 建 permanent parser worker，也不维护 semaphore、pending generation、stale/current 双语义或并发 publish 路径。
+- line query 使用简单 flat per-line index；删除仅为继续压低少量大文档增量耗时而引入的 segmented/rebase/lazy-cache 层。
+- 每个 live semantic session 保留一份与当前 snapshot 对应的 source string，换取下一次编辑不必同时物化 old/new 两份完整正文。AST 仍只在 parse 期间存在，不长期持有。
+
+### Why
+
+- 对会改变字体、行高、图片 block 和换行的 presentation，几毫秒同步计算比跨帧等待异步结果更稳定；WPF 第一次重绘就应看到最终语义。
+- 单线程 ownership 直接消除了 worker 与 UI parse 竞争、generation publication race、dispose/cancel 时序和 stale semantic 安全证明。
+- PaperTodo 的 Note 上限有限，真实端到端 probe 证明普通输入的同步成本足够低；继续为亚毫秒到数毫秒收益维护 segmented 状态机不符合复杂度收益比。
+- 保留当前 source string 会增加一份正文级常驻内存，但实测可显著减少大文档每次编辑的临时分配和 GC 压力，这个交换比每键重新 materialize 旧 Rope 更合适。
+
+### Rejected / Do not reintroduce
+
+- 不再仅为了把普通数毫秒 semantic work 移出 UI thread，就恢复 per-editor 常驻 parser worker、pending/stale generation 和双 publication 路径。
+- 不把“当前 generation 尚无 snapshot”重新表示成 `Empty` 并允许 WPF 先绘制一次无语义布局。
+- 不在缺少新的可观察性能证据时恢复 segmented line-index / offset rebase / lazy bucket materialization；如果未来文档上限或 Markdown 复杂度显著增长，先用端到端输入 profile 证明简单路径已经成为真实瓶颈。
+
+### Consequences
+
+- 普通编辑在 `TextDocument` mutation 返回前已经拥有 exact semantic snapshot，因此 presentation、链接、列表编辑和图片不再经历异步 semantic 空窗。
+- 极少数全局依赖或局部窗口无法稳定的修改会同步支付一次全文 Markdig parse，可能表现为单次 UI pause；这是当前明确接受的 trade-off。未来若该尾延迟成为真实问题，应先重新评估产品文档上限和可证明的调度边界，而不是直接恢复旧 worker 结构。
+- 语义 session 常驻一份 current source string；大文档端到端 allocation probe 与 full-fallback probe 作为 CI smoke 保留，用来防止后续优化再次以隐藏输入抖动换取纸面吞吐。
+
+### Evidence
+
+- `src/MarkdownSemanticDocument.cs`。
+- `src/MarkdownSemanticSnapshot.Incremental.cs`。
+- `src/MarkdownTextBox.Semantics.cs`、`src/MarkdownTextBox.SemanticEditing.cs`、`src/MarkdownTextBox.SemanticImages.cs`。
+- `tests/PaperTodo.MarkdownSemanticChecks/SynchronousDocumentChecks.cs`。
+- `d624873`：移除 permanent worker 与 segmented production path。
+- `2b4b5a9`：移除 stale/current semantic compatibility path。
+- `419612b`：保留 current source string，降低真实 TextDocument 编辑临时分配。
+- `465b106`：覆盖同步 full-parse fallback。
