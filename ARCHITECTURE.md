@@ -364,6 +364,15 @@ Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：ow
 
 托盘当前基于仓库固定的 `vendor/wpf-notifyicon` 和 WPF `IconSource`；选择该路线的历史原因见 D-017。
 
+### 7.1 单窗口交互手势
+
+单张展开纸片的窗口级关闭手势由 `PaperWindow` 接入，但**不复制关闭业务语义**：
+
+- `Ctrl+W` 在 HWND 边界注册，使纸片已经成为前台窗口但 WPF 暂时没有 keyboard-focus target 时仍能响应；`PreviewKeyDown` 只保留为 WPF routed-key fallback。
+- 标题区中键采用 mouse-down / mouse-up 同区确认，只在展开且未进入高级交互锁定时触发。
+- 两种手势最终都向现有 `_closeButton` 发送同一个 routed `Click`，因此“关闭按钮此刻意味着折叠、隐藏还是其他既有策略”仍只有一个 owner，不在快捷手势中复制。
+- 从 `NOACTIVATE` 胶囊显式打开纸片时，激活路径以 OS foreground HWND 为最终 truth；必要时补 `Activate` / foreground 请求后再 `Focus`，避免 WPF `IsActive` / focus 状态残留在旧窗口。
+
 ## 8. 仓库结构
 
 - `src/`：主程序 C# 源码。
@@ -403,9 +412,9 @@ same AvalonEdit TextView
 ```
 
 - **Markdig 是内置 Note 的唯一 Markdown 语义 authority。** renderer、链接交互、列表 Enter、code/fence 判断和图片是否位于 code 区都读取同一份 semantic snapshot，不保留第二套手写 Markdown parser/fallback。
-- `MarkdownSemanticDocument` 与 AvalonEdit `TextDocument` 保持同线程、单一当前语义。初次建立总是同步全文 Markdig parse；正文少于 2000 字符时，每次完整 `TextChanged` 也直接同步全文 parse。较大 Note 的普通编辑只走一次约 1K 的行对齐局部窗口，并依据上一份 snapshot 中已知的跨行 span/link 自动扩到必要的已有 semantic container；这条大文档路径是编辑期 best-effort，不承诺每个按键后整个文档立即与一次全文 Markdig parse 全局等价。明显涉及 reference definition / reference use 的全局依赖直接拒绝局部路径，由 caller 同步全文 parse。没有 guard proof、1K→16K retry、per-editor parser worker、pending/stale generation 或并发 publication。
-- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`；snapshot 保留当前 line starts，并以连续 buffer + per-line range 保存 compact span/link 行索引；live editor 不长期持有 AST。
+- `MarkdownSemanticDocument` 与 AvalonEdit `TextDocument` 保持同线程、单一当前语义。初次建立总是同步全文 Markdig parse；正文少于 2000 字符时，每次完整 `TextChanged` 也直接同步全文 parse。较大 Note 的普通编辑先取一次约 1K 的行对齐局部窗口，并依据上一份 snapshot 中已知的跨行 span/link 自动扩到必要的已有 semantic container。若本次修改可能新建、删除或改变顶层 ``` / ~~~ fenced-code 状态，则只用轻量 `MarkdownFencedCodeScanner` 比较旧/新状态，并沿未修改后缀扩窗直到状态重新一致或到达 EOF，再把最终窗口交给 Markdig；scanner 只发现边界，不发布正文语义。明显涉及 reference definition / reference use 的全局依赖直接拒绝局部路径，由 caller 同步全文 parse。其他新产生的超远距离 Markdown 结构仍属于编辑期 best-effort，不承诺每个按键后整个文档立即与一次全文 Markdig parse 全局等价。没有 guard proof、1K→16K retry、per-editor parser worker、pending/stale generation 或并发 publication。
+- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`；snapshot 持有当前 lines / spans / links 和连续 buffer + per-line range 的 compact span/link 行索引。`lineStarts` 只在 parse / derived-index 重建时临时生成并使用，不再作为 snapshot 长期状态；live editor 也不长期持有 AST。
 - pipeline 刻意保持最小：precise source location + strikethrough + task list；PaperTodo 既有 bare HTTP(S)、inline HTML 白名单、图片协议等兼容边界在 snapshot/host 层显式处理，不直接启用整包 advanced extensions。
 - syntax fading 不删除源码字符，也不创建 source/rendered offset mapping；`#`、`**`、`[]()` 等 marker 仍占据原布局，只改变 presentation。
 - 图片 `i:` 协议、URL 打开白名单、原生保存仍属于 PaperTodo host concern；图片是否位于 code/container 等 Markdown 语义由同一 Markdig snapshot 决定。启动图片 GC 额外采用保守保护扫描，允许多保留但不因 parser 分歧误删 blob。
-- Edge Mini 是受 4096 字符/有限 block 约束的导航近似预览，可保留轻量 scanner/regex；它不是正文、持久化或数据回收的 Markdown authority。
+- `MarkdownFencedCodeScanner` 只保留在“边界发现/受限预览”角色：Edge Mini 的有限导航近似以及大 Note incremental fence-window discovery 可以使用；它不是正文、持久化或数据回收的 Markdown authority，也不扩展成第二套 container-aware Markdown parser。
