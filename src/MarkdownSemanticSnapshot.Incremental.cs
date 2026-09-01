@@ -30,16 +30,192 @@ internal sealed partial class MarkdownSemanticSnapshot
         bool IsAuto);
 
     /// <summary>
-    /// Compatibility name retained for semantic checks written before the line-index segmentation
-    /// landed. There is only one production incremental algorithm: the segmented path.
+    /// Attempts an adaptive local reparse before paying for a full-document Markdig pass. The
+    /// predictor starts around 4K, expands to the previous snapshot's complete semantic containers
+    /// and plain-paragraph boundaries, then uses unchanged outer guard regions as a stability check.
+    /// If the edit's semantic effect reaches a guard, the window doubles up to 32K. Only genuinely
+    /// global reference dependencies, oversized edits or an unstable 32K window require the caller's
+    /// full parse. Markdig remains the only Markdown authority.
     /// </summary>
     internal static bool TryParseIncremental(
         string oldSource,
         MarkdownSemanticSnapshot oldSnapshot,
         string newSource,
         out MarkdownSemanticSnapshot snapshot,
-        out MarkdownIncrementalUpdateInfo info) =>
-        TryParseSegmentedIncremental(oldSource, oldSnapshot, newSource, out snapshot, out info);
+        out MarkdownIncrementalUpdateInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(oldSource);
+        ArgumentNullException.ThrowIfNull(oldSnapshot);
+        ArgumentNullException.ThrowIfNull(newSource);
+
+        snapshot = null!;
+        info = default;
+
+        if (ReferenceEquals(oldSource, newSource) ||
+            string.Equals(oldSource, newSource, StringComparison.Ordinal))
+        {
+            snapshot = oldSnapshot;
+            return true;
+        }
+
+        FindContiguousDifference(
+            oldSource,
+            newSource,
+            out var changedStart,
+            out var oldChangedEnd,
+            out var newChangedEnd);
+
+        var changedOldLength = oldChangedEnd - changedStart;
+        var changedNewLength = newChangedEnd - changedStart;
+        if (changedOldLength + changedNewLength > IncrementalMaxChangedChars)
+        {
+            return false;
+        }
+
+        var oldLine = GetLineBounds(oldSource, changedStart);
+        var newLine = GetLineBounds(newSource, changedStart);
+        var hasGlobalReferenceDependency =
+            IsPotentialReferenceDefinition(oldSource, oldLine.Start, oldLine.End) ||
+            IsPotentialReferenceDefinition(newSource, newLine.Start, newLine.End) ||
+            ChangeTouchesSquareBracket(oldSource, changedStart, oldChangedEnd) ||
+            ChangeTouchesSquareBracket(newSource, changedStart, newChangedEnd) ||
+            ReferenceStyleLinkOverlapsChange(
+                oldSource,
+                oldSnapshot._links,
+                changedStart,
+                oldChangedEnd);
+
+        if (hasGlobalReferenceDependency)
+        {
+            // A reference definition/use can affect or depend on arbitrarily distant source. For a
+            // small note, simply parse the whole note here. For a larger note, report "not local" so
+            // the normal full-parse path remains the single fallback instead of growing a resolver.
+            if (Math.Max(oldSource.Length, newSource.Length) > IncrementalMaxWindowChars)
+            {
+                return false;
+            }
+
+            snapshot = Parse(newSource);
+            info = new MarkdownIncrementalUpdateInfo(
+                0,
+                oldSource.Length,
+                0,
+                newSource.Length,
+                changedOldLength,
+                changedNewLength);
+            return true;
+        }
+
+        var delta = newSource.Length - oldSource.Length;
+        for (var targetChars = IncrementalTargetWindowChars;
+             targetChars <= IncrementalMaxWindowChars;
+             targetChars *= 2)
+        {
+            if (!TryBuildIncrementalWindow(
+                    oldSource,
+                    oldSnapshot,
+                    newSource,
+                    changedStart,
+                    oldChangedEnd,
+                    newChangedEnd,
+                    delta,
+                    targetChars,
+                    out var oldStart,
+                    out var oldEnd,
+                    out var newStart,
+                    out var newEnd))
+            {
+                return false;
+            }
+
+            var localSource = newSource[newStart..newEnd];
+            var local = Parse(localSource);
+
+            if (oldStart == 0 &&
+                oldEnd == oldSource.Length &&
+                newStart == 0 &&
+                newEnd == newSource.Length)
+            {
+                snapshot = local;
+                info = new MarkdownIncrementalUpdateInfo(
+                    oldStart,
+                    oldEnd - oldStart,
+                    newStart,
+                    newEnd - newStart,
+                    changedOldLength,
+                    changedNewLength);
+                return true;
+            }
+
+            var referenceStable = ReferenceLinksRemainStable(
+                oldSource,
+                oldSnapshot._links,
+                local._links,
+                oldStart,
+                oldEnd,
+                newStart,
+                changedStart,
+                oldChangedEnd,
+                delta);
+            var guardsStable = GuardRegionsMatch(
+                oldSnapshot,
+                local,
+                oldStart,
+                oldEnd,
+                newStart,
+                changedStart,
+                oldChangedEnd,
+                delta);
+
+            if (!referenceStable || !guardsStable)
+            {
+                if (targetChars == IncrementalMaxWindowChars)
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            var spans = SpliceSpans(
+                oldSnapshot._spans,
+                local._spans,
+                oldStart,
+                oldEnd,
+                newStart,
+                delta);
+            var links = SpliceLinks(
+                oldSnapshot._links,
+                local._links,
+                oldStart,
+                oldEnd,
+                newStart,
+                delta);
+
+            var lineStarts = BuildLineStarts(newSource);
+            var lines = new MarkdownSemanticLine[lineStarts.Length];
+            foreach (var span in spans)
+            {
+                ApplySpanToLines(newSource, lineStarts, lines, span);
+            }
+
+            snapshot = new MarkdownSemanticSnapshot(
+                lines,
+                spans,
+                links,
+                BuildSpanLineIndex(newSource, lineStarts, spans),
+                BuildLinkLineIndex(newSource, lineStarts, links));
+            info = new MarkdownIncrementalUpdateInfo(
+                oldStart,
+                oldEnd - oldStart,
+                newStart,
+                newEnd - newStart,
+                changedOldLength,
+                changedNewLength);
+            return true;
+        }
+
+        return false;
+    }
 
     private static void FindContiguousDifference(
         string oldSource,

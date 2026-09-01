@@ -131,12 +131,9 @@ internal sealed partial class MarkdownSemanticSnapshot
     private readonly MarkdownSemanticLine[] _lines;
     private readonly MarkdownSemanticSpan[] _spans;
     private readonly MarkdownSemanticLink[] _links;
-    private readonly MarkdownSemanticSpan[][]? _spansByLine;
-    private readonly MarkdownSemanticLink[][]? _linksByLine;
-    private readonly MarkdownSemanticLineIndexSegment[] _lineIndexSegments;
+    private readonly MarkdownSemanticSpan[][] _spansByLine;
+    private readonly MarkdownSemanticLink[][] _linksByLine;
 
-    // Compatibility constructor for existing profiling/tests and the legacy incremental path.
-    // Production Parse/TryParseSegmentedIncremental snapshots use the segmented constructor below.
     private MarkdownSemanticSnapshot(
         MarkdownSemanticLine[] lines,
         MarkdownSemanticSpan[] spans,
@@ -149,21 +146,6 @@ internal sealed partial class MarkdownSemanticSnapshot
         _links = links;
         _spansByLine = spansByLine;
         _linksByLine = linksByLine;
-        _lineIndexSegments = Array.Empty<MarkdownSemanticLineIndexSegment>();
-    }
-
-    private MarkdownSemanticSnapshot(
-        MarkdownSemanticLine[] lines,
-        MarkdownSemanticSpan[] spans,
-        MarkdownSemanticLink[] links,
-        MarkdownSemanticLineIndexSegment[] lineIndexSegments)
-    {
-        _lines = lines;
-        _spans = spans;
-        _links = links;
-        _spansByLine = null;
-        _linksByLine = null;
-        _lineIndexSegments = lineIndexSegments;
     }
 
     public IReadOnlyList<MarkdownSemanticSpan> Spans => _spans;
@@ -182,44 +164,14 @@ internal sealed partial class MarkdownSemanticSnapshot
 
     public ReadOnlySpan<MarkdownSemanticSpan> SpansForLine(int zeroBasedLine)
     {
-        if (zeroBasedLine < 0 || zeroBasedLine >= _lines.Length)
-        {
-            return ReadOnlySpan<MarkdownSemanticSpan>.Empty;
-        }
-
-        if (_lineIndexSegments.Length > 0)
-        {
-            var segment = FindLineIndexSegment(zeroBasedLine);
-            if (segment != null)
-            {
-                return segment.SpansForLine(zeroBasedLine - segment.FirstLine);
-            }
-            return ReadOnlySpan<MarkdownSemanticSpan>.Empty;
-        }
-
-        return _spansByLine != null && zeroBasedLine < _spansByLine.Length
+        return zeroBasedLine >= 0 && zeroBasedLine < _spansByLine.Length
             ? _spansByLine[zeroBasedLine]
             : ReadOnlySpan<MarkdownSemanticSpan>.Empty;
     }
 
     public ReadOnlySpan<MarkdownSemanticLink> LinksForLine(int zeroBasedLine)
     {
-        if (zeroBasedLine < 0 || zeroBasedLine >= _lines.Length)
-        {
-            return ReadOnlySpan<MarkdownSemanticLink>.Empty;
-        }
-
-        if (_lineIndexSegments.Length > 0)
-        {
-            var segment = FindLineIndexSegment(zeroBasedLine);
-            if (segment != null)
-            {
-                return segment.LinksForLine(zeroBasedLine - segment.FirstLine);
-            }
-            return ReadOnlySpan<MarkdownSemanticLink>.Empty;
-        }
-
-        return _linksByLine != null && zeroBasedLine < _linksByLine.Length
+        return zeroBasedLine >= 0 && zeroBasedLine < _linksByLine.Length
             ? _linksByLine[zeroBasedLine]
             : ReadOnlySpan<MarkdownSemanticLink>.Empty;
     }
@@ -272,15 +224,12 @@ internal sealed partial class MarkdownSemanticSnapshot
             ApplySpanToLines(source, lineStarts, lines, span);
         }
 
-        var spanArray = spans.ToArray();
-        var linkArray = links.ToArray();
-        var spansByLine = BuildSpanLineIndex(source, lineStarts, spans);
-        var linksByLine = BuildLinkLineIndex(source, lineStarts, links);
         return new MarkdownSemanticSnapshot(
             lines,
-            spanArray,
-            linkArray,
-            BuildLineIndexSegments(source, lineStarts, spansByLine, linksByLine));
+            spans.ToArray(),
+            links.ToArray(),
+            BuildSpanLineIndex(source, lineStarts, spans),
+            BuildLinkLineIndex(source, lineStarts, links));
     }
 
     /// <summary>
