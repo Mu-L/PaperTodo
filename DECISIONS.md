@@ -972,7 +972,7 @@ D-026 把内置 Note 的 Markdown 语义统一到 Markdig 后，第一版为了�
 ### Decision
 
 - `MarkdownSemanticDocument` 与其 AvalonEdit `TextDocument` 由同一线程拥有；初次语义建立和每次完整 `TextChanged` 都在返回 WPF 之前发布唯一的 current snapshot。
-- 普通编辑继续使用 Markdig 驱动的 4K → 8K → 16K → 32K 自适应局部重解析和 guard 验证；无法证明局部安全时在同一线程回退全文 parse。
+- 普通编辑使用 Markdig 驱动的 1K 首轮局部重解析和 guard 验证；首轮不稳定时只再尝试一次 16K 局部窗口，仍不能证明安全则在同一线程回退全文 parse。局部窗口仍会自动覆盖旧 semantic container 与安全 block 边界，不把结构从中间截断。
 - 不再为每个 Note 建 permanent parser worker，也不维护 semaphore、pending generation、stale/current 双语义或并发 publish 路径。
 - line query 使用简单 flat per-line index；删除仅为继续压低少量大文档增量耗时而引入的 segmented/rebase/lazy-cache 层。
 - 每个 live semantic session 保留一份与当前 snapshot 对应的 source string，换取下一次编辑不必同时物化 old/new 两份完整正文。AST 仍只在 parse 期间存在，不长期持有。

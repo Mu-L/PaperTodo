@@ -10,8 +10,9 @@ internal readonly record struct MarkdownIncrementalUpdateInfo(
 
 internal sealed partial class MarkdownSemanticSnapshot
 {
-    private const int IncrementalTargetWindowChars = 4096;
-    private const int IncrementalMaxWindowChars = 32768;
+    private const int IncrementalPrimaryWindowChars = 1024;
+    private const int IncrementalRetryWindowChars = 16384;
+    private const int IncrementalMaxWindowChars = IncrementalRetryWindowChars;
     private const int IncrementalMaxChangedChars = 2048;
     private const int IncrementalGuardChars = 1024;
 
@@ -30,12 +31,12 @@ internal sealed partial class MarkdownSemanticSnapshot
         bool IsAuto);
 
     /// <summary>
-    /// Attempts an adaptive local reparse before paying for a full-document Markdig pass. The
-    /// predictor starts around 4K, expands to the previous snapshot's complete semantic containers
-    /// and plain-paragraph boundaries, then uses unchanged outer guard regions as a stability check.
-    /// If the edit's semantic effect reaches a guard, the window doubles up to 32K. Only genuinely
-    /// global reference dependencies, oversized edits or an unstable 32K window require the caller's
-    /// full parse. Markdig remains the only Markdown authority.
+    /// Attempts one small local reparse before paying for a larger local retry or a full-document
+    /// Markdig pass. The first target is 1K and may expand to complete semantic containers and safe
+    /// block boundaries. If its unchanged outer guard regions are not stable, one 16K target is tried.
+    /// Global reference dependencies, oversized edits, windows that exceed 16K, or an unstable 16K
+    /// retry return false so the caller performs the synchronous full parse. Markdig remains the only
+    /// Markdown authority.
     /// </summary>
     internal static bool TryParseIncremental(
         string oldSource,
@@ -87,30 +88,18 @@ internal sealed partial class MarkdownSemanticSnapshot
 
         if (hasGlobalReferenceDependency)
         {
-            // A reference definition/use can affect or depend on arbitrarily distant source. For a
-            // small note, simply parse the whole note here. For a larger note, report "not local" so
-            // the normal full-parse path remains the single fallback instead of growing a resolver.
-            if (Math.Max(oldSource.Length, newSource.Length) > IncrementalMaxWindowChars)
-            {
-                return false;
-            }
-
-            snapshot = Parse(newSource);
-            info = new MarkdownIncrementalUpdateInfo(
-                0,
-                oldSource.Length,
-                0,
-                newSource.Length,
-                changedOldLength,
-                changedNewLength);
-            return true;
+            // Reference definitions/uses can affect arbitrarily distant source. Do not grow a local
+            // resolver or hide a whole-document parse inside the incremental path; the caller owns
+            // the single synchronous full-parse fallback.
+            return false;
         }
 
         var delta = newSource.Length - oldSource.Length;
-        for (var targetChars = IncrementalTargetWindowChars;
-             targetChars <= IncrementalMaxWindowChars;
-             targetChars *= 2)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
+            var targetChars = attempt == 0
+                ? IncrementalPrimaryWindowChars
+                : IncrementalRetryWindowChars;
             if (!TryBuildIncrementalWindow(
                     oldSource,
                     oldSnapshot,
