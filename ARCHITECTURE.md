@@ -395,9 +395,7 @@ MarkdownSemanticDocument
     └─ same-thread incremental parse + exact snapshot publication
          ↓
 MarkdownSemanticSnapshot
-    └─ PaperTodo-owned source spans / line traits / links
-         ↓
-IMarkdownRendererProvider / IMarkdownRendererSession
+    └─ PaperTodo-owned source spans / line traits / links / compact line indexes
          ↓
 MarkdownSemanticPresentation
          ↓
@@ -405,8 +403,8 @@ same AvalonEdit TextView
 ```
 
 - **Markdig 是内置 Note 的唯一 Markdown 语义 authority。** renderer、链接交互、列表 Enter、code/fence 判断和图片是否位于 code 区都读取同一份 semantic snapshot，不保留第二套手写 Markdown parser/fallback。
-- `MarkdownSemanticDocument` 与 AvalonEdit `TextDocument` 保持同线程、单一当前语义。初次建立和每次完整 `TextChanged` 都在返回 WPF 渲染前同步发布 exact snapshot；普通修改先从约 4K 的行对齐窗口交给 Markdig，并按旧 semantic container 与边缘 guard 自适应扩大到 8K / 16K / 32K，只有引用定义等全局依赖、超大修改或 32K 仍不能证明边界稳定时才同步回退全文 parse。没有 per-editor parser worker、pending/stale generation 或并发 publication。为避免每次输入重复物化旧 AvalonEdit Rope，session 只额外保留一份与当前 snapshot 对应的 source string。
-- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`，live editor 不长期持有 AST。
+- `MarkdownSemanticDocument` 与 AvalonEdit `TextDocument` 保持同线程、单一当前语义。初次建立和每次完整 `TextChanged` 都在返回 WPF 渲染前同步发布 exact snapshot；普通修改先从约 1K 的行对齐窗口交给 Markdig，并按旧 semantic container 与安全 block 边界自动覆盖必要完整结构；若边缘 guard 仍不能证明稳定，只再尝试一次 16K 局部窗口，之后直接同步回退全文 parse。引用定义等全局依赖和超大修改也直接进入全文档。没有 per-editor parser worker、pending/stale generation 或并发 publication。为避免每次输入重复物化旧 AvalonEdit Rope，session 只额外保留一份与当前 snapshot 对应的 source string。
+- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`；snapshot 同时保留当前 line starts，并以连续 buffer + per-line range 保存 compact span/link 行索引，供下一次增量窗口与渲染直接复用；live editor 不长期持有 AST。
 - pipeline 刻意保持最小：precise source location + strikethrough + task list；PaperTodo 既有 bare HTTP(S)、inline HTML 白名单、图片协议等兼容边界在 snapshot/host 层显式处理，不直接启用整包 advanced extensions。
 - syntax fading 不删除源码字符，也不创建 source/rendered offset mapping；`#`、`**`、`[]()` 等 marker 仍占据原布局，只改变 presentation。
 - 图片 `i:` 协议、URL 打开白名单、原生保存仍属于 PaperTodo host concern；图片是否位于 code/container 等 Markdown 语义由同一 Markdig snapshot 决定。启动图片 GC 额外采用保守保护扫描，允许多保留但不因 parser 分歧误删 blob。

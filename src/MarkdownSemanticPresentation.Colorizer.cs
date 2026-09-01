@@ -10,13 +10,31 @@ internal sealed partial class MarkdownSemanticPresentation
     private sealed partial class SemanticColorizer : DocumentColorizingTransformer
     {
         private readonly MarkdownSemanticPresentation _owner;
+        private readonly Dictionary<TypefaceCacheKey, Typeface> _typefaceCache = new();
+        private TypefaceCacheRevision _typefaceCacheRevision;
+        private bool _hasTypefaceCacheRevision;
 
         private readonly record struct SourceRange(int Start, int End)
         {
             public bool Covers(int start, int end) => Start <= start && End >= end;
         }
 
-        private static Typeface NormalTypeface => new(
+        private readonly record struct TypefaceCacheKey(
+            string Family,
+            FontStyle Style,
+            FontWeight Weight,
+            FontStretch Stretch);
+
+        private readonly record struct TypefaceCacheRevision(
+            string NormalFamily,
+            string BoldFamily,
+            string CodeFamily,
+            FontStyle Style,
+            FontWeight NormalWeight,
+            FontWeight BoldWeight,
+            FontStretch Stretch);
+
+        private Typeface NormalTypeface => GetCachedTypeface(
             NoteTypography.FontFamily,
             NoteTypography.FontStyle,
             NoteTypography.FontWeight,
@@ -30,19 +48,15 @@ internal sealed partial class MarkdownSemanticPresentation
                 ? AppTypography.FontWeightFor(true)
                 : NoteTypography.HeadingFontWeight;
 
-        private static Typeface HeadingTypeface => new(
+        private Typeface HeadingTypeface => GetCachedTypeface(
             SemanticBoldFontFamily,
             NoteTypography.FontStyle,
             SemanticBoldFontWeight,
             NoteTypography.FontStretch);
 
-        private static Typeface StrongTypeface => new(
-            SemanticBoldFontFamily,
-            NoteTypography.FontStyle,
-            SemanticBoldFontWeight,
-            NoteTypography.FontStretch);
+        private Typeface StrongTypeface => HeadingTypeface;
 
-        private static Typeface CodeTypeface => new(
+        private Typeface CodeTypeface => GetCachedTypeface(
             NoteTypography.CodeFontFamily,
             NoteTypography.FontStyle,
             NoteTypography.FontWeight,
@@ -70,7 +84,19 @@ internal sealed partial class MarkdownSemanticPresentation
                 return;
             }
 
-            var text = document.GetText(line);
+            var lineIndex = Math.Max(0, line.LineNumber - 1);
+            var semantic = snapshot.GetLine(lineIndex);
+            if (semantic.Traits == MarkdownSemanticLineTraits.None &&
+                semantic.HeadingLevel == 0 &&
+                snapshot.SpansForLine(lineIndex).IsEmpty &&
+                snapshot.LinksForLine(lineIndex).IsEmpty)
+            {
+                return;
+            }
+
+            var text = semantic.IsQuoted || semantic.HeadingLevel > 0
+                ? document.GetText(line)
+                : string.Empty;
             ApplyBlockSemantics(line, snapshot, text);
             ApplyListMarkerSemantics(line, snapshot);
             // Link foreground first; Markdown/HTML emphasis and code then compose on top.
@@ -91,14 +117,34 @@ internal sealed partial class MarkdownSemanticPresentation
                 return;
             }
 
-            var emphasisRanges = new List<SourceRange>();
-            var strongRanges = new List<SourceRange>();
-            var boundaries = new List<int> { lineStart, lineEnd };
+            var lineSpans = snapshot.SpansForLine(Math.Max(0, line.LineNumber - 1));
+            var hasInlineSemantic = false;
+            foreach (var span in lineSpans)
+            {
+                if (span.End > lineStart &&
+                    span.Start < lineEnd &&
+                    span.Kind is MarkdownSemanticSpanKind.Emphasis or
+                        MarkdownSemanticSpanKind.Strong or
+                        MarkdownSemanticSpanKind.Strikethrough or
+                        MarkdownSemanticSpanKind.InlineCode)
+                {
+                    hasInlineSemantic = true;
+                    break;
+                }
+            }
+            if (!hasInlineSemantic)
+            {
+                return;
+            }
+
+            List<SourceRange>? emphasisRanges = null;
+            List<SourceRange>? strongRanges = null;
+            List<int>? boundaries = null;
             var markerBrush = _owner.FadeSyntax
                 ? Theme.SyntaxFadeBrush
                 : Theme.ActiveBrush;
 
-            foreach (var span in snapshot.SpansForLine(Math.Max(0, line.LineNumber - 1)))
+            foreach (var span in lineSpans)
             {
                 if (span.End <= lineStart || span.Start >= lineEnd)
                 {
@@ -187,44 +233,48 @@ internal sealed partial class MarkdownSemanticPresentation
                 var range = new SourceRange(clippedStart, clippedEnd);
                 if (span.Kind == MarkdownSemanticSpanKind.Strong)
                 {
-                    strongRanges.Add(range);
+                    (strongRanges ??= new List<SourceRange>()).Add(range);
                 }
                 else
                 {
-                    emphasisRanges.Add(range);
+                    (emphasisRanges ??= new List<SourceRange>()).Add(range);
                 }
+
+                boundaries ??= new List<int> { lineStart, lineEnd };
                 boundaries.Add(clippedStart);
                 boundaries.Add(clippedEnd);
             }
 
-            if (emphasisRanges.Count == 0 && strongRanges.Count == 0)
+            if (boundaries == null)
             {
                 return;
             }
 
             boundaries.Sort();
-            var previous = -1;
-            var compact = new List<int>(boundaries.Count);
-            foreach (var boundary in boundaries)
+            var compactCount = 0;
+            var previous = int.MinValue;
+            for (var read = 0; read < boundaries.Count; read++)
             {
-                if (boundary != previous)
+                var boundary = boundaries[read];
+                if (boundary == previous)
                 {
-                    compact.Add(boundary);
-                    previous = boundary;
+                    continue;
                 }
+                boundaries[compactCount++] = boundary;
+                previous = boundary;
             }
 
-            for (var index = 0; index + 1 < compact.Count; index++)
+            for (var index = 0; index + 1 < compactCount; index++)
             {
-                var start = compact[index];
-                var end = compact[index + 1];
+                var start = boundaries[index];
+                var end = boundaries[index + 1];
                 if (end <= start)
                 {
                     continue;
                 }
 
-                var strong = strongRanges.Any(range => range.Covers(start, end));
-                var emphasis = emphasisRanges.Any(range => range.Covers(start, end));
+                var strong = Covers(strongRanges, start, end);
+                var emphasis = Covers(emphasisRanges, start, end);
                 if (!strong && !emphasis)
                 {
                     continue;
@@ -242,13 +292,79 @@ internal sealed partial class MarkdownSemanticPresentation
                             : current.FontFamily;
                         var style = emphasis ? FontStyles.Italic : current.Style;
                         var weight = strong ? SemanticBoldFontWeight : current.Weight;
-                        element.TextRunProperties.SetTypeface(new Typeface(
+                        element.TextRunProperties.SetTypeface(GetCachedTypeface(
                             family,
                             style,
                             weight,
                             current.Stretch));
                     });
             }
+        }
+
+        private static bool Covers(List<SourceRange>? ranges, int start, int end)
+        {
+            if (ranges == null)
+            {
+                return false;
+            }
+
+            foreach (var range in ranges)
+            {
+                if (range.Covers(start, end))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Typeface GetCachedTypeface(
+            FontFamily family,
+            FontStyle style,
+            FontWeight weight,
+            FontStretch stretch)
+        {
+            EnsureTypefaceCacheCurrent();
+            var key = new TypefaceCacheKey(family.Source, style, weight, stretch);
+            if (_typefaceCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            cached = new Typeface(family, style, weight, stretch);
+            _typefaceCache[key] = cached;
+            return cached;
+        }
+
+        private void EnsureTypefaceCacheCurrent()
+        {
+            var revision = new TypefaceCacheRevision(
+                NoteTypography.FontFamily.Source,
+                SemanticBoldFontFamily.Source,
+                NoteTypography.CodeFontFamily.Source,
+                NoteTypography.FontStyle,
+                NoteTypography.FontWeight,
+                SemanticBoldFontWeight,
+                NoteTypography.FontStretch);
+            if (_hasTypefaceCacheRevision && revision.Equals(_typefaceCacheRevision))
+            {
+                return;
+            }
+
+            _typefaceCache.Clear();
+            _typefaceCacheRevision = revision;
+            _hasTypefaceCacheRevision = true;
+        }
+
+        private void ApplyCodeTypography(
+            VisualLineElement element,
+            Brush foreground)
+        {
+            element.TextRunProperties.SetTypeface(CodeTypeface);
+            var size = _owner.ScaledFontSize(NoteTypography.CodeFontSize);
+            element.TextRunProperties.SetFontRenderingEmSize(size);
+            element.TextRunProperties.SetFontHintingEmSize(size);
+            element.TextRunProperties.SetForegroundBrush(foreground);
         }
 
         private void ApplyAbsolute(

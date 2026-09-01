@@ -44,7 +44,7 @@ internal sealed partial class MarkdownSemanticPresentation
                             var family = AppTypography.UsesCustomBoldFace(true)
                                 ? SemanticBoldFontFamily
                                 : current.FontFamily;
-                            element.TextRunProperties.SetTypeface(new Typeface(
+                            element.TextRunProperties.SetTypeface(GetCachedTypeface(
                                 family,
                                 current.Style,
                                 SemanticBoldFontWeight,
@@ -56,7 +56,7 @@ internal sealed partial class MarkdownSemanticPresentation
                         ApplyAbsolute(line, span.Start, span.End, element =>
                         {
                             var current = element.TextRunProperties.Typeface;
-                            element.TextRunProperties.SetTypeface(new Typeface(
+                            element.TextRunProperties.SetTypeface(GetCachedTypeface(
                                 current.FontFamily,
                                 FontStyles.Italic,
                                 current.Weight,
@@ -127,14 +127,28 @@ internal sealed partial class MarkdownSemanticPresentation
             VisualLineElement element,
             TextDecorationCollection additions)
         {
-            var merged = new TextDecorationCollection();
-            if (element.TextRunProperties.TextDecorations is { } existing)
+            var existing = element.TextRunProperties.TextDecorations;
+            if (existing == null || existing.Count == 0)
             {
-                foreach (var decoration in existing)
+                element.TextRunProperties.SetTextDecorations(additions);
+                return;
+            }
+
+            var needsMerge = false;
+            foreach (var decoration in additions)
+            {
+                if (!existing.Contains(decoration))
                 {
-                    merged.Add(decoration);
+                    needsMerge = true;
+                    break;
                 }
             }
+            if (!needsMerge)
+            {
+                return;
+            }
+
+            var merged = new TextDecorationCollection(existing);
             foreach (var decoration in additions)
             {
                 if (!merged.Contains(decoration))

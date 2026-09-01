@@ -90,7 +90,7 @@ public sealed partial class MarkdownTextBox
         out MarkdownListContinuationPlan plan)
     {
         plan = default;
-        return TryGetSemanticSnapshot(out var snapshot) &&
+        return TryGetCurrentSemanticSnapshot(out var snapshot) &&
             MarkdownListEditing.TryBuildContinuationPlan(
                 text,
                 line.Offset,
@@ -148,7 +148,7 @@ public sealed partial class MarkdownTextBox
 
         if (caret == line.Offset &&
             line.PreviousLine != null &&
-            TryGetImageReferenceForStableEditingLine(
+            TryGetImageReferenceForLine(
                 line.PreviousLine,
                 out var previousReference,
                 out _))
@@ -159,7 +159,7 @@ public sealed partial class MarkdownTextBox
 
         if (line.NextLine == null &&
             caret == line.EndOffset &&
-            TryGetImageReferenceForStableEditingLine(
+            TryGetImageReferenceForLine(
                 line,
                 out var currentReference,
                 out _))

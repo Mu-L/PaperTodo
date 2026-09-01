@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Media;
-using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Rendering;
 
@@ -90,12 +89,35 @@ internal sealed partial class MarkdownSemanticPresentation
     private sealed class SemanticListRenderer : IBackgroundRenderer
     {
         private readonly MarkdownSemanticPresentation _owner;
+        private Typeface? _listMarkerTypeface;
+        private string? _listMarkerFontFamily;
+        private FontStyle _listMarkerFontStyle;
+        private FontWeight _listMarkerFontWeight;
+        private FontStretch _listMarkerFontStretch;
 
-        private static Typeface ListMarkerTypeface => new(
-            NoteTypography.FontFamily,
-            NoteTypography.FontStyle,
-            NoteTypography.FontWeight,
-            NoteTypography.FontStretch);
+        private Typeface ListMarkerTypeface
+        {
+            get
+            {
+                var family = NoteTypography.FontFamily;
+                var style = NoteTypography.FontStyle;
+                var weight = NoteTypography.FontWeight;
+                var stretch = NoteTypography.FontStretch;
+                if (_listMarkerTypeface == null ||
+                    !string.Equals(_listMarkerFontFamily, family.Source, StringComparison.Ordinal) ||
+                    _listMarkerFontStyle != style ||
+                    _listMarkerFontWeight != weight ||
+                    _listMarkerFontStretch != stretch)
+                {
+                    _listMarkerTypeface = new Typeface(family, style, weight, stretch);
+                    _listMarkerFontFamily = family.Source;
+                    _listMarkerFontStyle = style;
+                    _listMarkerFontWeight = weight;
+                    _listMarkerFontStretch = stretch;
+                }
+                return _listMarkerTypeface;
+            }
+        }
 
         public SemanticListRenderer(MarkdownSemanticPresentation owner)
         {
@@ -148,9 +170,24 @@ internal sealed partial class MarkdownSemanticPresentation
             DocumentLine line,
             MarkdownSemanticSpan marker)
         {
-            if (!TryGetTextPoint(textView, line, marker.Start, VisualYPosition.TextTop, out var markerTop) ||
-                !TryGetTextPoint(textView, line, marker.Start, VisualYPosition.TextMiddle, out var markerMiddle) ||
-                !TryGetTextPoint(textView, line, marker.End, VisualYPosition.TextBottom, out var markerBottom))
+            if (!MarkdownSemanticPresentation.TryGetTextPoint(
+                    textView,
+                    line,
+                    marker.Start,
+                    VisualYPosition.TextTop,
+                    out var markerTop) ||
+                !MarkdownSemanticPresentation.TryGetTextPoint(
+                    textView,
+                    line,
+                    marker.Start,
+                    VisualYPosition.TextMiddle,
+                    out var markerMiddle) ||
+                !MarkdownSemanticPresentation.TryGetTextPoint(
+                    textView,
+                    line,
+                    marker.End,
+                    VisualYPosition.TextBottom,
+                    out var markerBottom))
             {
                 return;
             }
@@ -197,30 +234,6 @@ internal sealed partial class MarkdownSemanticPresentation
             drawingContext.DrawText(
                 formatted,
                 new Point(markerLeft, markerMiddle.Y - formatted.Height / 2));
-        }
-
-        private static bool TryGetTextPoint(
-            TextView textView,
-            DocumentLine line,
-            int absoluteOffset,
-            VisualYPosition yPosition,
-            out Point point)
-        {
-            point = default;
-            try
-            {
-                var indexInLine = Math.Clamp(absoluteOffset - line.Offset, 0, line.Length);
-                point = textView.GetVisualPosition(
-                    new TextViewPosition(line.LineNumber, indexInLine + 1),
-                    yPosition);
-                point.X -= textView.HorizontalOffset;
-                point.Y -= textView.VerticalOffset;
-                return double.IsFinite(point.X) && double.IsFinite(point.Y);
-            }
-            catch
-            {
-                return false;
-            }
         }
     }
 }

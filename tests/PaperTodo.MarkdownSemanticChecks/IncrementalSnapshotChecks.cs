@@ -54,15 +54,59 @@ internal static class IncrementalSnapshotChecks
             "before\nplain quoted row\nlazy continuation\nafter",
             source => source.Insert(source.IndexOf("plain quoted row", StringComparison.Ordinal), "> "));
 
+        CheckLargeInsertionWithin16K();
         CheckLongFenceContentEdit();
         CheckFenceBoundaryEdit();
-        CheckNewLongFenceExpansion();
+        CheckMediumFenceBoundaryUses16KRetry();
+        CheckNewLongFenceFallsBackAfter16K();
         CheckContainerContentEdit();
         CheckReferenceCases();
+        CheckReferenceDefinitionStateSurvivesIncremental();
         CheckLongPlainParagraphDelimiter();
         CheckSafeEditSequence();
         CheckDeterministicEditFuzz();
         ProfileLargeIncrementalEdit();
+    }
+
+    private static void CheckLargeInsertionWithin16K()
+    {
+        var builder = new StringBuilder();
+        for (var index = 0; index < 350; index++)
+        {
+            builder.Append("prefix row ").Append(index).Append(" ordinary words.\n\n");
+        }
+        builder.Append("target ordinary row\n\n");
+        for (var index = 0; index < 350; index++)
+        {
+            builder.Append("suffix row ").Append(index).Append(" ordinary words.\n\n");
+        }
+
+        var oldSource = builder.ToString();
+        var insertAt = oldSource.IndexOf("ordinary row", StringComparison.Ordinal) + 4;
+        var newSource = oldSource.Insert(insertAt, new string('x', 3_000));
+        var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+                oldSource,
+                oldSnapshot,
+                newSource,
+                out var incremental,
+                out var info))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental 3K insertion: bounded edit unexpectedly fell back");
+        }
+
+        AssertEquivalent(
+            MarkdownSemanticSnapshot.Parse(newSource),
+            incremental,
+            "3K insertion within 16K");
+        if (info.ChangedNewLength < 3_000 || info.NewLength > 16_384)
+        {
+            throw new InvalidOperationException(
+                $"FAIL incremental 3K insertion: changed={info.ChangedNewLength} window={info.NewLength}");
+        }
+        Console.WriteLine(
+            $"PASS incremental 3K insertion changed={info.ChangedNewLength} window={info.NewLength}");
     }
 
     private static void CheckLongFenceContentEdit()
@@ -110,7 +154,25 @@ internal static class IncrementalSnapshotChecks
         Console.WriteLine($"PASS incremental fence boundary edit window={info.NewLength}");
     }
 
-    private static void CheckNewLongFenceExpansion()
+    private static void CheckMediumFenceBoundaryUses16KRetry()
+    {
+        var oldSource = "```text\n" + new string('a', 5_000) + "\n```\nafter\n";
+        var newSource = oldSource.Remove(0, 1);
+        var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+                oldSource,
+                oldSnapshot,
+                newSource,
+                out var incremental,
+                out var info))
+        {
+            throw new InvalidOperationException("FAIL incremental medium fence boundary: 16K retry fell back");
+        }
+        AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), incremental, "medium fence boundary");
+        Console.WriteLine($"PASS incremental medium fence boundary via 16K retry window={info.NewLength}");
+    }
+
+    private static void CheckNewLongFenceFallsBackAfter16K()
     {
         var body = new StringBuilder();
         body.Append("before\n");
@@ -125,22 +187,26 @@ internal static class IncrementalSnapshotChecks
         var newSource = oldSource.Insert(insertAt, "```text\n");
         var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
 
-        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+        if (MarkdownSemanticSnapshot.TryParseIncremental(
                 oldSource,
                 oldSnapshot,
                 newSource,
-                out var incremental,
-                out var info))
-        {
-            throw new InvalidOperationException("FAIL incremental new long fence: unexpectedly fell back");
-        }
-        AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), incremental, "new long fence");
-        if (info.NewLength <= 4096)
+                out _,
+                out _))
         {
             throw new InvalidOperationException(
-                $"FAIL incremental new long fence: predictor did not expand beyond 4K ({info.NewLength})");
+                "FAIL incremental new long fence: 16K tier unexpectedly accepted a guard-unstable edit");
         }
-        Console.WriteLine($"PASS incremental new long fence expanded window={info.NewLength}");
+
+        // The document owner synchronously performs the third tier (full Markdig parse) when the
+        // two local attempts decline the edit. The parser-level contract here is to reject rather
+        // than publish a locally plausible but unproven snapshot.
+        var full = MarkdownSemanticSnapshot.Parse(newSource);
+        if (full.LineCount == 0)
+        {
+            throw new InvalidOperationException("FAIL incremental new long fence: full fallback produced no lines");
+        }
+        Console.WriteLine("PASS incremental new long fence falls back after 16K");
     }
 
     private static void CheckContainerContentEdit()
@@ -179,16 +245,16 @@ internal static class IncrementalSnapshotChecks
             "reference nearby ordinary edit",
             smallReference,
             source => source.Insert(source.IndexOf("nearby", StringComparison.Ordinal) + 2, "Z"));
-        CheckWholeExact(
+        CheckFallback(
             "small reference definition edit",
             smallReference,
             source => source.Insert(source.IndexOf("example", StringComparison.Ordinal) + 3, "Z"));
-        CheckWholeExact(
+        CheckFallback(
             "small reference use source edit",
             smallReference,
             source => source.Insert(source.IndexOf("target", StringComparison.Ordinal) + 2, "Z"));
-        CheckWholeExact(
-            "small new square bracket source",
+        CheckLocalExact(
+            "small new square bracket without definitions",
             "plain alpha beta gamma",
             source => source.Insert(source.IndexOf("beta", StringComparison.Ordinal), "["));
 
@@ -201,10 +267,81 @@ internal static class IncrementalSnapshotChecks
             "distant reference use source edit",
             largeReference,
             source => source.Insert(source.IndexOf("target", StringComparison.Ordinal) + 2, "Z"));
+
+        var largePlainBuilder = new StringBuilder();
+        for (var index = 0; index < 1_600; index++)
+        {
+            largePlainBuilder.Append("plain row ").Append(index).Append(" with ordinary words\n\n");
+        }
+        var largePlain = largePlainBuilder.ToString();
+        CheckLocalExact(
+            "large new square bracket without definitions",
+            largePlain,
+            source => source.Insert(
+                source.IndexOf("plain row 800", StringComparison.Ordinal) + 6,
+                "["));
+
+        var newDefinitionBuilder = new StringBuilder();
+        newDefinitionBuilder.Append("[unresolved][new-id]\n\n");
+        for (var index = 0; index < 700; index++)
+        {
+            newDefinitionBuilder.Append("leading neutral row ").Append(index).Append("\n\n");
+        }
+        newDefinitionBuilder.Append("definition insertion anchor\n\n");
+        for (var index = 0; index < 700; index++)
+        {
+            newDefinitionBuilder.Append("trailing neutral row ").Append(index).Append("\n\n");
+        }
+        var newDefinitionSource = newDefinitionBuilder.ToString();
         CheckFallback(
-            "large new square bracket source",
-            "plain prefix\n" + new string('p', 40_000) + "\nplain suffix",
-            source => source.Insert(source.Length / 2, "["));
+            "new distant reference definition",
+            newDefinitionSource,
+            source => source.Insert(
+                source.IndexOf("definition insertion anchor", StringComparison.Ordinal),
+                "ordinary inserted row\n\n[new-id]: https://example.com/new\n"));
+    }
+
+    private static void CheckReferenceDefinitionStateSurvivesIncremental()
+    {
+        var builder = new StringBuilder();
+        builder.Append("[target][id]\n\n[id]: https://example.com\n\n");
+        for (var index = 0; index < 1_200; index++)
+        {
+            builder.Append("ordinary reference state row ").Append(index).Append("\n\n");
+        }
+
+        var source = builder.ToString();
+        var snapshot = MarkdownSemanticSnapshot.Parse(source);
+        var ordinaryAt = source.IndexOf("reference state row 600", StringComparison.Ordinal) + 8;
+        var afterOrdinary = source.Insert(ordinaryAt, "Z");
+        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+                source,
+                snapshot,
+                afterOrdinary,
+                out var incremental,
+                out _))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental reference state: ordinary edit unexpectedly fell back");
+        }
+        AssertEquivalent(
+            MarkdownSemanticSnapshot.Parse(afterOrdinary),
+            incremental,
+            "reference definition state ordinary edit");
+
+        var bracketAt = afterOrdinary.IndexOf("reference state row 900", StringComparison.Ordinal) + 8;
+        var afterBracket = afterOrdinary.Insert(bracketAt, "[");
+        if (MarkdownSemanticSnapshot.TryParseIncremental(
+                afterOrdinary,
+                incremental,
+                afterBracket,
+                out _,
+                out _))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental reference state: bracket edit ignored retained definitions");
+        }
+        Console.WriteLine("PASS incremental reference-definition state survives local snapshot");
     }
 
     private static void CheckLongPlainParagraphDelimiter()
@@ -426,31 +563,6 @@ internal static class IncrementalSnapshotChecks
         Console.WriteLine($"PASS incremental {name} window={info.NewLength}");
     }
 
-    private static void CheckWholeExact(string name, string oldSource, Func<string, string> edit)
-    {
-        var newSource = edit(oldSource);
-        var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
-        if (!MarkdownSemanticSnapshot.TryParseIncremental(
-                oldSource,
-                oldSnapshot,
-                newSource,
-                out var incremental,
-                out var info))
-        {
-            throw new InvalidOperationException($"FAIL incremental {name}: unexpectedly fell back");
-        }
-        AssertEquivalent(MarkdownSemanticSnapshot.Parse(newSource), incremental, name);
-        if (info.OldStart != 0 ||
-            info.NewStart != 0 ||
-            info.OldLength != oldSource.Length ||
-            info.NewLength != newSource.Length)
-        {
-            throw new InvalidOperationException(
-                $"FAIL incremental {name}: expected whole-note parse, got old={info.OldStart}+{info.OldLength} new={info.NewStart}+{info.NewLength}");
-        }
-        Console.WriteLine($"PASS incremental {name} whole={info.NewLength}");
-    }
-
     private static void CheckFallback(string name, string oldSource, Func<string, string> edit)
     {
         var newSource = edit(oldSource);
@@ -482,6 +594,16 @@ internal static class IncrementalSnapshotChecks
             if (!expected.GetLine(line).Equals(actual.GetLine(line)))
             {
                 throw new InvalidOperationException($"FAIL incremental {name}: line semantic mismatch at {line}");
+            }
+            if (!expected.SpansForLine(line).SequenceEqual(actual.SpansForLine(line)))
+            {
+                throw new InvalidOperationException(
+                    $"FAIL incremental {name}: span line index mismatch at {line}");
+            }
+            if (!expected.LinksForLine(line).SequenceEqual(actual.LinksForLine(line)))
+            {
+                throw new InvalidOperationException(
+                    $"FAIL incremental {name}: link line index mismatch at {line}");
             }
         }
         if (!expected.Spans.SequenceEqual(actual.Spans))
