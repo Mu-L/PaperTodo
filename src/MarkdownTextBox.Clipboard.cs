@@ -71,6 +71,24 @@ public sealed partial class MarkdownTextBox
             return;
         }
 
+        if (!string.IsNullOrEmpty(clipboardText))
+        {
+            // This class handler runs before the legacy instance paste handler. Reject obviously
+            // unsafe text here so neither path can pay for a full Markdig parse first. Rectangle
+            // selections use a surrounding segment, so assume no replacement there for a safe
+            // conservative length preflight.
+            var selectedLength = editor.TextArea.Selection is RectangleSelection
+                ? 0
+                : editor.SelectionLength;
+            if (!editor.TryBuildSafePasteText(clipboardText, selectedLength, out _))
+            {
+                e.Handled = true;
+                e.CancelCommand();
+                editor.PasteRejected?.Invoke();
+                return;
+            }
+        }
+
         if (string.IsNullOrEmpty(clipboardText) ||
             !ContainsPotentialPaperTodoImageReference(clipboardText))
         {
