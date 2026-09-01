@@ -12,6 +12,7 @@ internal static class SynchronousDocumentChecks
     {
         CheckPublicationIsSynchronous();
         CheckBatchedChangePublishesFinalSemantics();
+        CheckSynchronousFullFallback();
         ProfileActualDocumentEdit("ordinary", BuildOrdinary98k());
         ProfileActualDocumentEdit("dense", PerformanceProfileChecks.BuildLargeStressSource());
     }
@@ -60,16 +61,52 @@ internal static class SynchronousDocumentChecks
                 $"FAIL batched synchronous semantic publication count={publications}.");
         }
 
-        var expected = MarkdownSemanticSnapshot.Parse(document.Text);
-        if (!expected.Spans.SequenceEqual(snapshot.Spans) ||
-            !expected.Links.SequenceEqual(snapshot.Links) ||
-            expected.LineCount != snapshot.LineCount)
+        AssertEquivalentToFullParse(
+            document.Text,
+            snapshot,
+            "batched synchronous semantics");
+        Console.WriteLine("PASS batched synchronous semantic publication matches final source");
+    }
+
+    private static void CheckSynchronousFullFallback()
+    {
+        var source =
+            "[shared]: https://example.com/a\n\n" +
+            BuildOrdinary98k() +
+            "\n[far link][shared]\n";
+        var editAt = source.IndexOf("example.com/a", StringComparison.Ordinal) +
+            "example.com/".Length;
+        if (editAt < "example.com/".Length)
         {
-            throw new InvalidOperationException(
-                "FAIL batched synchronous semantics do not match a full parse.");
+            throw new InvalidOperationException("FAIL synchronous full-fallback fixture probe missing.");
         }
 
-        Console.WriteLine("PASS batched synchronous semantic publication matches final source");
+        var document = new TextDocument(source);
+        using var semantics = new MarkdownSemanticDocument(document);
+        var publications = 0;
+        semantics.SnapshotChanged += () => publications++;
+
+        var allocationBefore = GC.GetAllocatedBytesForCurrentThread();
+        var started = Stopwatch.GetTimestamp();
+        document.Insert(editAt, "z");
+        var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        var allocated = Math.Max(
+            0,
+            GC.GetAllocatedBytesForCurrentThread() - allocationBefore);
+
+        if (publications != 1 || !semantics.TryGetCurrent(out var snapshot))
+        {
+            throw new InvalidOperationException(
+                $"FAIL synchronous full-fallback publication count={publications}.");
+        }
+
+        AssertEquivalentToFullParse(
+            document.Text,
+            snapshot,
+            "synchronous full fallback");
+        Console.WriteLine(
+            $"PROFILE SyncDocument98k-full-fallback {elapsed:F3}ms alloc={allocated / 1024d:F1}KiB");
+        Console.WriteLine("PASS synchronous full fallback publishes exact semantics before return");
     }
 
     private static void ProfileActualDocumentEdit(string label, string source)
@@ -127,6 +164,31 @@ internal static class SynchronousDocumentChecks
             $"PROFILE SyncDocument98k-{label} p50={elapsed[elapsed.Length / 2]:F3}ms " +
             $"p95={elapsed[(int)Math.Ceiling(elapsed.Length * 0.95) - 1]:F3}ms " +
             $"alloc-p50={allocated[allocated.Length / 2] / 1024d:F1}KiB");
+    }
+
+    private static void AssertEquivalentToFullParse(
+        string source,
+        MarkdownSemanticSnapshot actual,
+        string name)
+    {
+        var expected = MarkdownSemanticSnapshot.Parse(source);
+        if (expected.LineCount != actual.LineCount ||
+            !expected.Spans.SequenceEqual(actual.Spans) ||
+            !expected.Links.SequenceEqual(actual.Links))
+        {
+            throw new InvalidOperationException($"FAIL {name} does not match a full parse.");
+        }
+
+        for (var line = 0; line < expected.LineCount; line++)
+        {
+            if (!expected.GetLine(line).Equals(actual.GetLine(line)) ||
+                !expected.SpansForLine(line).SequenceEqual(actual.SpansForLine(line)) ||
+                !expected.LinksForLine(line).SequenceEqual(actual.LinksForLine(line)))
+            {
+                throw new InvalidOperationException(
+                    $"FAIL {name} line semantics differ at {line}.");
+            }
+        }
     }
 
     private static string BuildOrdinary98k()
