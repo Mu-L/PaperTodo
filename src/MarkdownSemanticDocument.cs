@@ -9,8 +9,8 @@ namespace PaperTodo;
 /// edits that cannot be proven local fall back to a full parse on the same thread.
 ///
 /// The previous source is retained only for the duration of one edit transaction as AvalonEdit's
-/// cheap immutable Rope snapshot. No permanent worker, semaphore, generation queue or duplicate
-/// full-source string is kept while the editor is idle.
+/// cheap immutable Rope snapshot. No permanent worker, semaphore, generation queue, stale semantic
+/// generation or duplicate full-source string is kept while the editor is idle.
 /// </summary>
 internal sealed class MarkdownSemanticDocument : IDisposable
 {
@@ -43,36 +43,6 @@ internal sealed class MarkdownSemanticDocument : IDisposable
 
         snapshot = null!;
         return false;
-    }
-
-    /// <summary>
-    /// Compatibility surface for editor helpers that previously had to reason about an async stale
-    /// snapshot. Publication is now synchronous, so a live document's latest snapshot is always
-    /// current and there is no pending dirty range.
-    /// </summary>
-    public bool TryGetLatest(
-        out MarkdownSemanticSnapshot snapshot,
-        out int earliestChangedOffset,
-        out bool lineStructureChanged)
-    {
-        if (!_disposed)
-        {
-            snapshot = _snapshot;
-            earliestChangedOffset = int.MaxValue;
-            lineStructureChanged = false;
-            return true;
-        }
-
-        snapshot = null!;
-        earliestChangedOffset = 0;
-        lineStructureChanged = true;
-        return false;
-    }
-
-    public MarkdownSemanticSnapshot Current()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return _snapshot;
     }
 
     private void OnDocumentChanging(object? sender, DocumentChangeEventArgs e)
