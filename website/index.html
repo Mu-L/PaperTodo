@@ -268,7 +268,7 @@
     .checkbox{position:relative;width:16px;height:16px;border:1.5px solid var(--paper-check);border-radius:4px;transition:all .2s cubic-bezier(.34,1.56,.64,1)}
     .demo-todo-input:focus-visible+.checkbox{outline:2px solid var(--paper-active);outline-offset:2px}
     .demo-todo-input:checked+.checkbox{border-color:var(--paper-active);background:var(--paper-active);transform:scale(1.1)}
-    .demo-todo-input:checked+.checkbox::after{content:"✓";position:absolute;inset:-4px 0 0;display:grid;place-items:center;color:var(--paper);font-size:10px;font-weight:800}
+    .demo-todo-input:checked+.checkbox::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:var(--paper);font-size:10px;font-weight:800;line-height:1;transform:translateY(.5px)}
     .demo-todo-input:checked~.todo-text{color:var(--paper-weak);text-decoration:line-through;text-decoration-thickness:1px}
     .todo-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
     .drag-handle{color:var(--paper-weak);font-size:10px;text-align:center}
