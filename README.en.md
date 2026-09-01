@@ -5,7 +5,6 @@
 **A few quiet, useful, unobtrusive pieces of paper on your desktop.**
 
 A minimal Windows desktop sticky-note app built with native WPF. No main window, no account, no manager.
-
 ![version](https://img.shields.io/badge/version-v3.1-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
 
 **Website**: [https://snownico0722.github.io/PaperTodo/](https://snownico0722.github.io/PaperTodo/) 
@@ -22,15 +21,15 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 
 | Papers |
 | :---: |
-| <img src="screenshots/Home.jpg" alt="Desktop papers" width="100%"> |
+| <img src="assets/Home.jpg" alt="Desktop papers" width="100%"> |
 
 | Markdown Preview |
 | :---: |
-| <img src="screenshots/Md.jpg" alt="Markdown preview" width="100%"> |
+| <img src="assets/Md.jpg" alt="Markdown preview" width="100%"> |
 
 | Capsule Mode | Advanced Capsules |
 | :---: | :---: |
-| ![Capsule mode](screenshots/Pill_Mode.gif) | ![Auto-docked capsules](screenshots/Pill_Plus.gif) |
+| ![Capsule mode](assets/Pill_Mode.gif) | ![Auto-docked capsules](assets/Pill_Plus.gif) |
 | Papers can collapse into small capsules to save desktop space. | Collapsed capsules dock to screen edges and slide out on hover. |
 
 ---
@@ -78,7 +77,6 @@ A minimal Windows desktop sticky-note app built with native WPF. No main window,
 ## Paper Features And Manual
 
 ### Paper
-
 #### Basic Actions
 
 - **Move and resize** — Drag the title bar to move a paper; resize from the bottom-right grip, or from any edge or corner when the grip is hidden.
@@ -177,7 +175,6 @@ The settings window has three pages: **Behavior / Visual / Shortcuts**. **Advanc
 - **Image marker display** (Advanced) — always / edit only / always hidden
 
 **Shortcuts**
-
 - Bind global hotkeys for show all, hide all, toggle visibility, new todo, new note, and exit
 - **Quick-launch side capsules** (off by default): left/right queue keys 1–9 open edge capsules; they can open **at the cursor**, and hotkey-created papers also appear nearby
 - In capsule mode, **Esc** collapses the capsule quickly
