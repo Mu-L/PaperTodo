@@ -54,16 +54,59 @@ internal static class IncrementalSnapshotChecks
             "before\nplain quoted row\nlazy continuation\nafter",
             source => source.Insert(source.IndexOf("plain quoted row", StringComparison.Ordinal), "> "));
 
+        CheckLargeInsertionWithin16K();
         CheckLongFenceContentEdit();
         CheckFenceBoundaryEdit();
         CheckMediumFenceBoundaryUses16KRetry();
         CheckNewLongFenceFallsBackAfter16K();
         CheckContainerContentEdit();
         CheckReferenceCases();
+        CheckReferenceDefinitionStateSurvivesIncremental();
         CheckLongPlainParagraphDelimiter();
         CheckSafeEditSequence();
         CheckDeterministicEditFuzz();
         ProfileLargeIncrementalEdit();
+    }
+
+    private static void CheckLargeInsertionWithin16K()
+    {
+        var builder = new StringBuilder();
+        for (var index = 0; index < 350; index++)
+        {
+            builder.Append("prefix row ").Append(index).Append(" ordinary words.\n\n");
+        }
+        builder.Append("target ordinary row\n\n");
+        for (var index = 0; index < 350; index++)
+        {
+            builder.Append("suffix row ").Append(index).Append(" ordinary words.\n\n");
+        }
+
+        var oldSource = builder.ToString();
+        var insertAt = oldSource.IndexOf("ordinary row", StringComparison.Ordinal) + 4;
+        var newSource = oldSource.Insert(insertAt, new string('x', 3_000));
+        var oldSnapshot = MarkdownSemanticSnapshot.Parse(oldSource);
+        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+                oldSource,
+                oldSnapshot,
+                newSource,
+                out var incremental,
+                out var info))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental 3K insertion: bounded edit unexpectedly fell back");
+        }
+
+        AssertEquivalent(
+            MarkdownSemanticSnapshot.Parse(newSource),
+            incremental,
+            "3K insertion within 16K");
+        if (info.ChangedNewLength < 3_000 || info.NewLength > 16_384)
+        {
+            throw new InvalidOperationException(
+                $"FAIL incremental 3K insertion: changed={info.ChangedNewLength} window={info.NewLength}");
+        }
+        Console.WriteLine(
+            $"PASS incremental 3K insertion changed={info.ChangedNewLength} window={info.NewLength}");
     }
 
     private static void CheckLongFenceContentEdit()
@@ -210,8 +253,8 @@ internal static class IncrementalSnapshotChecks
             "small reference use source edit",
             smallReference,
             source => source.Insert(source.IndexOf("target", StringComparison.Ordinal) + 2, "Z"));
-        CheckFallback(
-            "small new square bracket source",
+        CheckLocalExact(
+            "small new square bracket without definitions",
             "plain alpha beta gamma",
             source => source.Insert(source.IndexOf("beta", StringComparison.Ordinal), "["));
 
@@ -224,10 +267,81 @@ internal static class IncrementalSnapshotChecks
             "distant reference use source edit",
             largeReference,
             source => source.Insert(source.IndexOf("target", StringComparison.Ordinal) + 2, "Z"));
+
+        var largePlainBuilder = new StringBuilder();
+        for (var index = 0; index < 1_600; index++)
+        {
+            largePlainBuilder.Append("plain row ").Append(index).Append(" with ordinary words\n\n");
+        }
+        var largePlain = largePlainBuilder.ToString();
+        CheckLocalExact(
+            "large new square bracket without definitions",
+            largePlain,
+            source => source.Insert(
+                source.IndexOf("plain row 800", StringComparison.Ordinal) + 6,
+                "["));
+
+        var newDefinitionBuilder = new StringBuilder();
+        newDefinitionBuilder.Append("[unresolved][new-id]\n\n");
+        for (var index = 0; index < 700; index++)
+        {
+            newDefinitionBuilder.Append("leading neutral row ").Append(index).Append("\n\n");
+        }
+        newDefinitionBuilder.Append("definition insertion anchor\n\n");
+        for (var index = 0; index < 700; index++)
+        {
+            newDefinitionBuilder.Append("trailing neutral row ").Append(index).Append("\n\n");
+        }
+        var newDefinitionSource = newDefinitionBuilder.ToString();
         CheckFallback(
-            "large new square bracket source",
-            "plain prefix\n" + new string('p', 40_000) + "\nplain suffix",
-            source => source.Insert(source.Length / 2, "["));
+            "new distant reference definition",
+            newDefinitionSource,
+            source => source.Insert(
+                source.IndexOf("definition insertion anchor", StringComparison.Ordinal),
+                "ordinary inserted row\n[new-id]: https://example.com/new\n"));
+    }
+
+    private static void CheckReferenceDefinitionStateSurvivesIncremental()
+    {
+        var builder = new StringBuilder();
+        builder.Append("[target][id]\n\n[id]: https://example.com\n\n");
+        for (var index = 0; index < 1_200; index++)
+        {
+            builder.Append("ordinary reference state row ").Append(index).Append("\n\n");
+        }
+
+        var source = builder.ToString();
+        var snapshot = MarkdownSemanticSnapshot.Parse(source);
+        var ordinaryAt = source.IndexOf("reference state row 600", StringComparison.Ordinal) + 8;
+        var afterOrdinary = source.Insert(ordinaryAt, "Z");
+        if (!MarkdownSemanticSnapshot.TryParseIncremental(
+                source,
+                snapshot,
+                afterOrdinary,
+                out var incremental,
+                out _))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental reference state: ordinary edit unexpectedly fell back");
+        }
+        AssertEquivalent(
+            MarkdownSemanticSnapshot.Parse(afterOrdinary),
+            incremental,
+            "reference definition state ordinary edit");
+
+        var bracketAt = afterOrdinary.IndexOf("reference state row 900", StringComparison.Ordinal) + 8;
+        var afterBracket = afterOrdinary.Insert(bracketAt, "[");
+        if (MarkdownSemanticSnapshot.TryParseIncremental(
+                afterOrdinary,
+                incremental,
+                afterBracket,
+                out _,
+                out _))
+        {
+            throw new InvalidOperationException(
+                "FAIL incremental reference state: bracket edit ignored retained definitions");
+        }
+        Console.WriteLine("PASS incremental reference-definition state survives local snapshot");
     }
 
     private static void CheckLongPlainParagraphDelimiter()
@@ -480,6 +594,16 @@ internal static class IncrementalSnapshotChecks
             if (!expected.GetLine(line).Equals(actual.GetLine(line)))
             {
                 throw new InvalidOperationException($"FAIL incremental {name}: line semantic mismatch at {line}");
+            }
+            if (!expected.SpansForLine(line).SequenceEqual(actual.SpansForLine(line)))
+            {
+                throw new InvalidOperationException(
+                    $"FAIL incremental {name}: span line index mismatch at {line}");
+            }
+            if (!expected.LinksForLine(line).SequenceEqual(actual.LinksForLine(line)))
+            {
+                throw new InvalidOperationException(
+                    $"FAIL incremental {name}: link line index mismatch at {line}");
             }
         }
         if (!expected.Spans.SequenceEqual(actual.Spans))
