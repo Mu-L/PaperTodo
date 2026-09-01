@@ -13,6 +13,7 @@ internal static class IncrementalSnapshotChecks
         CheckLargePlainEditStaysLocal();
         CheckExistingLongFenceExpandsFromSnapshot();
         CheckReferenceDefinitionFallsBack();
+        CheckMultilineDeletionContainingReferenceDefinitionFallsBack();
         CheckReferenceUseFallsBack();
         CheckOrdinaryReferenceDocumentEditStaysLocal();
         CheckNewReferenceDefinitionFallsBack();
@@ -108,6 +109,26 @@ internal static class IncrementalSnapshotChecks
         var editAt = oldSource.IndexOf("example.com", StringComparison.Ordinal) + 3;
         var newSource = oldSource.Insert(editAt, "Z");
         AssertFallsBack(oldSource, newSource, "reference definition edit");
+    }
+
+    private static void CheckMultilineDeletionContainingReferenceDefinitionFallsBack()
+    {
+        var builder = new StringBuilder();
+        builder.Append("[open][r]\n\n");
+        for (var index = 0; index < 700; index++)
+        {
+            builder.Append("neutral row ").Append(index).Append(" ordinary words\n\n");
+        }
+        var deleteStart = builder.Length;
+        builder.Append("DELETE_ME\n");
+        builder.Append("ordinary deleted row\n");
+        builder.Append("[r]: mailto:old@example.com\n");
+        var deleteEnd = builder.Length;
+        builder.Append("tail ordinary row\n");
+
+        var oldSource = builder.ToString();
+        var newSource = oldSource.Remove(deleteStart, deleteEnd - deleteStart);
+        AssertFallsBack(oldSource, newSource, "multiline deletion containing reference definition");
     }
 
     private static void CheckReferenceUseFallsBack()
