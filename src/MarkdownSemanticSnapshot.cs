@@ -165,6 +165,7 @@ internal sealed partial class MarkdownSemanticSnapshot
     private readonly MarkdownLineIndex<MarkdownSemanticSpan> _spansByLine;
     private readonly MarkdownLineIndex<MarkdownSemanticLink> _linksByLine;
     private readonly bool _hasReferenceDefinitions;
+    private readonly int[] _lineStarts;
 
     private MarkdownSemanticSnapshot(
         MarkdownSemanticLine[] lines,
@@ -172,7 +173,8 @@ internal sealed partial class MarkdownSemanticSnapshot
         MarkdownSemanticLink[] links,
         MarkdownLineIndex<MarkdownSemanticSpan> spansByLine,
         MarkdownLineIndex<MarkdownSemanticLink> linksByLine,
-        bool hasReferenceDefinitions = false)
+        bool hasReferenceDefinitions = false,
+        int[]? lineStarts = null)
     {
         _lines = lines;
         _spans = spans;
@@ -180,6 +182,7 @@ internal sealed partial class MarkdownSemanticSnapshot
         _spansByLine = spansByLine;
         _linksByLine = linksByLine;
         _hasReferenceDefinitions = hasReferenceDefinitions;
+        _lineStarts = lineStarts ?? Array.Empty<int>();
     }
 
     public IReadOnlyList<MarkdownSemanticSpan> Spans => _spans;
@@ -260,7 +263,8 @@ internal sealed partial class MarkdownSemanticSnapshot
             linkArray,
             BuildSpanLineIndex(source, lineStarts, spanArray),
             BuildLinkLineIndex(source, lineStarts, linkArray),
-            hasReferenceDefinitions);
+            hasReferenceDefinitions,
+            lineStarts);
     }
 
     /// <summary>

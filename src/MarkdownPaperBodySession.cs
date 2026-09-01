@@ -18,7 +18,7 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
     private readonly Grid _root = new();
     private MarkdownTextBox? _noteBox;
     private MarkdownSemanticDocument? _semanticDocument;
-    private IMarkdownRendererSession? _rendererSession;
+    private MarkdownSemanticPresentation? _semanticPresentation;
     private bool _disposed;
 
     internal MarkdownPaperBodySession(
@@ -58,8 +58,8 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
                 return;
             }
 
-            _rendererSession?.Dispose();
-            _rendererSession = null;
+            _semanticPresentation?.Dispose();
+            _semanticPresentation = null;
             _noteBox?.SetSemanticDocument(null);
             _semanticDocument?.Dispose();
             _semanticDocument = null;
@@ -69,7 +69,7 @@ internal sealed class MarkdownPaperBodySession : IPaperBodySession
             {
                 _semanticDocument = new MarkdownSemanticDocument(value.Document);
                 value.SetSemanticDocument(_semanticDocument);
-                _rendererSession = BuiltinMarkdownRendererProvider.Instance.Attach(
+                _semanticPresentation = new MarkdownSemanticPresentation(
                     value,
                     _semanticDocument);
             }

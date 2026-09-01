@@ -27,6 +27,11 @@ internal sealed partial class MarkdownSemanticSnapshot
             MarkdownSemanticSnapshot oldSnapshot,
             string newSource)
     {
+        if (oldSnapshot._lineStarts.Length != oldSnapshot._lines.Length)
+        {
+            throw new InvalidOperationException("Published snapshot did not retain its line-start index.");
+        }
+
         var totalStart = Stopwatch.GetTimestamp();
         var stageStart = totalStart;
 
@@ -48,13 +53,13 @@ internal sealed partial class MarkdownSemanticSnapshot
                 oldChangedEnd,
                 newChangedEnd,
                 delta,
-                4096,
+                IncrementalPrimaryWindowChars,
                 out var oldStart,
                 out var oldEnd,
                 out var newStart,
                 out var newEnd))
         {
-            throw new InvalidOperationException("Dense incremental profile failed to build 4K window.");
+            throw new InvalidOperationException("Dense incremental profile failed to build the primary window.");
         }
         var windowMs = ElapsedMs(stageStart);
 
@@ -83,7 +88,7 @@ internal sealed partial class MarkdownSemanticSnapshot
                 oldChangedEnd,
                 delta))
         {
-            throw new InvalidOperationException("Dense incremental profile 4K validation was not stable.");
+            throw new InvalidOperationException("Dense incremental profile primary-window validation was not stable.");
         }
         var validateMs = ElapsedMs(stageStart);
 
@@ -113,7 +118,13 @@ internal sealed partial class MarkdownSemanticSnapshot
         var linkIndexMs = ElapsedMs(stageStart);
 
         stageStart = Stopwatch.GetTimestamp();
-        var snapshot = new MarkdownSemanticSnapshot(lines, spans, links, spansByLine, linksByLine);
+        var snapshot = new MarkdownSemanticSnapshot(
+            lines,
+            spans,
+            links,
+            spansByLine,
+            linksByLine,
+            lineStarts: lineStarts);
         var finalizeMs = ElapsedMs(stageStart);
 
         return (

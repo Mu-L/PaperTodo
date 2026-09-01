@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Media;
-using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Rendering;
 
 namespace PaperTodo;
@@ -58,8 +57,18 @@ internal sealed partial class MarkdownSemanticPresentation
                         ruleEnd--;
                     }
 
-                    if (!TryGetTextPoint(textView, line, ruleStart, VisualYPosition.TextMiddle, out var startPoint) ||
-                        !TryGetTextPoint(textView, line, ruleEnd, VisualYPosition.TextMiddle, out var endPoint))
+                    if (!MarkdownSemanticPresentation.TryGetTextPoint(
+                            textView,
+                            line,
+                            line.Offset + ruleStart,
+                            VisualYPosition.TextMiddle,
+                            out var startPoint) ||
+                        !MarkdownSemanticPresentation.TryGetTextPoint(
+                            textView,
+                            line,
+                            line.Offset + ruleEnd,
+                            VisualYPosition.TextMiddle,
+                            out var endPoint))
                     {
                         continue;
                     }
@@ -92,30 +101,6 @@ internal sealed partial class MarkdownSemanticPresentation
                         new Point(left, y),
                         new Point(Math.Max(left, width - 4), y));
                 }
-            }
-        }
-
-        private static bool TryGetTextPoint(
-            TextView textView,
-            ICSharpCode.AvalonEdit.Document.DocumentLine line,
-            int indexInLine,
-            VisualYPosition yPosition,
-            out Point point)
-        {
-            point = default;
-            try
-            {
-                var column = Math.Clamp(indexInLine, 0, line.Length) + 1;
-                point = textView.GetVisualPosition(
-                    new TextViewPosition(line.LineNumber, column),
-                    yPosition);
-                point.X -= textView.HorizontalOffset;
-                point.Y -= textView.VerticalOffset;
-                return double.IsFinite(point.X) && double.IsFinite(point.Y);
-            }
-            catch
-            {
-                return false;
             }
         }
     }

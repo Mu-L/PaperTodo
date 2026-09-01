@@ -202,7 +202,8 @@ internal sealed partial class MarkdownSemanticSnapshot
                 links,
                 BuildSpanLineIndex(newSource, lineStarts, spans),
                 BuildLinkLineIndex(newSource, lineStarts, links),
-                oldSnapshot._hasReferenceDefinitions);
+                oldSnapshot._hasReferenceDefinitions,
+                lineStarts);
             info = new MarkdownIncrementalUpdateInfo(
                 oldStart,
                 oldEnd - oldStart,
@@ -265,7 +266,9 @@ internal sealed partial class MarkdownSemanticSnapshot
             oldSource,
             Math.Min(oldSource.Length, Math.Max(oldChangedEnd, changedStart + rightBudget)));
 
-        var lineStarts = BuildLineStarts(oldSource);
+        var lineStarts = oldSnapshot._lineStarts.Length == oldSnapshot._lines.Length
+            ? oldSnapshot._lineStarts
+            : BuildLineStarts(oldSource);
         for (var pass = 0; pass < 12; pass++)
         {
             var previousStart = oldStart;

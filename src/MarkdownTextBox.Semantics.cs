@@ -25,13 +25,10 @@ public sealed partial class MarkdownTextBox
         }
     }
 
-    private bool TryGetSemanticSnapshot(out MarkdownSemanticSnapshot snapshot)
+    private bool TryGetCurrentSemanticSnapshot(out MarkdownSemanticSnapshot snapshot)
     {
         snapshot = null!;
         return _semanticDocument != null &&
             _semanticDocument.TryGetCurrent(out snapshot);
     }
-
-    private bool TryGetPublishedSemanticSnapshot(out MarkdownSemanticSnapshot snapshot) =>
-        TryGetSemanticSnapshot(out snapshot);
 }

@@ -1,8 +1,11 @@
+using System.Windows;
+using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Rendering;
 
 namespace PaperTodo;
 
-internal sealed partial class MarkdownSemanticPresentation : IMarkdownRendererSession
+internal sealed partial class MarkdownSemanticPresentation : IDisposable
 {
     private readonly MarkdownTextBox _editor;
     private readonly MarkdownSemanticDocument _semanticDocument;
@@ -69,6 +72,30 @@ internal sealed partial class MarkdownSemanticPresentation : IMarkdownRendererSe
         var baseSize = Math.Max(1, NoteTypography.FontSize);
         var scale = Math.Clamp(_editor.FontSize / baseSize, 0.5, 1.5);
         return Math.Round(baseFontSize * scale, 1);
+    }
+
+    private static bool TryGetTextPoint(
+        TextView textView,
+        DocumentLine line,
+        int absoluteOffset,
+        VisualYPosition yPosition,
+        out Point point)
+    {
+        point = default;
+        try
+        {
+            var indexInLine = Math.Clamp(absoluteOffset - line.Offset, 0, line.Length);
+            point = textView.GetVisualPosition(
+                new TextViewPosition(line.LineNumber, indexInLine + 1),
+                yPosition);
+            point.X -= textView.HorizontalOffset;
+            point.Y -= textView.VerticalOffset;
+            return double.IsFinite(point.X) && double.IsFinite(point.Y);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void OnSnapshotChanged()

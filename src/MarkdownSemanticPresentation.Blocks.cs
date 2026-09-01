@@ -14,13 +14,19 @@ internal sealed partial class MarkdownSemanticPresentation
         {
             var semantic = snapshot.GetLine(Math.Max(0, line.LineNumber - 1));
             ApplyQuoteForeground(line, semantic);
-            ApplyHeadingSemantics(line, snapshot, text);
+            if (semantic.HeadingLevel > 0)
+            {
+                ApplyHeadingSemantics(line, snapshot, text);
+            }
             ApplyCodeBlockSemantics(line, semantic);
             ApplyBlockMarkerSemantics(line, semantic);
             // Quote marker visibility is the final block-level override. Nested fenced code or
             // headings may style the same source line, but must never make the reserved `>` cells
             // visible again in enhanced preview.
-            ApplyQuoteMarkerSemantics(line, semantic, text);
+            if (semantic.IsQuoted)
+            {
+                ApplyQuoteMarkerSemantics(line, text);
+            }
         }
 
         private void ApplyQuoteForeground(
@@ -43,14 +49,8 @@ internal sealed partial class MarkdownSemanticPresentation
 
         private void ApplyQuoteMarkerSemantics(
             DocumentLine line,
-            MarkdownSemanticLine semantic,
             string text)
         {
-            if (!semantic.IsQuoted)
-            {
-                return;
-            }
-
             // The mature enhanced-preview renderer made explicit quote markers fully transparent
             // (while retaining their original character width), which is distinct from generic syntax fade.
             var markerBrush = _owner.FadeSyntax

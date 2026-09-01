@@ -47,44 +47,11 @@ public sealed partial class MarkdownTextBox
     {
         reference = default;
         asset = null;
-        return TryGetSemanticSnapshot(out var snapshot) &&
-            TryGetImageReferenceForLineWithSnapshot(line, snapshot, out reference, out asset);
-    }
-
-    private bool TryGetImageReferenceForLineForPresentation(
-        DocumentLine line,
-        out MarkdownImageReference reference,
-        out NoteImageAsset? asset)
-    {
-        reference = default;
-        asset = null;
-        return TryGetPublishedSemanticSnapshot(out var snapshot) &&
-            TryGetImageReferenceForLineWithSnapshot(line, snapshot, out reference, out asset);
-    }
-
-    private bool TryGetImageReferenceForStableEditingLine(
-        DocumentLine line,
-        out MarkdownImageReference reference,
-        out NoteImageAsset? asset)
-    {
-        reference = default;
-        asset = null;
-        return TryGetSemanticSnapshot(out var snapshot) &&
-            TryGetImageReferenceForLineWithSnapshot(line, snapshot, out reference, out asset);
-    }
-
-    private bool TryGetImageReferenceForLineWithSnapshot(
-        DocumentLine line,
-        MarkdownSemanticSnapshot snapshot,
-        out MarkdownImageReference reference,
-        out NoteImageAsset? asset)
-    {
-        reference = default;
-        asset = null;
         if (_imageStore == null ||
             Document == null ||
             !ShouldRenderImages ||
-            line.IsDeleted)
+            line.IsDeleted ||
+            !TryGetCurrentSemanticSnapshot(out var snapshot))
         {
             return false;
         }
@@ -129,7 +96,7 @@ public sealed partial class MarkdownTextBox
 
             var referenceLine = CurrentContext.VisualLine.FirstDocumentLine;
             return referenceLine.EndOffset >= startOffset &&
-                _owner.TryGetImageReferenceForLineForPresentation(referenceLine, out _, out _)
+                _owner.TryGetImageReferenceForLine(referenceLine, out _, out _)
                 ? referenceLine.EndOffset
                 : -1;
         }
@@ -149,7 +116,7 @@ public sealed partial class MarkdownTextBox
 
             var referenceLine = CurrentContext.VisualLine.FirstDocumentLine;
             if (referenceLine.EndOffset != offset ||
-                !_owner.TryGetImageReferenceForLineForPresentation(
+                !_owner.TryGetImageReferenceForLine(
                     referenceLine,
                     out var reference,
                     out var asset))

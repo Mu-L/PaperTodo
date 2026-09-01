@@ -313,7 +313,7 @@ public sealed partial class MarkdownTextBox
 
             var referenceLine = CurrentContext.VisualLine.FirstDocumentLine;
             return referenceLine.EndOffset >= startOffset &&
-                _owner.TryGetImageReferenceForLineForPresentation(referenceLine, out _, out _)
+                _owner.TryGetImageReferenceForLine(referenceLine, out _, out _)
                 ? referenceLine.EndOffset
                 : -1;
         }
@@ -333,7 +333,7 @@ public sealed partial class MarkdownTextBox
 
             var referenceLine = CurrentContext.VisualLine.FirstDocumentLine;
             if (referenceLine.EndOffset != offset ||
-                !_owner.TryGetImageReferenceForLineForPresentation(referenceLine, out var reference, out var asset))
+                !_owner.TryGetImageReferenceForLine(referenceLine, out var reference, out var asset))
             {
                 return null!;
             }

@@ -8,31 +8,18 @@ namespace PaperTodo;
 public sealed partial class MarkdownTextBox
 {
     public bool TryGetOpenableLinkFromTextViewPoint(Point point, out string url) =>
-        TryGetOpenableLinkFromTextViewPointCore(point, requireCurrentSnapshot: true, out url);
+        TryGetOpenableLinkFromTextViewPointCore(point, out url);
 
     public bool TryGetOpenableLinkFromTextViewPointFast(Point point, out string url) =>
-        TryGetOpenableLinkFromTextViewPointCore(point, requireCurrentSnapshot: false, out url);
+        TryGetOpenableLinkFromTextViewPointCore(point, out url);
 
     private bool TryGetOpenableLinkFromTextViewPointCore(
         Point point,
-        bool requireCurrentSnapshot,
         out string url)
     {
         url = "";
-        if (Document == null)
-        {
-            return false;
-        }
-
-        MarkdownSemanticSnapshot snapshot;
-        if (requireCurrentSnapshot)
-        {
-            if (!TryGetSemanticSnapshot(out snapshot))
-            {
-                return false;
-            }
-        }
-        else if (!TryGetPublishedSemanticSnapshot(out snapshot))
+        if (Document == null ||
+            !TryGetCurrentSemanticSnapshot(out var snapshot))
         {
             return false;
         }
