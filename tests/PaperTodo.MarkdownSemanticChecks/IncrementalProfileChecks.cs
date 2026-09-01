@@ -7,7 +7,6 @@ internal readonly record struct MarkdownIncrementalStageProfile(
     double DiffMs,
     double WindowMs,
     double LocalParseMs,
-    double ValidateMs,
     double SpliceMs,
     double LineStartsMs,
     double LinesMs,
@@ -21,17 +20,40 @@ internal readonly record struct MarkdownIncrementalStageProfile(
 
 internal sealed partial class MarkdownSemanticSnapshot
 {
+    internal static int GetIncrementalWindowLengthForTests(
+        string oldSource,
+        MarkdownSemanticSnapshot oldSnapshot,
+        string newSource)
+    {
+        FindContiguousDifference(
+            oldSource,
+            newSource,
+            out var changedStart,
+            out var oldChangedEnd,
+            out var newChangedEnd);
+        var delta = newSource.Length - oldSource.Length;
+        return TryBuildIncrementalWindow(
+            oldSource,
+            oldSnapshot,
+            newSource,
+            changedStart,
+            oldChangedEnd,
+            newChangedEnd,
+            delta,
+            out _,
+            out _,
+            out var newStart,
+            out var newEnd)
+            ? newEnd - newStart
+            : -1;
+    }
+
     internal static (MarkdownSemanticSnapshot Snapshot, MarkdownIncrementalStageProfile Profile)
         ProfileIncrementalForTests(
             string oldSource,
             MarkdownSemanticSnapshot oldSnapshot,
             string newSource)
     {
-        if (oldSnapshot._lineStarts.Length != oldSnapshot._lines.Length)
-        {
-            throw new InvalidOperationException("Published snapshot did not retain its line-start index.");
-        }
-
         var totalStart = Stopwatch.GetTimestamp();
         var stageStart = totalStart;
 
@@ -53,44 +75,18 @@ internal sealed partial class MarkdownSemanticSnapshot
                 oldChangedEnd,
                 newChangedEnd,
                 delta,
-                IncrementalPrimaryWindowChars,
                 out var oldStart,
                 out var oldEnd,
                 out var newStart,
                 out var newEnd))
         {
-            throw new InvalidOperationException("Dense incremental profile failed to build the primary window.");
+            throw new InvalidOperationException("Dense incremental profile failed to build its local window.");
         }
         var windowMs = ElapsedMs(stageStart);
 
         stageStart = Stopwatch.GetTimestamp();
         var local = Parse(newSource[newStart..newEnd]);
         var localParseMs = ElapsedMs(stageStart);
-
-        stageStart = Stopwatch.GetTimestamp();
-        if (!ReferenceLinksRemainStable(
-                oldSource,
-                oldSnapshot._links,
-                local._links,
-                oldStart,
-                oldEnd,
-                newStart,
-                changedStart,
-                oldChangedEnd,
-                delta) ||
-            !GuardRegionsMatch(
-                oldSnapshot,
-                local,
-                oldStart,
-                oldEnd,
-                newStart,
-                changedStart,
-                oldChangedEnd,
-                delta))
-        {
-            throw new InvalidOperationException("Dense incremental profile primary-window validation was not stable.");
-        }
-        var validateMs = ElapsedMs(stageStart);
 
         stageStart = Stopwatch.GetTimestamp();
         var spans = SpliceSpans(oldSnapshot._spans, local._spans, oldStart, oldEnd, newStart, delta);
@@ -123,8 +119,7 @@ internal sealed partial class MarkdownSemanticSnapshot
             spans,
             links,
             spansByLine,
-            linksByLine,
-            lineStarts: lineStarts);
+            linksByLine);
         var finalizeMs = ElapsedMs(stageStart);
 
         return (
@@ -133,7 +128,6 @@ internal sealed partial class MarkdownSemanticSnapshot
                 diffMs,
                 windowMs,
                 localParseMs,
-                validateMs,
                 spliceMs,
                 lineStartsMs,
                 linesMs,
@@ -180,7 +174,6 @@ internal static class IncrementalProfileChecks
         Print("Diff", median.DiffMs);
         Print("Window", median.WindowMs);
         Print("LocalParse", median.LocalParseMs);
-        Print("Validate", median.ValidateMs);
         Print("Splice", median.SpliceMs);
         Print("BuildLineStarts", median.LineStartsMs);
         Print("ApplyLines", median.LinesMs);
