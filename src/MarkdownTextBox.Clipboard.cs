@@ -59,6 +59,16 @@ public sealed partial class MarkdownTextBox
             return;
         }
 
+        // AvalonEdit has already moved the caret to the real drop target and owns copy/move plus
+        // undo grouping for text drag-drop. Mark this routed event handled only to keep the legacy
+        // MarkdownTextBox paste handler from reinterpreting the source selection; do not cancel the
+        // command, so AvalonEdit continues its native drop at the caret target.
+        if (e.IsDragDrop)
+        {
+            e.Handled = true;
+            return;
+        }
+
         string? clipboardText;
         try
         {
@@ -87,6 +97,16 @@ public sealed partial class MarkdownTextBox
                 editor.PasteRejected?.Invoke();
                 return;
             }
+        }
+
+        // Rich image paste only supports one continuous source range. AvalonEdit already owns
+        // segmented rectangular replacement correctly; suppress the legacy instance handler but
+        // leave the command alive so its native rectangle paste completes without touching the
+        // surrounding unselected text.
+        if (editor.TextArea.Selection is RectangleSelection)
+        {
+            e.Handled = true;
+            return;
         }
 
         if (string.IsNullOrEmpty(clipboardText) ||
