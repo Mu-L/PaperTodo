@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -254,6 +255,58 @@ public sealed class StateStore
         }
     }
 
+    public bool TryRefreshBackupFromPrimary()
+    {
+        _writeLock.Wait();
+        try
+        {
+            // If startup recovered from backup, keep both recovery sources untouched until a
+            // successful normal save has preserved them under timestamped recovery names.
+            if (_preserveRecoveredLoadFilesOnNextSave ||
+                !TryReadValidatedStateBytes(FilePath, out var primaryBytes))
+            {
+                return false;
+            }
+
+            if (TryReadValidatedStateBytes(BackupPath, out var backupBytes))
+            {
+                if (primaryBytes.AsSpan().SequenceEqual(backupBytes))
+                {
+                    return true;
+                }
+
+                // A sudden large shrink is more valuable as a recovery signal than as a reason
+                // to overwrite the last known-good snapshot. Keep the older backup in that case.
+                if (backupBytes.LongLength > 0 &&
+                    primaryBytes.LongLength * 10 < backupBytes.LongLength * 9)
+                {
+                    return false;
+                }
+            }
+
+            var tempPath = BackupPath + ".tmp";
+            WriteBytesDurably(tempPath, primaryBytes);
+
+            if (!TryReadValidatedStateBytes(tempPath, out var writtenBytes) ||
+                !primaryBytes.AsSpan().SequenceEqual(writtenBytes))
+            {
+                TryDeleteFile(tempPath);
+                return false;
+            }
+
+            File.Move(tempPath, BackupPath, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     private void WriteJsonInternal(string json)
     {
         var directory = Path.GetDirectoryName(FilePath);
@@ -262,27 +315,77 @@ public sealed class StateStore
             Directory.CreateDirectory(directory);
         }
 
-        var skipBackupRotation = PreserveRecoveredLoadFilesIfNeeded();
+        var preserveRecoverySources = PreserveRecoveredLoadFilesIfNeeded();
         var tempPath = FilePath + ".tmp";
-        File.WriteAllText(tempPath, json);
+        WriteBytesDurably(tempPath, Encoding.UTF8.GetBytes(json));
+        File.Move(tempPath, FilePath, overwrite: true);
 
+        if (preserveRecoverySources)
+        {
+            ClearRecoveredLoadPreservationState();
+        }
+    }
+
+    private static bool TryReadValidatedStateBytes(string path, out byte[] bytes)
+    {
+        bytes = [];
         try
         {
-            if (!skipBackupRotation && File.Exists(FilePath))
+            if (!File.Exists(path))
             {
-                File.Copy(FilePath, BackupPath, overwrite: true);
+                return false;
             }
+
+            bytes = File.ReadAllBytes(path);
+            if (bytes.Length == 0)
+            {
+                return false;
+            }
+
+            var state = JsonSerializer.Deserialize<AppState>(bytes, JsonOptions);
+            if (state == null)
+            {
+                return false;
+            }
+
+            NormalizeAfterLoad(state);
+            return true;
         }
         catch
         {
-            // Backup failure should not block normal saving.
+            bytes = [];
+            return false;
+        }
+    }
+
+    private static void WriteBytesDurably(string path, byte[] bytes)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
         }
 
-        File.Move(tempPath, FilePath, overwrite: true);
+        using var stream = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 16 * 1024,
+            FileOptions.SequentialScan);
+        stream.Write(bytes);
+        stream.Flush(flushToDisk: true);
+    }
 
-        if (skipBackupRotation)
+    private static void TryDeleteFile(string path)
+    {
+        try
         {
-            ClearRecoveredLoadPreservationState();
+            File.Delete(path);
+        }
+        catch
+        {
+            // A stale temp is safer than risking the last known-good backup.
         }
     }
 
