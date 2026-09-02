@@ -1,7 +1,5 @@
 using System.Globalization;
-using System.IO;
 using System.Reflection;
-using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -68,8 +66,6 @@ public sealed partial class AppController : IDisposable
     private IntPtr _fullscreenAvoidanceWindow;
     private string _fullscreenAvoidanceMonitorDeviceName = "";
     private DateTimeOffset _lastFullscreenGlobalScanAt = DateTimeOffset.MinValue;
-    private DateTimeOffset _lastFullscreenDebugLogAt = DateTimeOffset.MinValue;
-    private bool? _lastFullscreenDebugSuppressState;
     private DisplayMetricsRefreshState _displayMetricsRefreshState;
     private readonly EdgeCapsuleArrangeGate _deepCapsuleArrangeGate = new();
     private PaperWindow? _paperLinkTargetWindow;
@@ -83,8 +79,6 @@ public sealed partial class AppController : IDisposable
     private static Brush TrayTextBrush => Theme.TextBrush;
     private static Brush TrayWeakTextBrush => Theme.WeakTextBrush;
     private static Brush TrayHoverBrush => Theme.HoverBrush;
-    private static readonly bool EnableFullscreenDebugLog = false;
-    private static string FullscreenDebugLogPath => Path.Combine(AppContext.BaseDirectory, "fullscreen-debug.log");
 
     public AppState State { get; private set; }
     public NoteImageStore ImageStore => _imageStore;
@@ -1615,11 +1609,6 @@ public sealed partial class AppController : IDisposable
             StringComparison.OrdinalIgnoreCase);
         if (!avoidanceWindowChanged && !avoidanceMonitorChanged)
         {
-            if (ShouldAvoidFullscreenTopmost)
-            {
-                WriteFullscreenDebugSnapshot(avoidanceWindow != IntPtr.Zero);
-            }
-
             return;
         }
 
@@ -1630,11 +1619,6 @@ public sealed partial class AppController : IDisposable
             window.RefreshEffectiveTopmost();
         }
         foreach (var m in _masterCapsules.Values) m.RefreshEffectiveTopmost();
-
-        if (ShouldAvoidFullscreenTopmost)
-        {
-            WriteFullscreenDebugSnapshot(avoidanceWindow != IntPtr.Zero);
-        }
     }
 
     private void RefreshTopmostAfterSystemResume()
@@ -1818,48 +1802,6 @@ public sealed partial class AppController : IDisposable
         }
     }
 
-    private void WriteFullscreenDebugSnapshot(bool shouldSuppress)
-    {
-        if (!EnableFullscreenDebugLog)
-        {
-            return;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        var stateChanged = _lastFullscreenDebugSuppressState != shouldSuppress;
-        if (!stateChanged && now - _lastFullscreenDebugLogAt < TimeSpan.FromSeconds(3))
-        {
-            return;
-        }
-
-        _lastFullscreenDebugLogAt = now;
-        _lastFullscreenDebugSuppressState = shouldSuppress;
-        try
-        {
-            TrimFullscreenDebugLogIfNeeded();
-            File.AppendAllText(
-                FullscreenDebugLogPath,
-                $"==== PaperTodo fullscreen debug shouldSuppress={shouldSuppress} ====" + Environment.NewLine +
-                FullscreenForegroundWindowDetector.BuildDebugSnapshot() +
-                Environment.NewLine,
-                Encoding.UTF8);
-        }
-        catch
-        {
-            // Debug logging must never affect normal window behavior.
-        }
-    }
-
-    private static void TrimFullscreenDebugLogIfNeeded()
-    {
-        var file = new FileInfo(FullscreenDebugLogPath);
-        if (!file.Exists || file.Length < 512 * 1024)
-        {
-            return;
-        }
-
-        File.WriteAllText(FullscreenDebugLogPath, string.Empty, Encoding.UTF8);
-    }
 
     public void RefreshFloatingSurfaceZOrder()
     {
@@ -2048,7 +1990,7 @@ public sealed partial class AppController : IDisposable
         if (_windows.TryGetValue(paper.Id, out var window))
         {
             RestoreExperimentalPassiveForWindow(window);
-            window.CloseForReal(saveBeforeClose: false);
+            window.CloseForReal();
             _windows.Remove(paper.Id);
         }
 
@@ -3739,7 +3681,7 @@ public sealed partial class AppController : IDisposable
         _settingsWindow = null;
         foreach (var window in _windows.Values.ToList())
         {
-            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
+            TryExitCleanup(() => window.CloseForReal());
         }
         _windows.Clear();
         TryExitCleanup(DisposePaperBodyPlugins);

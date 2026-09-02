@@ -562,8 +562,6 @@ public sealed class StateStore
         state.ExperimentalTetherMinimizedBehavior =
             ExperimentalTetherVisibilityModes.Normalize(
                 state.ExperimentalTetherMinimizedBehavior);
-        state.TopBarHeight = 0;
-
         if (state.ShowTopBarNewPaperButtons is bool showTopBarNewPaperButtons)
         {
             state.ShowTopBarNewTodoButton = showTopBarNewPaperButtons;
@@ -923,12 +921,4 @@ public sealed class StateStore
     private static string QueueKey(string? monitorDeviceName, string? side)
         => $"{WindowWorkAreaHelper.NormalizeQueueMonitorDeviceName(monitorDeviceName)}|{(side == DeepCapsuleSides.Left ? DeepCapsuleSides.Left : DeepCapsuleSides.Right)}";
 
-    private static double NormalizeDeepCapsuleStartTopMargin(
-        double value,
-        string monitorDeviceName,
-        double gap)
-    {
-        var area = EdgeCapsuleLayout.LocalWorkAreaForQueue(monitorDeviceName);
-        return EdgeCapsuleLayout.NormalizeStartTopMargin(value, area, 1, gap);
-    }
 }

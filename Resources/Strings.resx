@@ -1259,12 +1259,6 @@
   <data name="PluginsIntro" xml:space="preserve">
     <value>插件拥有与当前用户相同的权限，请仅安装可信来源的插件。</value>
   </data>
-  <data name="PluginsForceLegacy" xml:space="preserve">
-    <value>强制加载旧版插件</value>
-  </data>
-  <data name="PluginsForceLegacyWarning" xml:space="preserve">
-    <value>仅跳过同一主版本的旧协议检查，插件仍可能无法运行。</value>
-  </data>
   <data name="PluginsMoreSettings" xml:space="preserve">
     <value>更多设置</value>
   </data>
