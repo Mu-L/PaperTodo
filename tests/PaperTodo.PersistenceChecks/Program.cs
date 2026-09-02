@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using PaperTodo;
 
@@ -11,7 +13,10 @@ var checks = new (string Name, Action Run)[]
     ("backup-recovery-is-preserved-until-normal-save", BackupRecoveryIsPreservedUntilNormalSave),
     ("plugin-system-shutdown-skips-final-flush", PluginSystemShutdownSkipsFinalFlush),
     ("plugin-normal-dispose-still-final-flushes", PluginNormalDisposeStillFinalFlushes),
-    ("temp-validator-failure-keeps-old-target", TempValidatorFailureKeepsOldTarget)
+    ("shutdown-skips-deferred-plugin-cleanup", ShutdownSkipsDeferredPluginCleanup),
+    ("temp-validator-failure-keeps-old-target", TempValidatorFailureKeepsOldTarget),
+    ("flush-failure-keeps-old-target", FlushFailureKeepsOldTarget),
+    ("replace-retries-transient-sharing-failures", ReplaceRetriesTransientSharingFailures)
 };
 
 var failed = 0;
@@ -157,6 +162,20 @@ static void PluginNormalDisposeStillFinalFlushes()
     Assert(writer.WriteCount == 1, "normal plugin disposal did not flush dirty state exactly once");
 }
 
+static void ShutdownSkipsDeferredPluginCleanup()
+{
+    var controller = (AppController)RuntimeHelpers.GetUninitializedObject(typeof(AppController));
+    var lifecycleField = typeof(AppController).GetField(
+        "_lifecycleState",
+        BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("AppController lifecycle field not found.");
+    lifecycleField.SetValue(controller, Enum.Parse(lifecycleField.FieldType, "Exiting"));
+
+    // An uninitialized controller has no plugin/store collections. The shutdown gate must return
+    // before touching any of them; otherwise this call throws and the check fails.
+    controller.TryFlushPendingPluginPaperStateDeletes();
+}
+
 static void TempValidatorFailureKeepsOldTarget()
 {
     using var scope = new TempDirectory();
@@ -169,6 +188,43 @@ static void TempValidatorFailureKeepsOldTarget()
         "validator failure should reject the temp file");
 
     Assert(File.ReadAllText(target) == "old", "validator failure replaced the old target");
+}
+
+static void FlushFailureKeepsOldTarget()
+{
+    using var scope = new TempDirectory();
+    var target = Path.Combine(scope.Path, "state.json");
+    File.WriteAllText(target, "old");
+
+    var operations = new ScriptedFileOperations
+    {
+        FailFlush = true
+    };
+    var writer = new DurableAtomicFileWriter(fileOperations: operations);
+
+    AssertThrows<IOException>(
+        () => writer.Write(target, "new"u8.ToArray()),
+        "flush failure should abort the durable write");
+    Assert(File.ReadAllText(target) == "old", "flush failure replaced the old target");
+    Assert(operations.ReplaceCalls == 0, "replace ran after flush failure");
+}
+
+static void ReplaceRetriesTransientSharingFailures()
+{
+    using var scope = new TempDirectory();
+    var target = Path.Combine(scope.Path, "state.json");
+    File.WriteAllText(target, "old");
+
+    var operations = new ScriptedFileOperations
+    {
+        ReplaceFailuresRemaining = 2
+    };
+    var writer = new DurableAtomicFileWriter(fileOperations: operations);
+    writer.Write(target, "new"u8.ToArray());
+
+    Assert(File.ReadAllText(target) == "new", "transient replace failures did not eventually commit");
+    Assert(operations.ReplaceCalls == 3, $"expected 3 replace attempts, got {operations.ReplaceCalls}");
+    Assert(operations.DelayCalls == 2, $"expected 2 retry delays, got {operations.DelayCalls}");
 }
 
 static StateStore NewStore(string directory, IDurableAtomicFileWriter writer) =>
@@ -220,6 +276,46 @@ internal sealed class RecordingWriter : IDurableAtomicFileWriter
         Func<string, bool>? validateTemp = null)
     {
         WriteCount++;
+    }
+}
+
+internal sealed class ScriptedFileOperations : IDurableAtomicFileOperations
+{
+    public bool FailFlush { get; init; }
+    public int ReplaceFailuresRemaining { get; set; }
+    public int ReplaceCalls { get; private set; }
+    public int DelayCalls { get; private set; }
+
+    public void FlushToDisk(FileStream stream)
+    {
+        if (FailFlush)
+        {
+            throw new IOException("Injected Flush(true) failure.");
+        }
+
+        stream.Flush(flushToDisk: true);
+    }
+
+    public void Replace(string tempPath, string targetPath)
+    {
+        ReplaceCalls++;
+        if (ReplaceFailuresRemaining > 0)
+        {
+            ReplaceFailuresRemaining--;
+            throw new IOException("Injected transient sharing violation.");
+        }
+
+        File.Move(tempPath, targetPath, overwrite: true);
+    }
+
+    public void Delay(TimeSpan delay)
+    {
+        DelayCalls++;
+    }
+
+    public void Delete(string path)
+    {
+        File.Delete(path);
     }
 }
 
