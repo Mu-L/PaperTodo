@@ -525,9 +525,6 @@ public sealed class AppState
     // so unplugging the anchored monitor gracefully lands the stack on a surviving screen.
     public string DeepCapsuleMonitorDeviceName { get; set; } = "";
 
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public double TopBarHeight { get; set; }
-
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? ShowTopBarNewPaperButtons { get; set; }
 }

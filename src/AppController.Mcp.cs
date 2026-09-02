@@ -112,7 +112,7 @@ public sealed partial class AppController
         State.Papers.Remove(paper);
         if (_windows.TryGetValue(paper.Id, out var window))
         {
-            TryExitCleanup(() => window.CloseForReal(saveBeforeClose: false));
+            TryExitCleanup(() => window.CloseForReal());
             _windows.Remove(paper.Id);
         }
         _visibilityAnimationVersions.Remove(paper.Id);
@@ -159,7 +159,7 @@ public sealed partial class AppController
         if (_windows.TryGetValue(deleted.Id, out var window))
         {
             RestoreExperimentalPassiveForWindow(window);
-            window.CloseForReal(saveBeforeClose: false);
+            window.CloseForReal();
             _windows.Remove(deleted.Id);
         }
         _visibilityAnimationVersions.Remove(deleted.Id);

@@ -1246,12 +1246,6 @@ When off, open at the docked edge or remembered position.</value>
   <data name="PluginsIntro" xml:space="preserve">
     <value>Plugins have the current user's permissions. Install plugins only from sources you trust.</value>
   </data>
-  <data name="PluginsForceLegacy" xml:space="preserve">
-    <value>Force-load older plugins</value>
-  </data>
-  <data name="PluginsForceLegacyWarning" xml:space="preserve">
-    <value>Only skips older same-major protocol checks. The plugin may still fail to run.</value>
-  </data>
   <data name="PluginsMoreSettings" xml:space="preserve">
     <value>More settings</value>
   </data>

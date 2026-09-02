@@ -1246,12 +1246,6 @@ papertodo と PaperTodo_Bold（.ttf/.otf）の両方を置いてください。<
   <data name="PluginsIntro" xml:space="preserve">
     <value>プラグインは現在のユーザー権限で動作します。信頼できる提供元のものだけを導入してください。</value>
   </data>
-  <data name="PluginsForceLegacy" xml:space="preserve">
-    <value>旧版プラグインを強制読み込み</value>
-  </data>
-  <data name="PluginsForceLegacyWarning" xml:space="preserve">
-    <value>同じメジャー版の旧プロトコル検査だけを省略します。正常に動作しない場合があります。</value>
-  </data>
   <data name="PluginsMoreSettings" xml:space="preserve">
     <value>その他の設定</value>
   </data>

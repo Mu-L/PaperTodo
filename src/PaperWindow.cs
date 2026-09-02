@@ -77,7 +77,6 @@ public sealed partial class PaperWindow : Window
     private Border? _dropIndicatorLine;
     private Border? _appendArea;
     private Border? _linkedPaperDropRow;
-    private bool _closeForReal;
     // Tracks only the hidden owner that PaperTodo applies for window-switcher hiding.
     private bool _windowSwitcherHiddenOwnerApplied;
     private IntPtr _windowSwitcherHiddenOwner;
@@ -130,7 +129,6 @@ public sealed partial class PaperWindow : Window
     private int _todoRowsGeneration;
     private const double DeepCapsuleExpandedEdgeInset = EdgeCapsuleLayout.ExpandedEdgeInset;
     private const double DeepCapsuleTopMargin = EdgeCapsuleLayout.TopMargin;
-    private const double DeepCapsuleStartTopMargin = EdgeCapsuleLayout.StartTopMargin;
     private double DeepCapsuleGap => _controller.DeepCapsuleGap;
     private const double WindowChromeMargin = EdgeCapsuleLayout.WindowChromeMargin;
     private const double WindowChromeInset = WindowChromeMargin * 2;
@@ -786,7 +784,7 @@ public sealed partial class PaperWindow : Window
         }
     }
 
-    public void CloseForReal(bool saveBeforeClose = true)
+    public void CloseForReal()
     {
         if (IsClosed)
         {
@@ -796,13 +794,6 @@ public sealed partial class PaperWindow : Window
         BeginPaperWindowClose();
         CloseExpandedDeepCapsuleSlotHostForReal();
 
-        if (saveBeforeClose)
-        {
-            // Force save before closing to prevent data loss if user edited within the last 450ms.
-            _controller.SaveNow();
-        }
-
-        _closeForReal = true;
         Close();
     }
 
@@ -3088,7 +3079,7 @@ public sealed partial class PaperWindow : Window
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         EndTopBarDragGesture(commit: false);
-        if (_closeForReal)
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive)
         {
             WindowNative.DetachAndReleaseWindowSwitcherOwner(this, ref _windowSwitcherHiddenOwner);
             _windowSwitcherHiddenOwnerApplied = false;
