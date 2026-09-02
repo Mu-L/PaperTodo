@@ -145,6 +145,11 @@ public sealed partial class AppController
 
     internal void TryFlushPendingPluginPaperStateDeletes()
     {
+        if (IsExiting)
+        {
+            return;
+        }
+
         foreach (var paperId in _pendingPluginPaperStateDeletes.ToArray())
         {
             if (State.Papers.Any(paper =>
