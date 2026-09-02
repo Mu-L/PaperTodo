@@ -18,7 +18,7 @@ Web 插件不需要编译，部署产物是 `plugin.json` 和 `web/` 的原样�
 plugins\official.clock.web\
 ```
 
-修改源码后，将本目录的 `plugin.json` 和 `web/` 同步到上述目录即可重载。PaperTodo 的本地发布和 GitHub Release 不携带该插件。
+修改源码后，完全退出 PaperTodo，将本目录的 `plugin.json` 和 `web/` 同步到上述目录，再重新启动。PaperTodo 不提供插件热重载；安装、修改或删除插件文件后都需要重启。PaperTodo 的本地发布和 GitHub Release 不携带该插件。
 
 ## Plugin Runtime
 

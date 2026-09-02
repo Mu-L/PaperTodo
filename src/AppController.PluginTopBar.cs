@@ -122,7 +122,7 @@ public sealed partial class AppController
         {
             throw new PaperTodoPluginException(
                 "global_topbar_runtime_conflict",
-                "A provider can have only one active app-runtime global top-bar owner.");
+                "A provider can have only one active Runtime global top-bar owner.");
         }
 
         if (current == null)

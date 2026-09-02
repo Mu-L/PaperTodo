@@ -600,8 +600,9 @@ public sealed class SampleClockPlugin : IPaperBodyPlugin
             }
 
             // The body can refresh at 4 Hz, but a day-progress capsule has no useful visual
-            // change at that cadence. Share one 0.1% quantization boundary between the 1.7
-            // live views and the 1.6 fallback so neither path churns layout unnecessarily.
+            // change at that cadence. Share one 0.1% quantization boundary between the custom
+            // live views and the standard presentation fallback so neither path churns layout
+            // unnecessarily.
             var progressStep = (int)Math.Round(
                 Math.Clamp(dayProgress, 0, 1) * 1000,
                 MidpointRounding.AwayFromZero);

@@ -1,6 +1,6 @@
 # 待办复盘记录池
 
-这是按 PaperTodo 协议 2.0 构建的完整原生插件；核心数据能力来自 1.3 的待办事件监听与只读接口，胶囊展示使用 1.6 宿主模板。它不提供专属迷你界面，用于演示宿主自动放大结构化胶囊的 1.8 回退路径。
+这是一个面向 PaperTodo Protocol 2.1 的完整原生插件。它通过 provider 级 Plugin Runtime 持续监听待办事件，并使用宿主标准 presentation 展示胶囊；它不提供专属 Edge Mini，由宿主放大结构化胶囊作为快速浏览内容。
 
 ## 记录内容
 
@@ -21,7 +21,7 @@
 
 记录池保存在插件目录的 `.runtime/review-archive.json`，不属于任何一张纸片的 `StateJson`。升级时会将存储版本 1/2 自动迁移到版本 3，原有记录与事件不会丢失。
 
-插件只在至少有一张使用它的笔记仍可见时监听变化。折叠成胶囊仍会继续记录；彻底隐藏、删除最后一张插件纸片或退出 PaperTodo 后，期间发生的变化无法被纯后台补记。再次打开后可用“导入当前”补录现状，但补录时间会标记为“首次观察值”。示例统一通过 canonical `context.Workspace` 订阅/读取数据。
+只要仍存在一张复盘插件 Paper，provider Runtime 就会持续监听；纸片隐藏、折叠或当前没有窗口都不会中断记录。删除或切换掉最后一张复盘插件 Paper、退出 PaperTodo 后 Runtime 才结束，停用期间发生的变化无法被精确补记；再次打开后可用“导入当前”补录现状，但补录时间会标记为“首次观察值”。正文 Session 只负责读取和展示记录，示例统一通过 canonical `context.Workspace` 订阅和读取数据。
 
 ## 构建并安装
 
@@ -38,8 +38,3 @@ powershell -ExecutionPolicy Bypass -File `
 ```text
 plugins\sample.review-archive.native\
 ```
-
-
-## 后台生命周期
-
-复盘记录由 provider 级 Plugin Runtime 持续监听；只要仍存在一张复盘插件 Paper，即使该纸片隐藏、折叠或当前没有窗口，记录器仍保持工作。正文 Session 只负责读取和展示记录。

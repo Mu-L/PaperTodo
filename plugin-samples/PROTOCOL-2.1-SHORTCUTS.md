@@ -60,6 +60,8 @@ paper.toggle
 
 这些动作由 PaperTodo 直接执行，不要求 body session 当前展开，也不需要插件 plugin runtime 接收回调。
 
+为了兼容旧写法，manifest 中的 `show` / `hide` / `toggle` / `expand` / `collapse` / `activate` 也会被宿主归一化为上面对应的 `paper.*` 值。新插件应直接写完整的 `paper.*` 名称。
+
 同一个 provider 有多张纸片时，宿主按这个顺序找目标：
 
 1. 当前激活的同 provider 纸片；
@@ -94,6 +96,7 @@ paper.toggle
 - 协议版本为 `2.1`；
 - 插件声明 `runtime`；
 - action id 为 1～80 个 ASCII 字母、数字、`.`、`_`、`-`；
+- action id 不能以 `paper.` 开头（大小写不敏感）；该命名空间由宿主保留；
 - plugin runtime 注册快捷键 action handler。
 
 自定义 action 是 **provider/runtime 全局动作**。宿主不会替它选择某张纸片，也不会在回调中偷偷附加“当前纸片”语义；如果插件业务需要目标纸片，应通过 Workspace 数据自行决定。

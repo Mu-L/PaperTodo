@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using System.Text.Json;
 
 internal static class Program
 {
@@ -18,6 +19,7 @@ internal static class Program
             CheckSettingsLayoutManifest(host);
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
+            CheckWebRuntimeRequestRouting(host);
             CheckUnifiedPluginRuntime(host, abstractions);
             CheckWebBodyNavigationIdentity(host);
             CheckManifestRuntimeAndMiniContracts(host);
@@ -337,6 +339,52 @@ internal static class Program
         Assert(
             runtime.GetField("_startupReady", BindingFlags.Instance | BindingFlags.NonPublic) != null,
             "Web app runtime must wait for document readiness before it enters Running.");
+    }
+
+    private static void CheckWebRuntimeRequestRouting(Assembly host)
+    {
+        var runtime = RequireType(host, "PaperTodo.WebPluginRuntime");
+        var resolveRoute = runtime.GetMethod(
+            "ResolveHostRequestRoute",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "Web Runtime host request route policy was not found.");
+
+        string Resolve(string payload, string method)
+        {
+            using var document = JsonDocument.Parse(payload);
+            return resolveRoute.Invoke(null, [document.RootElement, method])?.ToString()
+                ?? throw new InvalidOperationException("Web Runtime request route was not resolved.");
+        }
+
+        void AssertInvalidTarget(string payload)
+        {
+            try
+            {
+                Resolve(payload, "papers.list");
+                throw new InvalidOperationException("Invalid Web Runtime target was accepted.");
+            }
+            catch (TargetInvocationException ex)
+            {
+                var code = ex.InnerException?.GetType().GetProperty("Code")
+                    ?.GetValue(ex.InnerException)?.ToString();
+                Assert(code == "invalid_params",
+                    "Invalid Web Runtime targets must fail with invalid_params.");
+            }
+        }
+
+        Assert(Resolve("{\"target\":\"workspace\"}", "papers.list") == "Workspace",
+            "papertodo.workspace papers.list must reach the Workspace API.");
+        Assert(Resolve("{}", "papers.list") == "RuntimePapersList",
+            "Unmarked papers.list must retain provider Runtime Paper routing.");
+        Assert(Resolve("{}", "papers.get") == "Workspace" &&
+               Resolve("{}", "todos.list") == "Workspace",
+            "Unmarked Workspace-only methods must retain the existing Workspace fallback.");
+        Assert(Resolve("{\"target\":\"workspace\"}", "papers.setTitle") == "Workspace",
+            "Workspace transport must not fall back to a same-named Runtime-only method.");
+        AssertInvalidTarget("{\"target\":\"future-target\"}");
+        AssertInvalidTarget("{\"target\":42}");
+        AssertInvalidTarget("{\"target\":null}");
     }
 
     private static void CheckUnifiedPluginRuntime(Assembly host, Assembly abstractions)

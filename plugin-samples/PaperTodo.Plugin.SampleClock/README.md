@@ -1,6 +1,6 @@
 # WPF 原生时钟
 
-这是一个完全由 WPF 控件构成、当前使用协议 2.0 的 PaperTodo 原生主示例。除正文外，它实现协议 1.7 `IPaperCapsuleViewProvider` 和协议 1.8 `IPaperMiniViewProvider`，并持续保留协议 1.6 模板作为启动、拖动交接和失败回退：
+这是一个完全由 WPF 控件构成的 PaperTodo Protocol 2.1 原生主示例。除正文外，它实现 `IPaperCapsuleViewProvider` 和 `IPaperMiniViewProvider`，并同时发布标准 `PaperCapsulePresentation`，用于启动、拖动交接和自绘 surface 不可用时的回退：
 
 - 12 / 24 小时制和秒数显示；
 - 多种日期格式、星期和日进度；
@@ -29,4 +29,4 @@ powershell -ExecutionPolicy Bypass -File `
 plugins\sample.clock.native\
 ```
 
-新插件可立即识别；本次运行已经加载过的原生插件发生修改后，需要重启 PaperTodo。`PaperTodo.Plugin.Abstractions.dll` 由主程序提供，不会被复制进插件目录。
+PaperTodo 不提供插件热重载；安装、修改或删除插件文件后需要重启 PaperTodo。`PaperTodo.Plugin.Abstractions.dll` 由主程序提供，不会被复制进插件目录。

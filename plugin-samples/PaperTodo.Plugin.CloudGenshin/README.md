@@ -1,6 +1,6 @@
 # PaperTodo 云·原神实验插件
 
-这是一个**完全独立的协议 2.0 原生正文插件**。
+这是一个面向 PaperTodo Protocol 2.1 的独立原生正文插件。
 
 插件使用 `WebView2CompositionControl` 顶层加载：
 
@@ -69,13 +69,13 @@ powershell -ExecutionPolicy Bypass -File `
 
 ## 在 PaperTodo 中启用
 
-1. 启动 PaperTodo；
-2. 打开「设置 → 插件」；
-3. 点击重新扫描；
+1. 按上文步骤在 PaperTodo 完全退出时构建并安装插件；
+2. 启动 PaperTodo；
+3. 打开「设置 → 插件」确认插件已加载；
 4. 新建或打开一张纸片；
 5. 将正文插件切换为「云·原神（实验）」。
 
-原生插件本次运行中一旦加载，覆盖升级后需要重启 PaperTodo。
+PaperTodo 不提供插件热重载；安装、修改或删除插件文件后都需要重启 PaperTodo。
 
 ## 当前实验边界
 

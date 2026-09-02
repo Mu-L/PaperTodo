@@ -2,7 +2,7 @@
 
 > 本文记录 **PaperTodo 重要技术选择的历史背景、取舍、被淘汰的路线和值得防止重复踩坑的结论**。
 >
-> 它不是当前架构说明、changelog 或验收清单。当前技术选型与架构方向见 [`ARCHITECTURE.md`](ARCHITECTURE.md)；Agent 的任务路由和执行规则见 [`AGENTS.md`](AGENTS.md)。
+> 它不是当前架构说明、changelog 或验收清单。当前技术选型与架构方向见 [`ARCHITECTURE.md`](ARCHITECTURE.md)；Agent 的任务路由和执行规则见 [`AGENTS.md`](../AGENTS.md)。
 >
 > - 当前代码和可观察行为描述实现事实；commit/PR 是历史证据，不替代代码阅读。
 > - 本文首次建立时以 `main@626fe60d` 为代码基线，并独立回读 PR #94 / V3 Lite 及其后续收敛提交。
@@ -34,13 +34,14 @@
 | D-019 | Note 编辑与浏览共享 `MarkdownTextBox` | Accepted | Note |
 | D-020 | 插件状态与核心 `data.json` 分域持久化 | Accepted | 插件 / 持久化 |
 | D-021 | 插件与 MCP 共用 `PaperCommandService` | Accepted | 外部命令 / 一致性 |
-| D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域 | Accepted | 插件 / UI ownership |
+| D-022 | Plugin Top Bar 使用宿主绘制 descriptor + Paper/Runtime 分域 | Accepted | 插件 / UI ownership |
 | D-023 | Lightweight Prewarm 保留一次性首用预热 | Accepted | Edge performance |
-| D-024 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
+| D-024 | Web `backgroundUpdates` 使用 per-Paper Runtime | Superseded by D-029 | 插件 / 生命周期 |
 | D-025 | Note 图片若干限制为已接受取舍 | Accepted | Note / 图片 |
-| D-026 | Built-in Note Markdown 使用 Markdig 单一语义 authority | Accepted | Note / Markdown |
+| D-026 | Markdig 拥有标准 Markdown grammar；宿主仅做有界兼容处理 | Accepted | Note / Markdown |
 | D-027 | Built-in Note Markdown 语义更新使用同线程同步发布 | Accepted | Note / Markdown / performance |
 | D-028 | 大 Note 使用轻量局部重解析与 fence 状态扩窗 | Accepted | Note / Markdown / performance |
+| D-029 | 插件后台统一为 provider 单 Runtime | Accepted | 插件 / 生命周期 |
 
 ## 维护规则
 
@@ -159,7 +160,7 @@ Provider 发现与单纸片 provider session 分开：
 - `PaperBodyHost` 管理一张纸当前 `IPaperBodySession` 的 attach、invoke、commit/cancel/dispose。
 - `PaperWindow` 仍拥有 WPF placement、paper chrome 和 provider 选择。
 
-Native plugin 是 fully trusted / unsandboxed，并且已载入版本不能在同一进程中安全热替换；Web provider 可以重新扫描/加载。
+Native plugin 是 fully trusted / unsandboxed，并且已载入版本不能在同一进程中安全热替换。当前协议对 Web 也不提供插件级热重载：manifest、入口和 provider 文件变化统一在下次启动时重新发现。宿主可为当前已发现 provider 重建 Web Body session，或在 renderer 恢复时重载当前 Runtime document；这些都不会重新扫描 manifest/provider。
 
 ### Why
 
@@ -169,11 +170,13 @@ Native plugin 是 fully trusted / unsandboxed，并且已载入版本不能在�
 
 - 不让插件直接成为 `PaperWindow` 生命周期 authority。
 - 不假设 Native WPF assembly 可以像 Web 内容一样无代价热替换。
+- 不把 Web document/session 的 retry、recreate 或 renderer reload 误当成插件 manifest/provider 热重载。
 
 ### Evidence
 
 - `src/PaperBodyHost.cs`。
 - `src/PaperBodyPluginRegistry.cs`。
+- `src/WebPaperBodySession.cs` / `src/WebPluginRuntime.cs`：当前 document/session 重建与 renderer 恢复边界。
 - `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — `feat: implement paper body plugin system v2`。
 
 ---
@@ -643,11 +646,11 @@ PR #94 为完成 V3 Lite 曾引入 source export、finalizer、clean-state verif
 
 ### Context
 
-Paper body plugin 引入后，provider settings、stateVersion 和 per-paper plugin state 具有独立版本迁移、独立失败和独立删除清理语义。如果把 opaque plugin state 塞进核心 `AppState`，插件损坏/迁移会直接扩大核心数据恢复面的风险。
+Paper body plugin 引入后，provider settings、provider-scoped Runtime state、stateVersion 和 per-paper frontend state 具有独立版本迁移、独立失败和独立删除清理语义。如果把 opaque plugin state 塞进核心 `AppState`，插件损坏/迁移会直接扩大核心数据恢复面的风险。
 
 ### Decision
 
-宿主管理的插件 settings 与 per-paper state 由 `PaperBodyPluginDataStore` 独立保存在 `plugins/data/*.json`；核心 `data.json` 只保留 PaperTodo 自己需要理解的 paper/provider 关系和轻量 presentation cache。
+宿主管理的插件 settings、provider Runtime state 与 per-paper frontend state 由 `PaperBodyPluginDataStore` 独立保存在 `plugins/data/*.json`；核心 `data.json` 只保留 PaperTodo 自己需要理解的 paper/provider 关系和轻量 presentation cache。Runtime state 每个 provider 一份，Body/Mini 共用的 frontend state 按 Paper 保存。
 
 插件状态读失败时保留问题源，并使用独立 recovery 路径继续；插件状态故障不能阻断核心 `data.json` 的正常读取。删除 paper 后的插件状态清理也独立重试，不把附属清理失败升级成核心 save failure。
 
@@ -658,13 +661,14 @@ Paper body plugin 引入后，provider settings、stateVersion 和 per-paper plu
 ### Rejected / Do not reintroduce
 
 - 不把任意插件 JSON/blob 重新并入 `PaperData` / `data.json` 主协议。
-- 不让插件绕过宿主 DataStore 自己建立一份会与宿主状态竞争的 authoritative per-paper state。
+- 不让插件绕过宿主 DataStore 自己建立一份会与宿主状态竞争的 authoritative Runtime 或 per-paper state。
 - 不因为插件附属清理失败而回滚已经成功提交的核心 paper 删除。
 
 ### Evidence
 
 - `src/PaperBodyPluginDataStore.cs`。
 - `src/PaperBodyPluginRegistry.Settings.cs`。
+- `src/PaperPluginRuntimeStateApi.cs`。
 - `src/AppController.PluginApi.cs` 的 deferred plugin-state cleanup。
 - `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — plugin system v2 建立独立 plugin runtime/state 边界。
 - `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin/MCP hardening，强化失败/恢复边界。
@@ -718,40 +722,40 @@ MCP transport 继续拥有 JSON/MCP 参数映射和 MCP 授权；plugin host 继
 
 ---
 
-## D-022 — Plugin Top Bar 使用宿主绘制 descriptor + Paper/app-runtime 分域
+## D-022 — Plugin Top Bar 使用宿主绘制 descriptor + Paper/Runtime 分域
 
 **Status:** Accepted
 
 ### Context
 
-Protocol 2.0 要允许插件在自己的纸片顶栏贡献动作，也要允许插件在拥有真实纸片实例时向所有纸片贡献少量 Global 动作。两类动作出现在同一条顶栏上，但真实生命周期不同：Paper action 跟随某张 paper body session；Global action 跟随 provider 级 app runtime，而该 runtime 是否存在由这个 provider 当前是否至少拥有一张实体插件 paper 决定。
+Protocol 2.0 引入 Top Bar 时，后台还命名为 provider `appRuntime`：Paper action 跟随某张 paper body session，Global action 跟随 provider 级 app runtime，而后者是否存在由这个 provider 当前是否至少拥有一张实体插件 Paper 决定。后续 D-029 将 `appRuntime` / `paperRuntime` 收敛为一个 provider `runtime`，但 Paper/Global 两类 presentation owner 分域不变。
 
 如果直接让插件塞 `FrameworkElement` / Button / WebView，插件会同时获得尺寸、主题、Hover、DPI、focus、responsive layout 和 popup 等宿主 chrome ownership；如果把 Top Bar 方法塞进 `Workspace`，又会污染 D-021 已经收敛的 Paper/Todo/Note 数据命令边界。反过来，如果 Global 直接跟随某张 body session，就会因为纸片折叠、隐藏或正文未启动而误丢 Global UI；如果只凭插件安装状态又会让没有任何实体插件实例的 provider 永久占据全局 UI。
 
 ### Decision
 
-Protocol 2.0 将 Top Bar 定义为**宿主绘制、并按真实 owner 生命周期分域的 presentation capability**：
+当前协议 2.1 将 Top Bar 定义为**宿主绘制、并按真实 owner 生命周期分域的 presentation capability**：
 
 - Paper scope 使用 `PaperBodyContext.TopBar` / `IPaperTopBarApi`，只属于当前 paper body session。
-- Global scope 使用 `PaperAppRuntimeContext.GlobalTopBar` / `IPaperGlobalTopBarApi`，属于 provider 级 app runtime，但 app runtime 本身以**实体插件 paper 的存在性**为 owner：至少一张 `Note` paper 的 `BodyProviderId` 指向该 provider 时存在，0 张时不存在。
-- 启动时先处理已启用的 `startupPaper`，使其有机会创建/恢复真实插件 paper；startupPaper 阶段完成后再按最终 `State.Papers` reconcile app runtime。运行中 0→1 启动、1→0 Dispose；隐藏、折叠、没有展开正文或没有 live body session 都不影响 runtime。
-- 未声明 `appRuntime` 的 Native plugin 继续保持 manifest-only discovery 与按 paper 使用时懒加载；声明后也只有满足实体 paper 条件时才因此加载 Native DLL，并要求实现 `IPaperAppRuntimeProvider`。Web app runtime 使用同一插件 origin 下独立的 `runtime.html`。
+- Global scope 使用 `PaperPluginRuntimeContext.GlobalTopBar` / `IPaperGlobalTopBarApi`，属于 provider 级 Runtime，但 Runtime 本身以**实体插件 Paper 的存在性**为 owner：至少一张 `Note` Paper 的 `BodyProviderId` 指向该 provider 时存在，0 张时不存在。
+- 正常可见启动时先处理已启用的 `startupPaper`，使其有机会创建/恢复真实插件 Paper；`startupPaper` 阶段完成后再按最终 `State.Papers` reconcile Runtime。`--hide` 不创建 `startupPaper`，而是直接按已持久化的实体 Paper reconcile。运行中 0→1 启动、1→0 Dispose；隐藏、折叠、没有展开正文或没有 live body session 都不影响 Runtime。
+- 未声明 manifest capability `runtime` 的 Native plugin 继续保持 manifest-only discovery 与按 Paper 使用时懒加载；声明后也只有满足实体 Paper 条件时才因此加载 Native DLL，并要求实现 `IPaperPluginRuntimeProvider`。Web Runtime 使用同一插件 origin 下独立的 `runtime.html`。
 - PaperTodo 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout。插件只提交 action descriptor，不提交真实控件。
 - 图标只接受短字符或受限 SVG/WPF Path Data。Path 可以使用宿主当前前景色 Fill 或 Stroke；不接受完整 SVG document、WebView 或任意 WPF tree。
 - Paper scope 只能 suppression 宿主明确白名单中的 `NewTodoPaper` / `NewNotePaper`，不能删除关闭、置顶、标题拖动或窗口生命周期入口。
-- 每个 provider 至多有一个运行中的 Global Top Bar app-runtime owner。删除/改造非最后一张实体插件 paper 不影响 Global action；最后一张消失时 app runtime 和 Global contribution 一起结束。
-- Global 点击提供目标 `PaperId` / `Type` / `BodyProviderId`。插件若要读取或修改目标内容，仍通过 app-runtime Workspace → `PaperCommandService`，不在 Top Bar 再复制一套业务 mutation。
-- Web body 只拥有 Paper Top Bar，Web Mini 不拥有 Top Bar；Web `runtime.html` 只拥有 app-scope Workspace + GlobalTopBar。对应 document 导航、renderer failure、最后一张实体插件 paper 消失或 runtime/session Dispose 都撤销自己 scope 的 contribution。
-- app-runtime Workspace / GlobalTopBar facade 把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper-session presentation 继续遵守自己的 WPF Dispatcher 生命周期。
+- 每个 provider 至多有一个运行中的 Global Top Bar Runtime owner。删除/改造非最后一张实体插件 Paper 不影响 Global action；最后一张消失时 Runtime 和 Global contribution 一起结束。
+- Global 点击提供目标 `PaperId` / `Type` / `BodyProviderId`。插件若要读取或修改目标内容，仍通过 Runtime Workspace → `PaperCommandService`，不在 Top Bar 再复制一套业务 mutation。
+- Web Body 只拥有 Paper Top Bar，Web Mini 不拥有 Top Bar；Web `runtime.html` 拥有 Global Top Bar 及其他 Runtime-scope API。对应 document 导航、renderer failure、最后一张实体插件 Paper 消失或 Runtime/session Dispose 都撤销自己 scope 的 contribution。
+- Runtime Workspace / GlobalTopBar facade 把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper-session presentation 继续遵守自己的 WPF Dispatcher 生命周期。
 - PaperTodo 不提供插件热重载入口。插件 manifest、DLL、Web body/mini/runtime 等文件的安装、删除或修改统一在下一次启动时重新发现并生效。
 
 ### Why
 
 这套边界让插件获得“功能入口”，但不获得宿主 chrome 的结构 authority。主题、DPI、布局和交互一致性继续只维护一套；未来 PaperTodo 修改顶栏实现时，不需要把任意插件 WPF tree 当成 ABI。
 
-Global 的关键不是“某张纸片 session 是否正活着”，也不是“这个插件是否安装”，而是**这个 provider 当前是否真的有实体 paper 实例**。因此 startupPaper 必须先执行，再决定 runtime；已有实体 paper 即使隐藏、折叠或从未展开正文，Global 仍可在软件启动后正常注册；删除/改造最后一张时又能自然回收。这样既不会用隐藏 session 冒充全局生命周期，也不会让无实例插件静态占据全局按钮。
+Global 的关键不是“某张纸片 session 是否正活着”，也不是“这个插件是否安装”，而是**这个 provider 当前是否真的有实体 Paper 实例**。因此正常可见启动中，已启用的 `startupPaper` 必须先执行，再决定 Runtime；已有实体 Paper 即使隐藏、折叠或从未展开正文，Global 仍可在软件启动后正常注册；删除/改造最后一张时又能自然回收。这样既不会用隐藏 session 冒充全局生命周期，也不会让无实例插件静态占据全局按钮。
 
-把 Top Bar 与 Workspace 分开也保持了 D-021 的可理解性：Workspace/MCP 共享的是业务数据语义，Top Bar 是 presentation；app-runtime Workspace 仍复用相同 `PaperCommandService`，只是拥有 provider 级生命周期和线程适配。
+把 Top Bar 与 Workspace 分开也保持了 D-021 的可理解性：Workspace/MCP 共享的是业务数据语义，Top Bar 是 presentation；Runtime Workspace 仍复用相同 `PaperCommandService`，只是拥有 provider 级生命周期和线程适配。
 
 ### Rejected / Do not reintroduce
 
@@ -759,7 +763,7 @@ Global 的关键不是“某张纸片 session 是否正活着”，也不是“�
 - 不把 Global Top Bar 做成仅凭 manifest/安装状态就永久存在、没有实体 plugin paper owner 的静态 UI。
 - 不把 Global action 绑回某张 paper session、Web body 或 Web Mini。
 - 不为了维持 Global action 创建隐藏 paper/session；需要启动时产生实体插件实例时使用真实 `startupPaper`。
-- 不把 paper 可见性、折叠/展开状态或 body session 是否启动误当成 app-runtime existence truth。
+- 不把 Paper 可见性、折叠/展开状态或 body session 是否启动误当成 Runtime existence truth。
 - 不把 Top Bar 方法塞回 `IPaperTodoHostApi` / Workspace 数据合同。
 - 不在 Top Bar callback 内复制 Note/Todo 读写、保存、rollback 或 UI reconcile；业务 mutation 继续走 `PaperCommandService`。
 
@@ -767,23 +771,24 @@ Global 的关键不是“某张纸片 session 是否正活着”，也不是“�
 
 - Top Bar action descriptor 是公开协议，需要保持小而稳定；新增复杂控件能力前先判断是否会重新转移宿主 chrome ownership。
 - Global action 数量、字符/SVG 输入范围和可隐藏宿主 action 属于宿主保护边界；具体视觉尺寸仍由 PaperTodo 当前主题/布局实现决定。
-- `appRuntime` 是显式 opt-in 的 provider 生命周期，但其存在性由实体插件 paper 集合派生；普通插件没有实体 paper 时不会仅因安装而运行。
+- `runtime` 是显式 opt-in 的 provider 生命周期，但其存在性由实体插件 Paper 集合派生；普通插件没有实体 Paper 时不会仅因安装而运行。
 - 插件没有 Reload/hot-replace UI；修改插件文件后统一重启 PaperTodo，避免同时维护 Web 热重载与 Native CLR 已加载版本两套语义。
-- Web body/Mini/app runtime 可以复用底层 request/response transport，但各 surface 的 API scope 必须由宿主来源决定，不能靠页面自己声明身份。
-- 旧 1.8 插件继续兼容加载；2.0 Paper/Global Top Bar 和 app runtime 不下放给 1.8。
+- Web Body/Mini/Runtime 可以复用底层 request/response transport，但各 surface 的 API scope 必须由宿主来源决定，不能靠页面自己声明身份。
+- 当前宿主只接受 `apiVersion: "2.1"`；不再保留 1.8/2.0 兼容基线或按能力版本分支的 Top Bar 路由。
 
 ### Evidence
 
 - `PaperTodo.Plugin.Abstractions/PaperBodyPluginContracts.cs`：Paper action/icon/invocation contract 与 `IPaperTopBarApi`。
-- `PaperTodo.Plugin.Abstractions/PaperAppRuntimeContracts.cs`：`IPaperGlobalTopBarApi`、`PaperAppRuntimeContext`、`IPaperAppRuntimeProvider`。
-- `src/AppController.PluginStartup.cs`：startupPaper 先于 app-runtime ownership reconcile。
-- `src/AppController.PluginAppRuntime.cs`：实体 paper 0↔1 reconcile、provider runtime lifetime 与失败隔离。
-- `src/PaperAppRuntimeHostApi.cs`：app-runtime Workspace / GlobalTopBar facade 与 UI Dispatcher 边界。
-- `src/AppController.PluginTopBar.cs`：Paper session 与 Global app-runtime 注册分域、输入校验与统一渲染状态。
+- `PaperTodo.Plugin.Abstractions/PaperPluginRuntimeContracts.cs`：`IPaperGlobalTopBarApi`、`PaperPluginRuntimeContext`、`IPaperPluginRuntimeProvider`。
+- `src/AppController.PluginStartup.cs`：`startupPaper` 先于 Runtime ownership reconcile。
+- `src/AppController.PluginRuntime.cs`：实体 Paper 0↔1 reconcile、provider Runtime lifetime 与失败隔离。
+- `src/PaperPluginRuntimeHostApi.cs`：Runtime Workspace / GlobalTopBar facade 与 UI Dispatcher 边界。
+- `src/AppController.PluginTopBar.cs`：Paper session 与 Global Runtime 注册分域、输入校验与统一渲染状态。
 - `src/PaperWindow.PluginTopBar.cs`：宿主绘制、主题/字体/响应式与 suppression reconcile。
 - `src/WebPaperBodySession.TopBar.cs`：Web body 的 Paper document-generation ownership。
-- `src/WebPluginAppRuntime.cs`：独立 Web app surface、Global action 与失效清理。
-- `plugin-samples/PaperTodo.Plugin.TopBarWeb/`：body Paper action + `runtime.html` Global action、字符/Stroke SVG、点击后复用 Workspace 的当前示例。
+- `src/WebPluginRuntime.cs`：独立 Web Runtime surface、Global action 与失效清理。
+- `src/PaperBodyPluginRegistry.cs` 与 `tests/PaperTodo.ProtocolPolicyChecks/Program.cs`：单一协议 2.1 基线。
+- `plugin-samples/PaperTodo.Plugin.TopBarWeb/`：Body Paper action + `runtime.html` Global action、字符/Stroke SVG、点击后复用 Workspace 的当前示例。
 
 ---
 
@@ -819,7 +824,9 @@ V3 Lite 收敛后，`EdgeCapsuleQueueCompositionProxy.PrewarmLightweight` 仍会
 
 ## D-024 — Web `backgroundUpdates` 使用 per-Paper Runtime，不借 Body WebView 保活
 
-**Status:** Accepted
+**Status:** Superseded by D-029
+
+> 本条保留协议 2.0 时曾经采用的 per-Paper Runtime 路线。D-029 已将它替换为 provider 单 Runtime；下列为当时的 Decision 与取舍，不再是当前插件合同。
 
 ### Decision
 
@@ -838,10 +845,15 @@ Web provider 声明 `backgroundUpdates` 时必须同时声明 `paperRuntime` 入
 - 不让 PaperRuntime lifetime 依赖 `PaperWindow` 是否已经构造。
 - 不用保存 JSON 假装能恢复 WebSocket、Promise、timer 或 JS 闭包的连续 runtime。
 
+### Evidence
+
+- `cced20b` / PR #148：建立过独立于 Body/PaperWindow 的 per-Paper Web Runtime。
+- 该提交中的 `src/WebPaperRuntime.cs` 与 `src/AppController.WebPaperRuntime.cs`；当前代码已由 D-029 路线删除这些实现。
+
 
 ---
 
-## D-024 — 插件后台统一为 provider 单 Runtime
+## D-029 — 插件后台统一为 provider 单 Runtime
 
 **Status:** Accepted
 
@@ -856,6 +868,14 @@ PaperTodo 只提供 **一个 provider Runtime 后端**。一个插件无论有�
 Web 与 Native 使用相同语义：Web Runtime 是一个隐藏 WebView/JS 页面，Native Runtime 是一个长期 C# 对象。插件如果需要多个 Worker、线程、子进程、浏览器实例或隔离域，由插件在自己的 Runtime 内创建和管理，宿主不提供第二种 per-Paper backend 协议。
 
 Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend state。声明 Runtime 后，长期 Paper 标题/Header/胶囊由 Runtime 按 `paperId` 唯一发布，避免后台与前端双写。
+
+生命周期与状态合同同时收敛为：
+
+- manifest 统一使用 capability `runtime`，公开类型统一使用 `PluginRuntime` / `PaperPluginRuntime*`，不再保留 `AppRuntime` 或 `PaperRuntime` 第二套名字。
+- 每张 Paper frontend/body state 最大 10 MiB，整个 provider Runtime state 最大 20 MiB，独立计额；新版 Runtime 不用低 `stateVersion` 覆盖已存在的高版本状态。
+- Runtime 启动时通过 `Papers.List()` 读取全量快照，之后 `Subscribe()` 只接收增量。删除 provider 最后一张 Paper 时，若当前仍有存活且可投递的 Runtime lease，宿主在撤销 lifetime 前先 reconcile 并投递最终 `PaperRemoved`。启动失败、Backoff/Failed 或 Web document 不可投递期间不承诺该事件必达。
+- Web Runtime renderer 恢复期间不缓存业务消息；不能真实投递时返回 `runtime_unavailable`，宿主不提供 exactly-once 或延迟业务命令队列。
+- Backoff 保留最后展示；最终 Failed 清除 Runtime 动态 Header/Capsule 并回退静态 Paper 展示。
 
 ### Why
 
@@ -873,23 +893,16 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 
 ### Consequences
 
-一个 provider Runtime 故障会暂时影响该 provider 的所有逻辑 Paper，这是用更小、更明确的宿主模型换取的故障域扩大。需要更细隔离的插件自行在 Runtime 内拆 Worker/进程。PaperTodo 仍负责 Runtime 的 provider 生命周期、薄路由和粗粒度恢复，不升级成通用消息总线或进程编排器。
+一个 provider Runtime 故障会暂时影响该 provider 的所有逻辑 Paper，这是用更小、更明确的宿主模型换取的故障域扩大。需要更细隔离的插件自行在 Runtime 内拆 Worker/进程。PaperTodo 仍负责 Runtime 的 provider 生命周期、薄路由和粗粒度恢复，不升级成通用消息总线或进程编排器；因此也不对 Runtime 不可投递期间的生命周期事件做 exactly-once 保证。
 
 ### Evidence
 
-- `src/AppController.PluginAppRuntime.cs` / `src/PaperAppRuntimePapersApi.cs`。
-- `src/WebPluginAppRuntime.cs`。
-- `PaperTodo.Plugin.Abstractions/PluginRuntimeContracts.cs`。
-- 删除的 `src/WebPaperRuntime.cs` / `src/AppController.WebPaperRuntime.cs`。
-## 2026-08-27 — Plugin Runtime 2.0 最终生命周期与容量契约
-
-- 协议统一使用 `PluginRuntime` / manifest capability `runtime`；不再保留 `AppRuntime` 作为第二套名字。
-- 一个 provider 只有一个后台 Runtime，N 个 Paper 只是以 `paperId` 管理的逻辑实例。插件内部如果需要 worker、线程、子进程或实例级后台，由插件自己创建和管理。
-- 每张 Paper frontend/body state 最大 10 MiB；整个 PluginRuntime state 最大 20 MiB，独立计额。写限制不反向破坏既有磁盘数据。
-- Runtime state 禁止高版本向低版本插件降级覆盖。删除 provider 的最后一张 Paper 时，最终 `PaperRemoved` 必须在 lifetime 撤销前送达。
-- Web Runtime renderer 恢复期间不缓存业务消息；不能真实投递就返回 `runtime_unavailable`。宿主不提供 exactly-once 或延迟业务命令队列。
-- Backoff 保留最后展示；最终 Failed 清 Runtime 动态 Header/Capsule 并回退静态 Paper 展示。
-- Runtime 启动读取 `Papers.List()` 全量，之后 `Subscribe()` 只接增量。
+- `src/AppController.PluginRuntime.cs` / `src/AppController.PluginRuntimePapers.cs`。
+- `src/PaperPluginRuntimePapersApi.cs` / `src/PaperPluginRuntimeStateApi.cs`。
+- `src/PaperBodyPluginDataStore.cs`。
+- `src/WebPluginRuntime.cs`。
+- `PaperTodo.Plugin.Abstractions/PaperPluginRuntimeContracts.cs` / `PaperTodo.Plugin.Abstractions/PluginRuntimeContracts.cs`。
+- `1f4fe30` / PR #155：删除 D-024 的宿主 per-Paper backend，将 Web/Native 收敛到 provider 单 Runtime。
 
 ---
 
@@ -911,11 +924,11 @@ Runtime 使用 provider-scoped state；Body/Mini 继续使用 per-paper frontend
 
 ---
 
-## D-026 — Built-in Note Markdown 使用 Markdig 单一语义 authority
+## D-026 — Markdig 拥有标准 Markdown grammar；宿主仅做有界兼容处理
 
 **Status:** Accepted
 
-> D-026 的“Markdig 单一语义 authority”继续有效。早期为它配套的后台 worker、renderer provider/session 外壳和严格增量等价证明都属于后续已收敛实现；同步发布见 D-027，大 Note 局部策略见 D-028。
+> D-026 的核心是“标准 Markdown grammar 与 container 边界由 Markdig 授权”，不是“宿主不允许任何兼容后处理”。早期配套的后台 worker、renderer provider/session 外壳和严格增量等价证明都属于后续已收敛实现；同步发布见 D-027，大 Note 局部策略见 D-028。
 
 ### Context
 
@@ -924,27 +937,29 @@ D-019 已经确定 Note 的编辑与浏览共用同一个 `MarkdownTextBox` / Av
 ### Decision
 
 - 内置 Note 继续遵守 D-019：编辑与浏览共享同一个 `MarkdownTextBox` / `TextDocument`，不生成 HTML/DOM 或第二份 rendered document。
-- 标准 Markdown grammar 统一交给 Markdig。`MarkdownSemanticDocument` 只维护当前 source 与当前不可变 `MarkdownSemanticSnapshot`；具体同步发布和大文档局部更新策略分别由 D-027 / D-028 约束。
+- 标准 Markdown grammar 和 container 边界统一交给 Markdig。`MarkdownSemanticDocument` 只维护当前 source 与当前不可变 `MarkdownSemanticSnapshot`；具体同步发布和大文档局部更新策略分别由 D-027 / D-028 约束。
 - Markdig AST 只作为瞬时解析结果，立即压平为 PaperTodo 自己的 source spans、line traits、links 与 derived indexes；renderer 和编辑 helper 不直接持有 AST。
+- 同一 snapshot pipeline 可在 Markdig 结果上做小而有界的宿主兼容处理：收窄历史 HTML 边界、标记反斜杠转义，以及识别裸 `http(s)` 链接。这些后处理必须消费 Markdig 产生的 span/保护区间并继续发布一份 snapshot，不能扩成并行的完整 Markdown parser。
 - `MarkdownSemanticPresentation` 直接附着同一个 AvalonEdit `TextView` 完成 typography、syntax fade、block background、list/rule、link 与图片源码 presentation；`MarkdownPaperBodySession` 直接拥有 semantic document 与 presentation，不再保留 `IMarkdownRendererProvider` / `IMarkdownRendererSession` 外壳。
 - 列表 Enter、链接 hit-test、fence/code 判断、图片是否位于 code 区等需要 Markdown 语义的编辑/交互逻辑消费同一 snapshot；不恢复隐藏的逐行手写 Markdown parser 作为正文 fallback。
 - Markdig pipeline 只启用当前产品需要的 extension，不用 `UseAdvancedExtensions()` 一次性扩大语法面。PaperTodo 的图片协议、URL allowlist/打开策略、原生持久化仍由宿主持有。
 
 ### Why
 
-Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTodo 真正需要自己维护的是“如何把原始 Markdown source 映射成单控件 live presentation”，而不是再维护一套 Markdown grammar。把 semantic authority 收敛成一份 snapshot 后，renderer、编辑交互和未来扩展看到的是同一来源的事实；同时保留原 source offset，正好适合 PaperTodo 不删除 marker、只做淡化/样式化的交互模型。
+Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTodo 真正需要自己维护的是“如何把原始 Markdown source 映射成单控件 live presentation”和已有产品语义的有界兼容层，而不是再维护一套 Markdown grammar。把这些结果收敛成一份 snapshot 后，renderer、编辑交互和未来扩展看到的仍是同一来源的事实；同时保留原 source offset，正好适合 PaperTodo 不删除 marker、只做淡化/样式化的交互模型。
 
 ### Rejected / Do not reintroduce
 
 - 不让每个 AvalonEdit renderer 独立 parse/猜测 Markdown。
 - 不恢复 `MarkdownLineAnalysisCache` / `AnalyzeLineCore` 一类隐藏手写 parser 作为正文“保险 fallback”；历史实现需要回看时使用 Git 历史。
+- 不把裸 URL、转义或历史 HTML 兼容处理扩张成自己推断 quote/list/fence/container 的第二 grammar authority。
 - 不为了 Markdown preview 创建第二份 TextDocument、HTML DOM 或 WebView，并承担 caret/source mapping 与 scroll sync。
 - 不在没有明确产品需求时启用整包 Markdig advanced extensions，避免无意扩大 Markdown 方言和兼容面。
 - 轻量 `MarkdownFencedCodeScanner` 只能用于受限预览或局部窗口边界发现，不能升级成与 Markdig 并行发布正文语义的第二 authority。
 
 ### Consequences
 
-- 当前 snapshot 中的 Markdown 语义都来自 Markdig parse 结果或上一份 Markdig snapshot 的局部 splice；大 Note 编辑期是否保证全文 exact 由 D-028 的产品取舍决定，而不是通过第二套 parser 补齐。
+- 当前 snapshot 中的标准 grammar/container 语义来自 Markdig parse 结果或上一份 Markdig-derived snapshot 的局部 splice；宿主有界兼容结果也在同一 pipeline 合并后发布。大 Note 编辑期是否保证全文 exact 由 D-028 的产品取舍决定，而不是通过第二套 parser 补齐。
 - `MarkdownTextBox` 可以继续专注编辑、caret、paste、图片交互等 editor concern；Markdown presentation 位于独立 semantic/presentation 文件。
 - 增加新 Markdown 语法时，应先扩 semantic snapshot 与回归测试，再让 presentation 消费，不在 renderer 中临时加 parser。
 - 这条决策不要求 Markdig 永久锁定某个 package version；升级时以 source-span/兼容测试和性能 smoke 为门禁。
@@ -953,6 +968,7 @@ Markdig 已经提供成熟的 CommonMark parser、AST 和 source span。PaperTod
 
 - `src/MarkdownSemanticDocument.cs`。
 - `src/MarkdownSemanticSnapshot*.cs`。
+- `src/MarkdownSemanticSnapshot.Compatibility.cs`、`src/MarkdownSemanticSnapshot.Escapes.cs` 与 `src/MarkdownSemanticSnapshot.Links.cs`。
 - `src/MarkdownSemanticPresentation*.cs`。
 - `src/MarkdownListEditing.cs`。
 - `src/MarkdownPaperBodySession.cs`。
@@ -1029,7 +1045,7 @@ PaperTodo 的产品需求更接近：打开 Note 时建立全文正确基线；�
 - 删除 1K→16K retry、guard proof、窗口外 semantic 等价比较和“必须证明整篇 exact 才允许局部发布”的合同。大 Note 普通编辑明确是 **best-effort local**。
 - reference definition / reference use 仍保留便宜的显式 tripwire；局部窗口无法安全解析这些全局依赖时直接返回 full-parse fallback，不在局部路径内再造 reference resolver。
 - 当修改附近可能形成、删除或改变顶层 ``` / ~~~ fence（包括仅插删换行使 marker 获得/失去行首语义）时，使用轻量 `MarkdownFencedCodeScanner` 同步比较 old/new fenced-code state。两边在共同未修改 suffix 上逐行推进，一旦状态相同就停止扩窗；若始终不收敛则自然扩到 EOF，最终仍由 Markdig 解析扩后的真实窗口。
-- scanner 只负责 **window discovery**。它不发布 Note body semantics，也不扩展成 quote/list/HTML/container-aware 的第二套 Markdown parser；新建复杂嵌套长程结构等其他场景继续接受 best-effort。
+- 在本条的大 Note incremental 路径中，scanner 只负责 **window discovery**。它不发布 Note body semantics，也不扩展成 quote/list/HTML/container-aware 的第二套 Markdown parser；新建复杂嵌套长程结构等其他场景继续接受 best-effort。同一 `MarkdownFencedCodeScanner` 也可用于有界 Edge Capsule Markdown 预览的 fence 导航，但该用途不属于本条的 Note incremental 合同。
 - 整条路径保持同线程同步，不引入后台 refresh、generation、固定“XK”自适应状态或文档级窗口缓存。
 
 ### Why
@@ -1044,7 +1060,7 @@ PaperTodo 的产品需求更接近：打开 Note 时建立全文正确基线；�
 - 不仅为了恢复“每键全文 exact”就重新加入 guard regions、1K→16K retry、reference equivalence proof 和大规模窗口外 semantic proof。
 - 不为长 fence 再建后台扫描/刷新线程、per-note XK、generation 或 stale snapshot 校正机制。
 - 不针对“在既有长 fence 正文里改一个普通字符”再造一套 span 继承/marker 特判快路径；旧 container 扩窗已经足够简单且成本可接受。
-- 不把 `MarkdownFencedCodeScanner` 扩成完整 CommonMark parser。尤其新建 quote/list 中的复杂嵌套长 fence 不因为本条就获得全文 exact 保证。
+- 不在 Note incremental 路径中把 `MarkdownFencedCodeScanner` 扩成完整 CommonMark parser。尤其新建 quote/list 中的复杂嵌套长 fence 不因为本条就获得全文 exact 保证。
 
 ### Consequences
 
@@ -1057,6 +1073,7 @@ PaperTodo 的产品需求更接近：打开 Note 时建立全文正确基线；�
 
 - `src/MarkdownSemanticSnapshot.Incremental.cs`。
 - `src/MarkdownFencedCodeScanner.cs`。
+- `src/EdgeCapsulePreview.Markdown.cs`：scanner 在 Edge Capsule Markdown 预览中的另一个有界用途，不属于 Note body 语义发布。
 - `tests/PaperTodo.MarkdownSemanticChecks/IncrementalSnapshotChecks.cs`。
 - `tests/PaperTodo.MarkdownSemanticChecks/FenceWindowChecks.cs`。
 - `tests/PaperTodo.MarkdownSemanticChecks/FenceDenseProfileChecks.cs`。

@@ -10,7 +10,7 @@ using Microsoft.Web.WebView2.Wpf;
 namespace PaperTodo;
 
 // These narrow accessors keep the body-session implementation private while allowing the
-// provider/paper runtime infrastructure to share one environment pool and local-origin policy.
+// provider Runtime infrastructure to share one environment pool and local-origin policy.
 internal sealed partial class WebPaperBodySession
 {
     internal static Task<CoreWebView2Environment> SharedPluginEnvironmentAsync(
@@ -23,7 +23,7 @@ internal sealed partial class WebPaperBodySession
 
 /// <summary>
 /// Common non-surface-specific Web plugin runtime services. Body sessions own only visible UI;
-/// provider and per-paper runtimes use the hidden host below and never move their WebViews into a
+/// provider Runtimes use the hidden host below and never move their WebViews into a
 /// PaperWindow.
 /// </summary>
 internal static class WebPluginRuntimeInfrastructure

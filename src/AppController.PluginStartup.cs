@@ -24,8 +24,8 @@ public sealed partial class AppController
             return;
         }
 
-        // Per-paper Web runtimes are owned by real PaperData, including papers that start hidden.
-        // They do not wait for visible shell construction or startupPaper presentation readiness.
+        // Existing entity plugin papers, including papers that start hidden, can establish their
+        // provider-level Runtime without waiting for visible shell construction.
 
         // Explicit --hide keeps the existing startup-paper behavior (do not create/show one), but
         // entity plugin papers already persisted in State still own their provider-level runtime.

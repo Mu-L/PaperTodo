@@ -1,6 +1,6 @@
 # WPF 原生专注计时器
 
-这是一个不依赖 WebView2、完全由 WPF 控件构成的番茄钟插件。当前按 PaperTodo 协议 2.0 构建；待办读写/监听来自 1.3 数据能力，胶囊展示使用 1.6 宿主模板，边缘快速浏览使用专属 WPF 迷你界面。
+这是一个不依赖 WebView2、完全由 WPF 控件构成的 Protocol 2.1 番茄钟插件。它通过受控 Workspace API 读写和监听待办，使用宿主标准 presentation 展示胶囊，并提供专属 WPF Edge Mini。
 
 ## 新增能力
 

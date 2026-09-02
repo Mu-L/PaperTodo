@@ -335,7 +335,7 @@ public sealed class PaperBodyContext
     public required IPaperPluginRuntimeClient Runtime { get; init; }
     public IPaperTopBarApi TopBar => Workspace as IPaperTopBarApi
         ?? throw new InvalidOperationException(
-            "This PaperTodo host does not expose the protocol 2.0 paper top-bar capability.");
+            "This PaperTodo host does not expose the Protocol 2.1 paper top-bar capability.");
     public IPaperPresentationApi Presentation => Workspace as IPaperPresentationApi
         ?? throw new InvalidOperationException(
             "This PaperTodo host does not expose own-paper presentation controls.");
@@ -360,7 +360,7 @@ public sealed class PaperBodyContext
 /// plugins/&lt;plugin-id&gt;/ folder with the current user's permissions. plugin.json is the single
 /// authority for id/name/version/protocol/state/capability/runtime metadata. Implementations provide
 /// only behavior, must have a public parameterless constructor and act as stateless factories.
-/// PaperTodo creates a fresh plugin object for every body session or app-runtime activation.
+/// PaperTodo creates a fresh plugin object for every body session or provider Runtime activation.
 /// </summary>
 public interface IPaperBodyPlugin
 {

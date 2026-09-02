@@ -1,9 +1,9 @@
 namespace PaperTodo.Plugin;
 
 /// <summary>
-/// App-scoped global top-bar capability. Unlike PaperBodyContext.TopBar, this lifetime belongs to
-/// the provider runtime rather than any one paper/body session. PaperTodo removes all actions when
-/// that provider runtime ends.
+/// Provider-runtime-scoped global top-bar capability. Unlike PaperBodyContext.TopBar, this lifetime
+/// belongs to the provider runtime rather than any one paper/body session. PaperTodo removes all
+/// actions when that provider runtime ends.
 /// </summary>
 public interface IPaperGlobalTopBarApi
 {
@@ -31,9 +31,10 @@ public sealed record PaperShortcutActionInvocation(
     string ActionId);
 
 /// <summary>
-/// App-scoped callback endpoint for plugin-defined global shortcut actions. PaperTodo owns the
-/// actual Windows hotkey registration, conflict handling, persistence and settings UI. Host-owned
-/// paper.* shortcut actions are executed directly by PaperTodo and are not sent to this handler.
+/// Provider-runtime-scoped callback endpoint for plugin-defined global shortcut actions. PaperTodo
+/// owns the actual Windows hotkey registration, conflict handling, persistence and settings UI.
+/// Host-owned paper.* shortcut actions are executed directly by PaperTodo and are not sent to this
+/// handler.
 /// </summary>
 public interface IPaperGlobalShortcutApi
 {
@@ -142,7 +143,7 @@ public sealed class PaperPluginRuntimeContext
 }
 
 /// <summary>
-/// Optional protocol-2.x Native capability. A plugin declaring manifest capability "runtime"
+/// Optional Protocol 2.1 Native capability. A plugin declaring manifest capability "runtime"
 /// implements this interface. PaperTodo starts exactly one provider Runtime when the first real
 /// Paper uses the provider and disposes it when the last such Paper disappears. If a plugin needs
 /// multiple workers, processes or isolation domains, it owns those internally behind this Runtime.

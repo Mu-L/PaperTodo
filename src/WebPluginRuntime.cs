@@ -16,6 +16,26 @@ internal sealed class WebPluginRuntime : IDisposable
 {
     private const int MaximumGlobalTopBarActions = 256;
 
+    private enum HostRequestRoute
+    {
+        Workspace,
+        SettingsGet,
+        StateGet,
+        StateSave,
+        RuntimePapersList,
+        RuntimePapersSetTitle,
+        RuntimePapersSetHeaderText,
+        RuntimePapersSetCapsulePresentation,
+        RuntimePapersPostBody,
+        GlobalTopBarSet,
+        TodoActionsSet,
+        TodoActionsClear,
+        TodoActionsClearAll,
+        TopBarLabelsSet,
+        TopBarLabelsClear,
+        TopBarLabelsClearAll
+    }
+
     private readonly PaperBodyPluginDescriptor _descriptor;
     private readonly IPaperTodoHostApi _workspace;
     private readonly IPaperPluginRuntimeSettings _settings;
@@ -167,14 +187,25 @@ internal sealed class WebPluginRuntime : IDisposable
                 if (hostReady) post('hostRequest', payload);
                 else queuedRequests.push(payload);
               };
-              const request = (method, params = {}) => {
+              const sendRequest = (method, params = {}, target = '') => {
                 const requestId = `r${++sequence}`;
                 return new Promise((resolve, reject) => {
                   pending.set(requestId, { resolve, reject });
-                  postRequest({ requestId, method: String(method ?? ''), params: params ?? {} });
+                  const payload = {
+                    requestId,
+                    method: String(method ?? ''),
+                    params: params ?? {}
+                  };
+                  if (target) payload.target = target;
+                  postRequest(payload);
                 });
               };
-              const workspace = Object.freeze({ request });
+              const request = (method, params = {}) => sendRequest(method, params);
+              const workspace = Object.freeze({
+                request(method, params = {}) {
+                  return sendRequest(method, params, 'workspace');
+                }
+              });
               const settings = Object.freeze({
                 get() { return request('settings.get'); }
               });
@@ -511,24 +542,31 @@ internal sealed class WebPluginRuntime : IDisposable
         {
             var method = WebPluginRuntimeInfrastructure.RequiredString(payload, "method");
             var parameters = WebPluginRuntimeInfrastructure.ParametersOrEmpty(payload);
-            object? result = method switch
+            // Runtime.Papers and Workspace both expose papers.list. Only the explicit Workspace
+            // transport bypasses Runtime-first routing; unmarked root requests keep compatibility.
+            var route = ResolveHostRequestRoute(payload, method);
+            object? result = route switch
             {
-                "settings.get" => ReadSettings(),
-                "state.get" => ReadRuntimeState().State,
-                "state.save" => SaveRuntimeState(parameters),
-                "papers.list" => _papers.List(),
-                "papers.setTitle" => SetPaperTitle(parameters),
-                "papers.setHeaderText" => SetPaperHeader(parameters),
-                "papers.setCapsulePresentation" => SetPaperCapsule(parameters),
-                "papers.postBody" => PostPaperBody(parameters),
-                "topbar.global.set" => SetGlobalActions(parameters),
-                "todoActions.set" => SetTodoActions(parameters),
-                "todoActions.clear" => ClearTodoActions(parameters),
-                "todoActions.clearAll" => ClearTodoActions(),
-                "topbar.labels.set" => SetTopBarLabels(parameters),
-                "topbar.labels.clear" => ClearTopBarLabels(parameters),
-                "topbar.labels.clearAll" => ClearTopBarLabels(),
-                _ => WebPluginWorkspaceRequests.Execute(_workspace, method, parameters)
+                HostRequestRoute.Workspace =>
+                    WebPluginWorkspaceRequests.Execute(_workspace, method, parameters),
+                HostRequestRoute.SettingsGet => ReadSettings(),
+                HostRequestRoute.StateGet => ReadRuntimeState().State,
+                HostRequestRoute.StateSave => SaveRuntimeState(parameters),
+                HostRequestRoute.RuntimePapersList => _papers.List(),
+                HostRequestRoute.RuntimePapersSetTitle => SetPaperTitle(parameters),
+                HostRequestRoute.RuntimePapersSetHeaderText => SetPaperHeader(parameters),
+                HostRequestRoute.RuntimePapersSetCapsulePresentation => SetPaperCapsule(parameters),
+                HostRequestRoute.RuntimePapersPostBody => PostPaperBody(parameters),
+                HostRequestRoute.GlobalTopBarSet => SetGlobalActions(parameters),
+                HostRequestRoute.TodoActionsSet => SetTodoActions(parameters),
+                HostRequestRoute.TodoActionsClear => ClearTodoActions(parameters),
+                HostRequestRoute.TodoActionsClearAll => ClearTodoActions(),
+                HostRequestRoute.TopBarLabelsSet => SetTopBarLabels(parameters),
+                HostRequestRoute.TopBarLabelsClear => ClearTopBarLabels(parameters),
+                HostRequestRoute.TopBarLabelsClearAll => ClearTopBarLabels(),
+                _ => throw new PaperTodoPluginException(
+                    "method_not_found",
+                    $"Unknown PaperTodo Runtime method: {method}")
             };
             Send(new { type = "hostResponse", requestId, ok = true, result });
         }
@@ -708,6 +746,44 @@ internal sealed class WebPluginRuntime : IDisposable
         property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? string.Empty
             : string.Empty;
+
+    private static HostRequestRoute ResolveHostRequestRoute(JsonElement payload, string method)
+    {
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("target", out var target))
+        {
+            if (target.ValueKind == JsonValueKind.String &&
+                string.Equals(target.GetString(), "workspace", StringComparison.Ordinal))
+            {
+                return HostRequestRoute.Workspace;
+            }
+
+            throw new PaperTodoPluginException(
+                "invalid_params",
+                "target must be 'workspace' when provided.");
+        }
+
+        return method switch
+        {
+            "settings.get" => HostRequestRoute.SettingsGet,
+            "state.get" => HostRequestRoute.StateGet,
+            "state.save" => HostRequestRoute.StateSave,
+            "papers.list" => HostRequestRoute.RuntimePapersList,
+            "papers.setTitle" => HostRequestRoute.RuntimePapersSetTitle,
+            "papers.setHeaderText" => HostRequestRoute.RuntimePapersSetHeaderText,
+            "papers.setCapsulePresentation" =>
+                HostRequestRoute.RuntimePapersSetCapsulePresentation,
+            "papers.postBody" => HostRequestRoute.RuntimePapersPostBody,
+            "topbar.global.set" => HostRequestRoute.GlobalTopBarSet,
+            "todoActions.set" => HostRequestRoute.TodoActionsSet,
+            "todoActions.clear" => HostRequestRoute.TodoActionsClear,
+            "todoActions.clearAll" => HostRequestRoute.TodoActionsClearAll,
+            "topbar.labels.set" => HostRequestRoute.TopBarLabelsSet,
+            "topbar.labels.clear" => HostRequestRoute.TopBarLabelsClear,
+            "topbar.labels.clearAll" => HostRequestRoute.TopBarLabelsClearAll,
+            _ => HostRequestRoute.Workspace
+        };
+    }
 
     private object SetGlobalActions(JsonElement parameters)
     {

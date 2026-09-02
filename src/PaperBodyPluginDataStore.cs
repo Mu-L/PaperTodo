@@ -164,7 +164,7 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
                 return false;
             }
 
-            // The 1 MiB limit is a write contract. Existing on-disk state is still readable even
+            // The 10 MiB limit is a write contract. Existing on-disk state is still readable even
             // when it came from an older host or was edited outside PaperTodo.
             state = new PaperBodyStoredState
             {

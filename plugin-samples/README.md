@@ -10,7 +10,7 @@
 
 当前宿主只接受 `2.1` 插件。清理前的实验性 `2.0` 以及更早 manifest 不再兼容加载；旧插件需要更新 manifest，并使用当前 `PaperTodo.Plugin.Abstractions` 重新构建。
 
-插件公开类型以 [`../PaperTodo.Plugin.Abstractions/`](../PaperTodo.Plugin.Abstractions/) 为编译期合同；宿主实际校验和运行行为以当前代码为准。需要理解 PaperTodo 内部 ownership 时再看 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)，插件作者不需要先阅读主程序架构才能开始开发。
+插件公开类型以 [`../PaperTodo.Plugin.Abstractions/`](../PaperTodo.Plugin.Abstractions/) 为编译期合同；宿主实际校验和运行行为以当前代码为准。需要理解 PaperTodo 内部 ownership 时再看 [`../doc/ARCHITECTURE.md`](../doc/ARCHITECTURE.md)，插件作者不需要先阅读主程序架构才能开始开发。
 
 > **信任边界：PaperTodo 不为插件提供安全沙箱。** Native 与 Web 插件都应视为可信代码，只安装可信来源的插件。
 
@@ -77,7 +77,7 @@ plugins/com.example.hello/
 </script>
 ```
 
-开发时把 `plugin.json` 和 `web/` 复制到对应 `plugins/<id>/`。**PaperTodo 不提供插件 Reload；安装、删除或修改插件文件后统一重启 PaperTodo 生效。**
+开发时把 `plugin.json` 和 `web/` 复制到对应 `plugins/<id>/`。**PaperTodo 不提供插件级热重载；安装、删除或修改插件文件后统一重启 PaperTodo 生效。** `PaperBodyContext.Body.RequestReload()` 只重建当前 Body session，不会重新扫描 manifest、替换 Native DLL 或重启 provider Runtime。
 
 ### 1.2 最小 Native 插件
 
@@ -210,7 +210,7 @@ plugins/
    └─ .runtime/
 ```
 
-`data` 是宿主保留 ID。插件 ID 必须由 3～120 个 ASCII 字母、数字、`.`、`_`、`-` 组成。
+`data` 和 `builtin.markdown` 是宿主保留 ID。插件 ID 必须由 3～120 个 ASCII 字母、数字、`.`、`_`、`-` 组成；以 `.` 或 `_` 开头的目录不会被 discovery。
 
 Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XML，也不要重复携带宿主共享的 `PaperTodo.Plugin.Abstractions`、Windows SDK / WinRT 或 WebView2 共享程序集。
 
@@ -226,7 +226,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 | `description` | 插件说明 |
 | `version` | 插件版本，必须能解析为 `Version` |
 | `apiVersion` | 必须为 `"2.1"` |
-| `stateVersion` | per-paper state 版本，至少为 1 |
+| `stateVersion` | 宿主代管 JSON 的目标版本；同时用于 per-paper frontend state 和 provider Runtime state，至少为 1 |
 | `maxPaperInstances` | 可选；同一 Provider 最多允许存在的真实 Paper 数。省略默认 `1`，`0` 表示不限制；隐藏/折叠 Paper 仍计数 |
 | `entry` | Web 主页面或 Native 入口 DLL，必须位于插件目录内 |
 | `miniEntry` | 可选，仅 Web；专属 Edge Mini 页面 |
@@ -243,7 +243,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 
 `maxPaperInstances` 是 Paper/provider 级产品约束，对 Native 与 Web 一致生效；插件更新后如果已有实例超过新上限，宿主不会删除现有 Paper，只会阻止继续新增。
 
-未知 `permissions` 会拒绝加载。`runtime` 是 provider 的单后台生命周期声明，不会变成 `PaperBodyCapabilities` 的 body flag。
+未知 `capabilities` 或 `permissions` 会拒绝加载。`runtime` 是 provider 的单后台生命周期声明，不会变成 `PaperBodyCapabilities` 的 body flag。
 
 ### 3.1 Web `entry` / `miniEntry`
 
@@ -266,7 +266,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 
 没有 `miniEntry` 时不能声明 `miniSize`；Web 插件声明 `miniMaxSize` 时也必须有 `miniEntry`。`miniSize` 不能超过 `miniMaxSize`。
 
-### 3.3 `startupPaper`
+### 3.2 `startupPaper`
 
 插件可以让一个 boolean setting 控制“启动后自动创建或恢复一张插件纸片”：
 
@@ -298,7 +298,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 - 创建时机、去重和恢复由宿主管理；插件只声明意图；
 - 如果用户已经把原自动创建纸片改造成其他 provider/type，宿主不会强行接管或偷偷再创建副本。
 
-### 3.4 `runtime`（2.1）
+### 3.3 `runtime`（2.1）
 
 插件需要脱离 Body/Mini UI 生命周期持续运行时声明：
 
@@ -308,7 +308,7 @@ Native 最终目录只保留运行所需内容。不要分发无必要的 PDB/XM
 
 规则只有一套：
 
-- `startupPaper` 先按设置创建/恢复真实插件 Paper；
+- 正常可见启动时，`startupPaper` 先按设置创建/恢复真实插件 Paper；
 - provider 有至少一张真实 Paper 时启动 **一个** Runtime，最后一张离开 provider 时 Dispose；
 - 隐藏、折叠、Body 重建、Mini 回收以及当前没有 `PaperWindow` 都不影响 Runtime；
 - 不存在“每 Paper 后台”协议；多开仍然共用这一个 Runtime，通过 `PaperId` 区分逻辑实例；
@@ -385,18 +385,20 @@ public sealed class MyPlugin : IPaperBodyPlugin, IPaperPluginRuntimeProvider
 
 - `Settings`：当前全局设置 + 变更订阅；
 - `State`：provider Runtime 自己的一份持久 JSON；
-- `Papers`：列出逻辑 Paper，按 `paperId` 设置长期 presentation、向 Body 发消息、接收 Paper 增删/前端消息；
+- `Papers`：列出当前 provider 的逻辑 Paper，按 `paperId` 设置长期 presentation、向 Body 发消息、接收 Paper 增删/前端消息；Runtime 启动时先 `List()` 取快照，再 `Subscribe(...)` 接收增量，订阅不会补发既有 Paper；
 - `Workspace`；
 - `GlobalTopBar` / `GlobalShortcuts`；
 - `TodoActions` / `TopBarLabels`：Protocol 2.1 的宿主绘制 contribution。
 
-Web Runtime 获得对应的 `papertodo.settings`、`papertodo.state`、`papertodo.papers`、`papertodo.workspace`。一个 provider 只创建一个隐藏 Runtime WebView。
+Web Runtime 获得对应的 `papertodo.settings`、`papertodo.state`、`papertodo.papers`、`papertodo.workspace` 和 root `papertodo.request(method, params)`。`state` 读写 provider Runtime state；`papers` 只管理属于当前 provider 的逻辑 Paper；`workspace` 是按权限访问整个 PaperTodo 数据的 API。一个 provider 只创建一个隐藏 Runtime WebView。
+
+因此两个 `papers.list` 含义不同：`papertodo.papers.list()` 只返回当前 provider 的 Runtime Paper 快照，`papertodo.workspace.request('papers.list')` 返回当前权限可见的 Workspace Paper。root `papertodo.request(...)` 是底层 Runtime transport；日常代码优先使用上面的分组 API，避免同名 method 混淆。
 
 Runtime state 与 Body/Mini 的 per-paper frontend state 是不同数据：Runtime 可以自己在 provider state 中维护 `instances[paperId]`；Body 的 `saveState` 只保存该 Paper 前端状态，不与 Runtime 抢 writer。
 
 ## 5. 状态、设置与 `.runtime`
 
-### 5.1 Per-paper state
+### 5.1 宿主代管状态
 
 每个插件的宿主管理状态位于：
 
@@ -409,9 +411,11 @@ plugins/data/<插件 ID>.json
 - `settings`：该插件所有纸片共享；
 - `runtime`：provider Runtime 的一份后端 state；
 - `papers`：按 Paper ID 保存 Body/Mini 前端 state；
-- 每张纸片 state 的保存上限是 **10 MiB UTF-8 JSON**。
+- 每张纸片 state 的保存上限是 **10 MiB UTF-8 JSON**，整个 provider Runtime state 的上限是 **20 MiB UTF-8 JSON**。
 
-Native 使用：
+manifest 的一个 `stateVersion` 同时是这两个独立状态域的目标版本，但两者不共享 JSON，也不互相覆盖。
+
+Native Body session 使用：
 
 ```csharp
 context.StateJson
@@ -420,16 +424,16 @@ context.TargetStateVersion
 context.SaveStateJson(json)
 ```
 
-状态变化后应立即提交给宿主，不要只依赖 session `Commit()`。如果 Native 已保存版本低于当前 `StateVersion`，通过 `IPaperBodyPlugin.MigrateState(...)` 转换后再创建 session；保存数据比插件声明版本更新时，宿主不会猜测降级。
+状态变化后应立即提交给宿主，不要只依赖 session `Commit()`。Native Body 的已保存版本低于 manifest `stateVersion` 时，宿主会在创建 session 前调用 `IPaperBodyPlugin.MigrateState(...)`。
 
-Web 使用：
+Web Body/Mini 使用：
 
 ```js
 papertodo.saveState(nextState);
 papertodo.registerStateProvider(() => currentState);
 ```
 
-`initialize` 同时提供 `state`、`stateVersion`、`targetStateVersion`。Web 插件自己负责把旧 shape 归一化为当前 shape，并在真实迁移后保存；不要因为解析失败直接用空对象覆盖仍可能有价值的状态。
+Body、Mini 和 Web Runtime 的 `initialize` 都提供各自状态域的 `state`、`stateVersion`、`targetStateVersion`。Web 插件自己负责把旧 shape 归一化为当前 shape，并在真实迁移后保存。Native Runtime 不调用 Body 的 `MigrateState(...)`，而是比较 `context.State.StateVersion` / `TargetStateVersion` 并在迁移后显式调用 `State.Save(...)`。已保存版本高于目标版本时，Body 不会创建、Runtime 不会启动，宿主也不会猜测降级；不要因为解析失败直接用空对象覆盖旧状态。
 
 ### 5.2 恢复行为
 
@@ -445,6 +449,8 @@ papertodo.registerStateProvider(() => currentState);
 ### 5.3 全局 settings
 
 宿主支持：`boolean`、`string`、`number`、`select`、`shortcut`。设置仍只有一份存储和读写协议，下面两种只是宿主展示方式。
+
+`shortcut` 的 `shortcutAction`、宿主 `paper.*` 动作和自定义 Runtime action 规则见 [`PROTOCOL-2.1-SHORTCUTS.md`](PROTOCOL-2.1-SHORTCUTS.md)。
 
 默认不声明 `advancedSettings`（或为 `false`）时，行为保持原样：最多三个 `quick: true` 设置直接显示在插件卡片上，其余设置通过“更多设置”在**当前卡片内**展开/收起。没有 `quick` 时不会自动猜主要设置。
 
@@ -473,7 +479,7 @@ papertodo.registerStateProvider(() => currentState);
 
 Native paper session 从 `SettingsJson` 读取初始设置，并通过 `OnSettingsChanged` 接收更新。Web body 从 `initialize.settings` 读取，并接收 `settingsChanged`。
 
-Runtime 不借用 paper-session settings 生命周期：Native 随时读取 `PaperPluginRuntimeContext.Settings.Json`；Web Runtime 的 `initialize.settings` 提供启动快照，需要最新值时调用 `await papertodo.settings.get()`。当前不为 Runtime 复制一套 `settingsChanged` 事件状态机。
+Runtime 不借用 paper-session settings 生命周期：Native 随时读取 `PaperPluginRuntimeContext.Settings.Json` 或订阅 `Settings.Subscribe(...)`；Web Runtime 的 `initialize.settings` 提供启动快照，后续变更会收到 `settingsChanged`，也可调用 `await papertodo.settings.get()` 主动读取最新值。
 
 ### 5.4 `.runtime/`
 
@@ -586,7 +592,7 @@ Top Bar 有两个明确 owner：
 
 Global action 使用 `Priority` 排序，数值越大越靠前；同优先级先按 provider runtime 注册顺序，再按插件声明顺序，保证稳定。**PaperTodo 自己的宿主 action 不进入这个数值空间，拥有不可被插件覆盖的最高优先级。** 窗口宽度不足时插件 contribution 先让位，不会因为插件声明很多 Global action 而先把宿主 action 挤掉。
 
-启动时先处理 `startupPaper`。它可能先创建/恢复实体插件 paper；随后宿主按最终实体 paper 集合启动对应 Global runtime。运行中第一张实体 paper 出现会启动，最后一张被删除或切走 provider 会 Dispose；删除/隐藏/折叠非最后一张不会撤销 Global action。
+正常可见启动时先处理 `startupPaper`。它可能先创建/恢复实体插件 paper；随后宿主按最终实体 paper 集合启动对应 Global runtime。运行中第一张实体 paper 出现会启动，最后一张被删除或切走 provider 会 Dispose；删除/隐藏/折叠非最后一张不会撤销 Global action。
 
 Global 点击包含：`TargetPaperId`、`TargetPaperType`、`TargetBodyProviderId`。`TargetBodyProviderId` 只对 Note 有意义；Todo 等非 Note 目标返回空字符串。插件据此通过 Runtime Workspace 读取或修改目标 Markdown/Todo；Top Bar 自己不拥有业务数据接口。
 
@@ -701,13 +707,21 @@ manifest：
 
 `runtime` 可省略；省略时默认使用 `entry` 同目录的 `runtime.html`。显式路径仍以插件目录为基准，并且必须位于 Web `entry` 的静态目录内。
 
-当 provider 至少有一张实体插件 paper 时，该 app 页面获得：
+当 provider 至少有一张实体插件 paper 时，该 Runtime 页面获得：
 
 ```js
-papertodo.surface;                    // 'app'
+papertodo.surface;                    // 'runtime'
 papertodo.workspace.request(method, params);
 papertodo.settings.get();
+papertodo.state.get();
+papertodo.state.save(state);
+papertodo.papers.list();
+papertodo.papers.setTitle(paperId, title);
+papertodo.papers.setHeaderText(paperId, text);
+papertodo.papers.setCapsulePresentation(paperId, presentation);
+papertodo.papers.postBody(paperId, message);
 papertodo.globalTopBar.setActions(actions);
+papertodo.request(method, params);    // root transport
 papertodo.onEvent(listener);
 ```
 
@@ -738,7 +752,7 @@ papertodo.onEvent(async message => {
 });
 ```
 
-Runtime 是独立 app surface，不获得 `paper`、`body`、`mini` presentation API。runtime document 导航、renderer failure、最后一张实体插件 paper 消失或 Runtime Dispose 都会撤掉 Global action。Web Mini 也不能注册 Global Top Bar。
+Runtime 是独立 backend surface，不获得 `paper`、`body`、`mini` presentation API。runtime document 导航、renderer failure、最后一张实体插件 paper 消失或 Runtime Dispose 都会撤掉 Global action。Web Mini 也不能注册 Global Top Bar。
 
 完整可运行示例见 `PaperTodo.Plugin.TopBarWeb`。
 
@@ -906,6 +920,7 @@ papertodo.paper.setCapsulePresentation(value);
 papertodo.body.setInputClaims(['escapeKey', 'contextMenu']);
 papertodo.body.markDirty();
 papertodo.body.openExternal(url);
+papertodo.runtime.post(message);
 papertodo.workspace.request(method, params);
 papertodo.request(method, params);           // Paper Top Bar 使用 root transport
 papertodo.onHostEvent(types, listener, options);
@@ -931,6 +946,7 @@ hostResponse
 hostEvent
 hostSubscriptionError
 topBarActionInvoked
+runtimeMessage
 ```
 
 `initialize` 包含当前 surface、paper/provider ID、API/state 版本、state、settings、permissions、theme、runtime visibility 和 presentation visibility。
@@ -949,31 +965,50 @@ papertodo.paper.setHeaderText(text);
 papertodo.paper.setCapsulePresentation(value);
 papertodo.body.markDirty();
 papertodo.body.openExternal(url);
+papertodo.runtime.post(message);
 papertodo.workspace.request(method, params);
 papertodo.onEvent(listener);
 ```
 
 Mini 没有正文的 `setInputClaims`，也不能注册 Top Bar。键盘焦点始终不属于 Edge Mini；pointer 默认归宿主，只有 `data-papertodo-interactive` 局部区域交给网页。Mini 的 host-request 路由只接受当前列出的 Workspace 数据方法，不按方法名前缀自动继承未来宿主能力。
 
+Body/Mini 的 `runtime.post(...)` 只表示当前 provider Runtime 是否接受消息，不是业务 ACK 或持久消息队列。
+
 ### 10.4 Plugin runtime bridge
 
-声明 `runtime` 的 Web 插件在 provider 至少有一张实体插件 paper 时创建独立 app surface。manifest 的 `runtime` 可自定义入口；省略时默认 `entry` 同目录 `runtime.html`：
+声明 `runtime` 的 Web 插件在 provider 至少有一张实体插件 paper 时创建独立 Runtime surface。manifest 的 `runtime` 可自定义入口；省略时默认 `entry` 同目录 `runtime.html`：
 
 ```js
-papertodo.surface;                    // 'app'
+papertodo.surface;                    // 'runtime'
 papertodo.workspace.request(method, params);
 papertodo.settings.get();
+papertodo.state.get();
+papertodo.state.save(state);
+papertodo.papers.list();
+papertodo.papers.setTitle(paperId, title);
+papertodo.papers.setHeaderText(paperId, text);
+papertodo.papers.setCapsulePresentation(paperId, presentation);
+papertodo.papers.postBody(paperId, message);
 papertodo.globalTopBar.setActions(actions);
 papertodo.todoActions.set(paperId, todoId, actions);
+papertodo.todoActions.clear(paperId, todoId);
+papertodo.todoActions.clearAll();
 papertodo.topBarLabels.set(paperId, labels);
+papertodo.topBarLabels.clear(paperId);
+papertodo.topBarLabels.clearAll();
+papertodo.request(method, params);    // root transport
 papertodo.onEvent(listener);
 ```
 
-Runtime 的 `initialize` 包含当前 `settings` 快照；需要读取最新宿主管理设置时使用 `await papertodo.settings.get()`。它没有 `paper`、`body`、`mini`、`saveState` 等 paper-session API，也不复制 body 的 `settingsChanged` / Web `onHostEvent` bridge。
+Runtime 的 `initialize` 包含 `settings`、provider Runtime `state` 及其版本、当前 provider `papers` 快照；后续设置变更会收到 `settingsChanged`，Paper 增删和 Body 消息会收到 `paperEvent`。它没有 `paper`、`body`、`mini`、`saveState` 等 paper-session API，也没有 Web `onHostEvent` 订阅 bridge。
+
+`papertodo.papers.postBody(...)` / Native `Papers.PostToBody(...)` 只尝试交给当前 live Body，返回值表示该 Body 当前是否接受（Web Body 可能暂存至 document ready）；它不是持久消息队列，也不是业务 ACK 或最终送达保证。
 
 ### 10.5 状态写入
 
 每次真实 paper-session state mutation 后尽快 `saveState`。`registerStateProvider` 只是让宿主在 `commitRequested`、页面隐藏/卸载等边界尽量 flush 当前状态，不应被当作唯一 durability 机制。
+
+Runtime state mutation 后则尽快调用 Native `context.State.Save(json)` 或 Web `papertodo.state.save(state)`。Runtime 没有 `registerStateProvider` / `commitRequested` flush。
 
 ## 11. Native 插件
 
@@ -1014,7 +1049,7 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 
 - 新插件仍以 `apiVersion: "2.0"` 或更早版本为目标；当前宿主只接受 `2.1`；
 - 插件目录名和 `id` 不一致；
-- `id` 使用非法字符或保留 ID `data`；
+- `id` 使用非法字符或宿主保留 ID `data` / `builtin.markdown`；
 - Web 声明 `runtime`，但默认 `runtime.html` 不存在，或显式 `runtime` 路径不存在/跑出 Web `entry` 静态目录；
 - Native 声明 `runtime` 却没有实现 `IPaperPluginRuntimeProvider`；
 - 以为只安装插件、零实体插件 paper 时也会启动 Runtime；
@@ -1023,10 +1058,10 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - `miniSize` 没有对应 `miniEntry`；
 - `miniSize` 超过 `miniMaxSize`，或 Web 声明 `miniMaxSize` 却没有 `miniEntry`；
 - Web `miniEntry` 跑出 `entry` 静态目录；
-- Native manifest 与 DLL 的 id/version/API/state/runtime requirements 不一致；
+- 还在入口 DLL 中维护另一份 id/version/API/state/runtime metadata；`plugin.json` 才是唯一 authority；
 - `quick: true` 超过三个；
 - `startupPaper.enabledSetting` 没有指向 boolean setting；
-- 声明未知 `requires` / `permissions`。
+- 声明未知 `capabilities` / `permissions`。
 
 ### Top Bar
 
@@ -1080,10 +1115,10 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 ## 14. 提交插件前
 
 - `plugin.json` 使用当前目标 `apiVersion: "2.1"`；
-- Native manifest 与入口 DLL metadata/runtime requirements 一致；
+- 所有 metadata 只在 `plugin.json` 中声明，Native 入口 DLL 只提供行为实现；
 - 声明 `runtime` 时：Native 实现 `IPaperPluginRuntimeProvider`；Web 默认提供 `entry` 同目录 `runtime.html`，或用 `runtime` 指定同一 Web 静态目录内的其他入口；
-- Runtime 需要插件设置时只读取自己的 `context.Settings.Json` / `papertodo.settings.get()`，不借用隐藏 paper session；
-- startupPaper 先决定是否创建/恢复实体插件 paper；Runtime 再按最终实体 paper 数量启动；
+- Runtime 需要插件设置时使用自己的 `context.Settings.Json` + `Settings.Subscribe(...)` / `papertodo.settings.get()` + `settingsChanged`，不借用隐藏 paper session；
+- 正常可见启动时 startupPaper 先决定是否创建/恢复实体插件 paper；Runtime 始终按最终实体 paper 数量启动；
 - Global Top Bar 只由 Runtime 注册：删除非最后一张不应消失，删除/改造最后一张必须撤销；Global action 用 `Priority` 表达插件内部优先级，宿主 action 始终更高；
 - Native 使用统一 build/install 脚本跑通；
 - 最终 `plugins/<id>/` 不包含 PDB/XML/重复 shared assemblies；
@@ -1097,7 +1132,3 @@ Native 插件是 fully trusted / unsandboxed .NET/WPF 代码，与 PaperTodo 当
 - Edge Mini 不依赖键盘输入；
 - 只声明实际需要的 permissions / `runtime`；
 - 切换 provider、删除 paper 时 0↔1 Runtime ownership 正确；退出 PaperTodo 后 Runtime 与 Global Top Bar 完整撤销。
-
-### PluginRuntime 初始化与状态约定
-
-Runtime 启动时先调用 `Papers.List()` 获取当前全部 Paper，再用 `Papers.Subscribe(...)` 接收后续 `PaperAdded` / `PaperRemoved` / `Message`；订阅不会补发启动前已经存在的 Paper。每张 Paper 的 frontend/body state 最多 10 MiB，整个 provider 的 PluginRuntime state 最多 20 MiB，两者互不占用对方额度。`runtime.post(...)` 只表示当前 Runtime 真正接受了消息；Runtime/Web renderer 暂不可用时会明确失败，插件按自己的业务语义决定是否重试。
