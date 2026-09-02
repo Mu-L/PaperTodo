@@ -26,15 +26,22 @@ This log is written for general and power users alike. It focuses on user-facing
   - **Intent Prediction & Seamless Handoff**: Built-in mouse motion intent prediction ensures smooth, continuous transitions when gliding between adjacent capsules, retracting cleanly when leaving the dock corridor.
   - **Unified Geometry & Drag Protection**: Preview cards automatically hide during capsule drag-and-drop reordering; empty todo and note papers display in a clean, ultra-compact card size.
 
-**Plugin System & Note Extensions (Protocol 2.1)**
-
-- **Paper Body Plugin Ecosystem**: Note papers can be seamlessly switched into local Web plugins or native WPF plugins. Features a dedicated "Plugins" management page in Settings. Adheres to Protocol 2.1 without rigid security sandboxes (only install trusted plugins).
-  - **Core Plugin Capabilities**: Plugins can declare read/write permissions for Paper/Todo/Note data, contribute custom top-bar action buttons, register global hotkeys, control paper visibility/folding/focus, share the background app runtime, manage isolated settings panels, and auto-restore dedicated startup papers.
-  - **Native Host Extensions**: Plugins can add right-side icons and context-menu actions for todo items, contribute non-clickable status tags and clickable action buttons to any paper's top bar, receiving real-time item state snapshots upon trigger.
-  - **Input Takeover & Lifecycle**: Plugins can declare exclusive capture of the <kbd>Esc</kbd> key and right-click context menu, returning control cleanly to the host upon exiting plugin sessions.
-  - **Custom Capsules & Dedicated Mini Views**: Plugins can define custom collapsed capsule visuals (icons, text, dynamic progress rings/bars, or pure WPF drawings) and provide dedicated lightweight mini card views for edge hover.
-  - **Web Plugin Link Routing**: External hyperlinks and file downloads inside Web plugins are automatically handed off to the system's default browser.
-  - **Bundled Samples**: Includes native clock, Pomodoro timer, review pool, Cloud Genshin launcher, Web clock, and Web top-bar sample plugins in `plugin-samples/`.
+- **Plugin System & Desktop Micro-Apps**
+  - **Desktop Micro-App Container**: Note papers can be transformed on demand into dedicated desktop micro-apps (such as Pomodoro timers, analog clocks, review pools, or system monitors). Added a dedicated "Plugins" management center in Settings, with data safely isolated and stored under `plugins/data/`.
+    - **Web / Native Dual-Mode Runtime Architecture**:
+      - **Web Plugins**: Built on Windows WebView2 using standard web technologies (HTML/CSS/JS), ready to run without compilation.
+      - **Native Plugins**: Built on .NET 10 + WPF for high-performance, fully custom-rendered desktop interactions.
+      - **Three-Tier Runtime Model Separation**: Clearly separates **Body Frontend**, **Edge Mini Hover Frontend**, and **Provider Runtime Daemon Backend**.
+    - **Comprehensive Host Open Capabilities**:
+      - **Custom Capsules & Dedicated Mini Views**: Plugins can customize collapsed capsule appearances (supporting icons, text, dynamic progress rings/bars, or pure WPF custom rendering) and provide lightweight mini card views for edge hover.
+      - **Deep Todo Integration**: Plugins can contribute right-side action icons and context-menu actions to todo items.
+      - **Top Bar & Key Capture**: Plugins can add action buttons and status tags to the paper's top bar, register dedicated global hotkeys, and declare exclusive capture of the <kbd>Esc</kbd> key and context menus.
+      - **Managed State & Advanced Settings Panel**: The host manages isolated settings and versioned JSON states (with 10MB/20MB capacity caps and migration support); supports declaring `advancedSettings` to automatically generate categorized settings pages, and `startupPaper` to automatically restore dedicated papers on app launch.
+    - **Notes & Samples**:
+      - **Security**: No artificial security sandbox is enforced; only install third-party plugins from trusted sources.
+      - **Samples**:
+        - The `plugin-samples/` directory provides complete source code for native clock, Pomodoro timer, review pool, and Web clock, fully adapted to narrow windows, capsules, and Mini views.
+        - Pre-built plugins in the `plugins/` directory can be used directly.
 
 **Todo & Markdown Enhancements**
 
