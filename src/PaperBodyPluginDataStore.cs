@@ -64,11 +64,24 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
     private readonly HashSet<string> _dirtyProviderIds = new(StringComparer.Ordinal);
     private readonly Timer _saveTimer;
     private readonly Timer _forceSaveTimer;
+    private readonly IDurableAtomicFileWriter _atomicWriter;
+    private bool _suppressFinalFlushOnDispose;
     private bool _disposed;
 
     public PaperBodyPluginDataStore(string pluginRoot)
+        : this(pluginRoot, DurableAtomicFileWriter.Shared)
     {
+    }
+
+    internal PaperBodyPluginDataStore(
+        string pluginRoot,
+        IDurableAtomicFileWriter atomicWriter)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pluginRoot);
+        ArgumentNullException.ThrowIfNull(atomicWriter);
+
         DataRoot = Path.Combine(pluginRoot, "data");
+        _atomicWriter = atomicWriter;
         _saveTimer = new Timer(
             _ => FlushDirty(),
             null,
@@ -469,6 +482,11 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
     {
         var startForceTimer = _dirtyProviderIds.Count == 0;
         _dirtyProviderIds.Add(providerId);
+        if (_suppressFinalFlushOnDispose)
+        {
+            return;
+        }
+
         _saveTimer.Change(SaveDebounceMilliseconds, Timeout.Infinite);
         if (startForceTimer)
         {
@@ -480,7 +498,9 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _dirtyProviderIds.Count == 0)
+            if (_disposed ||
+                _suppressFinalFlushOnDispose ||
+                _dirtyProviderIds.Count == 0)
             {
                 return;
             }
@@ -505,7 +525,7 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
 
     private void UpdateSaveTimersAfterFlush()
     {
-        if (_dirtyProviderIds.Count == 0)
+        if (_suppressFinalFlushOnDispose || _dirtyProviderIds.Count == 0)
         {
             _saveTimer.Change(Timeout.Infinite, Timeout.Infinite);
             _forceSaveTimer.Change(Timeout.Infinite, Timeout.Infinite);
@@ -518,14 +538,12 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
 
     private void SaveNow(string providerId, PluginDataDocument document)
     {
-        Directory.CreateDirectory(DataRoot);
         var useRecovered = _recoveredProviderIds.Contains(providerId);
         var path = useRecovered
             ? RecoveredDataPath(providerId)
             : DataPath(providerId);
-        var tempPath = path + ".tmp";
-        File.WriteAllText(tempPath, JsonSerializer.Serialize(document, JsonOptions));
-        File.Move(tempPath, path, overwrite: true);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(document, JsonOptions);
+        _atomicWriter.Write(path, bytes);
 
         if (useRecovered)
         {
@@ -535,6 +553,23 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
                 RecoveredFileExists: true,
                 UsingEmptyState: false,
                 existingIssue?.Details ?? "");
+        }
+    }
+
+    internal void SuppressFinalFlushOnDispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            // Waiting for the gate lets any write already inside FlushDirty/SaveNow finish first.
+            // Once this flag is set, queued timer callbacks and disposal must not start new writes.
+            _suppressFinalFlushOnDispose = true;
+            _saveTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            _forceSaveTimer.Change(Timeout.Infinite, Timeout.Infinite);
         }
     }
 
@@ -570,15 +605,18 @@ internal sealed class PaperBodyPluginDataStore : IDisposable
 
             _saveTimer.Change(Timeout.Infinite, Timeout.Infinite);
             _forceSaveTimer.Change(Timeout.Infinite, Timeout.Infinite);
-            foreach (var providerId in _dirtyProviderIds.ToArray())
+            if (!_suppressFinalFlushOnDispose)
             {
-                try
+                foreach (var providerId in _dirtyProviderIds.ToArray())
                 {
-                    SaveNow(providerId, Load(providerId));
-                    _dirtyProviderIds.Remove(providerId);
-                }
-                catch
-                {
+                    try
+                    {
+                        SaveNow(providerId, Load(providerId));
+                        _dirtyProviderIds.Remove(providerId);
+                    }
+                    catch
+                    {
+                    }
                 }
             }
             _disposed = true;
