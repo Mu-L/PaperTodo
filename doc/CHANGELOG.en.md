@@ -30,7 +30,7 @@ This log is written for general and power users alike. It focuses on user-facing
 
 - **Paper Body Plugin Ecosystem**: Note papers can be seamlessly switched into local Web plugins or native WPF plugins. Features a dedicated "Plugins" management page in Settings. Adheres to Protocol 2.1 without rigid security sandboxes (only install trusted plugins).
   - **Core Plugin Capabilities**: Plugins can declare read/write permissions for Paper/Todo/Note data, contribute custom top-bar action buttons, register global hotkeys, control paper visibility/folding/focus, share the background app runtime, manage isolated settings panels, and auto-restore dedicated startup papers.
-  - **Protocol 2.1 Native Host Extensions**: Plugins can contribute inline and context-menu actions for todo items (rendered natively by PaperTodo) and add non-clickable status tags to any paper's top bar. Actions receive real-time item state snapshots upon trigger.
+  - **Native Host Extensions**: Plugins can add right-side icons and context-menu actions for todo items, contribute non-clickable status tags and clickable action buttons to any paper's top bar, receiving real-time item state snapshots upon trigger.
   - **Input Takeover & Lifecycle**: Plugins can declare exclusive capture of the <kbd>Esc</kbd> key and right-click context menu, returning control cleanly to the host upon exiting plugin sessions.
   - **Custom Capsules & Dedicated Mini Views**: Plugins can define custom collapsed capsule visuals (icons, text, dynamic progress rings/bars, or pure WPF drawings) and provide dedicated lightweight mini card views for edge hover.
   - **Web Plugin Link Routing**: External hyperlinks and file downloads inside Web plugins are automatically handed off to the system's default browser.
@@ -38,9 +38,10 @@ This log is written for general and power users alike. It focuses on user-facing
 
 **Todo & Markdown Enhancements**
 
+- **Unified Markdown Parsing & Consistency**: Headings, blockquotes, lists, code fences, links, basic HTML, escape sequences, and image codes now share unified Markdown semantics across both edit and read modes.
+- **Real-Time Markdown Rendering**: Full Markdown visual rendering is now also displayed live during editing.
 - **Continuous Swipe Multi-Selection**: Click and drag across the left side of todo items to continuously select multiple rows. Supports batch check/uncheck, batch copying, right-click batch deletion, or dragging the whole group to the trash bin.
 - **Enhanced Markdown Formatting**: Supports bold-italic syntax (`***text***` / `___text___`), natural combinations of bold, italic, strikethrough, and links, as well as backslash escaping for Markdown punctuation.
-- **Unified Markdown Parsing & Consistency**: Headings, blockquotes, lists, code fences, links, basic HTML, escape sequences, and image codes now share unified Markdown semantics across both edit and read modes.
 - **Incremental Note Rendering**: Standard note editing only refreshes affected local Markdown blocks. Multi-line code fence edits track actual ranges before refreshing, eliminating full-document re-parsing and IME typing lag.
 
 **Advanced Shortcuts & System Interactions**
@@ -62,6 +63,7 @@ This log is written for general and power users alike. It focuses on user-facing
 
 **Optimizations & Fixes**
 
+- **Enhanced Data Persistence Reliability**: Hardened primary state saving logic to prevent file loss under extreme conditions. Optimized backup cadence and added pre-update availability checks.
 - Optimized animation fluidity, multi-monitor switching, and window tracking in high-refresh (120Hz/144Hz+) and multi-DPI environments.
 - Fixed an issue where dragging an edge capsule to a secondary monitor could cause it to mistakenly snap back to the primary display when clicked.
 - Fixed select dropdown menus in Settings not fully adapting to the active theme palette.
