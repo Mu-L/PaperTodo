@@ -20,8 +20,25 @@ public sealed class StateStore
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Skip
     };
 
-    public string FilePath { get; } = Path.Combine(AppContext.BaseDirectory, "data.json");
-    public string BackupPath { get; } = Path.Combine(AppContext.BaseDirectory, "data.backup.json");
+    private readonly IDurableAtomicFileWriter _atomicWriter;
+
+    public StateStore()
+        : this(AppContext.BaseDirectory, DurableAtomicFileWriter.Shared)
+    {
+    }
+
+    internal StateStore(string dataDirectory, IDurableAtomicFileWriter atomicWriter)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        ArgumentNullException.ThrowIfNull(atomicWriter);
+
+        FilePath = Path.Combine(dataDirectory, "data.json");
+        BackupPath = Path.Combine(dataDirectory, "data.backup.json");
+        _atomicWriter = atomicWriter;
+    }
+
+    public string FilePath { get; }
+    public string BackupPath { get; }
     private bool _preserveRecoveredLoadFilesOnNextSave;
     private string? _preservedFailedPrimaryPath;
     private string? _preservedRecoveryBackupPath;
@@ -274,17 +291,12 @@ public sealed class StateStore
                 return true;
             }
 
-            var tempPath = BackupPath + ".tmp";
-            WriteBytesDurably(tempPath, primaryBytes);
-
-            if (!TryReadValidatedStateBytes(tempPath, out var writtenBytes) ||
-                !primaryBytes.AsSpan().SequenceEqual(writtenBytes))
-            {
-                TryDeleteFile(tempPath);
-                return false;
-            }
-
-            File.Move(tempPath, BackupPath, overwrite: true);
+            _atomicWriter.Write(
+                BackupPath,
+                primaryBytes,
+                tempPath =>
+                    TryReadValidatedStateBytes(tempPath, out var writtenBytes) &&
+                    primaryBytes.AsSpan().SequenceEqual(writtenBytes));
             return true;
         }
         catch
@@ -299,16 +311,8 @@ public sealed class StateStore
 
     private void WriteJsonInternal(string json)
     {
-        var directory = Path.GetDirectoryName(FilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
         var preserveRecoverySources = PreserveRecoveredLoadFilesIfNeeded();
-        var tempPath = FilePath + ".tmp";
-        WriteBytesDurably(tempPath, Encoding.UTF8.GetBytes(json));
-        File.Move(tempPath, FilePath, overwrite: true);
+        _atomicWriter.Write(FilePath, Encoding.UTF8.GetBytes(json));
 
         if (preserveRecoverySources)
         {
@@ -345,37 +349,6 @@ public sealed class StateStore
         {
             bytes = [];
             return false;
-        }
-    }
-
-    private static void WriteBytesDurably(string path, byte[] bytes)
-    {
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        using var stream = new FileStream(
-            path,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 16 * 1024,
-            FileOptions.SequentialScan);
-        stream.Write(bytes);
-        stream.Flush(flushToDisk: true);
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch
-        {
-            // A stale temp is safer than risking the last known-good backup.
         }
     }
 
