@@ -1,5 +1,8 @@
 using System.IO;
+using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 
 internal static class Program
@@ -20,6 +23,7 @@ internal static class Program
             CheckProtocolBoundaries(host);
             CheckSharedWebInfrastructure(host);
             CheckWebRuntimeRequestRouting(host);
+            CheckWebRuntimeBridgeBehavior(host);
             CheckUnifiedPluginRuntime(host, abstractions);
             CheckWebBodyNavigationIdentity(host);
             CheckManifestRuntimeAndMiniContracts(host);
@@ -385,6 +389,198 @@ internal static class Program
         AssertInvalidTarget("{\"target\":\"future-target\"}");
         AssertInvalidTarget("{\"target\":42}");
         AssertInvalidTarget("{\"target\":null}");
+    }
+
+    private static void CheckWebRuntimeBridgeBehavior(Assembly host)
+    {
+        var runtimeType = RequireType(host, "PaperTodo.WebPluginRuntime");
+        var buildBridge = runtimeType.GetMethod(
+            "BuildBridgeScript",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "Web Runtime bridge builder was not found.");
+        var executeHostRequest = runtimeType.GetMethod(
+            "ExecuteHostRequest",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                "Web Runtime host-request dispatcher was not found.");
+
+        const string expectedOrigin = "https://protocol-policy.test";
+        var bridgeScript = buildBridge.Invoke(null, [expectedOrigin]) as string
+            ?? throw new InvalidOperationException(
+                "Web Runtime bridge builder returned no script.");
+        var harness = """
+            'use strict';
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const posted = [];
+            const hostListeners = [];
+            const windowObject = {
+              location: { origin: 'https://protocol-policy.test' },
+              chrome: {
+                webview: {
+                  postMessage(value) { posted.push(value); },
+                  addEventListener(type, listener) {
+                    if (type === 'message') hostListeners.push(listener);
+                  }
+                }
+              },
+              addEventListener() {},
+              dispatchEvent() {}
+            };
+            windowObject.top = windowObject;
+            globalThis.window = windowObject;
+            globalThis.location = windowObject.location;
+            globalThis.CustomEvent = class CustomEvent {
+              constructor(type, init) { this.type = type; this.detail = init?.detail; }
+            };
+            const bridge = fs.readFileSync(process.argv[2], 'utf8');
+            vm.runInThisContext(bridge, { filename: 'WebPluginRuntime.bridge.js' });
+            if (!window.papertodo || window.papertodo.surface !== 'runtime') {
+              throw new Error('The generated Web Runtime bridge did not install.');
+            }
+            void window.papertodo.workspace.request('papers.list').catch(() => {});
+            const beforeInitialize = posted.length;
+            for (const listener of hostListeners) listener({ data: { type: 'initialize' } });
+            const queued = posted.shift();
+            void window.papertodo.workspace.request('papers.list').catch(() => {});
+            const direct = posted.shift();
+            process.stdout.write(JSON.stringify({ beforeInitialize, queued, direct }));
+            """;
+
+        var temporaryRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"PaperTodo.ProtocolPolicyChecks.{Guid.NewGuid():N}");
+        var harnessPath = Path.Combine(temporaryRoot, "bridge-harness.cjs");
+        var bridgePath = Path.Combine(temporaryRoot, "WebPluginRuntime.bridge.js");
+        Directory.CreateDirectory(temporaryRoot);
+        File.WriteAllText(harnessPath, harness, new UTF8Encoding(false));
+        File.WriteAllText(bridgePath, bridgeScript, new UTF8Encoding(false));
+        try
+        {
+            var startInfo = new ProcessStartInfo("node")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add(harnessPath);
+            startInfo.ArgumentList.Add(bridgePath);
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Could not start Node.js for the Web Runtime bridge behavior check.");
+            var standardOutput = process.StandardOutput.ReadToEndAsync();
+            var standardError = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(15_000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                throw new TimeoutException(
+                    "The Web Runtime bridge behavior check timed out after 15 seconds.");
+            }
+            Assert(Task.WaitAll([standardOutput, standardError], 5_000),
+                "Node.js output did not close after the bridge behavior check exited.");
+            var error = standardError.GetAwaiter().GetResult();
+            Assert(process.ExitCode == 0,
+                $"The generated Web Runtime bridge failed in Node.js: {error}");
+
+            using var result = JsonDocument.Parse(
+                standardOutput.GetAwaiter().GetResult());
+            var root = result.RootElement;
+            Assert(root.GetProperty("beforeInitialize").GetInt32() == 0,
+                "A Workspace request escaped before Web Runtime initialization.");
+            var queued = ReadBridgePayload(root, "queued");
+            var direct = ReadBridgePayload(root, "direct");
+            AssertWorkspaceRequest(queued, "queued");
+            AssertWorkspaceRequest(direct, "direct");
+
+            var deniedWorkspace = CreatePermissionDeniedWorkspace(host);
+            var runtime = RuntimeHelpers.GetUninitializedObject(runtimeType);
+            SetInstanceField(runtimeType, runtime, "_workspace", deniedWorkspace);
+            AssertPermissionDenied(executeHostRequest, runtime, queued, "queued");
+            AssertPermissionDenied(executeHostRequest, runtime, direct, "direct");
+        }
+        finally
+        {
+            try { Directory.Delete(temporaryRoot, recursive: true); } catch { }
+        }
+    }
+
+    private static JsonElement ReadBridgePayload(JsonElement root, string name)
+    {
+        var message = root.GetProperty(name);
+        Assert(
+            message.ValueKind == JsonValueKind.Object &&
+            message.TryGetProperty("type", out var type) &&
+            type.ValueKind == JsonValueKind.String &&
+            string.Equals(type.GetString(), "hostRequest", StringComparison.Ordinal) &&
+            message.TryGetProperty("payload", out _),
+            $"The {name} Web bridge message was not a host request.");
+        return message.GetProperty("payload").Clone();
+    }
+
+    private static object CreatePermissionDeniedWorkspace(Assembly host)
+    {
+        var hostApiType = RequireType(host, "PaperTodo.PaperBodyPluginHostApi");
+        var constructor = hostApiType.GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Single(value => value.GetParameters().Length == 7);
+        return constructor.Invoke([
+            null,
+            null,
+            null,
+            "protocol-policy-check",
+            Array.Empty<string>(),
+            new Func<bool>(() => true),
+            new Func<bool>(() => true)
+        ]);
+    }
+
+    private static void AssertWorkspaceRequest(JsonElement payload, string stage)
+    {
+        Assert(
+            payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("target", out var target) &&
+            target.ValueKind == JsonValueKind.String &&
+            string.Equals(target.GetString(), "workspace", StringComparison.Ordinal),
+            $"The {stage} Workspace bridge payload lost target: 'workspace'.");
+        Assert(
+            payload.TryGetProperty("method", out var method) &&
+            method.ValueKind == JsonValueKind.String &&
+            string.Equals(method.GetString(), "papers.list", StringComparison.Ordinal),
+            $"The {stage} Workspace bridge payload changed its method.");
+    }
+
+    private static void AssertPermissionDenied(
+        MethodInfo executeHostRequest,
+        object runtime,
+        JsonElement payload,
+        string stage)
+    {
+        try
+        {
+            executeHostRequest.Invoke(runtime, [payload]);
+            throw new InvalidOperationException(
+                $"The {stage} Workspace request bypassed plugin permission checks.");
+        }
+        catch (TargetInvocationException ex)
+        {
+            var code = ex.InnerException?.GetType().GetProperty("Code")
+                ?.GetValue(ex.InnerException)?.ToString();
+            Assert(code == "permission_denied",
+                $"The {stage} Workspace request did not reach the permission boundary.");
+        }
+    }
+
+    private static void SetInstanceField(
+        Type type,
+        object instance,
+        string name,
+        object value)
+    {
+        var field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Required runtime field was not found: {name}");
+        field.SetValue(instance, value);
     }
 
     private static void CheckUnifiedPluginRuntime(Assembly host, Assembly abstractions)

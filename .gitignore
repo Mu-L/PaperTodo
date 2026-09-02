@@ -22,3 +22,7 @@ extract_code.py
 rollout-*.jsonl
 plugins/**/.runtime/
 plugins/data/
+
+# Local documentation drafts
+/READMEnew.md
+/用户手册.md

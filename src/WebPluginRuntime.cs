@@ -540,34 +540,7 @@ internal sealed class WebPluginRuntime : IDisposable
         var requestId = WebPluginRuntimeInfrastructure.RequiredString(payload, "requestId");
         try
         {
-            var method = WebPluginRuntimeInfrastructure.RequiredString(payload, "method");
-            var parameters = WebPluginRuntimeInfrastructure.ParametersOrEmpty(payload);
-            // Runtime.Papers and Workspace both expose papers.list. Only the explicit Workspace
-            // transport bypasses Runtime-first routing; unmarked root requests keep compatibility.
-            var route = ResolveHostRequestRoute(payload, method);
-            object? result = route switch
-            {
-                HostRequestRoute.Workspace =>
-                    WebPluginWorkspaceRequests.Execute(_workspace, method, parameters),
-                HostRequestRoute.SettingsGet => ReadSettings(),
-                HostRequestRoute.StateGet => ReadRuntimeState().State,
-                HostRequestRoute.StateSave => SaveRuntimeState(parameters),
-                HostRequestRoute.RuntimePapersList => _papers.List(),
-                HostRequestRoute.RuntimePapersSetTitle => SetPaperTitle(parameters),
-                HostRequestRoute.RuntimePapersSetHeaderText => SetPaperHeader(parameters),
-                HostRequestRoute.RuntimePapersSetCapsulePresentation => SetPaperCapsule(parameters),
-                HostRequestRoute.RuntimePapersPostBody => PostPaperBody(parameters),
-                HostRequestRoute.GlobalTopBarSet => SetGlobalActions(parameters),
-                HostRequestRoute.TodoActionsSet => SetTodoActions(parameters),
-                HostRequestRoute.TodoActionsClear => ClearTodoActions(parameters),
-                HostRequestRoute.TodoActionsClearAll => ClearTodoActions(),
-                HostRequestRoute.TopBarLabelsSet => SetTopBarLabels(parameters),
-                HostRequestRoute.TopBarLabelsClear => ClearTopBarLabels(parameters),
-                HostRequestRoute.TopBarLabelsClearAll => ClearTopBarLabels(),
-                _ => throw new PaperTodoPluginException(
-                    "method_not_found",
-                    $"Unknown PaperTodo Runtime method: {method}")
-            };
+            var result = ExecuteHostRequest(payload);
             Send(new { type = "hostResponse", requestId, ok = true, result });
         }
         catch (PaperTodoPluginException ex)
@@ -594,6 +567,38 @@ internal sealed class WebPluginRuntime : IDisposable
                 }
             });
         }
+    }
+
+    private object? ExecuteHostRequest(JsonElement payload)
+    {
+        var method = WebPluginRuntimeInfrastructure.RequiredString(payload, "method");
+        var parameters = WebPluginRuntimeInfrastructure.ParametersOrEmpty(payload);
+        // Runtime.Papers and Workspace both expose papers.list. Only the explicit Workspace
+        // transport bypasses Runtime-first routing; unmarked root requests keep compatibility.
+        var route = ResolveHostRequestRoute(payload, method);
+        return route switch
+        {
+            HostRequestRoute.Workspace =>
+                WebPluginWorkspaceRequests.Execute(_workspace, method, parameters),
+            HostRequestRoute.SettingsGet => ReadSettings(),
+            HostRequestRoute.StateGet => ReadRuntimeState().State,
+            HostRequestRoute.StateSave => SaveRuntimeState(parameters),
+            HostRequestRoute.RuntimePapersList => _papers.List(),
+            HostRequestRoute.RuntimePapersSetTitle => SetPaperTitle(parameters),
+            HostRequestRoute.RuntimePapersSetHeaderText => SetPaperHeader(parameters),
+            HostRequestRoute.RuntimePapersSetCapsulePresentation => SetPaperCapsule(parameters),
+            HostRequestRoute.RuntimePapersPostBody => PostPaperBody(parameters),
+            HostRequestRoute.GlobalTopBarSet => SetGlobalActions(parameters),
+            HostRequestRoute.TodoActionsSet => SetTodoActions(parameters),
+            HostRequestRoute.TodoActionsClear => ClearTodoActions(parameters),
+            HostRequestRoute.TodoActionsClearAll => ClearTodoActions(),
+            HostRequestRoute.TopBarLabelsSet => SetTopBarLabels(parameters),
+            HostRequestRoute.TopBarLabelsClear => ClearTopBarLabels(parameters),
+            HostRequestRoute.TopBarLabelsClearAll => ClearTopBarLabels(),
+            _ => throw new PaperTodoPluginException(
+                "method_not_found",
+                $"Unknown PaperTodo Runtime method: {method}")
+        };
     }
 
     private JsonElement ReadSettings()

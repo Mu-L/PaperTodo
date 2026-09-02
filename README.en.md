@@ -136,7 +136,7 @@ Note paper provides lightweight Markdown source editing and styled browsing, but
 
 **Local images**
 
-- Paste from the clipboard, drop image files, paste copied image files, or insert from the menu, including WebP; if the clipboard contains both text and an image, text takes priority
+- Paste from the clipboard, drop image files, paste copied image files, or insert from the menu. Formats such as WebP depend on system image decoders, and PaperTodo shows a message when a format is unsupported or decoding fails; if the clipboard contains both text and an image, text takes priority
 - Image references are written in the note text, while image binaries are stored in local `note-assets.lmdb`, not on a remote image host
 - **Auto-compress large images** is on by default: files that are too large or have an overly long edge are compressed before import when possible
 - Right-click a displayed image to delete its reference; after an accidental deletion, try undo immediately
@@ -147,7 +147,7 @@ Note paper provides lightweight Markdown source editing and styled browsing, but
 
 **Custom suffixes**: Use `.md` or `.txt` for the temporary copy; Windows opens it with the associated app.
 
-**Script capsules**: Put `!p` or `!power` on the first line; the rest runs as PowerShell. Collapsed notes show a lightning capsule — left-click runs, while right-click opens a menu where the paper can be expanded for editing. Use `!pf` or `!powerf` to send commands to the persistent PowerShell process.
+**Script capsules**: Put `!p` or `!power` on the first line; the rest runs as PowerShell. Collapsed notes show a lightning capsule — left-click runs, while right-click opens a menu where the paper can be expanded for editing. With `!pf` or `!powerf`, commands use the persistent PowerShell process only when that Advanced setting is enabled; otherwise they run in a one-shot process.
 
 ---
 
@@ -188,7 +188,7 @@ The settings window has four pages: **Behavior / Visual / Shortcuts / Plugins**.
 
 **Plugins**
 
-- Manage paper-body plugins, their load status, and settings. Restart PaperTodo after installing, removing, or modifying a plugin.
+- Manage paper-body plugins, their load status, and settings. Setting changes apply immediately; after adding, removing, or replacing a plugin's `plugin.json`, DLL, or Web files, fully exit and restart PaperTodo.
 - Native and Web plugins are not isolated by a host security sandbox. Install only plugins from sources you trust; see the [plugin manual and samples](plugin-samples/README.md).
 
 **Labs** (Advanced)
@@ -254,7 +254,7 @@ After an abnormal exit, `PaperTodo.crash.log` may be written for diagnostics. Us
 Custom fonts can also be placed in the program folder: `papertodo.ttf` / `papertodo.otf`, with optional bold files such as `papertodo_bold`.
 
 > Warning: Do not put the app in a read-only folder, or it may fail to save.  
-> Exit from the tray before backing up or migrating the files above, `plugins/data`, and any plugin-owned data under `plugins/<id>/.runtime` that you need to retain.
+> Exit from the tray before backing up or migrating the files above, `plugins/data`, and the complete installed plugin directories under `plugins/<id>/`, including any `.runtime` data you need to retain.
 
 ---
 

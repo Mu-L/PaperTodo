@@ -21,7 +21,7 @@
 
 记录池保存在插件目录的 `.runtime/review-archive.json`，不属于任何一张纸片的 `StateJson`。升级时会将存储版本 1/2 自动迁移到版本 3，原有记录与事件不会丢失。
 
-只要仍存在一张复盘插件 Paper，provider Runtime 就会持续监听；纸片隐藏、折叠或当前没有窗口都不会中断记录。删除或切换掉最后一张复盘插件 Paper、退出 PaperTodo 后 Runtime 才结束，停用期间发生的变化无法被精确补记；再次打开后可用“导入当前”补录现状，但补录时间会标记为“首次观察值”。正文 Session 只负责读取和展示记录，示例统一通过 canonical `context.Workspace` 订阅和读取数据。
+只要仍存在一张复盘插件 Paper，provider Runtime 就会持续监听；纸片隐藏、折叠或当前没有窗口都不会中断记录。删除或切换掉最后一张复盘插件 Paper、退出 PaperTodo 后 Runtime 才结束，停用期间发生的变化无法被精确补记；再次打开后可用“导入当前”补录现状，但补录时间会标记为“首次观察值”。持续监听和自动记录由 provider Runtime 负责；正文 Session 负责读取、筛选与展示记录，并处理用户主动发起的“导入当前”、清空和 CSV 导出。示例对 PaperTodo 数据的订阅与读取统一使用 canonical `context.Workspace`。
 
 ## 构建并安装
 

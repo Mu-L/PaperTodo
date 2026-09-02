@@ -128,7 +128,7 @@ PaperTodo 不提供插件热重载入口。插件 manifest、DLL、Web body/mini
 - Runtime state 若来自高于当前插件 `stateVersion` 的版本，宿主拒绝启动该 Runtime，保留原数据并把插件标记为 Issue；旧版本 state 可以由插件读取后自行迁移。
 - Body/Mini -> Runtime 消息不跨 Runtime interruption 排队。Web renderer 暂不可接收时 `runtime.post(...)` 明确失败为 `runtime_unavailable`，绝不返回成功后静默丢消息。业务重试、去重和时效判断属于插件。
 - 自动恢复 Backoff 期间保留最后一次 Runtime presentation，避免 UI 闪烁；进入最终 `Failed` 后清除 Runtime 动态 Header/Capsule 并回退到 Paper/插件的普通静态展示。
-- `Papers.List()` 是 Runtime 启动时的全量快照；`Papers.Subscribe(...)` 只报告订阅后的增量，不为启动前已存在的 Paper 重放 `PaperAdded`。删除最后一张 Paper 时，宿主先发布最终 `PaperRemoved`，再撤销 Runtime lifetime。
+- `Papers.List()` 是 Runtime 启动时的全量快照；`Papers.Subscribe(...)` 只报告订阅后的增量，不为启动前已存在的 Paper 重放 `PaperAdded`。删除 provider 最后一张 Paper 时，若当前仍有存活且可投递的 Runtime lease，宿主在撤销 lifetime 前先 reconcile 并投递最终 `PaperRemoved`；启动失败、Backoff/Failed 或 Web document 不可投递期间不承诺该事件必达。
 - Todo actions 与 Top Bar labels 是 2.1 的 Runtime contribution，随 Runtime/目标对象生命周期撤销，不进入长期业务持久化。
 
 ## 4. 状态与持久化架构

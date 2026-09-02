@@ -670,7 +670,7 @@ Paper body plugin 引入后，provider settings、provider-scoped Runtime state�
 - `src/PaperBodyPluginRegistry.Settings.cs`。
 - `src/PaperPluginRuntimeStateApi.cs`。
 - `src/AppController.PluginApi.cs` 的 deferred plugin-state cleanup。
-- `527f2a63c841cb95a29fbff4d197d3877e14f6a7` — plugin system v2 建立独立 plugin runtime/state 边界。
+- `aac0ef7c400a53d65e185e5c41e21e67c35f1e4b` — plugin protocol 1.2 引入 `PaperBodyPluginDataStore`，将插件 settings 与 per-paper state 从核心 `data.json` 分离到 `plugins/data/*.json`。
 - `a7dc481f2a5c6dfe95de51a5cfc2eb01f97cb69d` — plugin/MCP hardening，强化失败/恢复边界。
 
 ---
