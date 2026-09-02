@@ -268,20 +268,10 @@ public sealed class StateStore
                 return false;
             }
 
-            if (TryReadValidatedStateBytes(BackupPath, out var backupBytes))
+            if (TryReadValidatedStateBytes(BackupPath, out var backupBytes) &&
+                primaryBytes.AsSpan().SequenceEqual(backupBytes))
             {
-                if (primaryBytes.AsSpan().SequenceEqual(backupBytes))
-                {
-                    return true;
-                }
-
-                // A sudden large shrink is more valuable as a recovery signal than as a reason
-                // to overwrite the last known-good snapshot. Keep the older backup in that case.
-                if (backupBytes.LongLength > 0 &&
-                    primaryBytes.LongLength * 10 < backupBytes.LongLength * 9)
-                {
-                    return false;
-                }
+                return true;
             }
 
             var tempPath = BackupPath + ".tmp";
