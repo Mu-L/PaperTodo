@@ -23,3 +23,6 @@ rollout-*.jsonl
 plugins/**/.runtime/
 plugins/data/
 
+# Local drafts
+*.draft.md
+

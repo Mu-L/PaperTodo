@@ -1,34 +1,35 @@
-<div align="center">
+<h1 align="center">PaperTodo · A Sheet of Paper</h1>
 
-# PaperTodo · A Sheet of Paper
+<p align="center">
+  <strong>A few quiet, useful, unobtrusive pieces of paper on your desktop.</strong><br>
+  A lightweight, freely collaborative Windows desktop note app.
+</p>
 
-**A few quiet, useful, unobtrusive pieces of paper on your desktop.**
+<p align="center">
+  <img src="https://img.shields.io/badge/version-v3.31-3b82f6" alt="version">
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-555" alt="platform">
+  <img src="https://img.shields.io/badge/.NET-10-512bd4" alt=".NET">
+  <img src="https://img.shields.io/badge/UI-WPF-0078d4" alt="UI">
+</p>
 
-A minimal Windows desktop sticky-note app built with native WPF. No main window, no account, no manager.
+<p align="center">
+  <strong>Language: <a href="README.md">中文</a> | English</strong><br>
+  <a href="https://snownico0722.github.io/PaperTodo/">Official Website</a><br>
+  <a href="doc/USER_GUIDE.en.md">User Manual</a> · <a href="doc/CHANGELOG.en.md">Changelog</a><br>
+  <a href="https://qm.qq.com/q/Mp7spYLrig">QQ Group: 551612664 — Strange Magic Research Base</a>
+</p>
 
-![version](https://img.shields.io/badge/version-v3.31-3b82f6) ![platform](https://img.shields.io/badge/platform-Windows%20x64-555) ![.NET](https://img.shields.io/badge/.NET-10-512bd4) ![UI](https://img.shields.io/badge/UI-WPF-0078d4)
-
-The latest stable release is **v3.31**. This README follows the `main` branch, which currently targets **4.0.0-preview**; unreleased features may change.
-
-**Website**: [https://snownico0722.github.io/PaperTodo/](https://snownico0722.github.io/PaperTodo/) 
-
-**QQ Group**：[QQ Group: 551612664 — Strange Magic Research Base](https://qm.qq.com/q/Mp7spYLrig)
-
-**Language: [中文](README.md) | English**
-
-</div>
+<p align="center">
+  The latest stable release is <strong>v3.31</strong>; this document follows the <code>main</code> branch (currently <strong>4.0.0-preview</strong>).
+</p>
 
 ---
 
 ## Preview
 
-| Papers |
-| :---: |
-| <img src="assets/Home.jpg" alt="Desktop papers" width="100%"> |
-
-| Markdown Preview |
-| :---: |
-| <img src="assets/Md.jpg" alt="Markdown preview" width="100%"> |
+| Papers | Markdown Preview |
+| :---: | :---: |
+| <img src="assets/Home.jpg" alt="Desktop papers" width="100%"> | <img src="assets/Md.jpg" alt="Markdown preview" width="100%"> |
 
 | Capsule Mode | Advanced Capsules |
 | :---: | :---: |
@@ -39,239 +40,93 @@ The latest stable release is **v3.31**. This README follows the `main` branch, w
 
 ## Philosophy
 
-- **Paper first** — Each paper is an independent window placed directly on the desktop, with no management screen to open first.
-- **Ready immediately** — Write when you need to, check things off when done; everything saves automatically.
-- **No management overhead** — There is no complex management model to learn, and the app does not add complexity for its own sake.
-- **Native implementation** — Built with native WPF controls, not a web wrapper, with none of the complex permissions of MSIX packaging.
-- **Interaction first** — Lightweight is more than performance: workflows stay short, cognitive load stays low, and visual noise stays out of the way.
-
+- **Paper first** — Each paper is an independent window directly placed on the desktop, with no cumbersome management console to open first.
+- **Ready immediately** — Write when you need to, check things off when done; everything saves automatically with minimal friction.
+- **No unnecessary management** — No complicated project management models to learn, reducing cognitive load for everyday recording.
+- **Native & lightweight** — Built natively with WPF on .NET 10, refusing web wrappers/containers. Fast startup and minimal resource usage.
+- **Restrained interaction** — Clean UI with low visual noise. Stays quiet when idle, instantly available when summoned.
 > No unnecessary interaction layers. No unnecessary visual focus.
 
 ---
 
-## Features
+## Core Features
 
-### Core Features
+### 1. Two Basic Paper Types
+- **Todo Paper**: A crisp, efficient task checklist. Supports drag-and-drop reordering, continuous swipe multi-selection, and smart multi-line paste splitting; completed items support auto-clearing or sinking to the bottom.
+- **Note Paper**: Lightweight Markdown and visual memo. Supports common Markdown syntax with 3 real-time rendering levels, seamlessly blending editing and reading; supports pasting or dropping local images.
 
-- **Multiple independent papers** — Each paper is its own window, and common actions take one or two steps instead of layers of navigation.
-- **One app, two paper types**:
-  - **Todo paper**: one item per line. Check, edit, delete, and clear completed items.
-  - **Note paper**: plain text with Markdown syntax highlighting and three rendering levels.
-- **Capsule mode** (on by default) — Use the top-right control to fold a paper into a small capsule and open it again when needed.
-- **Automatic edge docking** (on by default) — Folded capsules dock along screen edges. Multi-monitor layouts are supported, and a capsule can be dragged to another side or display.
-- **Script capsules** — Start a note with `!p` / `!power` to run its contents quickly as a PowerShell script.
-- **Todo quick launch** — Drag the dedicated association button from another expanded paper onto a todo item, or drop one file or folder; open the target later from the todo entry.
-- **Note images** — Paste, drop, or choose local images from the menu.
-- **Local data** — Papers auto-save to `data.json` with a backup; note images are written incrementally and safely to a single `note-assets.lmdb` file.
+### 2. Edge Capsule & Live Preview Cards
+- **Collapse & Dock**: Click the top-right button or press `Ctrl+W` to collapse a paper into a compact pill docked along screen edges, freeing up desktop workspace.
+- **Hover Preview Cards (Preview)**: Hover over an edge capsule to smoothly slide out a lightweight, interactive preview card without opening the full paper window:
+  - **Todo Preview**: Scroll through tasks, check/uncheck items directly within the hover card, or click the background to expand the full paper;
+  - **Note Preview**: Instantly renders Markdown formatting and image placeholders;
+  - **Intent Prediction & Seamless Handoff**: Built-in mouse motion intent prediction ensures smooth transitions when gliding between adjacent capsules, retracting cleanly when leaving.
+- **Multi-Monitor Queues & Master Capsule**: Seamlessly drag capsules to other edges or displays; the master capsule at the top controls the whole queue's expand/collapse and starting height.
 
-### Customization And Integration
+### 3. Next-Gen Plugin System (Preview)
+- **Desktop Micro-App Expansion**: Papers aren't just for notes—switch any paper into clocks, Pomodoro timers, review journals, and other rich desktop widgets for next-gen Windows desktop workflows.
+- **Deep Capsule & Chrome Integration**: Plugins can contribute custom capsule shapes (icons, progress rings/bars, or custom WPF drawings), dedicated edge hover mini cards, and custom top-bar action buttons, with independent safe data storage.
+- **Drop-in Simplicity**: Simply place the plugin folder into the `plugins/` directory to load. To develop custom plugins, see the [Plugin Development Manual](plugin-samples/README.md).
 
-- **Themes and palettes** — Follow system, light, or dark, with Warm Paper, Ink, Forest, and Rosy color schemes.
-- **Fonts and sizes** — System default / Microsoft YaHei / DengXian, optional custom font files, plus overall and per-area sizes, bold styles, and text rendering profiles.
-- **Global hotkeys** — Bind show, hide, create, and other commands in settings, including shortcuts for side capsule queues.
-- **Startup arguments** — Show, hide, toggle, and create papers from command-line arguments for hotkey tools or scripts.
-- **Multi-language UI** — Choose Follow system / 简体中文 / English / 日本語 / 한국어 in Settings; restart to apply.
-- **Startup at login** — Run PaperTodo when Windows starts.
-- **Custom tray icon** — If `PaperTodo.ico` exists next to the executable, it is used instead of the embedded icon.
-- **Desktop integration** — Windows Snap layouts; hide expanded papers from Alt+Tab / Task View or the taskbar.
+### 4. Extreme Fluidity & High-Refresh Tuning
+- **Full-Pipeline High-Refresh Tuning**: All transitions—folding, drawer sliding, card handoff, and multi-screen dragging—are deeply tuned for high-refresh displays (120Hz/144Hz/165Hz+), delivering buttery-smooth, tear-free visuals.
+- **Pure Native Speed**: Built with native .NET 10 and WPF. Zero Electron/web wrapper overhead, millisecond cold start, and negligible CPU/RAM footprint.
+- **Incremental Note Rendering**: Employs smart local incremental parsing during note input, maintaining smooth typing and zero IME lag even with long documents.
+- **Multi-Monitor & Mixed DPI Continuity**: Precisely calibrated for multi-screen layouts with mixed scaling factors, preventing visual distortion or flickering when dragging across monitors.
 
----
+### 5. Universal Linking & Script Capsules
+- **Quick Launch & Universal Linking**: Drag the link handle from another paper's top bar or drop files/folders onto a todo item to bind a quick-launch shortcut.
+- **Script Capsules (PowerShell)**: Write `!p` or `!power` on the first line of a note to turn it into a desktop script runner; displays a lightning badge in capsule mode to execute scripts on click.
 
-## Paper Features And Manual
+### 6. Experimental Labs Features (Preview)
+- **Local MCP Server**: Supports `--mcp` mode to spin up a standard Model Context Protocol server, enabling external AI assistants (like Claude, Cursor, etc.) to securely read, write, and manage tasks and notes with user authorization.
+- **Window Tethering**: Drag the tether handle to attach a paper to any third-party app window, smoothly following the target window as it moves, minimizes, and restores.
+- **Scheduled Reminders**: Set custom countdown timers on todo items with tray notifications and alert sounds upon expiration.
+- **Idle Behavior & Desktop Integration**: Supports auto-collapsing to capsules on focus loss, compacting the title bar when idle, and global hotkeys to sink papers to the desktop with mouse click-through.
 
-### Paper
-
-#### Basic Actions
-
-- **Move and resize** — Drag a blank area of the top bar to move a paper; resize from the bottom-right grip, or from any edge or corner when the grip is hidden.
-- **Pin on top** — The pin control in the top-left toggles always-on-top.
-- **Create** — Create todo and note papers from the top-right buttons.
-- **Export and open a temporary copy** — Click `MD` to export the note and open it with the system default app. The suffix is customizable, and external changes do not sync back.
-- **Set title** — Paper titles can be customized.
-- **Windows Snap** — Supports Snap layouts; shadows and margins collapse while snapped and return after leaving the snap region.
-
-#### Capsules And Edge Docking
-
-- **Collapsed capsules** — Papers can fold into small capsules to save desktop space and reopen at any time.
-- **Auto docking** — Folded capsules dock to screen edges and slide out when the pointer hovers nearby.
-- **Multi-screen queues** — Drag an edge capsule to the left, right, or another monitor; it joins that edge queue on release.
-- **Control the current queue** — The master capsule collapses or expands capsule entries on the current display and side; dragging it adjusts that queue's starting height.
-- **Master capsule menu** — Right-click the master capsule for the same menu as the tray icon.
-- **Expand and close area** — Options include keeping the edge capsule while expanded, remembering expand position, hiding the edge close button on hover, and limiting capsule title display length.
+### 7. Customization & Local Data Security
+- **Appearance Customization**: Follow system, light, and dark modes with Warm Paper, Ink, Forest, and Rosy color palettes; custom font support (`papertodo.ttf`) and multi-language UI.
+- **Fully Offline & Local Control**: All notes, images, and configs reside strictly in the app directory (`data.json` and `note-assets.lmdb`), with automated snapshot backups prior to each disk write. No accounts, no cloud sync, complete privacy.
 
 ---
 
-### Todo
+## Common Operations & Shortcuts
 
-Good for today's tasks, temporary items, and small desktop checklists.
-
-**Basic actions**
-
-- **Check as done** / **Add item**
-- **Drag to reorder** — Hold the `≡` handle on the right and drag up or down.
-- **Drag to delete** — Drag an item to the bottom delete area.
-- **Paste multiple lines** — Lines become separate items; common list prefixes are cleaned up.
-- **Double-click to select** — Double-click todo text to select the current item's text for copy or replace.
-- **Visual size** — Choose Small / Medium / Large in settings.
-- **Undo / redo** — `Ctrl+Z` / `Ctrl+Y`
-- **Completed-item organization** — Choose whether to clear completed items automatically or move them to the bottom.
-
-**Quick launch**: Drag the dedicated association button from another expanded paper onto a todo item, or drop one file or folder directly. Open the target later from the entry beside the todo.
+| Action | Shortcut / Trigger | Description |
+| :--- | :--- | :--- |
+| **Collapse / Hide Paper** | <kbd>Ctrl</kbd> + <kbd>W</kbd> or Middle-click top bar | Collapses to capsule if enabled, otherwise hides |
+| **Cancel / Retract** | <kbd>Esc</kbd> | Cancels multi-selection/drag; collapses paper when idle |
+| **Undo / Redo** | <kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Ctrl</kbd> + <kbd>Y</kbd> | Available in both Todo and Note (up to 100 history steps) |
+| **Note Formatting** | <kbd>Ctrl</kbd> + <kbd>B</kbd> / <kbd>I</kbd> / <kbd>K</kbd> | Bold, italic, insert link |
+| **Note Font Zoom** | <kbd>Ctrl</kbd> + Scroll Wheel | Adjusts note font scale (click bottom-right percentage to reset) |
+| **Retrieve All Papers** | Double-click tray icon | Illuminates and pulls all papers back to visible desktop |
 
 ---
 
-### Note Paper
+## Download & Run
 
-Note paper provides lightweight Markdown source editing and styled browsing, but it is not a full layout or WYSIWYG editor.
+PaperTodo is portable and requires no installation. Download from [Releases](https://github.com/snownico0722/PaperTodo/releases/latest):
 
-**Formatting shortcuts**
+- **`PaperTodo-...-self-contained.exe` (Recommended)**: Includes .NET runtime, ready to run out of the box.
+- **`PaperTodo-...-no-runtime.exe`**: Smaller download, requires [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) installed on your system.
 
-- `Ctrl+B` — Bold.
-- `Ctrl+I` — Italic.
-- `Ctrl+K` — Insert link.
-- `Ctrl+Z` / `Ctrl+Y` — Undo / redo.
-- `Ctrl + mouse wheel` — Zoom note text in 10% steps. Click the percentage in the bottom-right to reset to 100%.
+> **Tip**: Keep the executable in a dedicated writable directory (e.g. `D:\Apps\PaperTodo\`). Avoid running from read-only or temporary zip extraction folders. Place `PaperTodo.ico` in the directory to use a custom tray icon.
 
-**Supported Markdown**: headings `#` to `######`, bold `**text**`, italic `*text*`, combined bold and italic, strikethrough `~~text~~`, unordered lists `-`, ordered lists `1.`, block quotes `>`, horizontal rules `---` / `***` / `___`, inline code `` `code` ``, fenced code blocks, links `[label](URL)`, bare `http://` / `https://` URLs, backslash escapes, and a small set of single-line inline HTML tags (`b/strong/i/em/s/del/u/code/a href`).
-
-**Local images**
-
-- Paste from the clipboard, drop image files, paste copied image files, or insert from the menu. Formats such as WebP depend on system image decoders, and PaperTodo shows a message when a format is unsupported or decoding fails; if the clipboard contains both text and an image, text takes priority
-- Image references are written in the note text, while image binaries are stored in local `note-assets.lmdb`, not on a remote image host
-- **Auto-compress large images** is on by default: files that are too large or have an overly long edge are compressed before import when possible
-- Right-click a displayed image to delete its reference; after an accidental deletion, try undo immediately
-
-**Not supported**: tables, attachments, network images, other embeds, block-level HTML, or a full block editor.
-
-**Temporary export**: The title-bar `MD` button exports a temporary copy and opens it with the system default app. External changes do not sync back to PaperTodo.
-
-**Custom suffixes**: Use `.md` or `.txt` for the temporary copy; Windows opens it with the associated app.
-
-**Script capsules**: Put `!p` or `!power` on the first line; the rest runs as PowerShell. Collapsed notes show a lightning capsule — left-click runs, while right-click opens a menu where the paper can be expanded for editing. With `!pf` or `!powerf`, commands use the persistent PowerShell process only when that Advanced setting is enabled; otherwise they run in a one-shot process.
+On first launch, papers appear on your desktop with a persistent tray icon. If papers are hidden or off-screen, **double-click the tray icon** to pull them all into view.
 
 ---
 
-## Settings
+## Documentation & Advanced Guides
 
-The settings window has four pages: **Behavior / Visual / Shortcuts / Plugins**. Enabling **Advanced mode** also shows the **Labs** page.
-
-**Behavior**
-
-- **Start with Windows**, normal tooltips, animations
-- **Interface language** — Follow system / 简体中文 / English / 日本語 / 한국어; restart to apply
-- **Markdown rendering** — three intensity levels for note Markdown display
-- **Title bar buttons** — hide new todo, new note, or external open separately
-- **External open** — temporary file suffix for the system editor
-- **Capsules** — capsule mode, auto-dock, keep the edge capsule while expanded, remember expand position, show the master capsule for the current queue, and click an edge capsule again to fold the paper; Advanced options also include hiding the close button on hover, title character limits, and maximum edge-title length
-- **Todos and papers** — auto-clear completed items or move them to the bottom, quick-launch papers / files / folders, show linked names, long linked titles, whether linked papers appear as capsules, and run linked scripts on click; Advanced also includes automatic compression for oversized images
-- **Script capsules** (Advanced) — prefer PowerShell 7, hide run window, persistent process
-- **Fullscreen topmost policy** (Advanced) — choose whether papers and edge capsules step back or stay above external fullscreen windows
-- **Hide papers from window switching** (Advanced) — expanded papers do not appear in Alt+Tab or Task View, and their taskbar icons are hidden
-- **Hide taskbar icons** (Advanced) — expanded papers do not appear on the taskbar
-
-**Visual**
-
-- **Theme and palettes** — Follow system / Light / Dark, with Warm Paper, Ink, Forest, and Rosy color schemes
-- **Resize grip** — Standard (opaque bottom-right dots) / Soft (about 50% opacity, default) / Hidden (no dots; drag any edge or corner to resize)
-- **Edge capsule spacing** — Adjust the gap between capsules in the same edge queue
-- **Font** — System default / Microsoft YaHei / DengXian; add `papertodo.ttf` / `papertodo.otf` for a custom face, with optional enhanced bold from a matching file such as `papertodo_bold.ttf`
-- **Sizes and bold** — Overall scale about 80%–120%; note / todo / title / capsule each have Small / Medium / Large sizes and bold options, with additional density choices for todos
-- **Text rendering** — Standard / Soft / Sharp
-- **Image marker display** (Advanced) — always / edit only / always hidden
-
-**Shortcuts**
-
-- Bind global hotkeys for show all, hide all, toggle visibility, new todo, new note, and exit
-- Ordinary shortcuts can distinguish number-row digits from numpad digits; the fixed `1`–`9` side-queue sequence is unaffected
-- **Quick-launch side capsules** (off by default): left/right queue keys 1–9 open edge capsules; they can open **at the cursor**, and hotkey-created papers also appear nearby
-- When no selection or drag interaction must be cancelled, **Esc** can fold a built-in paper; plugin bodies may handle it themselves
-
-**Plugins**
-
-- Manage paper-body plugins, their load status, and settings. Setting changes apply immediately; after adding, removing, or replacing a plugin's `plugin.json`, DLL, or Web files, fully exit and restart PaperTodo.
-- Native and Web plugins are not isolated by a host security sandbox. Install only plugins from sources you trust; see the [plugin manual and samples](plugin-samples/README.md).
-
-**Labs** (Advanced)
-
-- Experimental features are grouped here, and their options or behavior may change between versions.
+- 📖 **[User Manual](doc/USER_GUIDE.en.md)**: Beginner guide, detailed paper & capsule usage, full settings dictionary, and data backup/migration instructions.
+- 🧩 **[Plugin Development Manual](plugin-samples/README.md)**: Understand the plugin architecture, API specifications, and sample implementations.
+- 📋 **[Changelog](doc/CHANGELOG.en.md)**: User-facing release notes and feature history.
 
 ---
 
-## Tray Entry
+## Build & Development
 
-PaperTodo has no main window. The tray icon is a common global entry point; right-clicking the master capsule opens the same menu.
-
-### Tray Actions
-
-- **Double-click tray icon** — Show and bring back all papers.
-- **Right-click tray icon** — Open the menu (version at the top).
-- **Settings** — Open the settings window.
-- **List toolbar** — Toggle show/hide all papers; create a todo or note paper.
-- **Master capsule** — Right-click the master capsule at the top of an edge queue for the same menu as the tray.
-- **Delete paper** — Click `×` on a row, then Confirm or Cancel.
-
-### Startup Arguments
-
-Use from hotkey tools, scripts, or Windows shortcuts:
-
-```text
-PaperTodo.exe --show       Show and bring back all papers
-PaperTodo.exe --hide       Hide all papers while keeping the app running in the tray
-PaperTodo.exe --toggle     Hide all if any paper is visible; otherwise show all
-PaperTodo.exe --new-todo   Create a new todo paper
-PaperTodo.exe --new-note   Create a new note paper
-PaperTodo.exe --exit       Save state and exit
-```
-
-The `--` prefix is optional; aliases include `open` = `show` and `quit` = `exit`.
-
-
-If PaperTodo is already running, a second start with arguments forwards the command and exits. A second start with no arguments shows and brings back all papers.
-
----
-
-## Data And Files
-
-Paper, image, and plugin data is stored next to the executable:
-
-```text
-PaperTodo/
-├─ PaperTodo.exe
-├─ data.json          Main data file
-├─ data.backup.json   Backup written before each save; used if the main file is damaged
-├─ note-assets.lmdb   Note image assets
-├─ plugins/
-│  └─ data/           Plugin settings and state managed by the host
-└─ PaperTodo.ico      Optional custom tray icon (used before the embedded icon)
-```
-
-**Data notes**
-
-Edits save automatically; before each normal write, the backup is rotated into `data.backup.json`.
-
-After an abnormal exit, `PaperTodo.crash.log` may be written for diagnostics. User data still comes from `data.json` and its backup.
-
-Custom fonts can also be placed in the program folder: `papertodo.ttf` / `papertodo.otf`, with optional bold files such as `papertodo_bold`.
-
-> Warning: Do not put the app in a read-only folder, or it may fail to save.  
-> Exit from the tray before backing up or migrating the files above, `plugins/data`, and the complete installed plugin directories under `plugins/<id>/`, including any `.runtime` data you need to retain.
-
----
-
-## Download
-
-GitHub Actions builds two Windows x64 single-file executables and publishes them directly in each Release:
-
-- **`...-self-contained.exe`** — Self-contained with the .NET Runtime.
-- **`...-no-runtime.exe`** — No bundled runtime; requires the x64 .NET 10 Desktop Runtime.
-
-Release notes are taken from the matching section in [`CHANGELOG.md`](CHANGELOG.md).
-
----
-
-## Build And Dependencies
-
-Clone with submodules before building:
+Requires Windows and .NET 10 SDK:
 
 ```powershell
 git clone --recurse-submodules https://github.com/snownico0722/PaperTodo.git
@@ -279,20 +134,18 @@ cd PaperTodo
 dotnet build -c Release
 ```
 
-For an existing clone, initialize the submodules first:
+If cloned without submodules, initialize them first:
 
 ```powershell
 git submodule update --init --recursive
 dotnet build -c Release
 ```
 
-- **Windows / .NET 10 / WPF** — Runtime and UI framework.
-- **CMake / Visual Studio C++ toolchain** — Builds the native LMDB library shipped with PaperTodo.
-- **[LMDB](https://github.com/LMDB/lmdb)** — Single-file transactional note image storage.
-- **[AvalonEdit](https://github.com/icsharpcode/AvalonEdit)** — Note editing and light Markdown highlighting.
-- **[Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon)** — Tray icon and menu.
-- **[Vortice.DirectComposition](https://github.com/amerkoleci/Vortice.Windows)** — Native DirectComposition interop for edge-preview animation (MIT).
+---
 
-## Other
+## Feedback & Community
 
-Thanks to the [linux.do](https://linux.do/) community.
+- Issues & Suggestions: [GitHub Issues](https://github.com/snownico0722/PaperTodo/issues)
+- QQ Group: [551612664 (Strange Magic Research Base)](https://qm.qq.com/q/Mp7spYLrig)
+
+Special thanks to the [linux.do](https://linux.do/) community.
