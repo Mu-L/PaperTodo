@@ -68,10 +68,12 @@ public sealed partial class AppController
             return;
         }
 
-        // Autosave already owns durability during normal runtime. Do not rewrite either the
-        // primary state or its stable backup while Windows is ending the session.
+        // Autosave already owns durability during normal runtime. Do not start new core or plugin
+        // state writes while Windows is ending the session. The plugin store waits for any write
+        // already holding its gate to finish, then disables queued/final flushes before disposal.
         _lifecycleState = AppLifecycleState.Exiting;
         StopStateBackupPolicy();
+        _paperBodyPlugins.DataStore.SuppressFinalFlushOnDispose();
         DisposeRuntimeResources();
         _lifecycleState = AppLifecycleState.Disposed;
 
