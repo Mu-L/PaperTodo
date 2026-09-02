@@ -4,25 +4,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "src/StateStore.cs"
-      - "src/DurableAtomicFileWriter.cs"
-      - "src/PaperBodyPluginDataStore.cs"
-      - "src/AppController.PersistencePolicy.cs"
-      - "src/AssemblyInfo.PersistenceChecks.cs"
-      - "tests/PaperTodo.PersistenceChecks/**"
-      - ".github/workflows/persistence-checks.yml"
   pull_request:
     branches:
       - main
-    paths:
-      - "src/StateStore.cs"
-      - "src/DurableAtomicFileWriter.cs"
-      - "src/PaperBodyPluginDataStore.cs"
-      - "src/AppController.PersistencePolicy.cs"
-      - "src/AssemblyInfo.PersistenceChecks.cs"
-      - "tests/PaperTodo.PersistenceChecks/**"
-      - ".github/workflows/persistence-checks.yml"
   workflow_dispatch:
 
 permissions:
