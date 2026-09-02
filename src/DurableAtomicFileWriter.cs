@@ -19,9 +19,9 @@ internal interface IDurableAtomicFileWriter
         Func<string, bool>? validateTemp = null);
 }
 
-internal interface IDurableAtomicFileIo
+internal interface IDurableAtomicFileOperations
 {
-    void WriteAndFlush(string path, byte[] bytes);
+    void FlushToDisk(FileStream stream);
     void Replace(string tempPath, string targetPath);
     void Delay(TimeSpan delay);
     void Delete(string path);
@@ -32,20 +32,10 @@ internal sealed class DurableAtomicFileWriter : IDurableAtomicFileWriter
     private const int ReplaceAttemptCount = 5;
     private static readonly TimeSpan ReplaceRetryDelay = TimeSpan.FromMilliseconds(100);
 
-    private sealed class SystemFileIo : IDurableAtomicFileIo
+    private sealed class SystemFileOperations : IDurableAtomicFileOperations
     {
-        public void WriteAndFlush(string path, byte[] bytes)
-        {
-            using var stream = new FileStream(
-                path,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 16 * 1024,
-                FileOptions.SequentialScan);
-            stream.Write(bytes);
+        public void FlushToDisk(FileStream stream) =>
             stream.Flush(flushToDisk: true);
-        }
 
         public void Replace(string tempPath, string targetPath) =>
             File.Move(tempPath, targetPath, overwrite: true);
@@ -57,20 +47,21 @@ internal sealed class DurableAtomicFileWriter : IDurableAtomicFileWriter
             File.Delete(path);
     }
 
-    private static readonly IDurableAtomicFileIo SystemIo = new SystemFileIo();
+    private static readonly IDurableAtomicFileOperations SystemOperations =
+        new SystemFileOperations();
 
     private readonly Action<DurableAtomicWriteStage, string>? _faultInjector;
-    private readonly IDurableAtomicFileIo _fileIo;
+    private readonly IDurableAtomicFileOperations _fileOperations;
 
     internal static IDurableAtomicFileWriter Shared { get; } =
         new DurableAtomicFileWriter();
 
     internal DurableAtomicFileWriter(
         Action<DurableAtomicWriteStage, string>? faultInjector = null,
-        IDurableAtomicFileIo? fileIo = null)
+        IDurableAtomicFileOperations? fileOperations = null)
     {
         _faultInjector = faultInjector;
-        _fileIo = fileIo ?? SystemIo;
+        _fileOperations = fileOperations ?? SystemOperations;
     }
 
     public void Write(
@@ -90,8 +81,19 @@ internal sealed class DurableAtomicFileWriter : IDurableAtomicFileWriter
         var tempPath = targetPath + ".tmp";
         _faultInjector?.Invoke(DurableAtomicWriteStage.BeforeTempOpen, targetPath);
 
-        _fileIo.WriteAndFlush(tempPath, bytes);
-        _faultInjector?.Invoke(DurableAtomicWriteStage.AfterTempWrite, targetPath);
+        using (var stream = new FileStream(
+                   tempPath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None,
+                   bufferSize: 16 * 1024,
+                   FileOptions.SequentialScan))
+        {
+            stream.Write(bytes);
+            _faultInjector?.Invoke(DurableAtomicWriteStage.AfterTempWrite, targetPath);
+            _fileOperations.FlushToDisk(stream);
+        }
+
         _faultInjector?.Invoke(DurableAtomicWriteStage.AfterFlush, targetPath);
 
         if (validateTemp != null)
@@ -121,14 +123,14 @@ internal sealed class DurableAtomicFileWriter : IDurableAtomicFileWriter
         {
             try
             {
-                _fileIo.Replace(tempPath, targetPath);
+                _fileOperations.Replace(tempPath, targetPath);
                 return;
             }
             catch (Exception ex) when (
                 attempt < ReplaceAttemptCount &&
                 IsRetryableReplaceFailure(ex))
             {
-                _fileIo.Delay(ReplaceRetryDelay);
+                _fileOperations.Delay(ReplaceRetryDelay);
             }
         }
     }
@@ -140,7 +142,7 @@ internal sealed class DurableAtomicFileWriter : IDurableAtomicFileWriter
     {
         try
         {
-            _fileIo.Delete(path);
+            _fileOperations.Delete(path);
         }
         catch
         {
