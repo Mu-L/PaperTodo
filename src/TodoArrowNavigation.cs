@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -29,6 +31,7 @@ internal sealed class TodoArrowNavigation
         };
         box.SelectionChanged += (_, _) => Reset();
         box.TextChanged += (_, _) => Reset();
+        box.SizeChanged += (_, _) => Reset();
         box.PreviewMouseDown += (_, _) => Reset();
         box.PreviewKeyDown += (_, e) =>
         {
@@ -81,7 +84,7 @@ internal sealed class TodoArrowNavigation
         if (target.LineCount < 1) return true;
         if (vertical)
         {
-            var caret = box.GetRectFromCharacterIndex(box.CaretIndex);
+            var caret = CaretRect(box, line);
             if (caret.IsEmpty) return false;
             _desiredX ??= box.PointToScreen(new Point(caret.X, caret.Y)).X;
         }
@@ -101,7 +104,7 @@ internal sealed class TodoArrowNavigation
             {
                 target.CaretIndex = backward ? target.Text.Length : 0;
             }
-            var rect = target.GetRectFromCharacterIndex(target.CaretIndex);
+            var rect = CaretRect(target, CaretLine(target));
             if (!rect.IsEmpty) target.BringIntoView(rect);
         }
         finally
@@ -113,13 +116,65 @@ internal sealed class TodoArrowNavigation
 
     private int CaretLine(TextBox box)
     {
-        return ReferenceEquals(_placedBox, box)
-            ? _placedLine
-            : Math.Max(0, box.GetLineIndexFromCharacterIndex(box.CaretIndex));
+        var line = Math.Clamp(box.GetLineIndexFromCharacterIndex(box.CaretIndex), 0, box.LineCount - 1);
+        if (ReferenceEquals(_placedBox, box) && _placedLine >= 0 && _placedLine < box.LineCount)
+            return _placedLine;
+
+        // Only a soft-wrap boundary has two caret positions for the same index.
+        // The character API always returns the leading edge; WPF publishes the
+        // actual caret to Win32 for accessibility, including its trailing affinity.
+        if (line > 0 && box.CaretIndex > 0 &&
+            box.CaretIndex == box.GetCharacterIndexFromLineIndex(line) &&
+            box.Text[box.CaretIndex - 1] is not ('\r' or '\n') &&
+            box.IsKeyboardFocused && PresentationSource.FromVisual(box) is HwndSource source)
+        {
+            var info = new GuiThreadInfo { Size = Marshal.SizeOf<GuiThreadInfo>() };
+            if (GetGUIThreadInfo(0, ref info) && info.CaretWindow == source.Handle)
+            {
+                var point = new NativePoint { X = info.Left, Y = info.Top };
+                if (ClientToScreen(source.Handle, ref point))
+                {
+                    var actual = box.PointFromScreen(new Point(point.X, point.Y));
+                    var trailing = box.GetRectFromCharacterIndex(box.CaretIndex - 1, true);
+                    var leading = box.GetRectFromCharacterIndex(box.CaretIndex);
+                    if (!trailing.IsEmpty && !leading.IsEmpty &&
+                        Math.Abs(actual.Y - trailing.Top) < Math.Abs(actual.Y - leading.Top))
+                        return line - 1;
+                }
+            }
+        }
+        return line;
     }
+
+    private static Rect CaretRect(TextBox box, int line)
+    {
+        return box.CaretIndex > 0 && box.GetLineIndexFromCharacterIndex(box.CaretIndex) > line
+            ? box.GetRectFromCharacterIndex(box.CaretIndex - 1, true)
+            : box.GetRectFromCharacterIndex(box.CaretIndex);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size, Flags;
+        public IntPtr ActiveWindow, FocusWindow, CaptureWindow, MenuOwner, MoveSizeWindow, CaretWindow;
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr window, ref NativePoint point);
 
     private void PlaceOnLine(TextBox box, int line, double screenX)
     {
+        if (line < 0 || line >= box.LineCount) return;
         var start = box.GetCharacterIndexFromLineIndex(line);
         var end = Math.Min(box.Text.Length, start + box.GetLineLength(line));
         while (end > start && box.Text[end - 1] is '\r' or '\n') end--;

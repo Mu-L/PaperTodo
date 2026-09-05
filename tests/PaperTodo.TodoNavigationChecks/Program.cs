@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Documents;
+using System.Windows.Threading;
 using PaperTodo;
 
 internal static class Program
@@ -83,7 +85,43 @@ internal static class Program
         Check(boxes[1].IsKeyboardFocused, "Wrapped final line blocks held Down");
         Move(1, Key.Down);
         Check(boxes[2].IsKeyboardFocused && boxes[2].CaretIndex == boxes[2].Text.Length, "Wrapped short lines preserve original X");
+        // Layout invalidates the cached visual line without changing the text/caret.
+        boxes[1].Focus();
+        boxes[1].CaretIndex = 0;
+        for (var i = 0; i < boxes[1].LineCount - 1; i++) Move(1, Key.Down);
+        boxes[1].Width = 250;
+        window.UpdateLayout();
+        Move(1, Key.Down);
+        Check(boxes[1].IsKeyboardFocused || boxes[2].IsKeyboardFocused, "Resize followed by Down does not use an out-of-range line");
+
+        boxes[1].Width = 65;
+        window.UpdateLayout();
+        boxes[1].Focus();
+        boxes[1].CaretIndex = 0;
+        EditingCommands.MoveToLineEnd.Execute(null, boxes[1]);
+        Pump();
+        var nativeEnd = boxes[1].CaretIndex;
+        Move(1, Key.Down);
+        Check(boxes[1].IsKeyboardFocused && boxes[1].CaretIndex == boxes[1].GetCharacterIndexFromLineIndex(2), "Native End then Down moves exactly one visual line at the same X");
+        boxes[1].CaretIndex = 0;
+        EditingCommands.MoveToLineEnd.Execute(null, boxes[1]);
+        Pump();
+        Move(1, Key.Up);
+        Check(boxes[0].IsKeyboardFocused && boxes[0].CaretIndex > 0, "Native End then Up crosses from first line with trailing X");
+        boxes[1].Focus();
+        boxes[1].CaretIndex = nativeEnd;
+        Pump();
+        Move(1, Key.Up);
+        Check(boxes[1].IsKeyboardFocused && boxes[1].CaretIndex == 0, "Leading side of same wrap index stays in todo");
         window.Close();
+    }
+
+    private static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle,
+            new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
     }
 
     private static TextBox Box(string text) => new()
