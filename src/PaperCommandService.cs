@@ -239,14 +239,16 @@ internal sealed class PaperCommandService
                 PaperWindow.TodoTextMaxLength,
                 allowEmpty: true,
                 "text");
+        var textChanged = text != null &&
+            !string.Equals(item.Text, text, StringComparison.Ordinal);
         var linkedPaperId = NormalizeLinkedPaperUpdate(request);
         var snapshot = TodoPaperSnapshot.Capture(paper);
 
         using (_controller.SuppressPaperPluginEventScans())
         {
-            if (text != null)
+            if (textChanged)
             {
-                item.Text = text;
+                item.Text = text!;
                 if (item.ReminderTriggered)
                 {
                     item.ReminderAt = null;
