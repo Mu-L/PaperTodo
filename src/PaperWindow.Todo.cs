@@ -13,6 +13,8 @@ namespace PaperTodo;
 
 public sealed partial class PaperWindow
 {
+    private readonly TodoArrowNavigation _todoArrowNavigation = new();
+
     internal const int TodoTextMaxLength = 5000;
     internal const int MaxPastedTodoLines = 200;
 
@@ -555,6 +557,12 @@ public sealed partial class PaperWindow
             _controller.MarkDirty();
         };
 
+        _todoArrowNavigation.Attach(text, backward =>
+        {
+            var neighbor = backward ? PreviousItem(item) : NextItem(item);
+            return neighbor != null && _todoEditors.TryGetValue(neighbor.Id, out var editor)
+                ? editor : null;
+        });
         text.PreviewKeyDown += (_, e) => HandleTodoKeyDown(e, item, text);
         DataObject.AddPastingHandler(text, (sender, e) => HandleTodoPaste(e, item, text));
 
