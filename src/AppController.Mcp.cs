@@ -139,6 +139,24 @@ public sealed partial class AppController
         RefreshTrayMenu();
     }
 
+    internal void RefreshTodoPapersForExternalLinkMutation(
+        IReadOnlyCollection<string> paperIds)
+    {
+        if (paperIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var paperId in paperIds)
+        {
+            if (_windows.TryGetValue(paperId, out var window))
+            {
+                window.RefreshTodoRowsForExternalMutation();
+            }
+        }
+        RefreshCapsuleEligibilityForLinkedPapers();
+    }
+
     internal void RefreshMcpNotePaper(PaperData paper)
     {
         if (_windows.TryGetValue(paper.Id, out var window))
