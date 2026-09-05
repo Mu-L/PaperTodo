@@ -133,7 +133,7 @@ public sealed partial class AppController
     {
         if (_windows.TryGetValue(paper.Id, out var window))
         {
-            window.RefreshTodoRowsForExternalChange();
+            window.RefreshTodoRowsForExternalMutation();
         }
         NotifyTodoReminderCollectionChanged();
         RefreshTrayMenu();
