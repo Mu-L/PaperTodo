@@ -68,6 +68,21 @@ internal static class Program
         Move(0, Key.Down);
         Move(1, Key.Down);
         Check(boxes[2].CaretIndex == 9, "Empty todo preserves desired X");
+        boxes[1].Text = "abcdefghij abcdefghij abcdefghij";
+        boxes[1].Width = 65;
+        window.UpdateLayout();
+        Check(boxes[1].LineCount > 2, "Fixture has automatic wrapping");
+        boxes[0].Focus();
+        boxes[0].CaretIndex = boxes[0].Text.Length;
+        Move(0, Key.Down);
+        var firstEnd = boxes[1].CaretIndex;
+        Check(firstEnd == boxes[1].GetCharacterIndexFromLineIndex(1), "Short wrapped target lands at first visual line end");
+        Move(1, Key.Down, true);
+        Check(boxes[1].IsKeyboardFocused && boxes[1].CaretIndex > firstEnd, "Repeat continues inside wrapped target");
+        for (var i = 0; i < boxes[1].LineCount + 2; i++) Move(1, Key.Down, true);
+        Check(boxes[1].IsKeyboardFocused, "Wrapped final line blocks held Down");
+        Move(1, Key.Down);
+        Check(boxes[2].IsKeyboardFocused && boxes[2].CaretIndex == boxes[2].Text.Length, "Wrapped short lines preserve original X");
         window.Close();
     }
 
